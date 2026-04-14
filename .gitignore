@@ -1,0 +1,25 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Runtime artifacts
+work/
+output/
+
+# Scratch / exploration (not part of the project)
+.playwright-mcp/
+grok-video-*.mp4
+Gemini_Generated_Image_2gmtmf2gmtmf2gmt.png
+Gemini_Generated_Image_qm38lvqm38lvqm38.png
+Gemini_Generated_Image_uij2otuij2otuij2.png
+WhatsApp Image*.jpeg
