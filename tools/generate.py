@@ -100,7 +100,7 @@ def main() -> int:
     ap.add_argument("--parsha", required=True)
     ap.add_argument("--option", default="A", choices=["A", "B", "C"],
                     help="Which of Yonah's 3 script options to use")
-    ap.add_argument("--resolution", default="720P", choices=["480P", "720P"])
+    ap.add_argument("--resolution", default="720p", choices=["480p", "720p"])
     args = ap.parse_args()
     asyncio.run(run(args.parsha, args.option, args.resolution))
     return 0

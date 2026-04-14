@@ -13,11 +13,11 @@ STYLE_LOCK = (
     "Character identity must match references exactly."
 )
 
-SEEDANCE_MODEL = "seedance-2-0"
+SEEDANCE_MODEL = "bytedance/seedance-2"
 
 
 def build_seedance_input(clip: Clip, ref_urls: list[str],
-                         audio_url: Optional[str], resolution: str = "720P") -> dict:
+                         audio_url: Optional[str], resolution: str = "720p") -> dict:
     voice_clause = (
         f'Voice matches @Audio1 in timbre and delivery. '
         if audio_url else ""
@@ -30,19 +30,20 @@ def build_seedance_input(clip: Clip, ref_urls: list[str],
     )
     payload: dict = {
         "prompt": prompt,
-        "image_input": ref_urls[:9],  # Seedance hard limit
+        "reference_image_urls": ref_urls[:9],  # Seedance hard limit
         "duration": clip.duration_s,
-        "resolution": resolution,
+        "resolution": resolution.lower(),
         "aspect_ratio": "9:16",
+        "web_search": False,
     }
     if audio_url:
-        payload["audio_input"] = [audio_url]
+        payload["reference_audio_urls"] = [audio_url]
     return payload
 
 
 async def generate_clip(client: KieClient, clip: Clip, ref_urls: list[str],
                         dest: Path, audio_url: Optional[str] = None,
-                        resolution: str = "720P") -> Path:
+                        resolution: str = "720p") -> Path:
     payload = build_seedance_input(clip, ref_urls, audio_url, resolution)
     task_id = await client.create_task(SEEDANCE_MODEL, payload)
     urls = await client.poll_task(task_id)
