@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any
 import httpx
@@ -36,9 +37,9 @@ class KieClient:
             return data["data"]["taskId"]
 
     async def poll_task(self, task_id: str) -> list[str]:
-        deadline = asyncio.get_event_loop().time() + self._poll_timeout
+        deadline = time.monotonic() + self._poll_timeout
         async with httpx.AsyncClient(timeout=self._timeout) as c:
-            while asyncio.get_event_loop().time() < deadline:
+            while time.monotonic() < deadline:
                 r = await c.get(f"{self.RECORD_URL}?taskId={task_id}",
                                 headers=self._headers())
                 r.raise_for_status()

@@ -43,8 +43,12 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
     import json as _json
 
     load_dotenv(ROOT / ".env")
-    anthropic_key = os.environ["ANTHROPIC_API_KEY"]
-    kie_key = os.environ["KIE_AI_API_KEY"]
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not anthropic_key:
+        raise SystemExit("ERROR: ANTHROPIC_API_KEY not set (add to .env)")
+    kie_key = os.environ.get("KIE_AI_API_KEY")
+    if not kie_key:
+        raise SystemExit("ERROR: KIE_AI_API_KEY not set (add to .env)")
 
     run_slug = f"{time.strftime('%Y-%m-%d')}-{parsha_name.lower()}-{option.lower()}"
     work_dir = ROOT / "work" / run_slug
