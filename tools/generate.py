@@ -65,14 +65,20 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
     book = match["book"]
     script = get_parsha_script(parsha_name, option, PARSHIOT_PATH)
 
-    print(f"[2/5] Transforming draft into ClipPlan via Claude")
-    anthropic = AsyncAnthropic(api_key=anthropic_key)
-    plan = await transform_draft_to_clip_plan(
-        parsha_name=parsha_name, book=book, option=option,
-        style_note=script["style_note"], title=script["title"],
-        draft=script["draft"], client=anthropic,
-    )
-    (work_dir / "plan.json").write_text(plan.model_dump_json(indent=2))
+    plan_path = work_dir / "plan.json"
+    if plan_path.exists():
+        from src.models import ClipPlan
+        print(f"[2/5] Reusing cached ClipPlan at {plan_path}")
+        plan = ClipPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+    else:
+        print(f"[2/5] Transforming draft into ClipPlan via Claude")
+        anthropic = AsyncAnthropic(api_key=anthropic_key)
+        plan = await transform_draft_to_clip_plan(
+            parsha_name=parsha_name, book=book, option=option,
+            style_note=script["style_note"], title=script["title"],
+            draft=script["draft"], client=anthropic,
+        )
+        plan_path.write_text(plan.model_dump_json(indent=2))
     print(f"      {len(plan.clips)} clips, total {plan.total_duration_s}s")
 
     print(f"[3/5] Uploading reference images to Kie.ai")
@@ -84,6 +90,10 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
     clip_paths = []
     for clip in plan.clips:
         dest = work_dir / f"clip_{clip.index:02d}.mp4"
+        if dest.exists() and dest.stat().st_size > 0:
+            print(f"      clip {clip.index}: SKIP (already generated: {dest.name})")
+            clip_paths.append(dest)
+            continue
         print(f"      clip {clip.index}: {clip.duration_s}s — {clip.voiceover[:50]}...")
         await generate_clip(kie, clip, ref_urls, dest, resolution=resolution)
         clip_paths.append(dest)
