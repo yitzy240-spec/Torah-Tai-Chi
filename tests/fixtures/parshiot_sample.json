@@ -1,0 +1,21 @@
+{
+  "parshiot": [
+    {
+      "order": 25,
+      "name": "Vayikra",
+      "book": "Leviticus",
+      "scripts": [
+        {"option": "A", "style_note": "practical modern lens", "title": "The Call Behind the Call",
+         "draft": "[HOOK]\nGod calls quietly.\n[TEACHING]\nVayikra opens with a whisper...\n[APPLICATION]\nListen before you move.\n[CTA]\nFollow for more."}
+      ]
+    },
+    {
+      "order": 1,
+      "name": "Bereishit",
+      "book": "Genesis",
+      "scripts": [
+        {"option": "A", "style_note": "modern", "title": "The First Breath", "draft": "[HOOK]\nBreathe.\n[TEACHING]\nIn the beginning...\n[APPLICATION]\nStart now.\n[CTA]\nFollow."}
+      ]
+    }
+  ]
+}
