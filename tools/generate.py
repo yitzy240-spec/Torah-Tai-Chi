@@ -78,7 +78,7 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
             style_note=script["style_note"], title=script["title"],
             draft=script["draft"], client=anthropic,
         )
-        plan_path.write_text(plan.model_dump_json(indent=2))
+        plan_path.write_text(plan.model_dump_json(indent=2), encoding="utf-8")
     print(f"      {len(plan.clips)} clips, total {plan.total_duration_s}s")
 
     print(f"[3/5] Uploading reference images to Kie.ai")
