@@ -61,8 +61,6 @@ async def upload_dojo_references(kie: KieClient) -> list[str]:
 
 
 async def run(parsha_name: str, option: str, resolution: str) -> Path:
-    from anthropic import AsyncAnthropic
-
     load_dotenv(ROOT / ".env")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     if not anthropic_key:
@@ -91,11 +89,10 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
         plan = ClipPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
     else:
         print(f"[2/5] Transforming draft into ClipPlan via Claude")
-        anthropic = AsyncAnthropic(api_key=anthropic_key)
         plan = await transform_draft_to_clip_plan(
             parsha_name=parsha_name, book=book, option=option,
             style_note=script["style_note"], title=script["title"],
-            draft=script["draft"], client=anthropic,
+            draft=script["draft"], api_key=anthropic_key,
         )
         plan_path.write_text(plan.model_dump_json(indent=2), encoding="utf-8")
     print(f"      {len(plan.clips)} clips, total {plan.total_duration_s}s, "

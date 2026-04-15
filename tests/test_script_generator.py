@@ -1,7 +1,10 @@
 import pytest
 import json
-from unittest.mock import AsyncMock, MagicMock
-from src.script_generator import transform_draft_to_clip_plan, build_prompt
+import respx
+from httpx import Response
+from src.script_generator import (
+    transform_draft_to_clip_plan, build_prompt, ANTHROPIC_URL,
+)
 from src.models import ClipPlan
 
 
@@ -18,6 +21,19 @@ def test_build_prompt_includes_archetypes_and_guardrails():
     assert "outdoor_archetype_id" in prompt or "DOJO" in prompt
 
 
+def _anthropic_response_body(plan_dict: dict) -> dict:
+    """Shape of Anthropic's /v1/messages response."""
+    return {
+        "id": "msg_test",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": json.dumps(plan_dict)}],
+        "model": "claude-opus-4-6",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 10, "output_tokens": 10},
+    }
+
+
 @pytest.mark.asyncio
 async def test_transform_draft_returns_valid_v2_plan():
     fake_plan = {
@@ -26,9 +42,9 @@ async def test_transform_draft_returns_valid_v2_plan():
         "full_script": "full",
         "outdoor_archetype_id": "GARDEN_PATH",
         "clips": [
-            {"index": 0, "voiceover": "a", "visual_prompt": "Rav Eli sits, dolly in, soft morning light",
+            {"index": 0, "voiceover": "a", "visual_prompt": "Rav Eli sits, slow push in, soft morning light",
              "duration_s": 8, "setting_id": "DOJO"},
-            {"index": 1, "voiceover": "b", "visual_prompt": "Rav Eli rises, push in, soft morning light",
+            {"index": 1, "voiceover": "b", "visual_prompt": "Rav Eli rises, static medium shot, soft morning light",
              "duration_s": 9, "setting_id": "DOJO"},
             {"index": 2, "voiceover": "c", "visual_prompt": "Rav Eli walks the path, lateral tracking shot, dappled afternoon",
              "duration_s": 9, "setting_id": "GARDEN_PATH"},
@@ -36,17 +52,16 @@ async def test_transform_draft_returns_valid_v2_plan():
              "duration_s": 8, "setting_id": "GARDEN_PATH"},
         ],
     }
-    mock_msg = MagicMock()
-    mock_msg.content = [MagicMock(text=json.dumps(fake_plan))]
-    mock_client = MagicMock()
-    mock_client.messages.create = AsyncMock(return_value=mock_msg)
-
-    plan = await transform_draft_to_clip_plan(
-        parsha_name="Vayikra", book="Leviticus", option="A",
-        style_note="modern", title="t",
-        draft="[HOOK]\nHi.\n[TEACHING]\nOk.",
-        client=mock_client,
-    )
+    async with respx.mock(assert_all_called=True) as mock:
+        mock.post(ANTHROPIC_URL).mock(
+            return_value=Response(200, json=_anthropic_response_body(fake_plan)),
+        )
+        plan = await transform_draft_to_clip_plan(
+            parsha_name="Vayikra", book="Leviticus", option="A",
+            style_note="modern", title="t",
+            draft="[HOOK]\nHi.\n[TEACHING]\nOk.",
+            api_key="test-key",
+        )
     assert isinstance(plan, ClipPlan)
     assert plan.outdoor_archetype_id == "GARDEN_PATH"
     assert plan.clips[0].setting_id == "DOJO"
@@ -66,15 +81,44 @@ async def test_transform_draft_propagates_validation_error_on_bad_block():
             {"index": 3, "voiceover": "d", "visual_prompt": "p", "duration_s": 8, "setting_id": "DOJO"},
         ],
     }
-    mock_msg = MagicMock()
-    mock_msg.content = [MagicMock(text=json.dumps(fake_plan))]
-    mock_client = MagicMock()
-    mock_client.messages.create = AsyncMock(return_value=mock_msg)
-
     from pydantic import ValidationError
-    with pytest.raises(ValidationError):
-        await transform_draft_to_clip_plan(
+    async with respx.mock() as mock:
+        mock.post(ANTHROPIC_URL).mock(
+            return_value=Response(200, json=_anthropic_response_body(fake_plan)),
+        )
+        with pytest.raises(ValidationError):
+            await transform_draft_to_clip_plan(
+                parsha_name="Vayikra", book="Leviticus", option="A",
+                style_note="x", title="t", draft="x",
+                api_key="test-key",
+            )
+
+
+@pytest.mark.asyncio
+async def test_transform_draft_strips_json_fence_wrapper():
+    fake_plan = {
+        "parsha": "Vayikra", "hook": "x", "full_script": "x",
+        "outdoor_archetype_id": "MOUNTAIN_RIDGE",
+        "clips": [
+            {"index": 0, "voiceover": "a", "visual_prompt": "p", "duration_s": 8, "setting_id": "DOJO"},
+            {"index": 1, "voiceover": "b", "visual_prompt": "p", "duration_s": 8, "setting_id": "DOJO"},
+            {"index": 2, "voiceover": "c", "visual_prompt": "p", "duration_s": 8, "setting_id": "MOUNTAIN_RIDGE"},
+            {"index": 3, "voiceover": "d", "visual_prompt": "p", "duration_s": 8, "setting_id": "MOUNTAIN_RIDGE"},
+        ],
+    }
+    fenced = "```json\n" + json.dumps(fake_plan) + "\n```"
+    async with respx.mock() as mock:
+        mock.post(ANTHROPIC_URL).mock(
+            return_value=Response(200, json={
+                "id": "msg", "type": "message", "role": "assistant",
+                "content": [{"type": "text", "text": fenced}],
+                "model": "claude-opus-4-6", "stop_reason": "end_turn",
+                "usage": {"input_tokens": 10, "output_tokens": 10},
+            }),
+        )
+        plan = await transform_draft_to_clip_plan(
             parsha_name="Vayikra", book="Leviticus", option="A",
             style_note="x", title="t", draft="x",
-            client=mock_client,
+            api_key="test-key",
         )
+    assert plan.outdoor_archetype_id == "MOUNTAIN_RIDGE"

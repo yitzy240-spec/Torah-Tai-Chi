@@ -103,23 +103,44 @@ def build_prompt(parsha_name: str, book: str, option: str,
     )
 
 
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+
+
 async def transform_draft_to_clip_plan(
     parsha_name: str, book: str, option: str,
     style_note: str, title: str, draft: str,
-    client, model: str = "claude-opus-4-6",
+    api_key: str, model: str = "claude-opus-4-6",
+    timeout_s: float = 180.0,
 ) -> ClipPlan:
+    """Transform a draft script into a structured ClipPlan via Claude.
+
+    Uses httpx directly rather than the anthropic SDK because the SDK hangs
+    on this environment (see 2026-04-15 session logs). Same payload shape.
+    """
+    import httpx
     prompt = build_prompt(parsha_name, book, option, style_note, title, draft)
-    msg = await client.messages.create(
-        model=model,
-        max_tokens=4000,
-        system=SYSTEM_TEMPLATE,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = msg.content[0].text.strip()
+    async with httpx.AsyncClient(timeout=timeout_s) as http:
+        r = await http.post(
+            ANTHROPIC_URL,
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": model,
+                "max_tokens": 4000,
+                "system": SYSTEM_TEMPLATE,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        r.raise_for_status()
+        data = r.json()
+    raw = data["content"][0]["text"].strip()
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
         raw = raw.strip()
-    data = json.loads(raw)
-    return ClipPlan(**data)
+    parsed = json.loads(raw)
+    return ClipPlan(**parsed)
