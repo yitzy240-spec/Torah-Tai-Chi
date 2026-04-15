@@ -66,6 +66,38 @@ CLIP 0 SPECIAL RULE:
   Rav Eli (head-and-shoulders to waist-up). Never open with a wide
   establishing shot. Camera may use "static medium shot", "slow push in",
   or "slight pull back" — never a big wide-to-close dolly.
+- DOJO POSITIONING: when Rav Eli is in the dojo, he stands on the indigo
+  runner between the south doorway and the olive-wood table, facing the
+  camera. NEVER standing directly at, on, or overlapping the table — the
+  table must remain a separate object visible as foreground or midground
+  depending on camera angle, not a surface Rav Eli is leaning against.
+
+WITHIN-BLOCK CONTINUITY (clips 0→1 and clips 2→3):
+- Consecutive clips in the same setting must feel like the same moment
+  continuing. The second clip in a block should START with a composition
+  CLOSE to how the first clip ENDED — same general framing size, same
+  approximate character position, compatible camera motion. This lets
+  the visible crossfade between clips blend gently instead of cutting.
+- Example (dojo block): if clip 0 ends with Rav Eli at medium-close
+  framing having just pushed in on his face, clip 1 should START near
+  that framing (don't jump to a wide establishing shot of the room).
+- Example (outdoor block): if clip 2 ends zoomed out with Rav Eli small
+  in the landscape, clip 3 should START at a similar scale, not cut to
+  a sudden close-up.
+
+EMBODIMENT CLIP VO RULE (clips showing breathing / silent action):
+- When the visual calls for Rav Eli to physically embody something
+  silent (exhaling, holding stillness, eyes closed, slow movement without
+  speech), the voiceover should be SHORTER than the clip's duration by
+  1-3 seconds, giving the final moments of the clip silent embodiment
+  without the character being shown mid-speech.
+- In the visual_prompt for such clips, explicitly note: "voiceover ends
+  at roughly <N>s; remaining <M>s is silent embodiment." The model uses
+  this to pace the generated audio so the last beat of the clip is
+  quiet breath rather than mid-sentence speech.
+- Clip 3 (the final CTA/application clip) almost always benefits from
+  this treatment — the viewer should feel the breath land before the
+  "Follow Torah Tai Chi" sign-off, not be talked over through it.
 
 {guardrails}
 

@@ -29,7 +29,7 @@ def _has_audio_stream(mp4: Path) -> bool:
     return bool(result.stdout.strip())
 
 
-def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.3) -> Path:
+def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.5) -> Path:
     """Stitch clips end-to-end with crossfade transitions.
 
     Single clip: copied through unchanged.

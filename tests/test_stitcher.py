@@ -35,7 +35,8 @@ def test_concat_clips_produces_expected_duration(tmp_path):
         str(out)
     ], check=True, capture_output=True, text=True)
     duration = float(probe.stdout.strip())
-    assert 4.4 <= duration <= 5.0
+    # 2s + 3s - 0.5s crossfade = 4.5s
+    assert 4.2 <= duration <= 4.8
 
 
 @pytest.mark.slow
@@ -57,11 +58,11 @@ def test_concat_four_clips_duration(tmp_path):
         clips.append(p)
     out = tmp_path / "out.mp4"
     concat_clips(clips, out)
-    # 2+3+2+2 = 9s minus 3 * 0.3 = 8.1s
+    # 2+3+2+2 = 9s minus 3 * 0.5 = 7.5s
     probe = subprocess.run([
         "ffprobe", "-v", "error", "-show_entries",
         "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
         str(out)
     ], check=True, capture_output=True, text=True)
     duration = float(probe.stdout.strip())
-    assert 7.8 <= duration <= 8.4
+    assert 7.2 <= duration <= 7.8
