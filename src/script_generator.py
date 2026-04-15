@@ -1,71 +1,103 @@
 from __future__ import annotations
 import json
 from src.models import ClipPlan
+from src.settings import (
+    DOJO_ANCHOR_TEXT, OUTDOOR_ARCHETYPES, STYLE_LOCK, GUARDRAILS_TEXT,
+)
 
 
-SYSTEM = """You transform approved Torah Tai Chi draft scripts into structured
-ClipPlans for video generation.
+def _archetype_menu_text() -> str:
+    lines = []
+    for key, anchor in OUTDOOR_ARCHETYPES.items():
+        lines.append(f"  - {key}: {anchor}")
+    return "\n".join(lines)
 
-HARD RULES:
-- The draft script is written by Yonah (brand voice, already approved). DO NOT
-  rewrite, paraphrase, or add content. Only split the exact words into clip-sized
-  voiceover beats and add visual prompts.
-- The draft uses section markers like [HOOK], [TEACHING], [APPLICATION], [CTA].
-  Use them as natural clip boundaries, but you may split a long section into
-  multiple clips if needed to respect the 4-10s per-clip guidance.
-- Preserve the order of the draft. Do not skip content.
 
-VISUAL DIRECTION per clip:
-- Subject is always Rav Eli (Pixar-style 3D animated character; reference images
-  lock his appearance — do NOT describe him in prompts).
-- Vary angle/pose/setting across clips: garden, dojo, hillside, wooden room, close-up.
-- Prefer motion over static: walking, gesturing, mid-tai-chi form.
-- Match the visual to the voiceover's mood (contemplative, energetic, practice-oriented).
-- Each clip 4-10 seconds. Aim for 6-9 clips total. Sum to ~60-90s.
+SYSTEM_TEMPLATE = """You transform approved Torah Tai Chi draft scripts into structured
+ClipPlans for video generation. Output ONLY valid JSON matching the schema at the end.
 
-OUTPUT: JSON only, no commentary, no markdown fences, matching this schema exactly:
-{
+VIDEO STRUCTURE — ALWAYS exactly 4 clips, total 28-45 seconds:
+- Clips 0 and 1: setting_id = "DOJO" (the recurring branded space)
+- Clips 2 and 3: setting_id = the chosen outdoor archetype id (same id on both)
+
+CHOOSING THE OUTDOOR ARCHETYPE:
+Pick ONE archetype id from the menu below whose tonal fit best matches the
+parsha's themes. The full anchor description is locked — DO NOT rewrite it.
+You may add 1-2 sentences of parsha-specific sensory detail INSIDE the
+visual_prompt for clips 2 and 3, but always start the visual_prompt with the
+locked anchor first.
+
+OUTDOOR ARCHETYPE MENU:
+{archetype_menu}
+
+DOJO ANCHOR (always use as the base for clips 0 and 1):
+{dojo_anchor}
+
+VOICEOVER RULES:
+- The draft script is by Yonah (brand voice, already approved). DO NOT rewrite,
+  paraphrase, or add content. Only split exact words across the 4 clips.
+- Preserve order. Do not skip content.
+- The 4 clips together should cover the whole draft.
+
+VISUAL PROMPT RULES per clip (composed from parts, in this order):
+1. The setting anchor (DOJO_ANCHOR_TEXT for clips 0-1, the chosen archetype's
+   anchor for clips 2-3). Verbatim.
+2. (Clips 2-3 only) Optional 1-2 sentences of parsha-specific sensory detail.
+3. Subject action: what Rav Eli is doing this clip (or environmental motion if
+   he is briefly off-frame).
+4. Exactly one camera direction phrase from the allowed list.
+5. The lighting cue from the anchor (carry it forward; do not contradict).
+6. The STYLE_LOCK is appended later by the system — DO NOT include it.
+
+{guardrails}
+
+OUTPUT SCHEMA (JSON only — no markdown fences, no commentary):
+{{
   "parsha": "<name>",
-  "hook": "<first line of draft's [HOOK] section>",
-  "full_script": "<the original draft with section markers stripped>",
+  "hook": "<first sentence of draft's [HOOK] section>",
+  "full_script": "<original draft with section markers stripped>",
+  "outdoor_archetype_id": "<one key from the menu above>",
   "clips": [
-    {"index": 0, "voiceover": "<exact words from draft>", "visual_prompt": "<scene>", "duration_s": <int 4-15>}
+    {{"index": 0, "voiceover": "...", "visual_prompt": "...", "duration_s": <int 4-15>, "setting_id": "DOJO"}},
+    {{"index": 1, "voiceover": "...", "visual_prompt": "...", "duration_s": <int 4-15>, "setting_id": "DOJO"}},
+    {{"index": 2, "voiceover": "...", "visual_prompt": "...", "duration_s": <int 4-15>, "setting_id": "<archetype id>"}},
+    {{"index": 3, "voiceover": "...", "visual_prompt": "...", "duration_s": <int 4-15>, "setting_id": "<archetype id>"}}
   ]
-}
-"""
+}}
+""".format(
+    archetype_menu=_archetype_menu_text(),
+    dojo_anchor=DOJO_ANCHOR_TEXT,
+    guardrails=GUARDRAILS_TEXT,
+)
 
 
 def build_prompt(parsha_name: str, book: str, option: str,
-                 style_note: str, title: str, draft: str,
-                 target_duration: int = 75, clip_count: int = 8) -> str:
+                 style_note: str, title: str, draft: str) -> str:
     return (
         f"PARSHA: {parsha_name} ({book})\n"
         f"OPTION: {option}\n"
         f"TITLE: {title}\n"
-        f"STYLE NOTE: {style_note}\n"
-        f"TARGET DURATION: {target_duration}s\n"
-        f"CLIP COUNT: {clip_count} (±1)\n\n"
+        f"STYLE NOTE: {style_note}\n\n"
         f"DRAFT SCRIPT (preserve wording exactly):\n---\n{draft}\n---\n\n"
-        "Produce the ClipPlan JSON now."
+        "Produce the ClipPlan JSON now. Remember: 4 clips total, "
+        "first 2 in DOJO, last 2 in the outdoor_archetype_id you picked. "
+        "Total duration 28-45 seconds."
     )
 
 
 async def transform_draft_to_clip_plan(
     parsha_name: str, book: str, option: str,
     style_note: str, title: str, draft: str,
-    client, target_duration: int = 75, clip_count: int = 8,
-    model: str = "claude-opus-4-6",
+    client, model: str = "claude-opus-4-6",
 ) -> ClipPlan:
-    prompt = build_prompt(parsha_name, book, option, style_note,
-                          title, draft, target_duration, clip_count)
+    prompt = build_prompt(parsha_name, book, option, style_note, title, draft)
     msg = await client.messages.create(
         model=model,
         max_tokens=4000,
-        system=SYSTEM,
+        system=SYSTEM_TEMPLATE,
         messages=[{"role": "user", "content": prompt}],
     )
     raw = msg.content[0].text.strip()
-    # Claude may wrap in ```json fences; strip if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
