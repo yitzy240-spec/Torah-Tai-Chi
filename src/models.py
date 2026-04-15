@@ -39,6 +39,6 @@ class ClipPlan(BaseModel):
                 f"({self.outdoor_archetype_id!r})"
             )
         total = self.total_duration_s
-        if not (28 <= total <= 45):
-            raise ValueError(f"total_duration_s {total} not in [28, 45]")
+        if not (28 <= total <= 50):
+            raise ValueError(f"total_duration_s {total} not in [28, 50]")
         return self

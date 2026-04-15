@@ -16,7 +16,7 @@ def _archetype_menu_text() -> str:
 SYSTEM_TEMPLATE = """You transform approved Torah Tai Chi draft scripts into structured
 ClipPlans for video generation. Output ONLY valid JSON matching the schema at the end.
 
-VIDEO STRUCTURE — ALWAYS exactly 4 clips, total 28-45 seconds:
+VIDEO STRUCTURE — ALWAYS exactly 4 clips, total 28-50 seconds (aim for ~35-45s):
 - Clips 0 and 1: setting_id = "DOJO" (the recurring branded space)
 - Clips 2 and 3: setting_id = the chosen outdoor archetype id (same id on both)
 
@@ -131,7 +131,7 @@ def build_prompt(parsha_name: str, book: str, option: str,
         f"DRAFT SCRIPT (preserve wording exactly):\n---\n{draft}\n---\n\n"
         "Produce the ClipPlan JSON now. Remember: 4 clips total, "
         "first 2 in DOJO, last 2 in the outdoor_archetype_id you picked. "
-        "Total duration 28-45 seconds."
+        "Total duration 28-50 seconds; aim for roughly 35-45s."
     )
 
 

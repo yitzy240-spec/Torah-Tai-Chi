@@ -134,13 +134,13 @@ def test_clipplan_rejects_total_under_28s():
         )
 
 
-def test_clipplan_rejects_total_over_45s():
+def test_clipplan_rejects_total_over_50s():
     with pytest.raises(ValidationError):
         ClipPlan(
             parsha="X", hook="x", full_script="x",
             outdoor_archetype_id="GARDEN_PATH",
             clips=[
-                _dojo_clip(0, 15), _dojo_clip(1, 12),
-                _outdoor_clip(2, "GARDEN_PATH", 12), _outdoor_clip(3, "GARDEN_PATH", 8),
+                _dojo_clip(0, 15), _dojo_clip(1, 14),
+                _outdoor_clip(2, "GARDEN_PATH", 13), _outdoor_clip(3, "GARDEN_PATH", 10),
             ],
         )
