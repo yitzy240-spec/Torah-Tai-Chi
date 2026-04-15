@@ -8,9 +8,17 @@ from __future__ import annotations
 
 
 DOJO_ANCHOR_TEXT = (
-    "A traditional Torah Tai Chi dojo: warm cypress floor, rice-paper screens, "
-    "single low cedar table with a small ceramic teacup, soft morning light "
-    "filtering through bamboo blinds. Empty of all other people."
+    "The Torah Tai Chi dojo: a quiet teaching space blending martial-wisdom "
+    "and Jewish sage traditions. Warm cedar floor (the cedar of Lebanon), "
+    "pale linen panels along the walls, a low olive-wood table with a small "
+    "ceramic teacup and a wooden bowl of pomegranates. A tall brass "
+    "seven-branched menorah standing on a wooden shelf along the side wall. "
+    "On the back wall, a Star of David carved in shallow relief into a single "
+    "wooden panel — clean six-pointed geometric form, no text. On the "
+    "adjacent wall, a circular wooden plaque carved with a stylized yin-yang "
+    "spiral, the two lobes flowing into each other like waves. A woven wool "
+    "runner with subtle indigo stripes laid across the floor. Soft morning "
+    "light through wooden lattice screens. Empty of all other people."
 )
 
 

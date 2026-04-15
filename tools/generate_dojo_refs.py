@@ -24,12 +24,16 @@ MODEL = "nano-banana-pro"
 SHOTS = [
     ("dojo_wide_morning",
      f"{DOJO_ANCHOR_TEXT} Wide establishing shot from the doorway looking in, "
-     "the room empty, soft Pixar-style 3D render, warm cinematic lighting, "
-     "high detail, 4K. Aspect ratio 9:16."),
-    ("dojo_three_quarter_floor",
-     f"{DOJO_ANCHOR_TEXT} Three-quarter view from the floor level showing the "
-     "low cedar table with teacup in the foreground, screens behind, "
-     "soft Pixar-style 3D render, warm cinematic lighting, high detail, 4K. "
+     "the room empty. The brass seven-branched menorah on the side-wall shelf "
+     "is clearly visible at left, and the Star of David carved into the back "
+     "wall panel is centered in the frame. Soft Pixar-style 3D render, warm "
+     "cinematic lighting, high detail, 4K. Aspect ratio 9:16."),
+    ("dojo_three_quarter_yinyang",
+     f"{DOJO_ANCHOR_TEXT} Three-quarter view facing the wall with the circular "
+     "wooden yin-yang plaque centered, the olive-wood low table with teacup "
+     "and a small wooden bowl of pomegranates in the foreground, the indigo-"
+     "striped wool runner stretching across the floor toward the wall. Soft "
+     "Pixar-style 3D render, warm cinematic lighting, high detail, 4K. "
      "Aspect ratio 9:16."),
 ]
 
