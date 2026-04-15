@@ -4,6 +4,10 @@ Nano Banana Pro.
 Run once. Output: 2 PNGs in references/dojo/. These are passed alongside
 character refs in every dojo clip so the dojo looks visually identical
 across episodes.
+
+The second shot uses the first shot as an image_input so the model has a
+visual anchor for "this is the same room from a different angle" — text
+prompts alone can't keep furniture/wall placement consistent across shots.
 """
 from __future__ import annotations
 import asyncio
@@ -22,19 +26,43 @@ REF_DIR = ROOT / "references" / "dojo"
 MODEL = "nano-banana-pro"
 
 SHOTS = [
-    ("dojo_wide_morning",
-     f"{DOJO_ANCHOR_TEXT} Wide establishing shot from the doorway looking in, "
-     "the room empty. The brass seven-branched menorah on the side-wall shelf "
-     "is clearly visible at left, and the Star of David carved into the back "
-     "wall panel is centered in the frame. Soft Pixar-style 3D render, warm "
-     "cinematic lighting, high detail, 4K. Aspect ratio 9:16."),
-    ("dojo_three_quarter_yinyang",
-     f"{DOJO_ANCHOR_TEXT} Three-quarter view facing the wall with the circular "
-     "wooden yin-yang plaque centered, the olive-wood low table with teacup "
-     "and a small wooden bowl of pomegranates in the foreground, the indigo-"
-     "striped wool runner stretching across the floor toward the wall. Soft "
-     "Pixar-style 3D render, warm cinematic lighting, high detail, 4K. "
-     "Aspect ratio 9:16."),
+    {
+        "slug": "dojo_wide_morning",
+        "reference_shot": None,
+        "prompt": (
+            f"{DOJO_ANCHOR_TEXT} "
+            "Camera at the SOUTH doorway looking NORTH into the room. Very "
+            "wide establishing shot, full room visible end-to-end so the "
+            "spatial layout reads clearly. The Star of David carved into the "
+            "north wall is centered ahead. The brass seven-branched menorah "
+            "on its shelf is visible on the east wall (camera right). The "
+            "circular wooden yin-yang plaque is visible on the west wall "
+            "(camera left). The olive-wood low table sits mid-room. "
+            "Soft Pixar-style 3D render, warm cinematic lighting, high "
+            "detail, 4K. Wide cinematic 16:9 framing."
+        ),
+    },
+    {
+        "slug": "dojo_three_quarter_yinyang",
+        "reference_shot": "dojo_wide_morning",
+        "prompt": (
+            f"{DOJO_ANCHOR_TEXT} "
+            "This is the SAME ROOM as the reference image, just shot from a "
+            "different camera angle. Match the furniture placement, wall "
+            "positions, materials, lighting, and visual style of the "
+            "reference image exactly. "
+            "Camera now positioned in the SOUTHEAST corner of the room "
+            "looking NORTHWEST toward the west wall — the circular wooden "
+            "yin-yang plaque on the west wall is centered in the frame. The "
+            "Star of David panel on the north wall is visible on the right "
+            "side of the frame. The olive-wood low table with teacup and "
+            "wooden bowl of pomegranates sits in the mid-ground. The "
+            "indigo-striped wool runner runs across the cedar floor. "
+            "Wide three-quarter angle, full room depth visible. "
+            "Soft Pixar-style 3D render, warm cinematic lighting, high "
+            "detail, 4K. Wide cinematic 16:9 framing."
+        ),
+    },
 ]
 
 
@@ -47,17 +75,27 @@ async def run() -> None:
     REF_DIR.mkdir(parents=True, exist_ok=True)
     kie = KieClient(api_key=kie_key)
 
-    for slug, prompt in SHOTS:
-        dest = REF_DIR / f"{slug}.png"
+    for shot in SHOTS:
+        dest = REF_DIR / f"{shot['slug']}.png"
         if dest.exists() and dest.stat().st_size > 0:
             print(f"  SKIP {dest.name} (already exists)")
             continue
-        print(f"  generating {slug}...")
-        payload = {
-            "prompt": prompt,
+        payload: dict = {
+            "prompt": shot["prompt"],
             "output_format": "png",
-            "image_size": "9:16",
+            "image_size": "16:9",
         }
+        if shot["reference_shot"]:
+            ref_path = REF_DIR / f"{shot['reference_shot']}.png"
+            if not ref_path.exists():
+                raise SystemExit(
+                    f"  cannot generate {shot['slug']}: reference shot "
+                    f"{ref_path} does not exist yet (generate it first)"
+                )
+            print(f"  uploading reference: {ref_path.name}")
+            ref_url = await kie.upload_file(ref_path, remote_dir="torah-tai-chi/refs/dojo-source")
+            payload["image_input"] = [ref_url]
+        print(f"  generating {shot['slug']}...")
         task_id = await kie.create_task(MODEL, payload)
         urls = await kie.poll_task(task_id)
         await kie.download(urls[0], dest)

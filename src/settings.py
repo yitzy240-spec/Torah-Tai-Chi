@@ -8,17 +8,23 @@ from __future__ import annotations
 
 
 DOJO_ANCHOR_TEXT = (
-    "The Torah Tai Chi dojo: a quiet teaching space blending martial-wisdom "
-    "and Jewish sage traditions. Warm cedar floor (the cedar of Lebanon), "
-    "pale linen panels along the walls, a low olive-wood table with a small "
-    "ceramic teacup and a wooden bowl of pomegranates. A tall brass "
-    "seven-branched menorah standing on a wooden shelf along the side wall. "
-    "On the back wall, a Star of David carved in shallow relief into a single "
-    "wooden panel — clean six-pointed geometric form, no text. On the "
-    "adjacent wall, a circular wooden plaque carved with a stylized yin-yang "
-    "spiral, the two lobes flowing into each other like waves. A woven wool "
-    "runner with subtle indigo stripes laid across the floor. Soft morning "
-    "light through wooden lattice screens. Empty of all other people."
+    "The Torah Tai Chi dojo — a single rectangular teaching space blending "
+    "martial-wisdom and Jewish sage traditions. Warm cedar floor (the cedar "
+    "of Lebanon), pale linen panels along the walls. "
+    "ROOM LAYOUT (this layout is fixed and identical in every shot): "
+    "The doorway with wooden lattice screens is on the SOUTH wall, where the "
+    "viewer enters. The NORTH wall (opposite the door) holds a Star of David "
+    "carved in shallow relief into a single wooden panel, centered — clean "
+    "six-pointed geometric form, no text. The EAST wall (to the viewer's "
+    "right when entering) holds a tall brass seven-branched menorah standing "
+    "on a wooden shelf at chest height. The WEST wall (to the viewer's left "
+    "when entering) holds a large circular wooden plaque carved with a "
+    "stylized yin-yang spiral, the two lobes flowing into each other like "
+    "waves. In the center of the room: a low olive-wood table with a small "
+    "ceramic teacup and a wooden bowl of pomegranates on top. A woven wool "
+    "runner with subtle indigo stripes runs along the floor from south "
+    "doorway toward the north wall. Soft morning light filters through the "
+    "wooden lattice screens. The room is empty of all other people."
 )
 
 
