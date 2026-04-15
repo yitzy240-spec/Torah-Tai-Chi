@@ -16,7 +16,7 @@ class KieClient:
     RECORD_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
 
     def __init__(self, api_key: str, timeout_s: int = 60,
-                 poll_interval_s: float = 5.0, poll_timeout_s: int = 600):
+                 poll_interval_s: float = 5.0, poll_timeout_s: int = 1800):
         self._key = api_key
         self._timeout = timeout_s
         self._poll_interval = poll_interval_s
