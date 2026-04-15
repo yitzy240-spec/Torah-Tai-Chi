@@ -38,16 +38,34 @@ VOICEOVER RULES:
   paraphrase, or add content. Only split exact words across the 4 clips.
 - Preserve order. Do not skip content.
 - The 4 clips together should cover the whole draft.
+- For ANY Hebrew name, term, book of Torah, or Jewish concept in the voiceover,
+  write it as an English-phonetic breakdown (see the HEBREW PRONUNCIATION
+  section of the guardrails below). The TTS reads standard transliterations
+  incorrectly; phonetic spellings make it say the words the way a Hebrew
+  reader would.
 
 VISUAL PROMPT RULES per clip (composed from parts, in this order):
 1. The setting anchor (DOJO_ANCHOR_TEXT for clips 0-1, the chosen archetype's
    anchor for clips 2-3). Verbatim.
 2. (Clips 2-3 only) Optional 1-2 sentences of parsha-specific sensory detail.
-3. Subject action: what Rav Eli is doing this clip (or environmental motion if
-   he is briefly off-frame).
-4. Exactly one camera direction phrase from the allowed list.
+3. Subject action: what Rav Eli is doing this clip. Prefer NATURALISTIC
+   actions (walking, gesturing while speaking, observing surroundings,
+   breathing visibly, sitting/rising, hand on heart, tracing a slow shape
+   in air). Avoid named tai chi forms — the model can't render them
+   convincingly. Tai chi sensibility comes through pace and presence,
+   not specific martial forms.
+4. Exactly one camera direction phrase from the allowed list in the
+   guardrails. Note: large-range moves (wide-to-close dollies) are
+   forbidden — they break character physics across the zoom.
 5. The lighting cue from the anchor (carry it forward; do not contradict).
 6. The STYLE_LOCK is appended later by the system — DO NOT include it.
+
+CLIP 0 SPECIAL RULE:
+- Clip 0 is the social-video hook. The first 0.5 seconds decide if a
+  viewer keeps watching. Open with a CLOSE or MEDIUM-CLOSE framing of
+  Rav Eli (head-and-shoulders to waist-up). Never open with a wide
+  establishing shot. Camera may use "static medium shot", "slow push in",
+  or "slight pull back" — never a big wide-to-close dolly.
 
 {guardrails}
 

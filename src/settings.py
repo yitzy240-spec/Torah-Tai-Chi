@@ -71,8 +71,11 @@ STYLE_LOCK = (
     "yin-yang logo on chest. Soft 3D render, warm cinematic lighting. "
     "Character identity must match references exactly. "
     "Voice timbre: warm and weathered, an experienced elder teacher in his "
-    "late 50s, calm authority not booming, the patient cadence of a sage "
-    "who has said this thousands of times."
+    "late 50s, calm authority not booming. "
+    "SPEECH CADENCE: measured and contemplative, with natural pauses between "
+    "phrases like a meditation teacher in mid-thought. Never rushed. Each "
+    "phrase lands, then a small breath, then the next. This is wisdom being "
+    "shared, not information being delivered."
 )
 
 
@@ -88,6 +91,16 @@ FORBIDDEN in every visual_prompt:
 - Multiple speaking characters in one shot. (Multi-person lip-sync fails.)
 - Held objects with intricate specific shape (a labeled bottle, a tool with
   visible mechanism, an instrument with detailed parts).
+- Prescriptive named tai chi forms — "push hands", "rooting posture",
+  "white crane spreads wings", "grasping the bird's tail", "cloud hands",
+  etc. The model CANNOT render specific martial-arts forms convincingly;
+  they come out awkward and obviously fake. Tai chi sensibility comes
+  through pace and presence, not named forms.
+- Large camera moves that force the character to appear at multiple
+  distances in a single shot — "wide-to-close dolly in" or "zoom from
+  long shot to close-up". The character's pose and scale drift across
+  the zoom, breaking physics (e.g., appears kneeling at distance, then
+  standing when close). Keep framing within one size class per shot.
 
 PERMITTED (the model is reliable here — use freely):
 - Single-character close-ups with speaking. Lean into these for emotional beats.
@@ -95,13 +108,42 @@ PERMITTED (the model is reliable here — use freely):
   (a child watching from a distance, two figures walking far behind).
 - Simple held objects with smooth shapes (teacup, smooth river stone, walking
   stick, folded cloth).
+- Naturalistic movement: walking along a path, gesturing while speaking,
+  observing surroundings, breathing visibly, sitting or rising slowly,
+  hand on heart, tracing a slow shape in the air, picking up or setting
+  down a simple object. Prefer these over prescriptive forms.
 
 REQUIRED in every visual_prompt:
-- Exactly one camera direction phrase from this list: "dolly in", "dolly out",
-  "pan left", "pan right", "tilt up", "tilt down", "push in", "slow orbit",
-  "crane up", "lateral tracking shot".
-- Either a clear subject action (Rav Eli is doing X) OR a clear environmental
-  motion (wind through grass, water flowing). Never a fully static shot.
+- Exactly one camera direction phrase from this list: "static medium shot",
+  "slow push in", "slight pull back", "pan left", "pan right", "tilt up",
+  "tilt down", "slow orbit", "lateral tracking shot". Large-range camera
+  moves are forbidden above; these smaller-range moves are safe.
+- Either a clear naturalistic subject action (Rav Eli is walking, gesturing,
+  observing, breathing) OR a clear environmental motion (wind through grass,
+  water flowing). Never a fully static shot.
 - A lighting cue ("golden hour", "soft morning light", "dappled afternoon",
   "low warm sunlight", etc.).
+- For CLIP 0 ONLY: opening framing MUST be close or medium-close (head and
+  shoulders to waist-up). Never open with a wide establishing shot. Social
+  video retention depends on the first 0.5s showing the character up-close.
+
+HEBREW PRONUNCIATION:
+- The voiceover TTS reads Hebrew words with an English-speaker accent unless
+  you write them phonetically. For ANY Hebrew name, term, book of Torah, or
+  Jewish concept in the voiceover field, replace the standard English
+  transliteration with an English-phonetic breakdown using hyphens and
+  CAPITAL letters to mark the stressed syllable. Examples:
+    Vayikra → "Vah-yeek-RAH"
+    Bereishit → "Beh-ray-SHEET"
+    Baal HaTurim → "BAH-ahl hah-too-REEM"
+    korbanot → "kor-bah-NOTE"
+    karov → "kah-ROV"
+    Moshe → "MOH-sheh" (not "Moses" — keep the Hebrew name)
+    Torah → "TOH-rah"
+    parsha → "PAR-shah"
+    Shabbat → "shah-BAHT"
+    mishkan → "meesh-KAHN"
+  Put the phonetic spelling directly in the voiceover field — do NOT include
+  the standard spelling alongside it. The goal is that the TTS reads the
+  phonetic form and produces the correct pronunciation.
 """

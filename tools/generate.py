@@ -1,4 +1,7 @@
-"""Torah Tai Chi video generator CLI (v2: block orchestration + frame chaining).
+"""Torah Tai Chi video generator CLI (v2.1: crossfade stitching, no frame chaining).
+
+Frame chaining via Seedance's first_frame_url turned out to be incompatible
+with reference_image_urls, so we smooth transitions in post via ffmpeg xfade.
 
 Usage:
   py tools/generate.py --parsha Vayikra
@@ -21,7 +24,6 @@ from src.script_generator import transform_draft_to_clip_plan
 from src.video_generator import generate_clip
 from src.stitcher import concat_clips
 from src.kie_client import KieClient
-from src.frame_extract import extract_last_frame
 from src.models import ClipPlan
 
 REFS_DIR = ROOT / "references"
@@ -56,31 +58,6 @@ async def upload_dojo_references(kie: KieClient) -> list[str]:
     return await _upload_dir_pngs(
         kie, DOJO_REFS_DIR, "torah-tai-chi/refs/dojo", "dojo ref",
     )
-
-
-def _is_first_in_block(idx: int) -> bool:
-    """Block boundaries: clips 0 and 2 are first-in-block; 1 and 3 are chained."""
-    return idx % 2 == 0
-
-
-async def _ensure_first_frame_url(
-    kie: KieClient, work_dir: Path, prev_clip_path: Path,
-) -> str:
-    """Extract last frame of prev_clip_path, upload, return URL.
-
-    Cached on disk: <prev_clip>.lastframe.png and <prev_clip>.lastframe.url.
-    """
-    png_path = prev_clip_path.with_suffix(".lastframe.png")
-    url_path = prev_clip_path.with_suffix(".lastframe.url")
-    if url_path.exists():
-        cached = url_path.read_text(encoding="utf-8").strip()
-        if cached:
-            return cached
-    if not png_path.exists() or png_path.stat().st_size == 0:
-        extract_last_frame(prev_clip_path, png_path)
-    url = await kie.upload_file(png_path, remote_dir="torah-tai-chi/lastframes")
-    url_path.write_text(url, encoding="utf-8")
-    return url
 
 
 async def run(parsha_name: str, option: str, resolution: str) -> Path:
@@ -139,43 +116,15 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
             clip_paths.append(dest)
             continue
 
-        first_frame_url = None
-        if not _is_first_in_block(clip.index):
-            prev = work_dir / f"clip_{(clip.index - 1):02d}.mp4"
-            if not prev.exists():
-                raise SystemExit(
-                    f"Cannot chain clip {clip.index}: previous clip {prev} missing. "
-                    "Generate clips in order."
-                )
-            print(f"      clip {clip.index}: chaining from clip {clip.index - 1} last frame")
-            first_frame_url = await _ensure_first_frame_url(kie, work_dir, prev)
-
         print(f"      clip {clip.index}: {clip.duration_s}s [{clip.setting_id}] — "
               f"{clip.voiceover[:50]}...")
-        try:
-            await generate_clip(
-                kie, clip,
-                character_ref_urls=char_refs,
-                dojo_ref_urls=dojo_refs,
-                dest=dest,
-                first_frame_url=first_frame_url,
-                resolution=resolution,
-            )
-        except Exception as e:
-            if first_frame_url is None:
-                raise
-            # Spec §10: if a chained clip fails, fall back to a clean cut
-            # (omit first_frame_url) and retry once before giving up.
-            print(f"      clip {clip.index}: chained generation failed ({e}); "
-                  "retrying without first_frame_url (clean cut fallback)")
-            await generate_clip(
-                kie, clip,
-                character_ref_urls=char_refs,
-                dojo_ref_urls=dojo_refs,
-                dest=dest,
-                first_frame_url=None,
-                resolution=resolution,
-            )
+        await generate_clip(
+            kie, clip,
+            character_ref_urls=char_refs,
+            dojo_ref_urls=dojo_refs,
+            dest=dest,
+            resolution=resolution,
+        )
         clip_paths.append(dest)
 
     print(f"[5/5] Stitching clips")
