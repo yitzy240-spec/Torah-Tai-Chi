@@ -144,3 +144,39 @@ def test_clipplan_rejects_total_over_50s():
                 _outdoor_clip(2, "GARDEN_PATH", 13), _outdoor_clip(3, "GARDEN_PATH", 10),
             ],
         )
+
+
+def test_clip_rejects_voiceover_density_over_2_wps():
+    # 30 words in 10s = 3.0 wps, well over the 2.0 cap
+    with pytest.raises(ValidationError):
+        Clip(
+            index=0,
+            voiceover=" ".join(["word"] * 30),
+            visual_prompt="p",
+            duration_s=10,
+            setting_id="DOJO",
+        )
+
+
+def test_clip_accepts_voiceover_density_at_boundary():
+    # 20 words in 10s = exactly 2.0 wps — allowed (non-strict ceiling)
+    c = Clip(
+        index=0,
+        voiceover=" ".join(["word"] * 20),
+        visual_prompt="p",
+        duration_s=10,
+        setting_id="DOJO",
+    )
+    assert c is not None
+
+
+def test_clip_accepts_sage_pace_voiceover():
+    # 17 words in 10s = 1.7 wps, sage pace
+    c = Clip(
+        index=0,
+        voiceover=" ".join(["word"] * 17),
+        visual_prompt="p",
+        duration_s=10,
+        setting_id="DOJO",
+    )
+    assert c is not None
