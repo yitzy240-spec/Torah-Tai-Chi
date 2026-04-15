@@ -8,7 +8,8 @@ from src.settings import STYLE_LOCK
 
 SEEDANCE_MODEL = "bytedance/seedance-2"
 MAX_REFS = 9
-MAX_DOJO_REFS = 3
+MAX_DOJO_REFS = 4  # was 3; bumped to improve dojo setting consistency
+                   # (previous 2 dojo + 7 char ratio let dojo drift across clips)
 
 
 def _select_refs(character_ref_urls: list[str], dojo_ref_urls: list[str],

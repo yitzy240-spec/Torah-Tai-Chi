@@ -46,6 +46,49 @@ SHOTS = [
         ),
     },
     {
+        "slug": "dojo_three_quarter_star",
+        "reference_shot": "dojo_wide_morning",
+        "prompt": (
+            f"{DOJO_ANCHOR_TEXT} "
+            "This is the SAME ROOM as the reference image, just shot from a "
+            "different camera angle. Match the furniture placement, wall "
+            "positions, materials, lighting, and visual style of the "
+            "reference image exactly. "
+            "Camera now positioned in the SOUTHWEST corner of the room "
+            "looking NORTHEAST toward the Star of David plaque on the north "
+            "wall — the darker-cedar Star of David on pale linen is centered "
+            "in the frame. The brass seven-branched menorah on its shelf "
+            "along the east wall is visible on the right side of the frame. "
+            "The olive-wood low table with teacup and wooden bowl of "
+            "pomegranates sits in the mid-ground. The indigo-striped wool "
+            "runner runs diagonally across the cedar floor. "
+            "Wide three-quarter angle, full room depth visible. "
+            "Soft Pixar-style 3D render, warm cinematic lighting, high "
+            "detail, 4K. Wide cinematic 16:9 framing."
+        ),
+    },
+    {
+        "slug": "dojo_interior_detail",
+        "reference_shot": "dojo_wide_morning",
+        "prompt": (
+            f"{DOJO_ANCHOR_TEXT} "
+            "This is the SAME ROOM as the reference image, just a tighter "
+            "framing. Match the furniture placement, wall positions, "
+            "materials, lighting, and visual style of the reference image "
+            "exactly. "
+            "Medium close-up from mid-room height, facing northwest, showing "
+            "the olive-wood low table in the foreground with the ceramic "
+            "teacup and wooden bowl of pomegranates clearly visible on top, "
+            "a slice of the indigo-striped wool runner crossing the cedar "
+            "floor below, and part of the Torah Tai Chi logo wall display "
+            "visible on the back wall behind the table. Establishes the "
+            "material palette — cedar, olive wood, indigo wool, brass, "
+            "pale linen. "
+            "Soft Pixar-style 3D render, warm cinematic lighting, high "
+            "detail, 4K. Wide cinematic 16:9 framing."
+        ),
+    },
+    {
         "slug": "dojo_three_quarter_yinyang",
         "reference_shot": "dojo_wide_morning",
         "prompt": (

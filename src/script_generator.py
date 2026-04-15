@@ -104,10 +104,33 @@ VISUAL PROMPT RULES per clip (composed from parts, in this order):
    convincingly. Tai chi sensibility comes through pace and presence,
    not specific martial forms. Micro-expression cues are encouraged:
    "eyes close gently", "slight smile, lips together", "brow softens".
-5. For clips ≥9 seconds: describe the clip in THREE BEATS — "Opens with
-   [X]. By mid-clip, [Y]. Closes with [Z]." This prevents static-pose
-   feel and gives the model a temporal arc to render. Skip for short
-   (<9s) clips — they're a single beat.
+5. For clips ≥8 seconds: use EXPLICIT TEMPORAL MARKERS with second ranges
+   to pace speech and action. Seedance respects these markers natively
+   (the closest equivalent to SSML/pause tags it supports). Format:
+     "0-Xs: [action + speech]. X-Ys: [silent action]. Y-Zs: [action + speech]."
+   Include explicit silence cues: "silence holds final 1s", "character
+   falls silent after '...'".
+
+   INSTRUCTIONAL / BREATHING CLIPS (when the script says "exhale",
+   "breathe", "drop your shoulders", "feel X", etc.): use the
+   speech-action-speech rhythm inside a single clip, and use CAMERA
+   COVER to hide the face during silent action so the viewer doesn't
+   see him silent-with-mouth-closed while audio continues.
+   Pattern example for a 10s instructional clip:
+     visual_prompt segment: "0-3s: Rav Eli faces camera, speaks
+     'Exhale fully...'. 3-6s: camera tilts DOWN to his hands while
+     he exhales visibly, shoulders drop, no speech — silence. 6-9s:
+     camera pans BACK UP to face, he speaks 'Let yourself take up
+     less space.' 9-10s: held beat, eyes close gently, silence holds
+     final 1s."
+     voiceover: "Exhale fully... Let yourself take up less space."
+   Two gains: Seedance times audio-silence-audio correctly via the
+   markers, AND the viewer never sees lip-sync mismatch because the
+   camera is off the face during the silent beat.
+
+   NON-INSTRUCTIONAL CLIPS (pure teaching, hook, CTA): still use three
+   temporal beats for clips ≥8s — "Opens with [X]. By mid-clip [Y].
+   Closes with [Z]." — but no speech-action alternation needed.
 6. Exactly ONE camera direction phrase from the allowed list in the
    guardrails. NEVER combine two motion verbs (no "slow push in while
    panning"). Caution on "slow orbit": use only for landscape/environmental
