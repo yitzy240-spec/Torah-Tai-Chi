@@ -33,32 +33,91 @@ OUTDOOR ARCHETYPE MENU:
 DOJO ANCHOR (always use as the base for clips 0 and 1):
 {dojo_anchor}
 
-VOICEOVER RULES:
-- The draft script is by Yonah (brand voice, already approved). DO NOT rewrite,
-  paraphrase, or add content. Only split exact words across the 4 clips.
-- Preserve order. Do not skip content.
-- The 4 clips together should cover the whole draft.
-- For ANY Hebrew name, term, book of Torah, or Jewish concept in the voiceover,
-  write it as an English-phonetic breakdown (see the HEBREW PRONUNCIATION
-  section of the guardrails below). The TTS reads standard transliterations
-  incorrectly; phonetic spellings make it say the words the way a Hebrew
-  reader would.
+VOICEOVER RULES — YOU ARE WRITING FOR VIDEO, NOT READING A BOOK ALOUD:
+
+Your job is NOT to split Yonah's draft verbatim. Your job is to take the
+teaching concept and TURN IT INTO a spoken video. That means adapting
+phrasing for pacing, emphasis, breath, and dramatic structure — not just
+carving up paragraphs.
+
+WHAT TO PRESERVE from the draft:
+- The central Torah teaching (the core insight being shared)
+- The brand voice: practical, warm, grounded, blending Torah and tai chi
+- All Hebrew names, terms, and book titles (in phonetic form — see below)
+- The [HOOK] → [TEACHING] → [APPLICATION] → [CTA] narrative arc
+
+WHAT YOU CAN CHANGE:
+- Phrasing, sentence structure, word choice
+- Drop secondary commentary, examples, or asides to tighten for pacing
+- Reorder for dramatic effect (e.g., move a question earlier as a hook)
+- Add short transitional phrases or emphasis words for video rhythm
+- Add pause markers (ellipses "...", em-dashes " — ", periods at natural
+  breath points) — these cue the TTS to slow and breathe
+
+WHAT YOU CANNOT DO:
+- Add new Torah content Yonah didn't write (no inventing teachings)
+- Paraphrase Hebrew terms (keep them in, phonetically spelled)
+- Shift the theological or ethical message of the draft
+
+WORD DENSITY — THE MOST IMPORTANT RULE FOR PACING:
+- The Seedance TTS fits the voiceover INTO the clip duration. More words
+  = faster, rushed speech. Fewer words = slower, sage-like delivery.
+- Target ~1.8 words per second of clip duration for contemplative clips
+  (breathing, embodiment, CTA). Cap at 2.0 wps for anything.
+- 8s clip → max ~16 words. 10s clip → max ~20 words. 13s clip → max ~26.
+- If the draft has more content than fits at this density, TRIM secondary
+  lines. Better to deliver the core teaching at sage pace than to cram
+  the full commentary at a rushed pace.
+
+PAUSE MARKERS in voiceover text:
+- Use ellipsis "..." for a one-beat pause (~0.4s)
+- Use em-dash " — " for a shorter breath or emphasis setup
+- Use a period between short sentences to let each land
+- Example of sage-paced voiceover (19 words, 11s clip, 1.7 wps):
+  "The smallest letter in the whole Torah... is an aleph. Tiny. Hidden.
+  And only then... does God speak."
+
+HEBREW PRONUNCIATION (critical — see detailed rules in guardrails below):
+- Every Hebrew name/term in the voiceover field must be written as an
+  English-phonetic breakdown with hyphens and CAPS on the stressed
+  syllable. Examples: Vayikra → "Vah-yeek-RAH", Moshe → "MOH-sheh",
+  Baal HaTurim → "BAH-ahl hah-too-REEM". Never use standard Hebrew
+  transliterations — the TTS reads them as English.
 
 VISUAL PROMPT RULES per clip (composed from parts, in this order):
-1. The setting anchor (DOJO_ANCHOR_TEXT for clips 0-1, the chosen archetype's
+1. A compact character identity sentence as the VERY FIRST clause:
+   "A Pixar-style 3D mid-50s rabbi-teacher, salt-and-pepper beard, brown
+   leather kippah, navy mandarin-collar shirt with Torah Tai Chi logo."
+   (The first ~25 words of every prompt carry the most weight; front-load
+   the character anchor here to reduce identity drift across clips.)
+2. The setting anchor (DOJO_ANCHOR_TEXT for clips 0-1, the chosen archetype's
    anchor for clips 2-3). Verbatim.
-2. (Clips 2-3 only) Optional 1-2 sentences of parsha-specific sensory detail.
-3. Subject action: what Rav Eli is doing this clip. Prefer NATURALISTIC
+3. (Clips 2-3 only) REQUIRED: an explicit environmental motion cue as its
+   own sentence — "wind moves through the grass", "light ripples on the
+   water's surface", "soft clouds drift across the valley". This prevents
+   frozen-background artifacts where the environment looks like a still
+   image behind a moving character.
+4. Subject action: what Rav Eli is doing this clip. Prefer NATURALISTIC
    actions (walking, gesturing while speaking, observing surroundings,
    breathing visibly, sitting/rising, hand on heart, tracing a slow shape
    in air). Avoid named tai chi forms — the model can't render them
    convincingly. Tai chi sensibility comes through pace and presence,
-   not specific martial forms.
-4. Exactly one camera direction phrase from the allowed list in the
-   guardrails. Note: large-range moves (wide-to-close dollies) are
-   forbidden — they break character physics across the zoom.
-5. The lighting cue from the anchor (carry it forward; do not contradict).
-6. The STYLE_LOCK is appended later by the system — DO NOT include it.
+   not specific martial forms. Micro-expression cues are encouraged:
+   "eyes close gently", "slight smile, lips together", "brow softens".
+5. For clips ≥9 seconds: describe the clip in THREE BEATS — "Opens with
+   [X]. By mid-clip, [Y]. Closes with [Z]." This prevents static-pose
+   feel and gives the model a temporal arc to render. Skip for short
+   (<9s) clips — they're a single beat.
+6. Exactly ONE camera direction phrase from the allowed list in the
+   guardrails. NEVER combine two motion verbs (no "slow push in while
+   panning"). Caution on "slow orbit": use only for landscape/environmental
+   beats, NEVER when Rav Eli's face is the focus (orbiting a stylized
+   3D face breaks geometry).
+7. The lighting cue from the anchor (carry it forward; do not contradict).
+8. Positive-constraint closer at the END of every visual_prompt (verbatim):
+   "Character must match all uploaded reference images. Steady framing,
+   single speaker only, face fully visible at all times."
+9. The STYLE_LOCK is appended later by the system — DO NOT include it.
 
 CLIP 0 SPECIAL RULE:
 - Clip 0 is the social-video hook. The first 0.5 seconds decide if a

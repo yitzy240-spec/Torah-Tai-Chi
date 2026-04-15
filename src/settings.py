@@ -116,6 +116,13 @@ FORBIDDEN in every visual_prompt:
   long shot to close-up". The character's pose and scale drift across
   the zoom, breaking physics (e.g., appears kneeling at distance, then
   standing when close). Keep framing within one size class per shot.
+- Compound camera directions in a single clip — "push in while panning
+  right", "tilt up and orbit". One motion verb per clip, always. Combining
+  verbs produces chaotic, unstable motion.
+- "Slow orbit" when Rav Eli's face is the focus of the shot. Orbiting
+  stylized 3D faces breaks the geometry as it rotates (facial features
+  interpolate incorrectly). Slow orbit is permitted ONLY for landscape
+  or environmental clips where Rav Eli is small in the frame or absent.
 
 PERMITTED (the model is reliable here — use freely):
 - Single-character close-ups with speaking. Lean into these for emotional beats.
@@ -127,6 +134,9 @@ PERMITTED (the model is reliable here — use freely):
   observing surroundings, breathing visibly, sitting or rising slowly,
   hand on heart, tracing a slow shape in the air, picking up or setting
   down a simple object. Prefer these over prescriptive forms.
+- Micro-expression cues on the face: "eyes close gently", "slight smile,
+  lips together", "brow softens", "eyes open on a long exhale". These
+  render reliably and reinforce the meditation-teacher register.
 
 REQUIRED in every visual_prompt:
 - Exactly one camera direction phrase from this list: "static medium shot",
