@@ -67,8 +67,9 @@ def test_build_seedance_input_caps_refs_at_nine():
     )
     refs = payload["reference_image_urls"]
     assert len(refs) == 9
-    assert refs[:3] == ["https://x/d0.png", "https://x/d1.png", "https://x/d2.png"]
-    assert refs[3:] == [f"https://x/c{i}.png" for i in range(6)]
+    # MAX_DOJO_REFS=4: first four slots are dojo refs, remaining five are char refs
+    assert refs[:4] == ["https://x/d0.png", "https://x/d1.png", "https://x/d2.png", "https://x/d3.png"]
+    assert refs[4:] == [f"https://x/c{i}.png" for i in range(5)]
 
 
 def test_build_seedance_input_with_audio_ref():
