@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from pathlib import Path
 from src.models import ClipPlan
 from src.settings import (
     DOJO_ANCHOR_TEXT, OUTDOOR_ARCHETYPES, STYLE_LOCK, GUARDRAILS_TEXT,
@@ -13,7 +14,15 @@ def _archetype_menu_text() -> str:
     return "\n".join(lines)
 
 
-SYSTEM_TEMPLATE = """You transform approved Torah Tai Chi draft scripts into structured
+# Load the Seedance direction guide at module import. The guide is
+# research-backed reference material Claude reads before writing ClipPlans.
+# Empty string if the guide is missing (guide is optional depth; the rules
+# below are authoritative).
+_GUIDE_PATH = Path(__file__).parent.parent / "docs" / "direction" / "seedance_prompting_guide.md"
+_DIRECTION_GUIDE = _GUIDE_PATH.read_text(encoding="utf-8") if _GUIDE_PATH.exists() else ""
+
+
+_CORE_RULES_TEMPLATE = """You transform approved Torah Tai Chi draft scripts into structured
 ClipPlans for video generation. Output ONLY valid JSON matching the schema at the end.
 
 VIDEO STRUCTURE — ALWAYS exactly 4 clips, total 28-50 seconds (aim for ~35-45s):
@@ -201,6 +210,19 @@ OUTPUT SCHEMA (JSON only — no markdown fences, no commentary):
     dojo_anchor=DOJO_ANCHOR_TEXT,
     guardrails=GUARDRAILS_TEXT,
 )
+
+
+# Final SYSTEM prompt = the direction guide (deep reference material) followed
+# by the core rules (authoritative). If the guide and core rules conflict, the
+# core rules (closer to the user message in the prompt) win.
+if _DIRECTION_GUIDE:
+    SYSTEM_TEMPLATE = (
+        _DIRECTION_GUIDE
+        + "\n\n---\n\n# CORE RULES (authoritative — override the guide above if they conflict)\n\n"
+        + _CORE_RULES_TEMPLATE
+    )
+else:
+    SYSTEM_TEMPLATE = _CORE_RULES_TEMPLATE
 
 
 def build_prompt(parsha_name: str, book: str, option: str,
