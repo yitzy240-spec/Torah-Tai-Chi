@@ -100,80 +100,43 @@ STYLE_LOCK = (
 
 
 GUARDRAILS_TEXT = """\
-HARD GENERATION RULES (the model fails on these — enforce strictly):
+FORBIDDEN (Seedance fails on these):
+- In-frame rendered text of any kind: letters, words, numbers, signs, scrolls
+  with readable text, screens with content. Exception: the Torah Tai Chi logo
+  carved on the dojo wall and on Rav Eli's shirt — those render cleanly
+  because they are locked by reference images.
+- Intricate repeating patterns expected to stay sharp in motion.
+- Multiple speaking characters in a shot (multi-person lip-sync fails).
+- Held objects with intricate mechanisms (labeled bottles, complex tools).
+- Prescriptive named tai chi forms ("push hands", "rooting posture",
+  "white crane", etc.) — they render awkward and fake. Use naturalistic
+  action instead.
+- Wide-to-close dolly moves or long-to-close zooms — character physics
+  drifts across the zoom (stands then kneels, etc.).
+- Compound camera directions ("push in while panning") — one motion only.
+- "Slow orbit" when Rav Eli's face is the focus; face geometry breaks as
+  the camera rotates. OK for landscape or full-body-small shots.
 
-FORBIDDEN in every visual_prompt:
-- Any in-frame rendered text: letters, words, numbers, signs, plaques,
-  scrolls with readable text, screens with content. (The model produces
-  garbled text every time.)
-- Intricate repeating patterns expected to stay sharp under motion
-  (decorative borders, complex weaves, fine-print fabric).
-- Multiple speaking characters in one shot. (Multi-person lip-sync fails.)
-- Held objects with intricate specific shape (a labeled bottle, a tool with
-  visible mechanism, an instrument with detailed parts).
-- Prescriptive named tai chi forms — "push hands", "rooting posture",
-  "white crane spreads wings", "grasping the bird's tail", "cloud hands",
-  etc. The model CANNOT render specific martial-arts forms convincingly;
-  they come out awkward and obviously fake. Tai chi sensibility comes
-  through pace and presence, not named forms.
-- Large camera moves that force the character to appear at multiple
-  distances in a single shot — "wide-to-close dolly in" or "zoom from
-  long shot to close-up". The character's pose and scale drift across
-  the zoom, breaking physics (e.g., appears kneeling at distance, then
-  standing when close). Keep framing within one size class per shot.
-- Compound camera directions in a single clip — "push in while panning
-  right", "tilt up and orbit". One motion verb per clip, always. Combining
-  verbs produces chaotic, unstable motion.
-- "Slow orbit" when Rav Eli's face is the focus of the shot. Orbiting
-  stylized 3D faces breaks the geometry as it rotates (facial features
-  interpolate incorrectly). Slow orbit is permitted ONLY for landscape
-  or environmental clips where Rav Eli is small in the frame or absent.
-
-PERMITTED (the model is reliable here — use freely):
-- Single-character close-ups with speaking. Lean into these for emotional beats.
-- Background characters who do NOT speak, used as silent narrative presence
-  (a child watching from a distance, two figures walking far behind).
-- Simple held objects with smooth shapes (teacup, smooth river stone, walking
+PERMITTED (reliable):
+- Single-character close-ups speaking, including micro-expressions
+  ("eyes close gently", "slight smile, lips together", "brow softens").
+- Silent background presence (a child watching from a distance, two
+  figures walking far behind) — they must not speak.
+- Simple held objects with smooth shapes (teacup, smooth stone, walking
   stick, folded cloth).
-- Naturalistic movement: walking along a path, gesturing while speaking,
-  observing surroundings, breathing visibly, sitting or rising slowly,
-  hand on heart, tracing a slow shape in the air, picking up or setting
-  down a simple object. Prefer these over prescriptive forms.
-- Micro-expression cues on the face: "eyes close gently", "slight smile,
-  lips together", "brow softens", "eyes open on a long exhale". These
-  render reliably and reinforce the meditation-teacher register.
+- Naturalistic action: walking, gesturing, observing, breathing visibly,
+  sitting or rising, hand on heart, tracing slow shapes in the air.
+
+CAMERA — one verb per clip from this list only:
+"static medium shot", "slow push in", "slight pull back", "pan left",
+"pan right", "tilt up", "tilt down", "slow orbit", "lateral tracking shot".
 
 REQUIRED in every visual_prompt:
-- Exactly one camera direction phrase from this list: "static medium shot",
-  "slow push in", "slight pull back", "pan left", "pan right", "tilt up",
-  "tilt down", "slow orbit", "lateral tracking shot". Large-range camera
-  moves are forbidden above; these smaller-range moves are safe.
-- Either a clear naturalistic subject action (Rav Eli is walking, gesturing,
-  observing, breathing) OR a clear environmental motion (wind through grass,
-  water flowing). Never a fully static shot.
+- Either a clear subject action OR a clear environmental motion (wind in
+  grass, water flowing). Never a fully static shot.
 - A lighting cue ("golden hour", "soft morning light", "dappled afternoon",
-  "low warm sunlight", etc.).
-- For CLIP 0 ONLY: opening framing MUST be close or medium-close (head and
-  shoulders to waist-up). Never open with a wide establishing shot. Social
-  video retention depends on the first 0.5s showing the character up-close.
-
-HEBREW PRONUNCIATION:
-- The voiceover TTS reads Hebrew words with an English-speaker accent unless
-  you write them phonetically. For ANY Hebrew name, term, book of Torah, or
-  Jewish concept in the voiceover field, replace the standard English
-  transliteration with an English-phonetic breakdown using hyphens and
-  CAPITAL letters to mark the stressed syllable. Examples:
-    Vayikra → "Vah-yeek-RAH"
-    Bereishit → "Beh-ray-SHEET"
-    Baal HaTurim → "BAH-ahl hah-too-REEM"
-    korbanot → "kor-bah-NOTE"
-    karov → "kah-ROV"
-    Moshe → "MOH-sheh" (not "Moses" — keep the Hebrew name)
-    Torah → "TOH-rah"
-    parsha → "PAR-shah"
-    Shabbat → "shah-BAHT"
-    mishkan → "meesh-KAHN"
-  Put the phonetic spelling directly in the voiceover field — do NOT include
-  the standard spelling alongside it. The goal is that the TTS reads the
-  phonetic form and produces the correct pronunciation.
+  "low warm sunlight").
+- Clip 0 opens close or medium-close (head-and-shoulders to waist-up). Never
+  a wide establishing shot at clip 0 — the first 0.5s of social video decides
+  retention.
 """
