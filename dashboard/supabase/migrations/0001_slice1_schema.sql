@@ -17,7 +17,7 @@ create table parshiot (
 create table scripts (
   id uuid primary key default gen_random_uuid(),
   parsha_id uuid not null references parshiot(id) on delete cascade,
-  option text not null check (option in ('A','B','C')),
+  option text not null check (option in ('A','B','C','A-tight')),
   title text not null,
   style_note text,
   draft_text text not null,
