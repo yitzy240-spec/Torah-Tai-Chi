@@ -24,3 +24,13 @@ output/
 Gemini_Generated_Image_*.png
 WhatsApp Image*.jpeg
 grok-video-*.mp4
+
+# Local-only reference scratch (too large for git; kept on disk)
+references.zip
+references/_backup_brown_kippah/
+references/_kippah_test/
+references/_canonical/kippah_model_test_*.png
+references/_canonical/rav_eli_sruga-*-var-*.png
+
+# Claude Code worktrees
+.claude/worktrees/
