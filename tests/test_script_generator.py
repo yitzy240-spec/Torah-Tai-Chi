@@ -18,11 +18,10 @@ def test_build_prompt_includes_archetypes_and_guardrails():
     assert "Vayikra" in prompt
     assert "[HOOK]" in prompt
     assert "He called." in prompt
-    assert "outdoor_archetype_id" in prompt or "DOJO" in prompt
+    assert "outdoor_archetype_id" in prompt or "DOJO" in prompt or "captions" in prompt
 
 
 def _anthropic_response_body(plan_dict: dict) -> dict:
-    """Shape of Anthropic's /v1/messages response."""
     return {
         "id": "msg_test",
         "type": "message",
@@ -34,27 +33,37 @@ def _anthropic_response_body(plan_dict: dict) -> dict:
     }
 
 
-@pytest.mark.asyncio
-async def test_transform_draft_returns_valid_v2_plan():
-    fake_plan = {
+def _fake_plan_with_captions(outdoor_archetype_id: str = "GARDEN_PATH") -> dict:
+    return {
         "parsha": "Vayikra",
         "hook": "He called",
         "full_script": "full",
-        "outdoor_archetype_id": "GARDEN_PATH",
+        "outdoor_archetype_id": outdoor_archetype_id,
+        "captions": {
+            "tiktok": "Test TikTok caption #parsha",
+            "instagram": "Test IG caption. With a few sentences.",
+            "youtube_title": "Test YouTube title",
+            "youtube_description": "Test YT description body.",
+            "facebook": "Test FB caption, a bit longer and more conversational.",
+        },
         "clips": [
-            {"index": 0, "voiceover": "a", "visual_prompt": "Rav Eli sits, slow push in, soft morning light",
-             "duration_s": 8, "setting_id": "DOJO"},
-            {"index": 1, "voiceover": "b", "visual_prompt": "Rav Eli rises, static medium shot, soft morning light",
-             "duration_s": 9, "setting_id": "DOJO"},
-            {"index": 2, "voiceover": "c", "visual_prompt": "Rav Eli walks the path, lateral tracking shot, dappled afternoon",
-             "duration_s": 9, "setting_id": "GARDEN_PATH"},
-            {"index": 3, "voiceover": "d", "visual_prompt": "Rav Eli pauses, slow orbit, dappled afternoon",
-             "duration_s": 8, "setting_id": "GARDEN_PATH"},
+            {"index": 0, "voiceover": "a", "visual_prompt": "prompt",
+             "duration_s": 8, "setting_id": "DOJO", "caption_position": "bottom"},
+            {"index": 1, "voiceover": "b", "visual_prompt": "prompt",
+             "duration_s": 9, "setting_id": "DOJO", "caption_position": "bottom"},
+            {"index": 2, "voiceover": "c", "visual_prompt": "prompt",
+             "duration_s": 9, "setting_id": outdoor_archetype_id, "caption_position": "top"},
+            {"index": 3, "voiceover": "d", "visual_prompt": "prompt",
+             "duration_s": 8, "setting_id": outdoor_archetype_id, "caption_position": "bottom"},
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_transform_draft_returns_valid_v2_plan():
     async with respx.mock(assert_all_called=True) as mock:
         mock.post(ANTHROPIC_URL).mock(
-            return_value=Response(200, json=_anthropic_response_body(fake_plan)),
+            return_value=Response(200, json=_anthropic_response_body(_fake_plan_with_captions())),
         )
         plan = await transform_draft_to_clip_plan(
             parsha_name="Vayikra", book="Leviticus", option="A",
@@ -66,25 +75,19 @@ async def test_transform_draft_returns_valid_v2_plan():
     assert plan.outdoor_archetype_id == "GARDEN_PATH"
     assert plan.clips[0].setting_id == "DOJO"
     assert plan.clips[3].setting_id == "GARDEN_PATH"
-    assert 28 <= plan.total_duration_s <= 45
+    assert plan.captions.tiktok.startswith("Test TikTok")
+    assert plan.clips[2].caption_position == "top"
+    assert 28 <= plan.total_duration_s <= 90
 
 
 @pytest.mark.asyncio
 async def test_transform_draft_propagates_validation_error_on_bad_block():
-    fake_plan = {
-        "parsha": "Vayikra", "hook": "x", "full_script": "x",
-        "outdoor_archetype_id": "GARDEN_PATH",
-        "clips": [
-            {"index": 0, "voiceover": "a", "visual_prompt": "p", "duration_s": 8, "setting_id": "GARDEN_PATH"},
-            {"index": 1, "voiceover": "b", "visual_prompt": "p", "duration_s": 8, "setting_id": "GARDEN_PATH"},
-            {"index": 2, "voiceover": "c", "visual_prompt": "p", "duration_s": 8, "setting_id": "DOJO"},
-            {"index": 3, "voiceover": "d", "visual_prompt": "p", "duration_s": 8, "setting_id": "DOJO"},
-        ],
-    }
+    fake = _fake_plan_with_captions()
+    fake["clips"][0]["setting_id"] = "GARDEN_PATH"  # breaks dojo-first
     from pydantic import ValidationError
     async with respx.mock() as mock:
         mock.post(ANTHROPIC_URL).mock(
-            return_value=Response(200, json=_anthropic_response_body(fake_plan)),
+            return_value=Response(200, json=_anthropic_response_body(fake)),
         )
         with pytest.raises(ValidationError):
             await transform_draft_to_clip_plan(
@@ -96,17 +99,8 @@ async def test_transform_draft_propagates_validation_error_on_bad_block():
 
 @pytest.mark.asyncio
 async def test_transform_draft_strips_json_fence_wrapper():
-    fake_plan = {
-        "parsha": "Vayikra", "hook": "x", "full_script": "x",
-        "outdoor_archetype_id": "MOUNTAIN_RIDGE",
-        "clips": [
-            {"index": 0, "voiceover": "a", "visual_prompt": "p", "duration_s": 8, "setting_id": "DOJO"},
-            {"index": 1, "voiceover": "b", "visual_prompt": "p", "duration_s": 8, "setting_id": "DOJO"},
-            {"index": 2, "voiceover": "c", "visual_prompt": "p", "duration_s": 8, "setting_id": "MOUNTAIN_RIDGE"},
-            {"index": 3, "voiceover": "d", "visual_prompt": "p", "duration_s": 8, "setting_id": "MOUNTAIN_RIDGE"},
-        ],
-    }
-    fenced = "```json\n" + json.dumps(fake_plan) + "\n```"
+    fake = _fake_plan_with_captions("MOUNTAIN_RIDGE")
+    fenced = "```json\n" + json.dumps(fake) + "\n```"
     async with respx.mock() as mock:
         mock.post(ANTHROPIC_URL).mock(
             return_value=Response(200, json={
