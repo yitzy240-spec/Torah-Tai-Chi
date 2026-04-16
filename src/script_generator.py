@@ -52,6 +52,18 @@ VOICEOVER — YONAH'S WORDS, PRESERVED:
     korbanot -> "kor-bah-NOTE"
     karov -> "kah-ROV"
     Shabbat -> "shah-BAHT"
+    Eden -> "Eh-den" (short E as in "effort", NOT "Ay-den" NOT "Ah-den")
+    Adam -> "AH-dahm" (only if draft uses Hebrew form; Yonah often writes "Adam" in English)
+    Chava -> "Chah-VAH"
+    Elohim -> "Eh-loh-HEEM"
+    tzedakah -> "tzeh-dah-KAH"
+    mitzvah -> "mits-VAH"
+    mishkan -> "meesh-KAHN"
+    aleph -> "AH-lef"
+  If you are UNSURE of a Hebrew word's pronunciation and it's not in this list,
+  keep the English transliteration as-is (e.g., "Eden" — spoken in the English
+  way) rather than inventing a phonetic. A wrong phonetic is worse than an
+  Anglicized pronunciation that viewers can still understand.
   Put phonetic form directly in the voiceover field; do NOT duplicate or
   include the standard spelling.
 - Pause markers the TTS will respect: ellipsis "...", em-dash " — ",
