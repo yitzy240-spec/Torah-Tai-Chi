@@ -60,7 +60,8 @@ async def upload_dojo_references(kie: KieClient) -> list[str]:
     )
 
 
-async def run(parsha_name: str, option: str, resolution: str) -> Path:
+async def run(parsha_name: str, option: str, resolution: str,
+              captions: bool = True) -> Path:
     load_dotenv(ROOT / ".env")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     if not anthropic_key:
@@ -128,10 +129,15 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
     stitched = work_dir / "stitched.mp4"
     concat_clips(clip_paths, stitched)
 
-    print(f"[6/6] Burning on-screen captions (Whisper forced alignment)")
-    from src.caption_burner import burn_captions
     final = out_dir / f"{parsha_name.lower()}-{option.lower()}-v2.mp4"
-    burn_captions(stitched, plan, final)
+    if captions:
+        print(f"[6/6] Burning on-screen captions (Whisper forced alignment)")
+        from src.caption_burner import burn_captions
+        burn_captions(stitched, plan, final)
+    else:
+        print(f"[6/6] Captions disabled — copying stitched mp4 as final")
+        import shutil
+        shutil.copy(stitched, final)
     print(f"\nDONE: {final}")
     return final
 
@@ -142,8 +148,11 @@ def main() -> int:
     ap.add_argument("--option", default="A", choices=["A", "B", "C"],
                     help="Which of Yonah's 3 script options to use")
     ap.add_argument("--resolution", default="720p", choices=["480p", "720p"])
+    ap.add_argument("--captions", default="on", choices=["on", "off"],
+                    help="Burn on-screen captions via Whisper + ffmpeg (post-processing, no API cost)")
     args = ap.parse_args()
-    asyncio.run(run(args.parsha, args.option, args.resolution))
+    asyncio.run(run(args.parsha, args.option, args.resolution,
+                    captions=(args.captions == "on")))
     return 0
 
 
