@@ -75,7 +75,7 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
     out_dir = ROOT / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[1/5] Loading parsha: {parsha_name} (option {option})")
+    print(f"[1/6] Loading parsha: {parsha_name} (option {option})")
     parshiot = _json.loads(PARSHIOT_PATH.read_text(encoding="utf-8"))["parshiot"]
     match = next((p for p in parshiot if p["name"].lower() == parsha_name.lower()), None)
     if not match:
@@ -85,10 +85,10 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
 
     plan_path = work_dir / "plan.json"
     if plan_path.exists():
-        print(f"[2/5] Reusing cached ClipPlan at {plan_path}")
+        print(f"[2/6] Reusing cached ClipPlan at {plan_path}")
         plan = ClipPlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
     else:
-        print(f"[2/5] Transforming draft into ClipPlan via Claude")
+        print(f"[2/6] Transforming draft into ClipPlan via Claude")
         plan = await transform_draft_to_clip_plan(
             parsha_name=parsha_name, book=book, option=option,
             style_note=script["style_note"], title=script["title"],
@@ -98,13 +98,13 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
     print(f"      {len(plan.clips)} clips, total {plan.total_duration_s}s, "
           f"outdoor archetype: {plan.outdoor_archetype_id}")
 
-    print(f"[3/5] Uploading reference images to Kie.ai")
+    print(f"[3/6] Uploading reference images to Kie.ai")
     kie = KieClient(api_key=kie_key)
     char_refs = await upload_character_references(kie)
     dojo_refs = await upload_dojo_references(kie)
     print(f"      {len(char_refs)} char refs, {len(dojo_refs)} dojo refs uploaded")
 
-    print(f"[4/5] Generating {len(plan.clips)} clips via Seedance 2.0")
+    print(f"[4/6] Generating {len(plan.clips)} clips via Seedance 2.0")
     clip_paths: list[Path] = []
     for clip in plan.clips:
         dest = work_dir / f"clip_{clip.index:02d}.mp4"
@@ -124,9 +124,14 @@ async def run(parsha_name: str, option: str, resolution: str) -> Path:
         )
         clip_paths.append(dest)
 
-    print(f"[5/5] Stitching clips")
+    print(f"[5/6] Stitching clips")
+    stitched = work_dir / "stitched.mp4"
+    concat_clips(clip_paths, stitched)
+
+    print(f"[6/6] Burning on-screen captions (Whisper forced alignment)")
+    from src.caption_burner import burn_captions
     final = out_dir / f"{parsha_name.lower()}-{option.lower()}-v2.mp4"
-    concat_clips(clip_paths, final)
+    burn_captions(stitched, plan, final)
     print(f"\nDONE: {final}")
     return final
 
