@@ -1,17 +1,17 @@
 # Torah Tai Chi — Seedance Direction Guide
 
-> **How this guide is used:** `src/script_generator.py` reads this file and prepends
-> its full text to the Claude system prompt before every call to
-> `transform_draft_to_clip_plan()`. This document is therefore Claude's reference
-> manual — not background reading, but active operating instructions. Write ClipPlans
-> as though every section below is loaded into working memory.
+> **⚠️ NOT LOADED AT RUNTIME AS OF v2.5** (2026-04-15).
 >
-> This guide COMPLEMENTS the rules already hard-coded in `src/settings.py` and
-> `src/script_generator.py`. It does not repeat them. It adds DEPTH where the
-> existing rules give BREADTH. The existing `SYSTEM_TEMPLATE` rules (word-density
-> math, pause markers, phonetic Hebrew, temporal marker syntax, visual_prompt
-> component order, guardrails) remain authoritative. When this guide and the
-> SYSTEM_TEMPLATE differ, the SYSTEM_TEMPLATE wins.
+> This guide was originally loaded into Claude's SYSTEM prompt by
+> `src/script_generator.py`. After v2.4 (Bereishit) came back incomprehensible
+> from over-constrained prompting, v2.5 dropped the runtime load. This file
+> stays on disk as **human reference material** — useful background when you
+> want to understand why the pipeline's rules are what they are, or when you
+> want to research Seedance prompt craft.
+>
+> The authoritative rules live in `src/script_generator.py` (SYSTEM_TEMPLATE)
+> and `src/settings.py` (DOJO_ANCHOR_TEXT, OUTDOOR_ARCHETYPES, STYLE_LOCK,
+> GUARDRAILS_TEXT). Read those first.
 
 ---
 
