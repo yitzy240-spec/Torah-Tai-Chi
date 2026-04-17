@@ -212,3 +212,50 @@
   0%,100% { transform: scale(1); opacity: 0.6; }
   50%     { transform: scale(1.18); opacity: 0; }
 }
+
+/* Videos grid responsive */
+@media (max-width: 700px) {
+  .video-grid { grid-template-columns: 1fr !important; }
+  .channel-grid { grid-template-columns: 1fr !important; }
+}
+
+/* Video detail — row-1 responsive */
+@media (max-width: 800px) {
+  .row-video-script {
+    grid-template-columns: 1fr !important;
+  }
+  .row-video-script > div:first-child {
+    width: 100% !important;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+  .row-caps-dist {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Calendar responsive */
+@media (max-width: 700px) {
+  .cal-week {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+    padding: 18px !important;
+  }
+}
+
+/* v-card hover */
+.v-card:hover {
+  border-color: var(--cedar-300) !important;
+  transform: translateY(-1px);
+}
+
+/* ch-card hover */
+.ch-card:hover {
+  border-color: var(--cedar-300) !important;
+}
+
+/* cal-week hover */
+.cal-week:hover {
+  border-color: var(--cedar-300) !important;
+  transform: translateY(-1px);
+}
