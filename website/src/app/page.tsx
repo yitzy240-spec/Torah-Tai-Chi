@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getAllParshiot } from "@/lib/parshiot";
-import { ARTICLES } from "@/data/articles";
+import { getAllArticles } from "@/lib/articles";
 import VideoCard from "@/components/VideoCard";
 import ArticleCard from "@/components/ArticleCard";
 import Brand from "@/components/Brand";
@@ -35,7 +35,8 @@ export default async function HomePage() {
   const withScript = parshiot.filter((p) => p.atightScript);
   const thisWeek = withScript[0] ?? parshiot[0];
   const recentFour = withScript.slice(0, 4);
-  const recentArticles = ARTICLES.slice(0, 3);
+  const allArticles = await getAllArticles();
+  const recentArticles = allArticles.slice(0, 3);
 
   return (
     <>

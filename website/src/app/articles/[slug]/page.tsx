@@ -1,61 +1,56 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ARTICLES } from "@/data/articles";
+import { getAllArticles, getArticleBySlug, tiptapJsonToHtml } from "@/lib/articles";
 import ArticleCard from "@/components/ArticleCard";
 
 interface Props {
   params: Promise<{ slug: string }>;
 }
 
+// Fallback slugs used when Supabase returns no articles (e.g. empty DB at first build).
+// After running supabase/seed_articles.sql these will all exist in Supabase.
+const FIXTURE_SLUGS = [
+  'why-the-body-knows',
+  'song-and-anavah',
+  'shabbat-stillness-in-motion',
+  'soft-jaw-moment',
+  'rooting-patriarchs',
+  'breath-as-first-blessing',
+  'yielding-is-not-surrender',
+  'naase-vnishma',
+];
+
 export async function generateStaticParams() {
-  return ARTICLES.map((a) => ({ slug: a.slug }));
+  try {
+    const articles = await getAllArticles();
+    if (articles.length > 0) {
+      return articles.map((a) => ({ slug: a.slug }));
+    }
+  } catch {
+    // fall through to fixtures
+  }
+  // Pre-seed fallback so static export always has params to generate
+  return FIXTURE_SLUGS.map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const article = ARTICLES.find((a) => a.slug === slug);
+  const article = await getArticleBySlug(slug);
   if (!article) return { title: "Article" };
   return {
     title: article.title,
-    description: article.excerpt,
+    description: article.excerpt ?? undefined,
   };
 }
 
-function renderBody(body: string) {
-  const paragraphs = body.split(/\n\n+/).filter(Boolean);
-  const elements: React.ReactNode[] = [];
-
-  for (let i = 0; i < paragraphs.length; i++) {
-    const para = paragraphs[i];
-
-    if (para.startsWith("## ")) {
-      elements.push(
-        <h2 key={i}>{para.slice(3)}</h2>
-      );
-    } else if (para.startsWith("> ")) {
-      elements.push(
-        <div key={i} className="pullquote">{para.slice(2)}</div>
-      );
-    } else {
-      // Convert inline markdown *italic* to <em>
-      const parts = para.split(/\*([^*]+)\*/g);
-      const content = parts.map((part, j) => {
-        if (j % 2 === 1) return <em key={j}>{part}</em>;
-        return part;
-      });
-      const isFirst = elements.length === 0;
-      elements.push(
-        <p key={i} className={isFirst ? "lead" : ""}>{content}</p>
-      );
-    }
-  }
-
-  return elements;
+function formatDate(ts: string | null | undefined): string {
+  if (!ts) return "";
+  return new Date(ts).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
 export default async function ArticleDetailPage({ params }: Props) {
   const { slug } = await params;
-  const article = ARTICLES.find((a) => a.slug === slug);
+  const article = await getArticleBySlug(slug);
 
   if (!article) {
     return (
@@ -66,7 +61,11 @@ export default async function ArticleDetailPage({ params }: Props) {
     );
   }
 
-  const otherArticles = ARTICLES.filter((a) => a.slug !== slug).slice(0, 2);
+  // Use pre-rendered HTML; fall back to JSON-to-HTML conversion
+  const bodyHtml = article.body_html || tiptapJsonToHtml(article.body_json);
+
+  const allArticles = await getAllArticles();
+  const otherArticles = allArticles.filter((a) => a.slug !== slug).slice(0, 2);
 
   return (
     <>
@@ -77,28 +76,36 @@ export default async function ArticleDetailPage({ params }: Props) {
       </div>
 
       <header className="ad-header stagger">
-        <span className="ad-tag">{article.category}</span>
+        {article.category && <span className="ad-tag">{article.category}</span>}
         <h1>{article.title}</h1>
-        <p className="ad-deck">{article.subtitle}</p>
+        {article.subtitle && <p className="ad-deck">{article.subtitle}</p>}
         <div className="ad-meta">
-          {article.date} &middot; {article.readMinutes} min read
+          {formatDate(article.published_at)}
+          {article.published_at && article.read_minutes ? " · " : ""}
+          {article.read_minutes ? `${article.read_minutes} min read` : ""}
         </div>
       </header>
 
       <article className="ad-body stagger">
-        {renderBody(article.body)}
+        {bodyHtml ? (
+          <div dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+        ) : (
+          <p style={{ color: "var(--ink-400)", fontStyle: "italic" }}>No content yet.</p>
+        )}
       </article>
 
-      <section className="continue-section">
-        <h2 className="continue-head">
-          Continue <em>reading</em>
-        </h2>
-        <div className="continue-grid stagger">
-          {otherArticles.map((a) => (
-            <ArticleCard key={a.slug} article={a} />
-          ))}
-        </div>
-      </section>
+      {otherArticles.length > 0 && (
+        <section className="continue-section">
+          <h2 className="continue-head">
+            Continue <em>reading</em>
+          </h2>
+          <div className="continue-grid stagger">
+            {otherArticles.map((a) => (
+              <ArticleCard key={a.slug} article={a} />
+            ))}
+          </div>
+        </section>
+      )}
     </>
   );
 }
