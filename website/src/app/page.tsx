@@ -1,0 +1,184 @@
+import Link from "next/link";
+import { getAllParshiot } from "@/lib/parshiot";
+import { ARTICLES } from "@/data/articles";
+import VideoCard from "@/components/VideoCard";
+import ArticleCard from "@/components/ArticleCard";
+import Brand from "@/components/Brand";
+
+const BOOK_SHORT: Record<string, string> = {
+  Genesis: "Genesis",
+  Exodus: "Exodus",
+  Leviticus: "Leviticus",
+  Numbers: "Numbers",
+  Deuteronomy: "Deuteronomy",
+  Bereishit: "Genesis",
+  Shemot: "Exodus",
+  Vayikra: "Leviticus",
+  Bamidbar: "Numbers",
+  Devarim: "Deuteronomy",
+};
+
+const FALLBACK_PARSHIOT = [
+  { name: "Kedoshim", slug: "kedoshim", heb: "קדושים", book: "Leviticus", dur: "0:48" },
+  { name: "Acharei Mot", slug: "acharei-mot", heb: "אחרי מות", book: "Leviticus", dur: "0:45" },
+  { name: "Shemot", slug: "shemot", heb: "שמות", book: "Exodus", dur: "0:52" },
+  { name: "Bo", slug: "bo", heb: "בא", book: "Exodus", dur: "0:47" },
+];
+
+export default async function HomePage() {
+  let parshiot: Awaited<ReturnType<typeof getAllParshiot>> = [];
+  try {
+    parshiot = await getAllParshiot();
+  } catch {
+    parshiot = [];
+  }
+  const withScript = parshiot.filter((p) => p.atightScript);
+  const thisWeek = withScript[0] ?? parshiot[0];
+  const recentFour = withScript.slice(0, 4);
+  const recentArticles = ARTICLES.slice(0, 3);
+
+  return (
+    <>
+      {/* HERO */}
+      <section className="hero stagger">
+        <div className="hero-text">
+          <div className="hero-kicker">
+            <span className="bar"></span>
+            Weekly teachings
+          </div>
+          <h1>
+            Where ancient wisdom <em>meets the body.</em>
+          </h1>
+          <p className="hero-body">
+            Torah Tai Chi fuses the weekly parsha with the internal arts — rooting, yielding,{" "}
+            <span className="ch">song 松</span> — to find the place where Jewish wisdom and the
+            body&apos;s intelligence say the same thing.
+          </p>
+          <div className="hero-cta">
+            {thisWeek && (
+              <Link href={`/videos/${thisWeek.slug}`} className="btn btn-primary">
+                Watch this week&apos;s teaching
+              </Link>
+            )}
+            {!thisWeek && (
+              <Link href="/videos" className="btn btn-primary">
+                Watch this week&apos;s teaching
+              </Link>
+            )}
+            <Link href="/videos" className="btn btn-ghost">
+              Explore all parshiot
+            </Link>
+          </div>
+        </div>
+
+        <div className="hero-video">
+          {thisWeek && (
+            <div className="video-parsha-tag">
+              This week: {thisWeek.name}{" "}
+              <span className="heb" lang="he" dir="rtl">
+                {thisWeek.hebrewName}
+              </span>
+            </div>
+          )}
+          <div className="video-frame">
+            <div className="play">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </div>
+            {thisWeek && (
+              <div className="vlabel">
+                {thisWeek.name} &mdash; {thisWeek.atightTitle ?? "~45s"}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* DIVIDER */}
+      <div className="divider">
+        <div className="divider-line"></div>
+        <div className="divider-text">
+          <span>
+            <span className="ch">松</span> rooted release, not collapse{" "}
+            <span className="ch">·</span> the craft compounds{" "}
+            <span className="ch">勁</span>
+          </span>
+        </div>
+      </div>
+
+      {/* RECENT VIDEOS */}
+      <section className="recent stagger">
+        <div className="section-head">
+          <h2>Recent teachings</h2>
+          <Link href="/videos" className="more">
+            All 52 parshiot →
+          </Link>
+        </div>
+        <div className="video-grid">
+          {recentFour.length > 0
+            ? recentFour.map((p) => (
+                <VideoCard
+                  key={p.slug}
+                  parsha={{
+                    name: p.name,
+                    slug: p.slug,
+                    bookShortName: BOOK_SHORT[p.book] ?? p.book,
+                    hebrewName: p.hebrewName,
+                    date: "",
+                    durationLabel: "0:45",
+                  }}
+                />
+              ))
+            : FALLBACK_PARSHIOT.map((p) => (
+                <Link key={p.slug} href={`/videos/${p.slug}`} className="v-card">
+                  <div className="thumb">
+                    <span className="dur">{p.dur}</span>
+                  </div>
+                  <div className="v-heb" lang="he" dir="rtl">{p.heb}</div>
+                  <div className="v-name">{p.name}</div>
+                  <div className="v-book">{p.book}</div>
+                </Link>
+              ))}
+        </div>
+      </section>
+
+      {/* RECENT ARTICLES */}
+      <section className="recent stagger" style={{ paddingTop: "88px" }}>
+        <div className="section-head">
+          <h2>From the writings</h2>
+          <Link href="/articles" className="more">
+            All articles →
+          </Link>
+        </div>
+        <div className="article-grid">
+          {recentArticles.map((a) => (
+            <ArticleCard key={a.slug} article={a} />
+          ))}
+        </div>
+      </section>
+
+      {/* ABOUT STRIP */}
+      <section className="about-strip stagger">
+        <div className="about-portrait">
+          <Brand size={140} />
+        </div>
+        <div className="about-body">
+          <h2>
+            The practice <em>between traditions.</em>
+          </h2>
+          <p>
+            Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts.
+            Each week&apos;s parsha carries a teaching about character, restraint, holiness — and each of
+            those teachings has a parallel in the body: rooting, yielding, releasing tension without
+            collapsing structure.
+          </p>
+          <p>
+            This is where they meet. A weekly practice. A breath. A teaching that lives in the spine
+            as much as the mind.
+          </p>
+        </div>
+      </section>
+    </>
+  );
+}
