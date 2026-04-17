@@ -1,0 +1,126 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout
+  title="About — Torah Tai Chi"
+  description="Torah Tai Chi is a weekly practice of meeting two traditions in one body."
+>
+
+<main class="about-wrap stagger">
+  <div class="about-kicker"><span class="bar"></span>About the practice</div>
+  <h1>Where two traditions <em>meet the body.</em></h1>
+  <p class="about-deck">A practice, not a product.</p>
+
+  <section class="about-section">
+    <h2>What Torah Tai Chi is</h2>
+    <p>Torah Tai Chi is a weekly practice of meeting two traditions in one body. Each week's parsha carries a teaching; each Chinese internal-arts principle carries a mirror image of that teaching in the language of rooting, yielding, and release.</p>
+    <p>The weekly parsha is not read as a lecture. It is read through the spine. <span class="ch">Song 松</span> becomes a frame for understanding <em>anavah</em>. <span class="ch">Zhan zhuang</span> becomes a frame for understanding <em>amidah</em>. Two old vocabularies, pointing at the same quiet center.</p>
+  </section>
+
+  <section class="about-section">
+    <h2>Why the body</h2>
+    <p>The body knows before the mind does. Torah Tai Chi reads the parsha through the spine, the breath, the soft-jaw moment before reaction. The traditions that have lasted longest agree on this, even when they disagree about almost everything else: wisdom lives below the neck.</p>
+    <p>The texts are luminous, and they deserve to be studied. But they were written for people with bodies — people who stood, who bowed, who walked, who breathed. To meet the text only with the mind is to meet half of it. The practice is to bring the other half back.</p>
+  </section>
+
+  <section class="about-section">
+    <h2>How it arrives</h2>
+    <p>Every week: a short teaching, and a breath to try. The teaching runs under a minute. It lands on Friday, in time for Shabbat. It asks nothing of you except your attention for the length of one exhale.</p>
+    <p>Occasionally: longer writings for those who want to sit with an idea. Essays, reflections, a teaching here and there — published when they are ready, not on a schedule. The short video is the weekly heartbeat. The writings are what happens between.</p>
+  </section>
+
+  <section class="about-section">
+    <h2>Where to find us</h2>
+    <ul class="social-list">
+      <li><a href="https://tiktok.com/@torahtaichi" target="_blank" rel="noopener">
+        <span class="si"><svg><use href="#icon-tiktok"/></svg></span>
+        <span class="sn">TikTok</span>
+        <span class="sh">@torahtaichi</span>
+      </a></li>
+      <li><a href="https://youtube.com/@torahtaichi" target="_blank" rel="noopener">
+        <span class="si"><svg><use href="#icon-youtube"/></svg></span>
+        <span class="sn">YouTube</span>
+        <span class="sh">@torahtaichi</span>
+      </a></li>
+      <li><a href="https://instagram.com/torahtaichi" target="_blank" rel="noopener">
+        <span class="si"><svg><use href="#icon-instagram"/></svg></span>
+        <span class="sn">Instagram</span>
+        <span class="sh">@torahtaichi</span>
+      </a></li>
+      <li><a href="https://facebook.com/torahtaichi" target="_blank" rel="noopener">
+        <span class="si"><svg><use href="#icon-facebook"/></svg></span>
+        <span class="sn">Facebook</span>
+        <span class="sh">/torahtaichi</span>
+      </a></li>
+    </ul>
+  </section>
+</main>
+
+<div class="bottom-mark">
+  <svg viewBox="0 0 120 120" aria-hidden="true"><use href="#ttc-mark"/></svg>
+</div>
+
+</Layout>
+
+<style>
+.about-wrap{max-width:680px;margin:0 auto;padding:56px 48px 0}
+@media(max-width:700px){.about-wrap{padding:40px 20px 0}}
+
+.about-kicker{
+  font-family:var(--ff-body);font-size:11px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--cedar-600);margin-bottom:18px;
+  display:flex;align-items:center;gap:10px;
+}
+.about-kicker .bar{width:28px;height:1px;background:var(--cedar-400)}
+
+.about-wrap h1{
+  font-family:var(--ff-display);font-weight:400;
+  font-size:clamp(36px,5.4vw,64px);line-height:1.02;
+  letter-spacing:-.03em;margin:0 0 16px 0;
+  color:var(--ink-900);
+  font-variation-settings:"opsz" 144,"SOFT" 25;
+}
+.about-wrap h1 em{font-style:italic;color:var(--cedar-600)}
+.about-deck{
+  font-family:var(--ff-reading);font-style:italic;
+  font-size:20px;line-height:1.45;color:var(--ink-500);
+  margin:0 0 48px 0;
+}
+
+.about-section{margin-top:48px}
+.about-section:first-of-type{margin-top:0}
+.about-section h2{
+  font-family:var(--ff-display);font-weight:500;
+  font-size:22px;letter-spacing:-.01em;
+  margin:0 0 16px 0;color:var(--ink-900);
+}
+.about-section p{
+  font-family:var(--ff-reading);font-size:19px;line-height:1.65;
+  color:var(--ink-700);margin:0 0 20px 0;
+}
+.about-section p .ch{font-style:normal;color:var(--cedar-600);margin:0 2px}
+
+.social-list{list-style:none;padding:0;margin:8px 0 0 0;display:flex;flex-direction:column;gap:2px}
+.social-list a{
+  display:flex;align-items:center;gap:16px;
+  padding:16px 4px;min-height:48px;
+  border-bottom:1px solid var(--ink-100);
+  text-decoration:none;color:var(--ink-700);
+  transition:all var(--trans);
+}
+.social-list a:hover{color:var(--cedar-700);padding-left:12px}
+.social-list a:last-child{border-bottom:none}
+.social-list .si{
+  width:36px;height:36px;border-radius:50%;
+  background:var(--linen-100);color:var(--ink-700);
+  display:grid;place-items:center;flex-shrink:0;
+  transition:all var(--trans);
+}
+.social-list .si svg{width:16px;height:16px}
+.social-list a:hover .si{background:var(--cedar-100);color:var(--cedar-700)}
+.social-list .sn{font-family:var(--ff-display);font-weight:500;font-size:18px}
+.social-list .sh{margin-left:auto;font-family:var(--ff-body);font-size:13px;color:var(--ink-400)}
+
+.bottom-mark{display:flex;justify-content:center;margin:80px auto 0;padding:0 48px}
+.bottom-mark svg{width:72px;height:72px;opacity:.7}
+</style>
