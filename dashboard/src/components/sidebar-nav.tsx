@@ -4,13 +4,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const NAV_ITEMS = [
-  { href: '/',           label: 'Today',     meta: 'now' },
-  { href: '/calendar',   label: 'Calendar',  meta: '4 ahead' },
-  { href: '/videos',     label: 'Videos',    meta: '52' },
-  { href: '/articles',   label: 'Articles',  meta: 'soon' },
-  { href: '/channels',   label: 'Channels',  meta: '4 / 5' },
-  { href: '/analytics',  label: 'Analytics', meta: '' },
-  { href: '/settings',   label: 'Settings',  meta: '' },
+  { href: '/',              label: 'Today',        meta: 'now' },
+  { href: '/calendar',      label: 'Calendar',     meta: '4 ahead' },
+  { href: '/videos',        label: 'Videos',       meta: '52' },
+  { href: '/articles',      label: 'Articles',     meta: '' },
+  { href: '/site-content',  label: 'Site content', meta: '' },
+  { href: '/channels',      label: 'Channels',     meta: '4 / 5' },
+  { href: '/analytics',     label: 'Analytics',    meta: '' },
+  { href: '/settings',      label: 'Settings',     meta: '' },
 ];
 
 const MOBILE_ITEMS = [

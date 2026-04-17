@@ -35,7 +35,7 @@ export function ParshaPicker({ parshiot }: { parshiot: Parsha[] }) {
     <div className="space-y-4 rounded-lg border bg-white p-4 shadow-sm">
       <div className="space-y-2">
         <label className="text-sm font-medium">Parsha</label>
-        <Select value={parshaId} onValueChange={v => { setParshaId(v); setScriptId(''); }}>
+        <Select value={parshaId} onValueChange={v => { setParshaId(v ?? ''); setScriptId(''); }}>
           <SelectTrigger><SelectValue placeholder="Choose parsha" /></SelectTrigger>
           <SelectContent>
             {parshiot.map(p => (
@@ -50,7 +50,7 @@ export function ParshaPicker({ parshiot }: { parshiot: Parsha[] }) {
       {selectedParsha && (
         <div className="space-y-2">
           <label className="text-sm font-medium">Script option</label>
-          <Select value={scriptId} onValueChange={setScriptId}>
+          <Select value={scriptId} onValueChange={v => setScriptId(v ?? '')}>
             <SelectTrigger><SelectValue placeholder="Choose script" /></SelectTrigger>
             <SelectContent>
               {selectedParsha.scripts.map(s => (

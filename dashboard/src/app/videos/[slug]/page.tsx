@@ -32,12 +32,6 @@ async function getParsha(slug: string): Promise<Parsha | null> {
   return data as Parsha;
 }
 
-export async function generateStaticParams() {
-  const supabase = await createClient();
-  const { data } = await supabase.from('parshiot').select('slug');
-  return (data ?? []).map((p: { slug: string }) => ({ slug: p.slug }));
-}
-
 interface PageProps {
   params: Promise<{ slug: string }>;
 }
