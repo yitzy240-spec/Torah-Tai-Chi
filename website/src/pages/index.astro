@@ -1,0 +1,224 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { getAllParshiot } from '../lib/parshiot';
+import { articles } from '../data/articles';
+
+const allParshiot = await getAllParshiot();
+const thisWeek = allParshiot[0] ?? null;
+const recentFour = allParshiot.slice(0, 4);
+const recentArticles = articles.slice(0, 3);
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+}
+---
+<Layout
+  title="Torah Tai Chi — Where Ancient Wisdom Meets the Body"
+  description="Weekly teachings fusing Torah wisdom with tai chi philosophy."
+>
+
+<section class="hero stagger">
+  <div class="hero-text">
+    <div class="hero-kicker"><span class="bar"></span>Weekly teachings</div>
+    <h1>Where ancient wisdom <em>meets the body.</em></h1>
+    <p class="hero-body">
+      Torah Tai Chi fuses the weekly parsha with the internal arts — rooting, yielding, <span class="ch">song 松</span> — to find the place where Jewish wisdom and the body's intelligence say the same thing.
+    </p>
+    <div class="hero-cta">
+      {thisWeek && (
+        <a href={`/videos/${thisWeek.slug}`} class="btn btn-primary">Watch this week's teaching</a>
+      )}
+      <a href="/videos" class="btn btn-ghost">Explore all parshiot</a>
+    </div>
+  </div>
+
+  <div class="hero-video">
+    {thisWeek && (
+      <div class="video-parsha-tag">
+        This week: {thisWeek.name}
+        {thisWeek.hebrewName && (
+          <span class="heb" lang="he" dir="rtl">{thisWeek.hebrewName}</span>
+        )}
+      </div>
+    )}
+    <div class="video-frame">
+      <div class="play">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </div>
+      {thisWeek && <div class="vlabel">{thisWeek.name} — 48s</div>}
+    </div>
+  </div>
+</section>
+
+<div class="divider">
+  <div class="divider-line"></div>
+  <div class="divider-text"><span><span class="ch">松</span> rooted release, not collapse <span class="ch">·</span> the craft compounds <span class="ch">勁</span></span></div>
+</div>
+
+<section class="recent stagger">
+  <div class="section-head">
+    <h2>Recent teachings</h2>
+    <a href="/videos" class="more">All 52 parshiot →</a>
+  </div>
+  <div class="video-grid">
+    {recentFour.map(p => (
+      <a href={`/videos/${p.slug}`} class="v-card">
+        <div class="thumb"><span class="dur">0:48</span></div>
+        {p.hebrewName && <div class="v-heb" lang="he" dir="rtl">{p.hebrewName}</div>}
+        <div class="v-name">{p.name}</div>
+        <div class="v-book">{p.book}</div>
+      </a>
+    ))}
+  </div>
+</section>
+
+<section class="recent stagger" style="padding-top:88px">
+  <div class="section-head">
+    <h2>From the writings</h2>
+    <a href="/articles" class="more">All articles →</a>
+  </div>
+  <div class="article-grid">
+    {recentArticles.map(a => (
+      <a href={`/articles/${a.slug}`} class="a-card">
+        <div class="a-tag">{a.category}</div>
+        <h3 class="a-title">{a.title}</h3>
+        <p class="a-excerpt">{a.excerpt}</p>
+        <div class="a-meta">{formatDate(a.date)} · {a.readMinutes} min read</div>
+      </a>
+    ))}
+  </div>
+</section>
+
+<section class="about-strip stagger">
+  <div class="about-portrait">
+    <svg viewBox="0 0 120 120" aria-hidden="true"><use href="#ttc-mark"/></svg>
+  </div>
+  <div class="about-body">
+    <h2>The practice <em>between traditions.</em></h2>
+    <p>
+      Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts. Each week's parsha carries a teaching about character, restraint, holiness — and each of those teachings has a parallel in the body: rooting, yielding, releasing tension without collapsing structure.
+    </p>
+    <p>
+      This is where they meet. A weekly practice. A breath. A teaching that lives in the spine as much as the mind.
+    </p>
+  </div>
+</section>
+
+</Layout>
+
+<style>
+.hero {
+  max-width:1400px;margin:0 auto;
+  padding:40px 48px 0;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:64px;
+  align-items:center;
+  min-height:min(80vh,700px);
+}
+@media(max-width:900px){
+  .hero{grid-template-columns:1fr;gap:40px;padding:32px 20px 0;min-height:auto}
+}
+.hero-text{max-width:560px}
+.hero-kicker{
+  font-family:var(--ff-body);font-size:11px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--cedar-600);margin-bottom:20px;
+  display:flex;align-items:center;gap:10px;
+}
+.hero-kicker .bar{width:28px;height:1px;background:var(--cedar-400)}
+.hero h1{
+  font-family:var(--ff-display);font-weight:400;
+  font-size:clamp(42px,6vw,76px);line-height:.98;
+  letter-spacing:-.035em;margin:0 0 28px 0;
+  color:var(--ink-900);
+  font-variation-settings:"opsz" 144,"SOFT" 20;
+}
+.hero h1 em{
+  font-style:italic;color:var(--cedar-600);
+  font-variation-settings:"opsz" 144,"SOFT" 70;
+  display:block;margin-top:4px;
+}
+.hero-body{
+  font-family:var(--ff-reading);font-size:19px;line-height:1.6;
+  color:var(--ink-700);max-width:44ch;margin:0 0 36px 0;
+  font-variation-settings:"opsz" 18,"SOFT" 40;
+}
+.hero-body .ch{font-style:italic;color:var(--cedar-600)}
+.hero-cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.hero-video{position:relative;display:flex;justify-content:center;align-items:center}
+.video-frame{
+  width:min(320px,100%);
+  aspect-ratio:9/16;
+  background:var(--ink-900);
+  border-radius:var(--r-xl);
+  overflow:hidden;
+  box-shadow:0 2px 0 rgba(35,27,16,.06),0 40px 80px -40px rgba(35,27,16,.35),0 0 0 1px rgba(35,27,16,.08);
+  display:flex;align-items:center;justify-content:center;
+  position:relative;
+}
+.video-frame .play{
+  width:64px;height:64px;border-radius:50%;
+  background:rgba(250,244,232,.15);backdrop-filter:blur(6px);
+  display:grid;place-items:center;cursor:pointer;
+  transition:all var(--trans);
+}
+.video-frame .play:hover{background:rgba(250,244,232,.25);transform:scale(1.06)}
+.video-frame .play svg{width:28px;height:28px;color:var(--linen-50);margin-left:3px}
+.video-frame .vlabel{
+  position:absolute;bottom:16px;left:16px;right:16px;
+  font-family:var(--ff-display);font-style:italic;font-size:13px;
+  color:rgba(250,244,232,.6);
+}
+.video-parsha-tag{
+  position:absolute;top:-12px;left:50%;transform:translateX(-50%);
+  background:var(--linen-50);border:1px solid var(--ink-200);
+  padding:6px 18px;border-radius:999px;white-space:nowrap;
+  font-family:var(--ff-display);font-size:12px;font-weight:500;
+  color:var(--ink-900);letter-spacing:.02em;
+  box-shadow:0 2px 8px -4px rgba(35,27,16,.12);
+}
+.video-parsha-tag .heb{font-family:var(--ff-hebrew);color:var(--ink-500);margin-left:8px}
+@media(max-width:900px){.hero-video{order:-1}.video-frame{width:min(260px,70vw)}}
+
+.divider{max-width:1400px;margin:80px auto 0;padding:0 48px}
+@media(max-width:700px){.divider{padding:0 20px;margin-top:56px}}
+.divider-line{height:1px;background:linear-gradient(90deg,transparent 0%,var(--ink-200) 20%,var(--ink-200) 80%,transparent 100%)}
+.divider-text{
+  text-align:center;margin-top:-10px;
+  font-family:var(--ff-display);font-style:italic;
+  font-size:13px;color:var(--ink-400);
+}
+.divider-text span{background:var(--linen-50);padding:0 16px}
+.divider-text .ch{font-style:normal;color:var(--cedar-500);margin:0 6px}
+
+.recent{max-width:1400px;margin:0 auto;padding:72px 48px 0}
+@media(max-width:700px){.recent{padding:48px 20px 0}}
+.video-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px}
+@media(max-width:1000px){.video-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.video-grid{grid-template-columns:1fr 1fr;gap:14px}}
+.article-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+@media(max-width:900px){.article-grid{grid-template-columns:1fr}}
+
+.about-strip{
+  max-width:1400px;margin:0 auto;
+  padding:96px 48px 0;
+  display:grid;grid-template-columns:auto 1fr;
+  gap:56px;align-items:start;
+}
+@media(max-width:900px){.about-strip{grid-template-columns:1fr;gap:32px;padding:64px 20px 0}}
+.about-portrait{width:160px;height:160px;flex-shrink:0;display:grid;place-items:center}
+.about-portrait svg{width:140px;height:140px}
+@media(max-width:900px){.about-portrait{width:120px;height:120px;margin:0 auto}.about-portrait svg{width:100px;height:100px}}
+.about-body{max-width:56ch}
+.about-body h2{
+  font-family:var(--ff-display);font-weight:400;
+  font-size:clamp(28px,4vw,42px);letter-spacing:-.02em;
+  margin:0 0 20px 0;color:var(--ink-900);
+  font-variation-settings:"opsz" 48,"SOFT" 30;
+}
+.about-body h2 em{font-style:italic;color:var(--cedar-600)}
+.about-body p{
+  font-family:var(--ff-reading);font-size:17px;line-height:1.65;
+  color:var(--ink-700);margin:0 0 18px 0;
+}
+</style>
