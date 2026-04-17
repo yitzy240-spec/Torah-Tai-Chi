@@ -7,15 +7,13 @@ interface Script {
   id: string;
   option: string;
   title: string | null;
-  body: string | null;
-  word_count: number | null;
+  draft_text: string | null;
 }
 
 interface Parsha {
   id: string;
   order: number;
   name: string;
-  name_hebrew: string | null;
   book: string;
   slug: string;
   scripts: Script[];
@@ -25,7 +23,7 @@ async function getNextParsha(): Promise<Parsha | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('parshiot')
-    .select('id, order, name, name_hebrew, book, slug, scripts(id, option, title, body, word_count)')
+    .select('id, order, name, book, slug, scripts(id, option, title, draft_text)')
     .order('order')
     .limit(1)
     .single();
@@ -37,8 +35,8 @@ async function getNextParsha(): Promise<Parsha | null> {
 export default async function TodayPage() {
   const parsha = await getNextParsha();
 
-  // Get the A-tight script if available
-  const aTightScript = parsha?.scripts?.find((s) => s.option === 'a-tight' || s.option === 'a_tight') ?? parsha?.scripts?.[0] ?? null;
+  // Get the A-tight script if available (option names from seed: 'a-tight', 'b-loose', 'c-hebrew')
+  const aTightScript = parsha?.scripts?.find((s) => s.option === 'a-tight') ?? parsha?.scripts?.[0] ?? null;
 
   return (
     <>
@@ -83,26 +81,7 @@ export default async function TodayPage() {
                 borderBottom: '1px solid var(--ink-100)',
               }}
             >
-              {parsha?.name_hebrew ? (
-                <div
-                  lang="he"
-                  dir="rtl"
-                  style={{
-                    fontFamily: 'var(--ff-hebrew)',
-                    fontSize: 'clamp(30px, 4vw, 46px)',
-                    fontWeight: 400,
-                    color: 'var(--ink-700)',
-                    letterSpacing: 0,
-                    lineHeight: 1,
-                    marginBottom: '20px',
-                    textAlign: 'right',
-                    direction: 'rtl',
-                  }}
-                >
-                  {parsha.name_hebrew}
-                </div>
-              ) : (
-                <div
+              <div
                   lang="he"
                   dir="rtl"
                   style={{
@@ -118,7 +97,6 @@ export default async function TodayPage() {
                 >
                   פרשת קדושים
                 </div>
-              )}
 
               <div
                 style={{
@@ -162,8 +140,7 @@ export default async function TodayPage() {
                   fontVariationSettings: '"opsz" 16, "SOFT" 50',
                 }}
               >
-                Shabbat April 25 · script A-tight
-                {aTightScript?.word_count ? `, ${aTightScript.word_count} words` : ', 108 words'}
+                Shabbat April 25 · script A-tight, 108 words
               </div>
             </header>
 
@@ -180,9 +157,9 @@ export default async function TodayPage() {
                 fontVariationSettings: '"opsz" 18, "SOFT" 30',
               }}
             >
-              {aTightScript?.body ? (
+              {aTightScript?.draft_text ? (
                 <div>
-                  <p style={{ margin: '0 0 22px 0' }}>{aTightScript.body}</p>
+                  <p style={{ margin: '0 0 22px 0' }}>{aTightScript.draft_text}</p>
                 </div>
               ) : (
                 <>
