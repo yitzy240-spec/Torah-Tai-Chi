@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.local.example
 node_modules/
 dist/
 .DS_Store
@@ -34,3 +35,8 @@ references/_canonical/rav_eli_sruga-*-var-*.png
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Website build artifacts
+website/node_modules/
+website/dist/
+website/.env.local
