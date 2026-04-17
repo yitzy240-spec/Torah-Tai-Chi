@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Articles — Torah Tai Chi</title>
+<meta name="description" content="Reflections on where wisdom lives in the body. Long-form essays, teachings, and reflections.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Mona+Sans:ital,wght@0,200..900;1,200..900&family=Frank+Ruhl+Libre:wght@300..900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --linen-50:#FAF4E8;--linen-100:#F3EAD5;--linen-200:#E9DDC1;
+    --cedar-900:#3D2A14;--cedar-700:#6A4622;--cedar-600:#8A5B2B;--cedar-500:#A8722F;--cedar-400:#C89256;--cedar-300:#DDB07E;--cedar-100:#F0DFC1;
+    --ink-900:#231B10;--ink-800:#3A2E1E;--ink-700:#4E3E29;--ink-500:#6F5E44;--ink-400:#8C7D64;--ink-300:#B0A287;--ink-200:#D2C5A9;--ink-100:#E6DCC4;
+    --navy-900:#131E38;--navy-800:#1F2C4B;--navy-700:#2B3A5C;--navy-500:#475E8C;--navy-300:#8195BA;--navy-100:#D6DDE9;
+    --brass:#9E7A3A;--tassel:#B23A2B;--jade:#5A6E3D;
+    --ff-display:"Fraunces","Iowan Old Style",Georgia,serif;
+    --ff-body:"Mona Sans",ui-sans-serif,system-ui,sans-serif;
+    --ff-hebrew:"Frank Ruhl Libre","Fraunces",serif;
+    --ff-reading:"Fraunces","Iowan Old Style",Georgia,serif;
+    --r-md:8px;--r-lg:14px;--r-xl:22px;
+    --trans:280ms cubic-bezier(.4,0,.2,1);
+  }
+  *,*::before,*::after{box-sizing:border-box}html,body{margin:0;padding:0}
+  body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;color:var(--ink-900);background:var(--linen-50);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+
+  /* ===== NAV ===== */
+  .site-nav{display:flex;align-items:center;justify-content:space-between;padding:20px 48px;max-width:1400px;margin:0 auto;position:relative;z-index:10}
+  @media(max-width:700px){.site-nav{padding:16px 20px}}
+  .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink-900)}
+  .nav-brand svg{width:32px;height:32px;flex-shrink:0}
+  .nav-brand span{font-family:var(--ff-display);font-weight:500;font-size:15px;letter-spacing:-.003em}
+  .nav-links{display:flex;align-items:center;gap:32px}
+  @media(max-width:700px){.nav-links{gap:20px}}
+  .nav-links a{font-family:var(--ff-body);font-size:14px;color:var(--ink-500);text-decoration:none;letter-spacing:.01em;transition:color var(--trans);padding:4px 0}
+  .nav-links a:hover{color:var(--ink-900)}
+  .nav-links a.active{color:var(--ink-900);font-weight:500}
+  .nav-socials{display:flex;gap:16px;align-items:center;margin-left:24px;padding-left:24px;border-left:1px solid var(--ink-200)}
+  @media(max-width:700px){.nav-socials{display:none}}
+  .nav-socials a{color:var(--ink-300);transition:color var(--trans);display:flex}
+  .nav-socials a:hover{color:var(--ink-900)}
+  .nav-socials a svg{width:18px;height:18px}
+
+  /* ===== PAGE HEADER ===== */
+  .page-header{max-width:720px;margin:0 auto;padding:56px 48px 0;text-align:center}
+  @media(max-width:700px){.page-header{padding:40px 20px 0}}
+  .page-kicker{font-family:var(--ff-body);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cedar-600);margin-bottom:16px}
+  .page-header h1{font-family:var(--ff-display);font-weight:400;font-size:clamp(36px,5vw,60px);line-height:1.05;letter-spacing:-.03em;margin:0 0 16px 0;color:var(--ink-900);font-variation-settings:"opsz" 144,"SOFT" 20}
+  .page-subtitle{font-family:var(--ff-reading);font-style:italic;font-size:18px;line-height:1.5;color:var(--ink-500);max-width:52ch;margin:0 auto;font-variation-settings:"opsz" 18,"SOFT" 50}
+
+  /* ===== ARTICLE LIST ===== */
+  .articles-section{max-width:720px;margin:0 auto;padding:56px 48px 0}
+  @media(max-width:700px){.articles-section{padding:40px 20px 0}}
+
+  .article-entry{
+    display:block;padding:32px 0;
+    border-bottom:1px solid var(--ink-100);
+    text-decoration:none;color:inherit;
+    transition:all var(--trans);
+  }
+  .article-entry:first-child{padding-top:0}
+  .article-entry:last-child{border-bottom:none}
+  .article-entry:hover .ae-title{color:var(--cedar-700)}
+  .ae-tag{
+    font-family:var(--ff-body);font-size:10.5px;
+    letter-spacing:.16em;text-transform:uppercase;
+    color:var(--cedar-600);font-weight:500;
+    margin-bottom:10px;display:block;
+  }
+  .ae-title{
+    font-family:var(--ff-display);font-weight:500;
+    font-size:clamp(24px,3vw,30px);line-height:1.2;
+    letter-spacing:-.015em;margin:0 0 10px 0;
+    color:var(--ink-900);transition:color var(--trans);
+    font-variation-settings:"opsz" 36,"SOFT" 30;
+  }
+  .ae-excerpt{
+    font-family:var(--ff-reading);font-size:17px;line-height:1.55;
+    color:var(--ink-500);margin:0 0 14px 0;
+    font-variation-settings:"opsz" 18,"SOFT" 40;
+    display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .ae-meta{
+    font-family:var(--ff-display);font-style:italic;
+    font-size:13px;color:var(--ink-400);
+    font-variation-settings:"opsz" 14,"SOFT" 50;
+  }
+
+  /* ===== FOOTER ===== */
+  .site-footer{max-width:1400px;margin:96px auto 0;padding:36px 48px 48px;border-top:1px solid var(--ink-100);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px}
+  @media(max-width:700px){.site-footer{padding:28px 20px 36px;flex-direction:column;align-items:flex-start}}
+  .footer-brand{font-family:var(--ff-display);font-size:13px;color:var(--ink-400);font-style:italic;font-variation-settings:"opsz" 14,"SOFT" 60}
+  .footer-links{display:flex;gap:24px;align-items:center}
+  .footer-links a{font-size:13px;color:var(--ink-400);text-decoration:none;transition:color var(--trans)}
+  .footer-links a:hover{color:var(--ink-900)}
+  .footer-socials{display:flex;gap:14px}
+  .footer-socials a{color:var(--ink-300);transition:color var(--trans);display:flex}
+  .footer-socials a:hover{color:var(--ink-900)}
+  .footer-socials a svg{width:18px;height:18px}
+
+  /* ===== STAGGER ===== */
+  .stagger > *{opacity:0;transform:translateY(12px);animation:rise 700ms cubic-bezier(.4,0,.2,1) forwards}
+  .stagger > *:nth-child(1){animation-delay:60ms}
+  .stagger > *:nth-child(2){animation-delay:140ms}
+  .stagger > *:nth-child(3){animation-delay:220ms}
+  .stagger > *:nth-child(4){animation-delay:300ms}
+  .stagger > *:nth-child(5){animation-delay:380ms}
+  .stagger > *:nth-child(6){animation-delay:460ms}
+  .stagger > *:nth-child(7){animation-delay:540ms}
+  .stagger > *:nth-child(8){animation-delay:620ms}
+  @keyframes rise{to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<!-- Platform icon defs -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="icon-tiktok" viewBox="0 0 24 24"><path fill="currentColor" d="M16.6 5.82A4.28 4.28 0 0 1 15.54 2h-3.13v12.4a2.59 2.59 0 0 1-2.59 2.5 2.59 2.59 0 0 1-2.58-2.6 2.6 2.6 0 0 1 2.59-2.59c.28 0 .55.05.8.13V8.77a5.69 5.69 0 0 0-.8-.06 5.72 5.72 0 0 0-5.73 5.72 5.72 5.72 0 0 0 5.73 5.72 5.72 5.72 0 0 0 5.72-5.72V8.7a7.33 7.33 0 0 0 4.28 1.37V7a4.28 4.28 0 0 1-3.23-1.18z"/></symbol>
+    <symbol id="icon-youtube" viewBox="0 0 24 24"><path fill="currentColor" d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14c1.88.55 9.38.55 9.38.55s7.5 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81zM9.55 15.57V8.43L15.82 12l-6.27 3.57z"/></symbol>
+    <symbol id="icon-instagram" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.97.24 2.44.41a4.08 4.08 0 0 1 2.51 2.51c.17.47.36 1.27.41 2.44.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.24 1.97-.41 2.44a4.37 4.37 0 0 1-2.51 2.51c-.47.17-1.27.36-2.44.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.97-.24-2.44-.41a4.37 4.37 0 0 1-2.51-2.51c-.17-.47-.36-1.27-.41-2.44C2.17 15.58 2.16 15.2 2.16 12s.01-3.58.07-4.85c.05-1.17.24-1.97.41-2.44a4.37 4.37 0 0 1 2.51-2.51c.47-.17 1.27-.36 2.44-.41C8.42 2.17 8.8 2.16 12 2.16M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63a6.5 6.5 0 0 0-3.51 3.51C.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91a6.5 6.5 0 0 0 3.51 3.51c.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56a6.5 6.5 0 0 0 3.51-3.51c.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91a6.5 6.5 0 0 0-3.51-3.51C19.1.33 18.22.13 16.95.07 15.67.01 15.26 0 12 0zm0 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.41-11.85a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></symbol>
+    <symbol id="icon-facebook" viewBox="0 0 24 24"><path fill="currentColor" d="M24 12.07C24 5.41 18.63 0 12 0S0 5.41 0 12.07c0 6.02 4.39 11.02 10.13 11.93v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.33l-.53 3.49h-2.8v8.44C19.61 23.09 24 18.09 24 12.07z"/></symbol>
+
+    <!-- Brand mark -->
+    <radialGradient id="cedarWood" cx="35%" cy="30%" r="80%"><stop offset="0%" stop-color="#E3B888"/><stop offset="45%" stop-color="#B8823A"/><stop offset="100%" stop-color="#6A4622"/></radialGradient>
+    <radialGradient id="linenLobe" cx="40%" cy="35%" r="80%"><stop offset="0%" stop-color="#FAF4E8"/><stop offset="100%" stop-color="#E9DDC1"/></radialGradient>
+    <radialGradient id="navyLobe" cx="60%" cy="60%" r="80%"><stop offset="0%" stop-color="#2B3A5C"/><stop offset="100%" stop-color="#131E38"/></radialGradient>
+    <g id="ttc-mark">
+      <circle cx="60" cy="60" r="42" fill="url(#cedarWood)" stroke="#3D2A14" stroke-width=".8"/>
+      <circle cx="60" cy="60" r="34" fill="none" stroke="#3D2A14" stroke-width=".4" opacity=".5"/>
+      <g transform="translate(60 60)"><circle r="28" fill="url(#linenLobe)"/>
+        <path d="M 0,-28 A 28,28 0 0,0 0,28 A 14,14 0 0,1 0,0 A 14,14 0 0,0 0,-28 Z" fill="url(#navyLobe)"/>
+        <circle cx="0" cy="-14" r="3.2" fill="#FAF4E8"/><circle cx="0" cy="14" r="3.2" fill="#2B3A5C"/>
+        <g transform="translate(0,-14) scale(.55)"><polygon points="0,-8 6.93,4 -6.93,4" fill="none" stroke="#9E7A3A" stroke-width="1.2"/><polygon points="0,8 6.93,-4 -6.93,-4" fill="none" stroke="#9E7A3A" stroke-width="1.2"/></g>
+      </g>
+      <defs><path id="arcTop" d="M 18,60 A 42,42 0 0,1 102,60"/></defs>
+      <text font-family="Fraunces,serif" font-size="9" font-weight="600" letter-spacing="3" fill="#3D2A14"><textPath href="#arcTop" startOffset="50%" text-anchor="middle">TORAH</textPath></text>
+      <text x="60" y="108" font-family="Fraunces,serif" font-size="8" font-weight="600" letter-spacing="3" fill="#3D2A14" text-anchor="middle">TAI CHI</text>
+    </g>
+  </defs>
+</svg>
+
+<!-- ===== NAV ===== -->
+<nav class="site-nav">
+  <a href="website-home.html" class="nav-brand">
+    <svg viewBox="0 0 120 120" aria-hidden="true"><use href="#ttc-mark"/></svg>
+    <span>Torah Tai Chi</span>
+  </a>
+  <div style="display:flex;align-items:center">
+    <div class="nav-links">
+      <a href="website-home.html">Home</a>
+      <a href="website-videos.html">Videos</a>
+      <a href="website-articles.html" class="active">Articles</a>
+      <a href="website-about.html">About</a>
+    </div>
+    <div class="nav-socials">
+      <a href="#" title="TikTok"><svg><use href="#icon-tiktok"/></svg></a>
+      <a href="#" title="YouTube"><svg><use href="#icon-youtube"/></svg></a>
+      <a href="#" title="Instagram"><svg><use href="#icon-instagram"/></svg></a>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== PAGE HEADER ===== -->
+<header class="page-header stagger">
+  <div class="page-kicker">THE WRITINGS</div>
+  <h1>From the writings</h1>
+  <p class="page-subtitle"><em>Reflections on where wisdom lives in the body.</em></p>
+</header>
+
+<!-- ===== ARTICLES LIST ===== -->
+<section class="articles-section stagger">
+  <a href="website-article-detail.html" class="article-entry">
+    <span class="ae-tag">Essay</span>
+    <h2 class="ae-title">Why the Body Knows Before the Mind</h2>
+    <p class="ae-excerpt">There's a moment before you react. A breath. That breath is where Torah and tai chi speak the same sentence, long before the mind has time to form a word about it.</p>
+    <div class="ae-meta">April 12 · 6 min read</div>
+  </a>
+
+  <a href="website-article-detail.html" class="article-entry">
+    <span class="ae-tag">Teaching</span>
+    <h2 class="ae-title">Song and Anavah: The Shared Root of Release</h2>
+    <p class="ae-excerpt">The Chinese concept of <em>song</em> — deep, conscious release without collapse — maps almost perfectly onto the Jewish middah of anavah. Both describe a structure that yields without losing itself.</p>
+    <div class="ae-meta">April 4 · 8 min read</div>
+  </a>
+
+  <a href="website-article-detail.html" class="article-entry">
+    <span class="ae-tag">Reflection</span>
+    <h2 class="ae-title">What Shabbat Taught About Stillness in Motion</h2>
+    <p class="ae-excerpt">Rest is not the absence of movement. It is movement arriving where it was always headed. The standing forms of tai chi and the rhythm of the seventh day describe the same quiet arrival.</p>
+    <div class="ae-meta">March 28 · 5 min read</div>
+  </a>
+
+  <a href="website-article-detail.html" class="article-entry">
+    <span class="ae-tag">Essay</span>
+    <h2 class="ae-title">The Soft-Jaw Moment Before Reaction</h2>
+    <p class="ae-excerpt">There is a particular softening of the jaw that happens before a wise response. Both the Sages and the tai chi masters have been pointing at it for millennia, in different languages.</p>
+    <div class="ae-meta">March 21 · 7 min read</div>
+  </a>
+
+  <a href="website-article-detail.html" class="article-entry">
+    <span class="ae-tag">Teaching</span>
+    <h2 class="ae-title">Rooting: What the Patriarchs Knew About Standing</h2>
+    <p class="ae-excerpt">Abraham stood. Isaac stood. Jacob stood. In each case the Torah uses a verb that does not only mean upright — it means rooted, sunk, present at the feet. The internal arts would recognize this posture instantly.</p>
+    <div class="ae-meta">March 14 · 9 min read</div>
+  </a>
+
+  <a href="website-article-detail.html" class="article-entry">
+    <span class="ae-tag">Reflection</span>
+    <h2 class="ae-title">Breath as the First Blessing</h2>
+    <p class="ae-excerpt">The word <em>neshama</em> — soul — shares its root with breath. Long before language, before thought, before prayer, there is the inhale. It may be the oldest teaching either tradition carries.</p>
+    <div class="ae-meta">March 7 · 5 min read</div>
+  </a>
+
+  <a href="website-article-detail.html" class="article-entry">
+    <span class="ae-tag">Essay</span>
+    <h2 class="ae-title">Yielding Is Not Surrender</h2>
+    <p class="ae-excerpt">Push hands teaches a distinction the dominant culture keeps missing: the difference between giving way and giving up. The parsha of Vayishlach carries the same teaching, held in Jacob's hip.</p>
+    <div class="ae-meta">February 28 · 6 min read</div>
+  </a>
+
+  <a href="website-article-detail.html" class="article-entry">
+    <span class="ae-tag">Teaching</span>
+    <h2 class="ae-title">Na'aseh V'Nishma: Action Before Understanding</h2>
+    <p class="ae-excerpt">At Sinai the people said <em>we will do, and then we will hear</em>. The sequence is strange unless you have practiced a form for years. The body learns first. The understanding arrives after.</p>
+    <div class="ae-meta">February 21 · 8 min read</div>
+  </a>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer class="site-footer">
+  <div class="footer-brand">&copy; 2026 Torah Tai Chi &middot; torahtaichi.com</div>
+  <div class="footer-links">
+    <a href="website-videos.html">Videos</a>
+    <a href="website-articles.html">Articles</a>
+    <a href="website-about.html">About</a>
+  </div>
+  <div class="footer-socials">
+    <a href="#" title="TikTok"><svg><use href="#icon-tiktok"/></svg></a>
+    <a href="#" title="YouTube"><svg><use href="#icon-youtube"/></svg></a>
+    <a href="#" title="Instagram"><svg><use href="#icon-instagram"/></svg></a>
+    <a href="#" title="Facebook"><svg><use href="#icon-facebook"/></svg></a>
+  </div>
+</footer>
+
+</body>
+</html>

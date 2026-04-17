@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Torah Tai Chi — Channels</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Mona+Sans:ital,wght@0,200..900;1,200..900&family=Frank+Ruhl+Libre:wght@300..900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --linen-50:  #FAF4E8; --linen-100: #F3EAD5; --linen-200: #E9DDC1;
+    --cedar-900: #3D2A14; --cedar-700: #6A4622; --cedar-600: #8A5B2B; --cedar-500: #A8722F; --cedar-400: #C89256; --cedar-300: #DDB07E; --cedar-100: #F0DFC1;
+    --ink-900: #231B10; --ink-800: #3A2E1E; --ink-700: #4E3E29; --ink-500: #6F5E44; --ink-400: #8C7D64; --ink-300: #B0A287; --ink-200: #D2C5A9; --ink-100: #E6DCC4;
+    --navy-900: #131E38; --navy-800: #1F2C4B; --navy-700: #2B3A5C; --navy-500: #475E8C; --navy-300: #8195BA; --navy-100: #D6DDE9; --navy-wash: #E8ECF3;
+    --brass: #9E7A3A; --tassel: #B23A2B; --jade: #5A6E3D;
+    --ff-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --ff-body: "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+    --ff-hebrew: "Frank Ruhl Libre", "Fraunces", serif;
+    --ff-reading: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --r-sm: 4px; --r-md: 8px; --r-lg: 14px; --r-xl: 22px;
+    --shadow-quiet: 0 1px 0 0 rgba(35,27,16,.04), 0 1px 2px 0 rgba(35,27,16,.04);
+    --shadow-page: 0 1px 0 0 rgba(35,27,16,.05), 0 30px 60px -40px rgba(35,27,16,.22);
+    --trans: 280ms cubic-bezier(.4,0,.2,1);
+    --trans-slow: 520ms cubic-bezier(.4,0,.2,1);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--ff-body); font-weight: 400; font-size: 15px; line-height: 1.55;
+    color: var(--ink-900); background: var(--linen-50);
+    background-image: radial-gradient(1000px 560px at -5% -10%, rgba(200,146,86,.12), transparent 60%), radial-gradient(1100px 600px at 110% 115%, rgba(43,58,92,.06), transparent 60%);
+    background-attachment: fixed; font-feature-settings: "ss01", "ss02"; letter-spacing: 0.002em;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+
+  .shell { display: grid; grid-template-columns: 236px 1fr; min-height: 100vh; }
+  @media (max-width: 900px) { .shell { grid-template-columns: 1fr; } }
+
+  .sidebar { border-right: 1px solid var(--ink-100); padding: 30px 20px 24px 28px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 32px; background: linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.28) 100%), var(--linen-50); }
+  @media (max-width: 900px) { .sidebar { display: none; } }
+  .brand { display: flex; align-items: center; gap: 12px; font-family: var(--ff-display); font-weight: 500; font-size: 16px; letter-spacing: -0.003em; color: var(--ink-900); }
+  .brand-mark { width: 36px; height: 36px; flex-shrink: 0; }
+  .nav { display: flex; flex-direction: column; gap: 1px; }
+  .nav a { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: var(--r-md); font-size: 14px; color: var(--ink-700); text-decoration: none; transition: background var(--trans), color var(--trans); }
+  .nav a:hover { background: var(--linen-100); color: var(--ink-900); }
+  .nav a.active { background: var(--navy-800); color: var(--linen-50); }
+  .nav a.active .meta { color: var(--navy-300); }
+  .nav .meta { font-size: 11px; color: var(--ink-300); font-variant-numeric: tabular-nums; font-family: var(--ff-display); font-style: italic; }
+  .sidebar-foot { margin-top: auto; font-family: var(--ff-display); font-size: 11.5px; font-style: italic; color: var(--ink-500); line-height: 1.5; font-variation-settings: "opsz" 14, "SOFT" 70; }
+  .sidebar-foot .rule { width: 24px; height: 1px; background: var(--cedar-300); margin: 0 0 12px 0; }
+
+  main { padding: 30px 56px 120px; max-width: 1080px; }
+  @media (max-width: 900px) { main { padding: 18px 18px 104px; } }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+  .topbar .date { font-family: var(--ff-display); font-size: 13px; font-style: italic; color: var(--ink-500); font-variation-settings: "opsz" 14, "SOFT" 30; }
+  .topbar .date .heb { font-family: var(--ff-hebrew); font-style: normal; color: var(--ink-700); margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--ink-200); }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--navy-800); color: var(--linen-50); display: grid; place-items: center; font-family: var(--ff-display); font-size: 13px; font-weight: 500; cursor: pointer; }
+  @media (max-width: 900px) { .topbar .date .heb { display: none; } }
+
+  .page-title { font-family: var(--ff-display); font-weight: 400; font-size: clamp(36px, 5vw, 56px); line-height: 1.02; letter-spacing: -0.025em; margin: 0 0 8px 0; color: var(--ink-900); font-variation-settings: "opsz" 110, "SOFT" 30; }
+  .page-title em { font-style: italic; color: var(--ink-500); font-variation-settings: "opsz" 110, "SOFT" 60; }
+  .page-subtitle { font-family: var(--ff-display); font-style: italic; font-size: 16px; color: var(--ink-500); margin: 0 0 44px 0; font-variation-settings: "opsz" 16, "SOFT" 50; }
+
+  /* Channel cards */
+  .channel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 700px) { .channel-grid { grid-template-columns: 1fr; } }
+
+  .ch-card {
+    padding: 28px 28px 24px;
+    border: 1px solid var(--ink-100);
+    border-radius: var(--r-lg);
+    background: var(--linen-50);
+    display: flex; flex-direction: column; gap: 16px;
+    transition: all var(--trans);
+  }
+  .ch-card:hover { border-color: var(--cedar-300); }
+
+  .ch-card .ch-top {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .ch-card .ch-icon {
+    width: 44px; height: 44px;
+    border-radius: var(--r-md);
+    background: var(--ink-100);
+    display: grid; place-items: center;
+    color: var(--ink-500);
+    flex-shrink: 0;
+  }
+  .ch-card .ch-icon svg { width: 22px; height: 22px; }
+  .ch-card .ch-name {
+    font-family: var(--ff-display);
+    font-weight: 500; font-size: 20px;
+    color: var(--ink-900);
+    letter-spacing: -0.015em;
+    font-variation-settings: "opsz" 36, "SOFT" 30;
+  }
+  .ch-card .ch-conn {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px;
+  }
+  .ch-card .ch-conn .conn-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .ch-card .ch-conn .conn-dot.on { background: var(--jade); }
+  .ch-card .ch-conn .conn-dot.off { background: var(--ink-300); }
+  .ch-card .ch-conn .conn-label { color: var(--ink-700); }
+  .ch-card .ch-conn .conn-label.off { color: var(--ink-400); }
+
+  .ch-card .ch-stats {
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-500);
+    font-variation-settings: "opsz" 14, "SOFT" 50;
+    line-height: 1.6;
+  }
+  .ch-card .ch-stats strong {
+    font-weight: 500; font-style: normal; color: var(--ink-900);
+    font-variation-settings: "opsz" 14, "SOFT" 20;
+  }
+
+  .ch-card .ch-action {
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px dotted var(--ink-100);
+  }
+  .ch-card .ch-action a, .ch-card .ch-action button {
+    font-family: var(--ff-body);
+    font-size: 13px;
+    color: var(--ink-500);
+    text-decoration: underline;
+    text-decoration-color: var(--ink-200);
+    text-underline-offset: 4px;
+    cursor: pointer;
+    background: none; border: none; padding: 0;
+    min-height: 44px;
+    display: inline-flex; align-items: center;
+    transition: all var(--trans);
+  }
+  .ch-card .ch-action a:hover, .ch-card .ch-action button:hover { color: var(--navy-700); text-decoration-color: var(--cedar-400); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--ff-body); font-weight: 500; font-size: 14px;
+    padding: 11px 22px; min-height: 44px;
+    border-radius: 999px; border: 1px solid transparent;
+    text-decoration: none; cursor: pointer; transition: all var(--trans); letter-spacing: 0.005em;
+  }
+  .btn-primary { background: var(--navy-800); color: var(--linen-50); border-color: var(--navy-800); }
+  .btn-primary:hover { background: var(--ink-900); border-color: var(--ink-900); transform: translateY(-1px); }
+
+  .tabbar { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: rgba(250,244,232,.92); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-top: 1px solid var(--ink-100); padding: 8px 10px 14px; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  @media (max-width: 900px) { .tabbar { display: grid; } }
+  .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 6px; min-height: 48px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-400); text-decoration: none; border-radius: var(--r-md); }
+  .tab svg { width: 20px; height: 20px; }
+  .tab.active { color: var(--ink-900); }
+  .tab.active svg { color: var(--navy-700); }
+
+  .stagger > * { opacity: 0; transform: translateY(10px); animation: rise 700ms var(--trans) forwards; }
+  .stagger > *:nth-child(1) { animation-delay: 50ms; }
+  .stagger > *:nth-child(2) { animation-delay: 130ms; }
+  .stagger > *:nth-child(3) { animation-delay: 220ms; }
+  .stagger > *:nth-child(4) { animation-delay: 310ms; }
+  .stagger > *:nth-child(5) { animation-delay: 400ms; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  /* FAB */
+  .fab{position:fixed;z-index:25;bottom:36px;right:36px;width:56px;height:56px;border-radius:50%;background:var(--navy-800);color:var(--linen-50);border:none;cursor:pointer;display:grid;place-items:center;box-shadow:0 4px 14px -4px rgba(19,30,56,.45),0 1px 0 rgba(255,255,255,.06) inset;transition:all var(--trans)}
+  .fab:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 8px 22px -6px rgba(19,30,56,.5),0 1px 0 rgba(255,255,255,.08) inset}
+  .fab svg{width:24px;height:24px}
+  .fab-tooltip{position:absolute;right:66px;top:50%;transform:translateY(-50%);background:var(--ink-900);color:var(--linen-50);font-family:var(--ff-body);font-size:12px;font-weight:500;padding:5px 10px;border-radius:6px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity 180ms ease}
+  .fab:hover .fab-tooltip{opacity:1}
+  @media(max-width:900px){.fab{bottom:80px;right:18px}.fab-tooltip{display:none}}
+  .toast{position:fixed;z-index:40;bottom:28px;left:50%;transform:translate(-50%,40px);padding:12px 20px 12px 16px;background:var(--ink-900);color:var(--linen-50);border-radius:999px;font-family:var(--ff-body);font-size:13.5px;display:flex;align-items:center;gap:10px;opacity:0;pointer-events:none;transition:all var(--trans);box-shadow:0 20px 40px -20px rgba(35,27,16,.4)}
+  @media(max-width:900px){.toast{bottom:96px}}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .toast .check{width:16px;height:16px;border-radius:50%;background:var(--jade);display:grid;place-items:center;color:var(--linen-50)}
+  .toast .check svg{width:10px;height:10px}
+  .toast .note{font-family:var(--ff-display);font-style:italic;color:var(--cedar-300);margin-left:6px;font-size:12.5px}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <defs>
+    <radialGradient id="cedarWood" cx="35%" cy="30%" r="80%"><stop offset="0%" stop-color="#E3B888"/><stop offset="45%" stop-color="#B8823A"/><stop offset="100%" stop-color="#6A4622"/></radialGradient>
+    <radialGradient id="linenLobe" cx="40%" cy="35%" r="80%"><stop offset="0%" stop-color="#FAF4E8"/><stop offset="100%" stop-color="#E9DDC1"/></radialGradient>
+    <radialGradient id="navyLobe" cx="60%" cy="60%" r="80%"><stop offset="0%" stop-color="#2B3A5C"/><stop offset="100%" stop-color="#131E38"/></radialGradient>
+    <g id="ttc-mark">
+      <circle cx="60" cy="60" r="42" fill="url(#cedarWood)" stroke="#3D2A14" stroke-width="0.8"/>
+      <circle cx="60" cy="60" r="34" fill="none" stroke="#3D2A14" stroke-width="0.4" opacity="0.5"/>
+      <g transform="translate(60 60)">
+        <circle r="28" fill="url(#linenLobe)"/>
+        <path d="M 0,-28 A 28,28 0 0,0 0,28 A 14,14 0 0,1 0,0 A 14,14 0 0,0 0,-28 Z" fill="url(#navyLobe)"/>
+        <circle cx="0" cy="-14" r="3.2" fill="#FAF4E8"/><circle cx="0" cy="14" r="3.2" fill="#2B3A5C"/>
+        <g transform="translate(0,-14) scale(0.55)"><polygon points="0,-8 6.93,4 -6.93,4" fill="none" stroke="#9E7A3A" stroke-width="1.2"/><polygon points="0,8 6.93,-4 -6.93,-4" fill="none" stroke="#9E7A3A" stroke-width="1.2"/></g>
+      </g>
+      <defs><path id="arcTop" d="M 18,60 A 42,42 0 0,1 102,60"/></defs>
+      <text font-family="Fraunces, serif" font-size="9" font-weight="600" letter-spacing="3" fill="#3D2A14"><textPath href="#arcTop" startOffset="50%" text-anchor="middle">TORAH</textPath></text>
+      <text x="60" y="108" font-family="Fraunces, serif" font-size="8" font-weight="600" letter-spacing="3" fill="#3D2A14" text-anchor="middle">TAI CHI</text>
+    </g>
+
+    <!-- Platform icons -->
+    <symbol id="icon-tiktok" viewBox="0 0 24 24"><path fill="currentColor" d="M16.6 5.82A4.28 4.28 0 0 1 15.54 2h-3.13v12.4a2.59 2.59 0 0 1-2.59 2.5 2.59 2.59 0 0 1-2.58-2.6 2.6 2.6 0 0 1 2.59-2.59c.28 0 .55.05.8.13V8.77a5.69 5.69 0 0 0-.8-.06 5.72 5.72 0 0 0-5.73 5.72 5.72 5.72 0 0 0 5.73 5.72 5.72 5.72 0 0 0 5.72-5.72V8.7a7.33 7.33 0 0 0 4.28 1.37V7a4.28 4.28 0 0 1-3.23-1.18z"/></symbol>
+    <symbol id="icon-instagram" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.97.24 2.44.41a4.08 4.08 0 0 1 2.51 2.51c.17.47.36 1.27.41 2.44.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.24 1.97-.41 2.44a4.37 4.37 0 0 1-2.51 2.51c-.47.17-1.27.36-2.44.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.97-.24-2.44-.41a4.37 4.37 0 0 1-2.51-2.51c-.17-.47-.36-1.27-.41-2.44C2.17 15.58 2.16 15.2 2.16 12s.01-3.58.07-4.85c.05-1.17.24-1.97.41-2.44a4.37 4.37 0 0 1 2.51-2.51c.47-.17 1.27-.36 2.44-.41C8.42 2.17 8.8 2.16 12 2.16M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63a6.5 6.5 0 0 0-3.51 3.51C.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91a6.5 6.5 0 0 0 3.51 3.51c.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56a6.5 6.5 0 0 0 3.51-3.51c.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91a6.5 6.5 0 0 0-3.51-3.51C19.1.33 18.22.13 16.95.07 15.67.01 15.26 0 12 0zm0 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.41-11.85a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></symbol>
+    <symbol id="icon-youtube" viewBox="0 0 24 24"><path fill="currentColor" d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14c1.88.55 9.38.55 9.38.55s7.5 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81zM9.55 15.57V8.43L15.82 12l-6.27 3.57z"/></symbol>
+    <symbol id="icon-facebook" viewBox="0 0 24 24"><path fill="currentColor" d="M24 12.07C24 5.41 18.63 0 12 0S0 5.41 0 12.07c0 6.02 4.39 11.02 10.13 11.93v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.33l-.53 3.49h-2.8v8.44C19.61 23.09 24 18.09 24 12.07z"/></symbol>
+    <symbol id="icon-web" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  </defs>
+</svg>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 120 120" aria-hidden="true"><use href="#ttc-mark"/></svg>
+      <span>Torah&nbsp;Tai&nbsp;Chi</span>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      <a href="today.html">Today<span class="meta">now</span></a>
+      <a href="calendar.html">Calendar<span class="meta">4 ahead</span></a>
+      <a href="videos.html">Videos<span class="meta">52</span></a>
+      <a href="#">Articles<span class="meta">soon</span></a>
+      <a href="channels.html" class="active">Channels<span class="meta">4 / 5</span></a>
+      <a href="analytics.html">Analytics</a>
+      <a href="settings.html">Settings</a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="rule"></div>
+      <div>Root before you rise.<br>The craft compounds.</div>
+    </div>
+  </aside>
+
+  <main class="stagger">
+    <div class="topbar">
+      <div class="date">Thursday, April 16<span class="heb" lang="he" dir="rtl">&#x5DB;&#x5F4;&#x5D6; &#x5E0;&#x5D9;&#x5E1;&#x5DF; &#x5EA;&#x5E9;&#x5E4;&#x5F4;&#x5D5;</span></div>
+      <div class="avatar" title="Yonah">Y</div>
+    </div>
+
+    <h1 class="page-title">Your <em>channels.</em></h1>
+    <p class="page-subtitle">4 of 5 connected. Each video posts to all active channels automatically.</p>
+
+    <div class="channel-grid">
+
+      <!-- TikTok -->
+      <div class="ch-card">
+        <div class="ch-top">
+          <div class="ch-icon"><svg><use href="#icon-tiktok"/></svg></div>
+          <div class="ch-name">TikTok</div>
+        </div>
+        <div class="ch-conn">
+          <span class="conn-dot on"></span>
+          <span class="conn-label">Connected</span>
+        </div>
+        <div class="ch-stats">
+          <strong>847</strong> followers<br>
+          Last post: Apr 15
+        </div>
+        <div class="ch-action">
+          <button>Disconnect</button>
+        </div>
+      </div>
+
+      <!-- Instagram -->
+      <div class="ch-card">
+        <div class="ch-top">
+          <div class="ch-icon"><svg><use href="#icon-instagram"/></svg></div>
+          <div class="ch-name">Instagram</div>
+        </div>
+        <div class="ch-conn">
+          <span class="conn-dot on"></span>
+          <span class="conn-label">Connected</span>
+        </div>
+        <div class="ch-stats">
+          <strong>1,203</strong> followers<br>
+          Last post: Apr 15
+        </div>
+        <div class="ch-action">
+          <button>Disconnect</button>
+        </div>
+      </div>
+
+      <!-- YouTube -->
+      <div class="ch-card">
+        <div class="ch-top">
+          <div class="ch-icon"><svg><use href="#icon-youtube"/></svg></div>
+          <div class="ch-name">YouTube</div>
+        </div>
+        <div class="ch-conn">
+          <span class="conn-dot on"></span>
+          <span class="conn-label">Connected</span>
+        </div>
+        <div class="ch-stats">
+          <strong>234</strong> subscribers<br>
+          Last post: Apr 15
+        </div>
+        <div class="ch-action">
+          <button>Disconnect</button>
+        </div>
+      </div>
+
+      <!-- Facebook -->
+      <div class="ch-card">
+        <div class="ch-top">
+          <div class="ch-icon"><svg><use href="#icon-facebook"/></svg></div>
+          <div class="ch-name">Facebook</div>
+        </div>
+        <div class="ch-conn">
+          <span class="conn-dot on"></span>
+          <span class="conn-label">Connected</span>
+        </div>
+        <div class="ch-stats">
+          <strong>89</strong> followers<br>
+          Last post: Apr 15
+        </div>
+        <div class="ch-action">
+          <button>Disconnect</button>
+        </div>
+      </div>
+
+      <!-- Website -->
+      <div class="ch-card">
+        <div class="ch-top">
+          <div class="ch-icon" style="background: var(--navy-wash); color: var(--navy-700);"><svg><use href="#icon-web"/></svg></div>
+          <div class="ch-name">Website</div>
+        </div>
+        <div class="ch-conn">
+          <span class="conn-dot off"></span>
+          <span class="conn-label off">Not connected</span>
+        </div>
+        <div class="ch-stats">
+          Connect your Astro site to embed videos and show the weekly parsha automatically.
+        </div>
+        <div class="ch-action">
+          <button class="btn btn-primary">Connect your Astro site</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<nav class="tabbar" aria-label="Primary">
+  <a href="today.html" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    Today
+  </a>
+  <a href="calendar.html" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+    Calendar
+  </a>
+  <a href="videos.html" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>
+    Videos
+  </a>
+  <a href="channels.html" class="tab active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 12a8 8 0 1 1 16 0 8 8 0 0 1-16 0z"/><path d="M4 12h16M12 4c2 2.5 3 5 3 8s-1 5.5-3 8c-2-2.5-3-5-3-8s1-5.5 3-8z"/></svg>
+    Channels
+  </a>
+  <a href="analytics.html" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+    Analytics
+  </a>
+</nav>
+
+<!-- FAB -->
+<button class="fab" id="fab-create" type="button" aria-label="New video">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  <span class="fab-tooltip">New video</span>
+</button>
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <div class="check"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.4 2.3 4.6-4.8"/></svg></div>
+  <span id="toast-msg"></span>
+  <span class="note" id="toast-note"></span>
+</div>
+<script>
+  document.getElementById('fab-create').addEventListener('click', function(){
+    var t=document.getElementById('toast'),m=document.getElementById('toast-msg'),n=document.getElementById('toast-note');
+    m.textContent='Create sheet coming soon';n.textContent='';
+    t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(function(){t.classList.remove('show')},3400);
+  });
+</script>
+
+</body>
+</html>
