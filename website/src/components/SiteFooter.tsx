@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { TikTokIcon, YouTubeIcon, InstagramIcon, FacebookIcon } from "./SocialIcons";
+import { getSiteContent } from "@/lib/site-content";
 
-export default function SiteFooter() {
+export default async function SiteFooter() {
+  const c = await getSiteContent();
   return (
     <footer className="site-footer">
-      <div className="footer-brand">&copy; 2026 Torah Tai Chi &middot; torahtaichi.com</div>
+      <div className="footer-brand">{c['footer.copyright']}</div>
       <div className="footer-links">
         <Link href="/videos">Videos</Link>
         <Link href="/articles">Articles</Link>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getAllParshiot } from "@/lib/parshiot";
 import { getAllArticles } from "@/lib/articles";
+import { getSiteContent, splitEm } from "@/lib/site-content";
 import VideoCard from "@/components/VideoCard";
 import ArticleCard from "@/components/ArticleCard";
 import Brand from "@/components/Brand";
@@ -37,6 +38,8 @@ export default async function HomePage() {
   const recentFour = withScript.slice(0, 4);
   const allArticles = await getAllArticles();
   const recentArticles = allArticles.slice(0, 3);
+  const content = await getSiteContent();
+  const heroTitle = splitEm(content['home.hero.title'], content['home.hero.title_em']);
 
   return (
     <>
@@ -45,16 +48,14 @@ export default async function HomePage() {
         <div className="hero-text">
           <div className="hero-kicker">
             <span className="bar"></span>
-            Weekly teachings
+            {content['home.hero.kicker']}
           </div>
           <h1>
-            Where ancient wisdom <em>meets the body.</em>
+            {heroTitle.before}
+            {heroTitle.em && <em>{heroTitle.em}</em>}
+            {heroTitle.after}
           </h1>
-          <p className="hero-body">
-            Torah Tai Chi fuses the weekly parsha with the internal arts — rooting, yielding,{" "}
-            <span className="ch">song 松</span> — to find the place where Jewish wisdom and the
-            body&apos;s intelligence say the same thing.
-          </p>
+          <p className="hero-body">{content['home.hero.body']}</p>
           <div className="hero-cta">
             {thisWeek && (
               <Link href={`/videos/${thisWeek.slug}`} className="btn btn-primary">
@@ -165,19 +166,10 @@ export default async function HomePage() {
           <Brand size={140} />
         </div>
         <div className="about-body">
-          <h2>
-            The practice <em>between traditions.</em>
-          </h2>
-          <p>
-            Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts.
-            Each week&apos;s parsha carries a teaching about character, restraint, holiness — and each of
-            those teachings has a parallel in the body: rooting, yielding, releasing tension without
-            collapsing structure.
-          </p>
-          <p>
-            This is where they meet. A weekly practice. A breath. A teaching that lives in the spine
-            as much as the mind.
-          </p>
+          <h2>{content['home.about.title']}</h2>
+          {content['home.about.body'].split(/\n\n+/).filter(Boolean).map((para, i) => (
+            <p key={i}>{para}</p>
+          ))}
         </div>
       </section>
     </>

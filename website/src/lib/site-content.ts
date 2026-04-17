@@ -23,6 +23,21 @@ const FALLBACKS: SiteContentMap = {
   'footer.copyright': '\u00a9 2026 Torah Tai Chi \u00b7 torahtaichi.com',
 };
 
+/**
+ * Split a title around an emphasized portion so callers can render
+ * `<>{before}<em>{em}</em>{after}</>`. If `em` isn't found in `title`,
+ * returns the whole title as `before` with empty `em`/`after`.
+ */
+export function splitEm(title: string, em: string): { before: string; em: string; after: string } {
+  if (!em || !title.includes(em)) return { before: title, em: '', after: '' };
+  const idx = title.indexOf(em);
+  return {
+    before: title.slice(0, idx),
+    em,
+    after: title.slice(idx + em.length),
+  };
+}
+
 export async function getSiteContent(): Promise<SiteContentMap> {
   try {
     const supabase = supabaseClient();
