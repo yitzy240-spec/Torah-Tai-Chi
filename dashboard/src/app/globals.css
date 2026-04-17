@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./design-tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -120,11 +121,94 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    box-sizing: border-box;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
   }
   body {
-    @apply bg-background text-foreground;
+    font-family: var(--ff-body);
+    font-weight: 400;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--ink-900);
+    background-color: var(--linen-50);
+    background-image:
+      radial-gradient(1000px 560px at -5% -10%, rgba(200,146,86,.12), transparent 60%),
+      radial-gradient(1100px 600px at 110% 115%, rgba(43,58,92,.06), transparent 60%);
+    background-attachment: fixed;
+    font-feature-settings: "ss01", "ss02";
+    letter-spacing: 0.002em;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
-  html {
-    @apply font-sans;
+}
+
+/* FAB hover */
+.fab-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 22px -6px rgba(19,30,56,.5), 0 1px 0 rgba(255,255,255,.08) inset !important;
+}
+.fab-btn:hover .fab-tooltip {
+  opacity: 1 !important;
+}
+@media (max-width: 900px) {
+  .fab-btn { bottom: 80px !important; right: 18px !important; }
+  .fab-tooltip { display: none !important; }
+}
+
+/* Sage page mobile */
+@media (max-width: 700px) {
+  .sage-page { padding: 40px 26px 38px !important; }
+}
+
+/* Sidebar visibility */
+.sidebar-desktop { display: flex; }
+.tabbar-mobile   { display: none; }
+@media (max-width: 900px) {
+  .sidebar-desktop { display: none !important; }
+  .tabbar-mobile   { display: grid !important; }
+}
+
+/* Shell responsive layout */
+@media (max-width: 900px) {
+  .authenticated-shell {
+    grid-template-columns: 1fr !important;
   }
+  .main-content {
+    padding: 18px 18px 104px !important;
+  }
+}
+
+/* Sidebar nav hover */
+.sidebar-nav-link:hover {
+  background: var(--linen-100) !important;
+  color: var(--ink-900) !important;
+}
+
+/* Stagger animation */
+.stagger > * {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: rise 700ms var(--trans) forwards;
+}
+.stagger > *:nth-child(1) { animation-delay: 50ms; }
+.stagger > *:nth-child(2) { animation-delay: 130ms; }
+.stagger > *:nth-child(3) { animation-delay: 220ms; }
+.stagger > *:nth-child(4) { animation-delay: 310ms; }
+.stagger > *:nth-child(5) { animation-delay: 400ms; }
+@keyframes rise { to { opacity: 1; transform: none; } }
+
+@keyframes pulse-jade {
+  0%,100% { box-shadow: 0 0 0 3px rgba(90,110,61,.15); }
+  50%     { box-shadow: 0 0 0 6px rgba(90,110,61,.02); }
+}
+@keyframes pulse-navy {
+  0%,100% { box-shadow: 0 0 0 3px rgba(43,58,92,.2); }
+  50%     { box-shadow: 0 0 0 7px rgba(43,58,92,.04); }
+}
+@keyframes pulse-record {
+  0%,100% { transform: scale(1); opacity: 0.6; }
+  50%     { transform: scale(1.18); opacity: 0; }
 }
