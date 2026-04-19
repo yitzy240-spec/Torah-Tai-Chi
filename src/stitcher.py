@@ -29,12 +29,17 @@ def _has_audio_stream(mp4: Path) -> bool:
     return bool(result.stdout.strip())
 
 
-def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.5) -> Path:
+def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.2) -> Path:
     """Stitch clips end-to-end with crossfade transitions.
 
     Single clip: copied through unchanged.
     Multiple clips: chained through ffmpeg xfade (video) + acrossfade (audio
     if present). Output re-encodes to H.264 + AAC.
+
+    Note: crossfade_s defaults to 0.2s (was 0.5s). Longer fades caused audio
+    overlap — Seedance-generated speech at clip boundaries bled into the
+    next clip, producing word-salad. 0.2s is smooth enough visually while
+    keeping voiceover clean at transitions.
     """
     if not clips:
         raise ValueError("No clips to concat")
