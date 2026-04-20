@@ -61,7 +61,7 @@ export async function broadcast(
     try {
       const update = await createUpdate({
         token,
-        profileIds: [profile.id],
+        channelId: profile.id,
         text,
         mediaUrl: args.imageUrl || undefined,
         mediaType: 'image',

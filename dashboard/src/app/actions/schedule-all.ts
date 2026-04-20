@@ -90,7 +90,7 @@ export async function scheduleAll(
     try {
       const update = await withRetry(() => createUpdate({
         token: bufferToken!,
-        profileIds: [profile.id],
+        channelId: profile.id,
         text: caption,
         mediaUrl,
         scheduledAt: args.shareNow ? undefined : args.scheduledAt,

@@ -84,8 +84,9 @@ export async function listProfiles(token: string): Promise<BufferProfile[]> {
 
 export type CreateUpdateArgs = {
   token: string;
-  /** Buffer channel ids to post to. */
-  profileIds: string[];
+  /** Buffer channel id to post to. One post per mutation — callers fan
+   *  out across platforms themselves (see scheduleAll). */
+  channelId: string;
   /** Caption / post text. */
   text: string;
   /** Publicly reachable media URL. */
@@ -116,14 +117,12 @@ const CREATE_POST_MUTATION = `
 `;
 
 /**
- * Create a Buffer post on each given channel. Buffer's GraphQL API requires
+ * Create a Buffer post on a single channel. Buffer's GraphQL API requires
  * one mutation per channel (unlike the old REST API which accepted an array
- * of profile_ids), so we fan out here. On any per-channel failure we throw
- * with the aggregated messages; callers wrap us in their own retry loop.
+ * of profile_ids); callers that want multi-channel posting fan out at their
+ * own level (see scheduleAll).
  */
 export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; status: string }> {
-  if (a.profileIds.length === 0) throw new Error('createUpdate: profileIds is empty');
-
   const mode = a.shareNow
     ? 'shareNow'
     : a.scheduledAt
@@ -136,33 +135,18 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
       : { videos: [{ url: a.mediaUrl }] }
     : undefined;
 
-  const baseInput = {
+  const input = {
     text: a.text,
     mode,
     schedulingType: 'automatic',
+    channelId: a.channelId,
     ...(mode === 'customScheduled' && a.scheduledAt ? { dueAt: a.scheduledAt.toISOString() } : {}),
     ...(assets ? { assets } : {}),
   };
 
-  const results: Array<{ id: string; status: string }> = [];
-  const errors: string[] = [];
-
-  for (const channelId of a.profileIds) {
-    const data = await gql<CreatePostResponse>(a.token, CREATE_POST_MUTATION, {
-      input: { ...baseInput, channelId },
-    });
-    const r = data.createPost;
-    if ('post' in r && r.post) {
-      results.push(r.post);
-    } else {
-      errors.push(`${channelId}: ${('message' in r ? r.message : r.__typename)}`);
-    }
-  }
-
-  if (errors.length > 0 && results.length === 0) {
-    throw new Error(`Buffer createUpdate: ${errors.join('; ')}`);
-  }
-  // Return the first successful post id; callers that want per-channel
-  // tracking should call us once per channel and inspect results themselves.
-  return results[0];
+  const data = await gql<CreatePostResponse>(a.token, CREATE_POST_MUTATION, { input });
+  const r = data.createPost;
+  if ('post' in r && r.post) return r.post;
+  const reason = 'message' in r ? r.message : r.__typename;
+  throw new Error(`Buffer createUpdate (${a.channelId}): ${reason}`);
 }
