@@ -56,9 +56,8 @@ async function getParshiot(): Promise<Parsha[]> {
 export default async function VideosPage() {
   const parshiot = await getParshiot();
 
-  // Only show parshiot that have an a-tight script
   const withScript = parshiot.filter((p) =>
-    p.scripts?.some((s) => s.option === 'a-tight'),
+    p.scripts?.some((s) => s.option === 'A-tight'),
   );
 
   // Pass thumbUrl into each parsha for Feature B
