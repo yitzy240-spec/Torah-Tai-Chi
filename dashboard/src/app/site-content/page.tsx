@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { listSiteText } from '@/lib/storyblok';
 import { SiteContentEditor } from './site-content-editor';
 
 export const metadata = {
@@ -6,17 +6,28 @@ export const metadata = {
 };
 
 export default async function SiteContentPage() {
-  const supabase = await createClient();
-  const { data: rows, error } = await supabase
-    .from('site_content')
-    .select('*')
-    .order('key');
+  let rows: { id: string; key: string; value: string; description: string | null; updated_at: string | null }[] = [];
+  let errorMsg: string | null = null;
 
-  if (error) {
+  try {
+    const stories = await listSiteText();
+    rows = stories.map((s) => ({
+      id: String(s.id),
+      key: s.content.key,
+      value: s.content.value ?? '',
+      description: s.content.description ?? null,
+      updated_at: s.updated_at ?? null,
+    }));
+    rows.sort((a, b) => a.key.localeCompare(b.key));
+  } catch (e) {
+    errorMsg = e instanceof Error ? e.message : 'Unknown error';
+  }
+
+  if (errorMsg) {
     return (
       <div style={{ maxWidth: '720px' }}>
         <p style={{ color: 'var(--tassel)', fontFamily: 'var(--ff-display)', fontStyle: 'italic' }}>
-          Could not load site content: {error.message}
+          Could not load site content: {errorMsg}
         </p>
       </div>
     );
@@ -54,7 +65,7 @@ export default async function SiteContentPage() {
         </p>
       </div>
 
-      <SiteContentEditor initialRows={rows ?? []} />
+      <SiteContentEditor initialRows={rows} />
     </div>
   );
 }

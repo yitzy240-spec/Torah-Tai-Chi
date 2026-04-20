@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { createClient } from '@/lib/supabase/client';
 
 interface SiteContentRow {
   id: string;
@@ -35,8 +34,6 @@ function groupByPrefix(rows: SiteContentRow[]) {
 }
 
 export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow[] }) {
-  const supabase = createClient();
-
   const [fields, setFields] = useState<Record<string, FieldState>>(() => {
     const m: Record<string, FieldState> = {};
     for (const row of initialRows) {
@@ -68,24 +65,31 @@ export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow
 
     setFields((prev) => ({ ...prev, [key]: { ...prev[key], saving: true, error: null } }));
 
-    const { error } = await supabase
-      .from('site_content')
-      .update({ value: field.value, updated_at: new Date().toISOString() })
-      .eq('key', key);
+    try {
+      const res = await fetch('/api/site-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: field.value }),
+      });
 
-    if (error) {
-      setFields((prev) => ({
-        ...prev,
-        [key]: { ...prev[key], saving: false, error: error.message },
-      }));
-    } else {
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(body.error ?? 'Save failed');
+      }
+
       setFields((prev) => ({
         ...prev,
         [key]: { ...prev[key], saving: false, saved: true },
       }));
       showToast(key, 'Saved.');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Save failed';
+      setFields((prev) => ({
+        ...prev,
+        [key]: { ...prev[key], saving: false, error: msg },
+      }));
     }
-  }, [fields, supabase]);
+  }, [fields]);
 
   const groups = groupByPrefix(initialRows);
 
@@ -198,7 +202,7 @@ function FieldCard({ row, field, isDirty, onChange, onSave }: FieldCardProps) {
           fontVariationSettings: '"opsz" 12, "SOFT" 50',
         }}
       >
-        {field.saving ? 'Saving…' : isDirty ? 'Unsaved' : 'Saved'}
+        {field.saving ? 'Saving\u2026' : isDirty ? 'Unsaved' : 'Saved'}
       </div>
 
       {/* Key label */}
@@ -302,7 +306,7 @@ function FieldCard({ row, field, isDirty, onChange, onSave }: FieldCardProps) {
             transition: 'all var(--trans)',
           }}
         >
-          {field.saving ? 'Saving…' : 'Save'}
+          {field.saving ? 'Saving\u2026' : 'Save'}
         </button>
       </div>
     </div>
