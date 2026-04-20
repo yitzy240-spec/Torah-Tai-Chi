@@ -144,7 +144,13 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
   // 'reel' for videos since Shorts-style vertical videos are our default.
   const metadata: Record<string, unknown> = {};
   if (a.channelService === 'instagram' && assets) {
-    metadata.instagram = { type: a.mediaType === 'video' ? 'reel' : 'post' };
+    // Buffer requires BOTH `type` and `shouldShareToFeed` — the latter controls
+    // whether the reel/post also appears in the main feed (reels default to
+    // sharing to feed; images are always feed posts).
+    metadata.instagram = {
+      type: a.mediaType === 'video' ? 'reel' : 'post',
+      shouldShareToFeed: true,
+    };
   }
 
   const input = {

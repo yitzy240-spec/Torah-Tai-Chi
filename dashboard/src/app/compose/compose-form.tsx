@@ -398,6 +398,23 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
                 <span style={{ marginLeft: 'auto', color: r.ok ? 'var(--jade)' : '#8b2d1c' }}>
                   {r.ok ? 'Posted ✓' : (r.error ?? 'Failed')}
                 </span>
+                {r.ok && r.bufferId && (
+                  <a
+                    href={`https://publish.buffer.com/post/${r.bufferId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontFamily: 'var(--ff-body)',
+                      fontSize: '12px',
+                      color: 'var(--navy-700)',
+                      textDecoration: 'underline',
+                      textDecorationColor: 'var(--navy-300)',
+                      textUnderlineOffset: '3px',
+                    }}
+                  >
+                    View in Buffer ↗
+                  </a>
+                )}
               </div>
             ))}
           </div>
