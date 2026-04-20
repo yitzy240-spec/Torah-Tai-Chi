@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PlatformIcon } from '@/components/platform-icon';
+import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
 
 interface Script {
   id: string;
@@ -36,12 +37,56 @@ interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
+const PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
+type Platform = typeof PLATFORMS[number];
+
 export default async function VideoDetailPage({ params }: PageProps) {
   const { slug } = await params;
+  const supabase = await createClient();
+
   const parsha = await getParsha(slug);
   if (!parsha) notFound();
 
   const aTight = parsha.scripts?.find((s) => s.option === 'a-tight') ?? null;
+
+  // Fetch most recent video for this parsha (via jobs)
+  const { data: latestJob } = await supabase
+    .from('jobs')
+    .select('id, resolution, model_tier, videos(id)')
+    .eq('parsha_id', parsha.id)
+    .eq('status', 'done')
+    .order('triggered_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const videosRel = latestJob?.videos as any;
+  const videoId: string | null = (Array.isArray(videosRel) ? videosRel[0]?.id : videosRel?.id) ?? null;
+
+  // Fetch post statuses for last 7 days
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: recentPosts } = videoId
+    ? await supabase
+        .from('posts')
+        .select('platform, status, scheduled_at, published_at, buffer_update_id')
+        .eq('video_id', videoId)
+        .gte('created_at', sevenDaysAgo)
+    : { data: null };
+
+  const postsByPlatform = Object.fromEntries(
+    PLATFORMS.map((p) => [p, recentPosts?.find((post) => post.platform === p) ?? null]),
+  ) as Record<Platform, typeof recentPosts extends (infer T)[] | null ? T | null : null>;
+
+  // Buffer token presence
+  const bufferConfigured = !!process.env.BUFFER_ACCESS_TOKEN;
+
+  // Static captions for each platform (normally from DB; using inline for now)
+  const captions: Partial<Record<Platform, string>> = {
+    tiktok: `Everyone quotes "love your neighbor" — but nobody reads the verse before it. #torah #taichi #${parsha.slug}`,
+    instagram: `Kedusha isn't a feeling. It's restraint. This week's parsha, ${parsha.name}, meets tai chi's song...`,
+    youtube: `Parshat ${parsha.name}: the discipline of non-reactivity that makes "love your neighbor" even possible.`,
+    facebook: `One breath before you respond. That breath is the practice. ${parsha.name} teaches us what holiness...`,
+  };
 
   function wordCount(text: string | null | undefined): number {
     if (!text) return 0;
@@ -555,11 +600,24 @@ export default async function VideoDetailPage({ params }: PageProps) {
           </p>
           {(
             [
-              { platform: 'tiktok' as const, name: 'TikTok', status: 'Scheduled Fri 6pm', live: false },
-              { platform: 'instagram' as const, name: 'Instagram', status: 'Scheduled Fri 6pm', live: false },
-              { platform: 'youtube' as const, name: 'YouTube', status: 'Not scheduled', live: false },
-              { platform: 'facebook' as const, name: 'Facebook', status: 'Published · 2.1k views', live: true },
-            ]
+              { platform: 'tiktok' as const, name: 'TikTok' },
+              { platform: 'instagram' as const, name: 'Instagram' },
+              { platform: 'youtube' as const, name: 'YouTube' },
+              { platform: 'facebook' as const, name: 'Facebook' },
+            ].map(({ platform, name }) => {
+              const post = postsByPlatform[platform];
+              let status = 'Not scheduled';
+              let live = false;
+              if (post) {
+                if (post.status === 'published') { status = 'Published'; live = true; }
+                else if (post.status === 'scheduled' && post.scheduled_at) {
+                  const d = new Date(post.scheduled_at);
+                  status = `Scheduled ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+                } else if (post.status === 'failed') { status = 'Failed'; }
+                else { status = 'Pending'; }
+              }
+              return { platform, name, status, live };
+            })
           ).map(({ platform, name, status, live }) => (
             <div
               key={platform}
@@ -590,28 +648,27 @@ export default async function VideoDetailPage({ params }: PageProps) {
             </div>
           ))}
           <div style={{ marginTop: '16px' }}>
-            <button
-              type="button"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontFamily: 'var(--ff-body)',
-                fontWeight: 500,
-                fontSize: '14px',
-                padding: '11px 22px',
-                minHeight: '44px',
-                borderRadius: '999px',
-                border: '1px solid var(--navy-800)',
-                background: 'var(--navy-800)',
-                color: 'var(--linen-50)',
-                cursor: 'pointer',
-                transition: 'all var(--trans)',
-                boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
-              }}
-            >
-              Schedule all
-            </button>
+            {videoId ? (
+              <ScheduleAllSheet
+                videoId={videoId}
+                captions={captions}
+                bufferConfigured={bufferConfigured}
+              />
+            ) : (
+              <button
+                type="button"
+                disabled
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px',
+                  padding: '11px 22px', minHeight: '44px', borderRadius: '999px',
+                  border: '1px solid var(--navy-800)', background: 'var(--navy-800)',
+                  color: 'var(--linen-50)', opacity: 0.5, cursor: 'not-allowed',
+                }}
+              >
+                Schedule all
+              </button>
+            )}
           </div>
         </div>
       </div>

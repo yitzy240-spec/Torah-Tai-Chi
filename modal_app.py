@@ -156,6 +156,26 @@ def run_pipeline(job_id: str) -> None:
         set_status("done", "Video ready")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
+        # --- Auto-publish via Buffer (when auto_publish flag is set) ---
+        # TODO (next phase): wire up when stances are connected to job creation.
+        #
+        # Prerequisite columns (apply in a future migration):
+        #   alter table jobs add column if not exists auto_publish boolean default false;
+        #
+        # Pseudocode:
+        #   job_full = sb.table("jobs").select("auto_publish, parsha_id").eq("id", job_id).single().execute().data
+        #   if job_full.get("auto_publish"):
+        #       buffer_token = os.environ.get("BUFFER_ACCESS_TOKEN")
+        #       if buffer_token:
+        #           import httpx
+        #           # 1. Fetch Buffer profiles
+        #           profiles_resp = httpx.get(f"https://api.bufferapp.com/1/profiles.json?access_token={buffer_token}")
+        #           profiles = profiles_resp.json()
+        #           # 2. Get video public URL from Supabase Storage
+        #           # 3. Get 4 captions (per-platform) from DB
+        #           # 4. Call Buffer createUpdate for each platform profile
+        #           # 5. Insert rows into posts table with buffer_update_id and status='scheduled'
+
     except Exception as e:
         import traceback
         sb.table("jobs").update({
