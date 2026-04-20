@@ -1,0 +1,336 @@
+/**
+ * Storyblok Management API client for the dashboard.
+ * NEVER import this in client-side code — Management Token is server-only.
+ */
+
+const SPACE_ID = process.env.STORYBLOK_SPACE_ID!;
+const MGMT_TOKEN = process.env.STORYBLOK_MANAGEMENT_TOKEN!;
+const BASE = `https://mapi.storyblok.com/v1/spaces/${SPACE_ID}`;
+
+const ARTICLES_FOLDER = 'articles';
+const SITE_TEXT_FOLDER = 'site-text';
+const BOOK_FOLDER = 'book-folder';
+
+// ─────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────
+
+export interface SbArticleContent {
+  component: 'article';
+  title: string;
+  subtitle?: string;
+  category?: string;
+  excerpt?: string;
+  body?: object;
+  published_at?: string;
+  read_minutes?: number;
+}
+
+export interface SbArticleStory {
+  id: number;
+  uuid: string;
+  name: string;
+  slug: string;
+  full_slug: string;
+  published: boolean;
+  content: SbArticleContent;
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+}
+
+export interface SbSiteTextContent {
+  component: 'site_text';
+  key: string;
+  value: string;
+  description?: string;
+}
+
+export interface SbSiteTextStory {
+  id: number;
+  slug: string;
+  content: SbSiteTextContent;
+  updated_at: string;
+}
+
+export interface SbBookContent {
+  component: 'book';
+  visible?: boolean;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+  cover_url?: string;
+  purchase_url?: string;
+  cta_label?: string;
+}
+
+export interface SbBookStory {
+  id: number;
+  content: SbBookContent;
+}
+
+// ─────────────────────────────────────────────
+// Core fetch helpers
+// ─────────────────────────────────────────────
+
+async function mapi(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: object,
+): Promise<Response> {
+  return fetch(`${BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: MGMT_TOKEN,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    cache: 'no-store',
+  });
+}
+
+async function mapiGet(path: string, params?: Record<string, string>) {
+  const url = new URL(`${BASE}${path}`);
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, v);
+    }
+  }
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: MGMT_TOKEN },
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`Storyblok GET ${path} → ${res.status}`);
+  return res.json();
+}
+
+// ─────────────────────────────────────────────
+// Folder ID cache (lazy)
+// ─────────────────────────────────────────────
+
+const _folderIdCache: Record<string, number> = {};
+
+async function getFolderId(slug: string): Promise<number> {
+  if (_folderIdCache[slug]) return _folderIdCache[slug];
+  const data = await mapiGet('/stories/', { starts_with: slug, is_folder: '1', per_page: '25' });
+  for (const s of data.stories ?? []) {
+    if (s.slug === slug) {
+      _folderIdCache[slug] = s.id;
+      return s.id;
+    }
+  }
+  throw new Error(`Storyblok folder not found: ${slug}`);
+}
+
+// ─────────────────────────────────────────────
+// Story lookup helpers
+// ─────────────────────────────────────────────
+
+async function getStoryBySlug(fullSlug: string) {
+  const data = await mapiGet('/stories/', { with_slug: fullSlug });
+  return (data.stories ?? [])[0] ?? null;
+}
+
+// ─────────────────────────────────────────────
+// Articles
+// ─────────────────────────────────────────────
+
+export async function listArticles(): Promise<SbArticleStory[]> {
+  const data = await mapiGet('/stories/', {
+    starts_with: ARTICLES_FOLDER + '/',
+    per_page: '100',
+    sort_by: 'content.published_at:desc',
+  });
+  return (data.stories ?? []).filter(
+    (s: SbArticleStory) => s.content?.component === 'article',
+  );
+}
+
+export async function getArticle(slug: string): Promise<SbArticleStory | null> {
+  const story = await getStoryBySlug(`${ARTICLES_FOLDER}/${slug}`);
+  return story ?? null;
+}
+
+export async function createArticle(articleData: {
+  title: string;
+  subtitle?: string | null;
+  slug: string;
+  category?: string | null;
+  excerpt?: string | null;
+  body_json?: object | null;
+  read_minutes?: number | null;
+  published: boolean;
+  published_at?: string | null;
+}): Promise<SbArticleStory> {
+  const folderId = await getFolderId(ARTICLES_FOLDER);
+  const content: SbArticleContent = {
+    component: 'article',
+    title: articleData.title,
+    subtitle: articleData.subtitle ?? '',
+    category: articleData.category ?? '',
+    excerpt: articleData.excerpt ?? '',
+    body: articleData.body_json ?? { type: 'doc', content: [] },
+    published_at: articleData.published_at ?? '',
+    read_minutes: articleData.read_minutes ?? 0,
+  };
+  const res = await mapi('POST', '/stories/', {
+    story: {
+      name: articleData.title,
+      slug: articleData.slug,
+      parent_id: folderId,
+      content,
+    },
+    publish: articleData.published ? 1 : 0,
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(JSON.stringify(err));
+  }
+  const data = await res.json();
+  return data.story;
+}
+
+export async function updateArticle(
+  storyId: number,
+  articleData: {
+    title?: string;
+    subtitle?: string | null;
+    slug?: string;
+    category?: string | null;
+    excerpt?: string | null;
+    body_json?: object | null;
+    read_minutes?: number | null;
+    published?: boolean;
+    published_at?: string | null;
+  },
+): Promise<SbArticleStory> {
+  // Get current story first
+  const existing = await mapiGet(`/stories/${storyId}`);
+  const current = existing.story;
+  const content: SbArticleContent = {
+    ...current.content,
+    component: 'article',
+    ...(articleData.title !== undefined && { title: articleData.title }),
+    ...(articleData.subtitle !== undefined && { subtitle: articleData.subtitle ?? '' }),
+    ...(articleData.category !== undefined && { category: articleData.category ?? '' }),
+    ...(articleData.excerpt !== undefined && { excerpt: articleData.excerpt ?? '' }),
+    ...(articleData.body_json !== undefined && { body: articleData.body_json ?? { type: 'doc', content: [] } }),
+    ...(articleData.read_minutes !== undefined && { read_minutes: articleData.read_minutes ?? 0 }),
+    ...(articleData.published_at !== undefined && { published_at: articleData.published_at ?? '' }),
+  };
+  const storyPayload: Record<string, unknown> = {
+    ...current,
+    content,
+    ...(articleData.title !== undefined && { name: articleData.title }),
+    ...(articleData.slug !== undefined && { slug: articleData.slug }),
+  };
+  const published = articleData.published ?? current.published;
+  const res = await mapi('PUT', `/stories/${storyId}`, {
+    story: storyPayload,
+    publish: published ? 1 : 0,
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(JSON.stringify(err));
+  }
+  const data = await res.json();
+  return data.story;
+}
+
+export async function publishArticle(storyId: number): Promise<void> {
+  const res = await mapi('GET', `/stories/${storyId}/publish` as never);
+  if (!res.ok) throw new Error(`Failed to publish story ${storyId}`);
+}
+
+export async function deleteArticle(storyId: number): Promise<void> {
+  const res = await mapi('DELETE', `/stories/${storyId}`);
+  if (!res.ok) throw new Error(`Failed to delete story ${storyId}`);
+}
+
+// ─────────────────────────────────────────────
+// Site Text
+// ─────────────────────────────────────────────
+
+export async function listSiteText(): Promise<SbSiteTextStory[]> {
+  const data = await mapiGet('/stories/', {
+    starts_with: SITE_TEXT_FOLDER + '/',
+    per_page: '100',
+  });
+  return (data.stories ?? []).filter(
+    (s: SbSiteTextStory) => s.content?.component === 'site_text',
+  );
+}
+
+export async function getSiteText(key: string): Promise<SbSiteTextStory | null> {
+  const slug = key.replace(/\./g, '-');
+  const story = await getStoryBySlug(`${SITE_TEXT_FOLDER}/${slug}`);
+  return story ?? null;
+}
+
+export async function upsertSiteText(key: string, value: string): Promise<void> {
+  const slug = key.replace(/\./g, '-');
+  const fullSlug = `${SITE_TEXT_FOLDER}/${slug}`;
+  const existing = await getStoryBySlug(fullSlug);
+
+  if (existing) {
+    const content: SbSiteTextContent = {
+      ...existing.content,
+      component: 'site_text',
+      key,
+      value,
+    };
+    const res = await mapi('PUT', `/stories/${existing.id}`, {
+      story: { ...existing, content },
+      publish: 1,
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(JSON.stringify(err));
+    }
+  } else {
+    const folderId = await getFolderId(SITE_TEXT_FOLDER);
+    const content: SbSiteTextContent = {
+      component: 'site_text',
+      key,
+      value,
+    };
+    const res = await mapi('POST', '/stories/', {
+      story: { name: key, slug, parent_id: folderId, content },
+      publish: 1,
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(JSON.stringify(err));
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// Book
+// ─────────────────────────────────────────────
+
+export async function getBook(): Promise<SbBookStory | null> {
+  // The book story lives at book-folder/book
+  const story = await getStoryBySlug(`${BOOK_FOLDER}/book`);
+  return story ?? null;
+}
+
+export async function updateBook(bookData: Partial<SbBookContent>): Promise<SbBookStory> {
+  const existing = await getBook();
+  if (!existing) throw new Error('Book story not found in Storyblok');
+  const content: SbBookContent = {
+    ...existing.content,
+    component: 'book',
+    ...bookData,
+  };
+  const res = await mapi('PUT', `/stories/${existing.id}`, {
+    story: { ...existing, content },
+    publish: 1,
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(JSON.stringify(err));
+  }
+  const data = await res.json();
+  return data.story;
+}
