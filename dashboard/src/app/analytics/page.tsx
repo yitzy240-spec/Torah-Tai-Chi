@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { getConnection, listChannelVideos, type ChannelVideoStats } from '@/lib/youtube';
 
@@ -118,6 +119,236 @@ function PrivacyPill({ status }: { status: string }) {
   );
 }
 
+async function VideoList() {
+  let videos: ChannelVideoStats[] = [];
+  let fetchError: string | null = null;
+  try {
+    videos = await listChannelVideos(25);
+  } catch (e) {
+    fetchError = e instanceof Error ? e.message : String(e);
+  }
+
+  if (fetchError) {
+    return (
+      <div
+        style={{
+          padding: '18px 22px',
+          border: '1px solid rgba(192,57,43,.2)',
+          borderRadius: 'var(--r-lg)',
+          background: 'rgba(192,57,43,.06)',
+          fontFamily: 'var(--ff-body)',
+          fontSize: '13.5px',
+          color: '#8b2d1c',
+          lineHeight: 1.55,
+        }}
+      >
+        Couldn&apos;t fetch channel stats: {fetchError}
+      </div>
+    );
+  }
+  if (videos.length === 0) {
+    return (
+      <div
+        style={{
+          padding: '40px',
+          textAlign: 'center',
+          border: '1px dashed var(--ink-200)',
+          borderRadius: 'var(--r-lg)',
+          fontFamily: 'var(--ff-display)',
+          fontStyle: 'italic',
+          fontSize: '15px',
+          color: 'var(--ink-500)',
+        }}
+      >
+        No uploads yet. Once you post your first video, stats will appear here.
+      </div>
+    );
+  }
+  return (
+    <>
+      <Totals videos={videos} />
+      <VideoRows videos={videos} />
+    </>
+  );
+}
+
+function VideoListSkeleton() {
+  return (
+    <div
+      style={{
+        padding: '40px',
+        textAlign: 'center',
+        fontFamily: 'var(--ff-display)',
+        fontStyle: 'italic',
+        fontSize: '14px',
+        color: 'var(--ink-400)',
+      }}
+    >
+      <div
+        style={{
+          width: '24px',
+          height: '24px',
+          borderRadius: '50%',
+          border: '2px solid var(--ink-100)',
+          borderTopColor: 'var(--cedar-500)',
+          margin: '0 auto 12px',
+          animation: 'tt-spin 0.9s linear infinite',
+        }}
+      />
+      Loading videos from YouTube…
+    </div>
+  );
+}
+
+function VideoRows({ videos }: { videos: ChannelVideoStats[] }) {
+  return (
+    <div
+      style={{
+        border: '1px solid var(--ink-100)',
+        borderRadius: 'var(--r-lg)',
+        background: 'var(--linen-50)',
+        overflow: 'hidden',
+      }}
+    >
+      {videos.map((v, idx) => (
+        <a
+          key={v.id}
+          href={`https://www.youtube.com/watch?v=${v.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '112px 1fr auto',
+            gap: '20px',
+            alignItems: 'center',
+            padding: '14px 18px',
+            borderTop: idx === 0 ? 'none' : '1px solid var(--ink-100)',
+            textDecoration: 'none',
+            color: 'inherit',
+            transition: 'background var(--trans)',
+          }}
+          className="perf-row"
+        >
+          <div
+            style={{
+              width: '112px',
+              aspectRatio: '16/9',
+              borderRadius: 'var(--r-sm)',
+              background: 'var(--ink-100)',
+              overflow: 'hidden',
+              position: 'relative',
+              flexShrink: 0,
+            }}
+          >
+            {v.thumbnailUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={v.thumbnailUrl}
+                alt=""
+                aria-hidden="true"
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+              />
+            )}
+            {v.durationIso && (
+              <span
+                style={{
+                  position: 'absolute',
+                  bottom: '4px',
+                  right: '4px',
+                  padding: '2px 6px',
+                  borderRadius: '3px',
+                  background: 'rgba(0,0,0,.72)',
+                  color: '#fff',
+                  fontFamily: 'var(--ff-body)',
+                  fontSize: '10.5px',
+                  fontWeight: 500,
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                {parseDuration(v.durationIso)}
+              </span>
+            )}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontWeight: 500,
+                fontSize: '16px',
+                letterSpacing: '-0.005em',
+                color: 'var(--ink-900)',
+                fontVariationSettings: '"opsz" 18, "SOFT" 20',
+                marginBottom: '5px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {v.title}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <PrivacyPill status={v.privacyStatus} />
+              <span
+                style={{
+                  fontFamily: 'var(--ff-display)',
+                  fontStyle: 'italic',
+                  fontSize: '12.5px',
+                  color: 'var(--ink-400)',
+                  fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                }}
+              >
+                {formatDate(v.publishedAt)}
+              </span>
+            </div>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(60px, auto))',
+              gap: '22px',
+              textAlign: 'right',
+              fontFamily: 'var(--ff-display)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {[
+              { label: 'Views', value: v.views },
+              { label: 'Likes', value: v.likes },
+              { label: 'Comments', value: v.comments },
+            ].map((s) => (
+              <div key={s.label}>
+                <div
+                  style={{
+                    fontWeight: 500,
+                    fontSize: '18px',
+                    color: 'var(--ink-900)',
+                    letterSpacing: '-0.01em',
+                    fontVariationSettings: '"opsz" 20, "SOFT" 20',
+                  }}
+                >
+                  {formatNumber(s.value)}
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'var(--ff-body)',
+                    fontSize: '10px',
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-400)',
+                    marginTop: '2px',
+                  }}
+                >
+                  {s.label}
+                </div>
+              </div>
+            ))}
+          </div>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export default async function AnalyticsPage() {
   const connection = await getConnection();
 
@@ -190,14 +421,6 @@ export default async function AnalyticsPage() {
     );
   }
 
-  let videos: ChannelVideoStats[] = [];
-  let fetchError: string | null = null;
-  try {
-    videos = await listChannelVideos(25);
-  } catch (e) {
-    fetchError = e instanceof Error ? e.message : String(e);
-  }
-
   return (
     <div className="stagger">
       {/* Header */}
@@ -233,191 +456,9 @@ export default async function AnalyticsPage() {
         </p>
       </div>
 
-      {fetchError ? (
-        <div
-          style={{
-            padding: '18px 22px',
-            border: '1px solid rgba(192,57,43,.2)',
-            borderRadius: 'var(--r-lg)',
-            background: 'rgba(192,57,43,.06)',
-            fontFamily: 'var(--ff-body)',
-            fontSize: '13.5px',
-            color: '#8b2d1c',
-            lineHeight: 1.55,
-          }}
-        >
-          Couldn&apos;t fetch channel stats: {fetchError}
-        </div>
-      ) : videos.length === 0 ? (
-        <div
-          style={{
-            padding: '40px',
-            textAlign: 'center',
-            border: '1px dashed var(--ink-200)',
-            borderRadius: 'var(--r-lg)',
-            fontFamily: 'var(--ff-display)',
-            fontStyle: 'italic',
-            fontSize: '15px',
-            color: 'var(--ink-500)',
-          }}
-        >
-          No uploads yet. Once you post your first video, stats will appear here.
-        </div>
-      ) : (
-        <>
-          <Totals videos={videos} />
-
-          <div
-            style={{
-              border: '1px solid var(--ink-100)',
-              borderRadius: 'var(--r-lg)',
-              background: 'var(--linen-50)',
-              overflow: 'hidden',
-            }}
-          >
-            {videos.map((v, idx) => (
-              <a
-                key={v.id}
-                href={`https://www.youtube.com/watch?v=${v.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '112px 1fr auto',
-                  gap: '20px',
-                  alignItems: 'center',
-                  padding: '14px 18px',
-                  borderTop: idx === 0 ? 'none' : '1px solid var(--ink-100)',
-                  textDecoration: 'none',
-                  color: 'inherit',
-                  transition: 'background var(--trans)',
-                }}
-                className="perf-row"
-              >
-                {/* Thumb */}
-                <div
-                  style={{
-                    width: '112px',
-                    aspectRatio: '16/9',
-                    borderRadius: 'var(--r-sm)',
-                    background: 'var(--ink-100)',
-                    overflow: 'hidden',
-                    position: 'relative',
-                    flexShrink: 0,
-                  }}
-                >
-                  {v.thumbnailUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={v.thumbnailUrl}
-                      alt=""
-                      aria-hidden="true"
-                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                    />
-                  )}
-                  {v.durationIso && (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        bottom: '4px',
-                        right: '4px',
-                        padding: '2px 6px',
-                        borderRadius: '3px',
-                        background: 'rgba(0,0,0,.72)',
-                        color: '#fff',
-                        fontFamily: 'var(--ff-body)',
-                        fontSize: '10.5px',
-                        fontWeight: 500,
-                        fontVariantNumeric: 'tabular-nums',
-                      }}
-                    >
-                      {parseDuration(v.durationIso)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Title + meta */}
-                <div style={{ minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontFamily: 'var(--ff-display)',
-                      fontWeight: 500,
-                      fontSize: '16px',
-                      letterSpacing: '-0.005em',
-                      color: 'var(--ink-900)',
-                      fontVariationSettings: '"opsz" 18, "SOFT" 20',
-                      marginBottom: '5px',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {v.title}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                    <PrivacyPill status={v.privacyStatus} />
-                    <span
-                      style={{
-                        fontFamily: 'var(--ff-display)',
-                        fontStyle: 'italic',
-                        fontSize: '12.5px',
-                        color: 'var(--ink-400)',
-                        fontVariationSettings: '"opsz" 14, "SOFT" 50',
-                      }}
-                    >
-                      {formatDate(v.publishedAt)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Stats */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, minmax(60px, auto))',
-                    gap: '22px',
-                    textAlign: 'right',
-                    fontFamily: 'var(--ff-display)',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                >
-                  {[
-                    { label: 'Views', value: v.views },
-                    { label: 'Likes', value: v.likes },
-                    { label: 'Comments', value: v.comments },
-                  ].map((s) => (
-                    <div key={s.label}>
-                      <div
-                        style={{
-                          fontWeight: 500,
-                          fontSize: '18px',
-                          color: 'var(--ink-900)',
-                          letterSpacing: '-0.01em',
-                          fontVariationSettings: '"opsz" 20, "SOFT" 20',
-                        }}
-                      >
-                        {formatNumber(s.value)}
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: 'var(--ff-body)',
-                          fontSize: '10px',
-                          letterSpacing: '0.12em',
-                          textTransform: 'uppercase',
-                          color: 'var(--ink-400)',
-                          marginTop: '2px',
-                        }}
-                      >
-                        {s.label}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </a>
-            ))}
-          </div>
-        </>
-      )}
+      <Suspense fallback={<VideoListSkeleton />}>
+        <VideoList />
+      </Suspense>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { StanceToggle } from '@/components/stance-toggle';
 import { Fab } from '@/components/fab';
@@ -5,6 +6,30 @@ import { getThisWeekParsha } from '@/lib/hebcal';
 import { GenerateDialog } from '@/components/generate-dialog';
 import { checkHealth } from '@/lib/health';
 import { SystemHealthStrip } from '@/components/system-health';
+
+async function SystemHealthAsync() {
+  const health = await checkHealth();
+  return <SystemHealthStrip health={health} />;
+}
+
+function SystemHealthSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        fontFamily: 'var(--ff-display)',
+        fontStyle: 'italic',
+        fontSize: '12.5px',
+        color: 'var(--ink-300)',
+        marginBottom: '28px',
+        lineHeight: 1.5,
+      }}
+    >
+      <span style={{ display: 'inline-block', width: '7px', height: '7px', borderRadius: '50%', background: 'var(--ink-200)', marginRight: '7px', verticalAlign: 'middle' }} />
+      Checking systems…
+    </div>
+  );
+}
 
 // Types
 interface Script {
@@ -50,10 +75,12 @@ async function getParshaBySlug(slug: string): Promise<Parsha | null> {
 
 export default async function TodayPage() {
   // Feature A: use Hebcal live parsha; fall back to first-ordered parsha from DB
-  const [hebcalParsha, fallbackParsha, health] = await Promise.all([
+  // checkHealth is intentionally NOT awaited here — it pings 5 external
+  // services and would hold the whole page back. We render it inside a
+  // Suspense boundary below so the rest of the page appears immediately.
+  const [hebcalParsha, fallbackParsha] = await Promise.all([
     getThisWeekParsha(),
     getNextParsha(),
-    checkHealth(),
   ]);
 
   const parsha = hebcalParsha
@@ -70,8 +97,10 @@ export default async function TodayPage() {
         {/* Stance line — client component with toggle sheet */}
         <StanceToggle initialStance="reviewer" />
 
-        {/* System health — quiet status strip */}
-        <SystemHealthStrip health={health} />
+        {/* System health — quiet status strip; suspended so page paints fast */}
+        <Suspense fallback={<SystemHealthSkeleton />}>
+          <SystemHealthAsync />
+        </Suspense>
 
         {/* REVIEWER VIEW */}
         <div>

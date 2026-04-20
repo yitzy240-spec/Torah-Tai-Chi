@@ -208,6 +208,9 @@
   animation: none;
 }
 
+/* Route-level loading spinner */
+@keyframes tt-spin { to { transform: rotate(360deg); } }
+
 @keyframes pulse-jade {
   0%,100% { box-shadow: 0 0 0 3px rgba(90,110,61,.15); }
   50%     { box-shadow: 0 0 0 6px rgba(90,110,61,.02); }
