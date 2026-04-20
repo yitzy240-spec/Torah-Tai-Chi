@@ -40,6 +40,7 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
   const defaultDate = nextFriday6pm();
   const [open, setOpen] = useState(false);
   const [notConfiguredOpen, setNotConfiguredOpen] = useState(false);
+  const [shareNow, setShareNow] = useState(false);
   const [scheduledAt, setScheduledAt] = useState(formatDatetimeLocal(defaultDate));
   const [isPending, startTransition] = useTransition();
   const [toastMsg, setToastMsg] = useState('');
@@ -69,8 +70,8 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
   const confirm = () => {
     setError(null);
     startTransition(async () => {
-      const d = new Date(scheduledAt);
-      const result = await scheduleAll({ videoId, scheduledAt: d, captions });
+      const d = shareNow ? new Date() : new Date(scheduledAt);
+      const result = await scheduleAll({ videoId, scheduledAt: d, captions, shareNow });
       if (result.error === 'BUFFER_NOT_CONFIGURED') {
         closeSheet();
         setNotConfiguredOpen(true);
@@ -82,7 +83,11 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
       }
       closeSheet();
       const count = result.results?.length ?? 0;
-      setToastMsg(`Scheduled to ${count} channel${count !== 1 ? 's' : ''} for ${formatFriendly(d)}`);
+      setToastMsg(
+        shareNow
+          ? `Posting to ${count} channel${count !== 1 ? 's' : ''} now`
+          : `Scheduled to ${count} channel${count !== 1 ? 's' : ''} for ${formatFriendly(d)}`,
+      );
       setToastVisible(true);
       setTimeout(() => setToastVisible(false), 4000);
     });
@@ -219,10 +224,9 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
           Will schedule to all 4 connected channels simultaneously.
         </p>
 
-        {/* Date/time picker */}
+        {/* Timing toggle */}
         <div style={{ marginBottom: '20px' }}>
-          <label
-            htmlFor="schedule-datetime"
+          <div
             style={{
               display: 'block',
               fontFamily: 'var(--ff-display)',
@@ -233,38 +237,89 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
               fontVariationSettings: '"opsz" 14, "SOFT" 30',
             }}
           >
-            Publish time
-          </label>
-          <input
-            id="schedule-datetime"
-            type="datetime-local"
-            value={scheduledAt}
-            onChange={(e) => setScheduledAt(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px 14px',
-              border: '1px solid var(--ink-200)',
-              borderRadius: 'var(--r-md)',
-              background: 'var(--linen-50)',
-              fontFamily: 'var(--ff-body)',
-              fontSize: '15px',
-              color: 'var(--ink-900)',
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
-          />
-          <p
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: '12.5px',
-              color: 'var(--ink-400)',
-              margin: '8px 0 0 0',
-              fontVariationSettings: '"opsz" 14, "SOFT" 50',
-            }}
-          >
-            {formatFriendly(isNaN(scheduledDate.getTime()) ? defaultDate : scheduledDate)}
-          </p>
+            Timing
+          </div>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+            {[
+              { v: true,  label: 'Post now' },
+              { v: false, label: 'Schedule for later' },
+            ].map((opt) => (
+              <button
+                key={String(opt.v)}
+                type="button"
+                onClick={() => setShareNow(opt.v)}
+                style={{
+                  fontFamily: 'var(--ff-body)',
+                  fontWeight: 500,
+                  fontSize: '13px',
+                  padding: '9px 16px',
+                  minHeight: '40px',
+                  borderRadius: '999px',
+                  border: `1px solid ${shareNow === opt.v ? 'var(--navy-800)' : 'var(--ink-200)'}`,
+                  background: shareNow === opt.v ? 'var(--navy-800)' : 'transparent',
+                  color: shareNow === opt.v ? 'var(--linen-50)' : 'var(--ink-700)',
+                  cursor: 'pointer',
+                  transition: 'all var(--trans)',
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {shareNow ? (
+            <p style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: 'var(--ink-500)', margin: 0, fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
+              Posts publish immediately to every connected channel.
+            </p>
+          ) : (
+            <>
+              <label
+                htmlFor="schedule-datetime"
+                style={{
+                  display: 'block',
+                  fontFamily: 'var(--ff-body)',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: 'var(--ink-500)',
+                  marginBottom: '6px',
+                }}
+              >
+                Publish time
+              </label>
+              <input
+                id="schedule-datetime"
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px 14px',
+                  border: '1px solid var(--ink-200)',
+                  borderRadius: 'var(--r-md)',
+                  background: 'var(--linen-50)',
+                  fontFamily: 'var(--ff-body)',
+                  fontSize: '15px',
+                  color: 'var(--ink-900)',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <p
+                style={{
+                  fontFamily: 'var(--ff-display)',
+                  fontStyle: 'italic',
+                  fontSize: '12.5px',
+                  color: 'var(--ink-400)',
+                  margin: '8px 0 0 0',
+                  fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                }}
+              >
+                {formatFriendly(isNaN(scheduledDate.getTime()) ? defaultDate : scheduledDate)}
+              </p>
+            </>
+          )}
         </div>
 
         {/* Platforms summary */}
@@ -321,7 +376,7 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
               boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
             }}
           >
-            {isPending ? 'Scheduling…' : 'Schedule'}
+            {isPending ? (shareNow ? 'Posting…' : 'Scheduling…') : (shareNow ? 'Post now' : 'Schedule')}
           </button>
         </div>
       </div>

@@ -30,6 +30,8 @@ interface ScheduleAllArgs {
   scheduledAt: Date;
   /** Per-platform captions, keyed by platform name */
   captions: Partial<Record<Platform, string>>;
+  /** If true, publish immediately — ignore scheduledAt. */
+  shareNow?: boolean;
 }
 
 export async function scheduleAll(
@@ -95,7 +97,8 @@ export async function scheduleAll(
         profileIds: [profile.id],
         text: caption,
         mediaUrl,
-        scheduledAt: args.scheduledAt,
+        scheduledAt: args.shareNow ? undefined : args.scheduledAt,
+        shareNow: args.shareNow,
       }));
 
       await supabase.from('posts').insert({
@@ -103,7 +106,7 @@ export async function scheduleAll(
         platform,
         buffer_update_id: update.id,
         scheduled_at: args.scheduledAt.toISOString(),
-        status: 'scheduled',
+        status: args.shareNow ? 'published' : 'scheduled',
         caption,
       });
 
@@ -146,7 +149,8 @@ export async function scheduleAll(
           videoUrl: mediaUrl!,
           title,
           description,
-          publishAt: args.scheduledAt,
+          // shareNow → public immediately (no publishAt); otherwise private + scheduled
+          publishAt: args.shareNow ? undefined : args.scheduledAt,
           thumbnailUrl: thumbUrl,
           tags: ['Torah', 'Tai Chi', 'Shorts'],
         }));
@@ -156,7 +160,7 @@ export async function scheduleAll(
           platform: 'youtube',
           buffer_update_id: video.id, // stored in shared column; renamed in UI as needed
           scheduled_at: args.scheduledAt.toISOString(),
-          status: 'scheduled',
+          status: args.shareNow ? 'published' : 'scheduled',
           caption,
         });
 
