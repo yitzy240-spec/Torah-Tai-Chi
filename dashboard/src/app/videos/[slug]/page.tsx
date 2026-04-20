@@ -398,11 +398,16 @@ export default async function VideoDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* ROW 2: Captions + Distribution */}
+      {/* ROW 2: Captions + Distribution. Mirrors ROW 1's narrow|wide split
+          (video 280 | script 1fr), flipped — captions (wide content) on
+          the left aligning with the script column above, distribution
+          (compact status list) on the right at the same 280px footprint
+          as the video player above. minmax(0,1fr) keeps long captions
+          from busting the grid. */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: 'minmax(0, 1fr) 280px',
           gap: '20px',
           marginBottom: '32px',
         }}
@@ -458,7 +463,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
                 borderRadius: 'var(--r-md)',
                 marginBottom: '8px',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 gap: '12px',
               }}
             >
@@ -470,9 +475,9 @@ export default async function VideoDetailPage({ params }: PageProps) {
                   fontSize: '13px',
                   color: 'var(--ink-700)',
                   flex: 1,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  minWidth: 0,
+                  lineHeight: 1.45,
+                  overflowWrap: 'anywhere',
                 }}
               >
                 {caption}
