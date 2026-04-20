@@ -1,6 +1,7 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
 import { createUpdate, listProfiles } from '@/lib/buffer';
+import { getConnection as getYouTubeConnection, uploadVideo as uploadToYouTube } from '@/lib/youtube';
 
 // Retry a promise-returning fn up to `attempts` times with ms delays between retries.
 async function withRetry<T>(
@@ -21,6 +22,8 @@ async function withRetry<T>(
 
 const PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
 type Platform = typeof PLATFORMS[number];
+// YouTube goes direct via the YouTube Data API; the others are scheduled through Buffer.
+const BUFFER_PLATFORMS = PLATFORMS.filter((p) => p !== 'youtube') as readonly ('tiktok' | 'instagram' | 'facebook')[];
 
 interface ScheduleAllArgs {
   videoId: string;
@@ -31,12 +34,7 @@ interface ScheduleAllArgs {
 
 export async function scheduleAll(
   args: ScheduleAllArgs,
-): Promise<{ results?: Array<{ platform: Platform; bufferId: string }>; error?: string }> {
-  const token = process.env.BUFFER_ACCESS_TOKEN;
-  if (!token) {
-    return { error: 'BUFFER_NOT_CONFIGURED' };
-  }
-
+): Promise<{ results?: Array<{ platform: Platform; externalId: string }>; error?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated' };
@@ -44,32 +42,45 @@ export async function scheduleAll(
   // Fetch video URL from storage
   const { data: video } = await supabase
     .from('videos')
-    .select('mp4_path')
+    .select('mp4_path, thumb_path')
     .eq('id', args.videoId)
     .single();
 
   let mediaUrl: string | undefined;
+  let thumbUrl: string | undefined;
   if (video?.mp4_path) {
     const { data: urlData } = supabase.storage.from('videos').getPublicUrl(video.mp4_path);
     mediaUrl = urlData?.publicUrl;
   }
-
-  // Get Buffer profiles (retry transient failures)
-  let profiles: Awaited<ReturnType<typeof listProfiles>>;
-  try {
-    profiles = await withRetry(() => listProfiles(token));
-  } catch (e) {
-    return { error: `Failed to fetch Buffer profiles: ${String(e)}. Check your Buffer connection in Settings → Buffer.` };
+  if (video?.thumb_path) {
+    const { data: urlData } = supabase.storage.from('videos').getPublicUrl(video.thumb_path);
+    thumbUrl = urlData?.publicUrl;
   }
 
-  const results: Array<{ platform: Platform; bufferId: string }> = [];
+  const results: Array<{ platform: Platform; externalId: string }> = [];
   const errors: string[] = [];
 
-  for (const platform of PLATFORMS) {
+  // Which platforms is the user actually asking us to post to?
+  const requested = PLATFORMS.filter((p) => args.captions[p]);
+  const needsBuffer = requested.some((p) => p !== 'youtube');
+  const needsYouTube = requested.includes('youtube');
+
+  // ── Buffer path — TikTok/Instagram/Facebook ────────────────────────────
+  const bufferToken = process.env.BUFFER_ACCESS_TOKEN;
+  let profiles: Awaited<ReturnType<typeof listProfiles>> = [];
+  if (needsBuffer) {
+    if (!bufferToken) return { error: 'BUFFER_NOT_CONFIGURED' };
+    try {
+      profiles = await withRetry(() => listProfiles(bufferToken));
+    } catch (e) {
+      return { error: `Failed to fetch Buffer profiles: ${String(e)}. Check Settings → Buffer.` };
+    }
+  }
+
+  for (const platform of BUFFER_PLATFORMS) {
     const caption = args.captions[platform];
     if (!caption) continue;
 
-    // Match profile by service name
     const profile = profiles.find(
       (p) => p.service.toLowerCase() === platform || p.formatted_service?.toLowerCase().includes(platform),
     );
@@ -80,14 +91,13 @@ export async function scheduleAll(
 
     try {
       const update = await withRetry(() => createUpdate({
-        token,
+        token: bufferToken!,
         profileIds: [profile.id],
         text: caption,
         mediaUrl,
         scheduledAt: args.scheduledAt,
       }));
 
-      // Persist to posts table
       await supabase.from('posts').insert({
         video_id: args.videoId,
         platform,
@@ -97,10 +107,9 @@ export async function scheduleAll(
         caption,
       });
 
-      results.push({ platform, bufferId: update.id });
+      results.push({ platform, externalId: update.id });
     } catch (e) {
       errors.push(`${platform}: ${String(e)}`);
-      // Still record as failed
       await supabase.from('posts').insert({
         video_id: args.videoId,
         platform,
@@ -108,6 +117,60 @@ export async function scheduleAll(
         status: 'failed',
         caption,
       });
+    }
+  }
+
+  // ── YouTube path — direct via Data API v3 ─────────────────────────────
+  if (needsYouTube) {
+    const caption = args.captions.youtube!;
+    const yt = await getYouTubeConnection();
+    if (!yt.connected) {
+      errors.push('youtube: not connected — visit /channels to connect');
+      await supabase.from('posts').insert({
+        video_id: args.videoId,
+        platform: 'youtube',
+        scheduled_at: args.scheduledAt.toISOString(),
+        status: 'failed',
+        caption,
+      });
+    } else if (!mediaUrl) {
+      errors.push('youtube: no video file to upload');
+    } else {
+      // Split caption into title (first line, ≤100 chars) + description (rest).
+      const [firstLine, ...rest] = caption.split('\n');
+      const title = firstLine.slice(0, 100);
+      const description = rest.length > 0 ? rest.join('\n').trim() : caption;
+
+      try {
+        const video = await withRetry(() => uploadToYouTube({
+          videoUrl: mediaUrl!,
+          title,
+          description,
+          publishAt: args.scheduledAt,
+          thumbnailUrl: thumbUrl,
+          tags: ['Torah', 'Tai Chi', 'Shorts'],
+        }));
+
+        await supabase.from('posts').insert({
+          video_id: args.videoId,
+          platform: 'youtube',
+          buffer_update_id: video.id, // stored in shared column; renamed in UI as needed
+          scheduled_at: args.scheduledAt.toISOString(),
+          status: 'scheduled',
+          caption,
+        });
+
+        results.push({ platform: 'youtube', externalId: video.id });
+      } catch (e) {
+        errors.push(`youtube: ${String(e)}`);
+        await supabase.from('posts').insert({
+          video_id: args.videoId,
+          platform: 'youtube',
+          scheduled_at: args.scheduledAt.toISOString(),
+          status: 'failed',
+          caption,
+        });
+      }
     }
   }
 

@@ -1,19 +1,24 @@
 import { PlatformIcon } from '@/components/platform-icon';
 import { createClient } from '@/lib/supabase/server';
 import { listProfiles } from '@/lib/buffer';
+import { getConnection as getYouTubeConnection } from '@/lib/youtube';
 import Link from 'next/link';
 
 const BUFFER_CHANNELS_URL = 'https://publish.buffer.com/channels';
 
-const BUFFER_PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
+// YouTube is handled direct via the Data API, not Buffer.
+const BUFFER_PLATFORMS = ['tiktok', 'instagram', 'facebook'] as const;
 type BufferPlatform = typeof BUFFER_PLATFORMS[number];
+type Platform = BufferPlatform | 'youtube' | 'website';
 
 interface ChannelData {
-  platform: BufferPlatform | 'website';
+  platform: Platform;
   name: string;
   connected: boolean;
   username: string | null;
   recentPosts: number;
+  /** 'buffer' | 'youtube' | 'website' — drives which CTAs render. */
+  integration: 'buffer' | 'youtube' | 'website';
 }
 
 async function getChannelData(): Promise<ChannelData[]> {
@@ -29,21 +34,20 @@ async function getChannelData(): Promise<ChannelData[]> {
 
   const countByPlatform: Record<string, number> = {};
   for (const p of BUFFER_PLATFORMS) countByPlatform[p] = 0;
+  countByPlatform.youtube = 0;
   for (const row of postCounts ?? []) {
     if (row.platform in countByPlatform) countByPlatform[row.platform]++;
   }
 
-  // Try to get Buffer profiles
-  let profiles: Awaited<ReturnType<typeof listProfiles>> = [];
-  if (token) {
-    try {
-      profiles = await listProfiles(token);
-    } catch {
-      // token set but API failed — fall through to "not connected"
-    }
-  }
+  // Fetch Buffer + YouTube connection state in parallel.
+  const [profiles, youtube] = await Promise.all([
+    token
+      ? listProfiles(token).catch(() => [] as Awaited<ReturnType<typeof listProfiles>>)
+      : Promise.resolve([] as Awaited<ReturnType<typeof listProfiles>>),
+    getYouTubeConnection(),
+  ]);
 
-  const platformChannels: ChannelData[] = BUFFER_PLATFORMS.map((platform) => {
+  const bufferChannels: ChannelData[] = BUFFER_PLATFORMS.map((platform) => {
     const profile = profiles.find(
       (p) => p.service?.toLowerCase() === platform || p.formatted_service?.toLowerCase().includes(platform),
     );
@@ -53,18 +57,31 @@ async function getChannelData(): Promise<ChannelData[]> {
       connected: !!profile,
       username: profile?.service_username ?? null,
       recentPosts: countByPlatform[platform] ?? 0,
+      integration: 'buffer',
     };
   });
 
+  const ytChannel: ChannelData = {
+    platform: 'youtube',
+    name: 'Youtube',
+    connected: youtube.connected,
+    username: youtube.connected ? youtube.channelTitle : null,
+    recentPosts: countByPlatform.youtube ?? 0,
+    integration: 'youtube',
+  };
+
   return [
-    ...platformChannels,
-    { platform: 'website', name: 'Website', connected: false, username: null, recentPosts: 0 },
+    ...bufferChannels,
+    ytChannel,
+    { platform: 'website', name: 'Website', connected: false, username: null, recentPosts: 0, integration: 'website' },
   ];
 }
 
 export default async function ChannelsPage() {
   const channels = await getChannelData();
-  const connectedCount = channels.filter((c) => c.connected).length;
+  const socialChannels = channels.filter((c) => c.integration !== 'website');
+  const connectedCount = socialChannels.filter((c) => c.connected).length;
+  const totalSocial = socialChannels.length;
   const bufferConfigured = !!process.env.BUFFER_ACCESS_TOKEN;
 
   return (
@@ -95,9 +112,7 @@ export default async function ChannelsPage() {
             fontVariationSettings: '"opsz" 16, "SOFT" 50',
           }}
         >
-          {bufferConfigured
-            ? `${connectedCount} of 5 connected. Each video posts to all active channels automatically.`
-            : 'Buffer not connected. Connect to schedule posts across all channels.'}
+          {`${connectedCount} of ${totalSocial} connected. Each video posts to all active channels automatically.`}
         </p>
       </div>
 
@@ -187,7 +202,7 @@ export default async function ChannelsPage() {
             </div>
 
             {/* Stats */}
-            {ch.platform !== 'website' && (
+            {ch.integration !== 'website' && (
               <div
                 style={{
                   fontFamily: 'var(--ff-display)',
@@ -218,7 +233,7 @@ export default async function ChannelsPage() {
               </div>
             )}
 
-            {ch.platform === 'website' && (
+            {ch.integration === 'website' && (
               <div
                 style={{
                   fontFamily: 'var(--ff-display)',
@@ -240,7 +255,7 @@ export default async function ChannelsPage() {
                 borderTop: '1px dotted var(--ink-100)',
               }}
             >
-              {ch.platform === 'website' ? (
+              {ch.integration === 'website' ? (
                 <Link
                   href="/site-content"
                   style={{
@@ -258,6 +273,54 @@ export default async function ChannelsPage() {
                 >
                   Configure
                 </Link>
+              ) : ch.integration === 'youtube' ? (
+                ch.connected ? (
+                  <form action="/api/auth/youtube/disconnect" method="post">
+                    <button
+                      type="submit"
+                      style={{
+                        fontFamily: 'var(--ff-body)',
+                        fontSize: '13px',
+                        color: 'var(--ink-500)',
+                        textDecoration: 'underline',
+                        textDecorationColor: 'var(--ink-200)',
+                        textUnderlineOffset: '4px',
+                        minHeight: '44px',
+                        cursor: 'pointer',
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        transition: 'all var(--trans)',
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  </form>
+                ) : (
+                  <Link
+                    href="/api/auth/youtube/start"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontFamily: 'var(--ff-body)',
+                      fontWeight: 500,
+                      fontSize: '14px',
+                      padding: '11px 22px',
+                      minHeight: '44px',
+                      borderRadius: '999px',
+                      border: '1px solid var(--navy-800)',
+                      background: 'var(--navy-800)',
+                      color: 'var(--linen-50)',
+                      textDecoration: 'none',
+                      transition: 'all var(--trans)',
+                    }}
+                  >
+                    Connect YouTube
+                  </Link>
+                )
               ) : !bufferConfigured ? (
                 <Link
                   href="/settings/buffer"

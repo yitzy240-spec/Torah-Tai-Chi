@@ -14,6 +14,7 @@ export interface SystemHealth {
   storyblok: ServiceHealth;
   buffer: ServiceHealth | null; // null when token not configured
   modal: ServiceHealth | null;  // null when URL not configured
+  youtube: ServiceHealth | null; // null when not connected
 }
 
 const TIMEOUT_MS = 6000;
@@ -108,17 +109,29 @@ async function checkModal(): Promise<ServiceHealth | null> {
   }
 }
 
+async function checkYouTube(): Promise<ServiceHealth | null> {
+  // Import lazily to avoid hard-wiring a Supabase service client in contexts
+  // that don't need it (e.g. route.ts imports of this module).
+  const { getConnection } = await import('@/lib/youtube');
+  const conn = await getConnection();
+  if (!conn.connected) return null;
+  // Presence of a non-expired row is the signal; we don't round-trip to Google
+  // here to keep this cheap. The first upload attempt will surface real issues.
+  return { ok: true };
+}
+
 /**
  * Run all health checks in parallel.
  * Safe to call from a server component — uses server-side env vars.
  */
 export async function checkHealth(): Promise<SystemHealth> {
-  const [supabase, storyblok, buffer, modal] = await Promise.all([
+  const [supabase, storyblok, buffer, modal, youtube] = await Promise.all([
     checkSupabase(),
     checkStoryblok(),
     checkBuffer(),
     checkModal(),
+    checkYouTube(),
   ]);
 
-  return { supabase, storyblok, buffer, modal };
+  return { supabase, storyblok, buffer, modal, youtube };
 }

@@ -6,7 +6,7 @@ interface Props {
 }
 
 function allOk(h: SystemHealth): boolean {
-  const checks = [h.supabase, h.storyblok, h.buffer, h.modal].filter(
+  const checks = [h.supabase, h.storyblok, h.buffer, h.modal, h.youtube].filter(
     (c): c is ServiceHealth => c !== null,
   );
   return checks.every((c) => c.ok);
@@ -18,6 +18,7 @@ function redServices(h: SystemHealth): Array<{ name: string; error?: string; isB
   if (h.storyblok && !h.storyblok.ok) out.push({ name: 'Storyblok', error: h.storyblok.error });
   if (h.buffer && !h.buffer.ok)       out.push({ name: 'Buffer',    error: h.buffer.error, isBuffer: true });
   if (h.modal  && !h.modal.ok)        out.push({ name: 'Modal',     error: h.modal.error });
+  if (h.youtube && !h.youtube.ok)     out.push({ name: 'YouTube',   error: h.youtube.error });
   return out;
 }
 
