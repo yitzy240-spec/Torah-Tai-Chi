@@ -65,6 +65,7 @@ def run_pipeline(job_id: str) -> None:
     from src.stitcher import concat_clips
     from src.kie_client import KieClient
     from src.models import ClipPlan
+    from src.thumbnails import extract_thumbnail, upload_thumbnail
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -161,23 +162,21 @@ def run_pipeline(job_id: str) -> None:
                 file_options={"content-type": "video/mp4", "upsert": "true"},
             )
 
-        # --- Extract and upload thumbnail (Feature B: thumbnail system) ---
-        # TODO(B7): When this worker is deployed, wire in thumbnail extraction:
-        #
-        #   from src.thumbnails import extract_thumbnail, upload_thumbnail
-        #
-        #   thumb_local = work_dir / "thumb.png"
-        #   extract_thumbnail(final_mp4, thumb_local, percent=20.0)
-        #   thumb_storage_path = upload_thumbnail(thumb_local, f"jobs/{job_id}/thumb.png")
-        #
-        #   sb.table("videos").insert({
-        #       "job_id": job_id, "mp4_path": storage_path, "thumb_path": thumb_storage_path,
-        #   }).execute()
-        #
-        # Until deploy, insert without thumb_path (website falls back to brand placeholder):
-        sb.table("videos").insert({
-            "job_id": job_id, "mp4_path": storage_path,
-        }).execute()
+        # --- Extract and upload thumbnail ---
+        # A thumbnail failure should not fail the whole video; fall through to
+        # a placeholder-less insert and let the website render its brand fallback.
+        thumb_storage_path: str | None = None
+        try:
+            thumb_local = work_dir / "thumb.png"
+            extract_thumbnail(final_mp4, thumb_local, percent=20.0)
+            thumb_storage_path = upload_thumbnail(thumb_local, f"jobs/{job_id}/thumb.png")
+        except Exception as thumb_err:
+            print(f"[thumb] skipped for job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
+
+        video_row: dict = {"job_id": job_id, "mp4_path": storage_path}
+        if thumb_storage_path:
+            video_row["thumb_path"] = thumb_storage_path
+        sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Video ready")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
