@@ -9,14 +9,14 @@ export const revalidate = 60;
 export const metadata: Metadata = {
   title: "Teachings",
   description:
-    "Fifty-two parshiot, fifty-two teachings where Torah wisdom meets the Chinese internal arts.",
+    "Fifty-four parshiot. A year of teachings where Torah wisdom meets the internal arts.",
   alternates: {
     canonical: "https://torahtaichi.com/videos",
   },
   openGraph: {
     title: "Teachings · Torah Tai Chi",
     description:
-      "Fifty-two parshiot, fifty-two teachings where Torah wisdom meets the Chinese internal arts.",
+      "Fifty-four parshiot. A year of teachings where Torah wisdom meets the internal arts.",
     type: "website",
     url: "https://torahtaichi.com/videos",
     siteName: "Torah Tai Chi",
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Teachings · Torah Tai Chi",
     description:
-      "Fifty-two parshiot, fifty-two teachings where Torah wisdom meets the Chinese internal arts.",
+      "Fifty-four parshiot. A year of teachings where Torah wisdom meets the internal arts.",
   },
 };
 
@@ -58,7 +58,7 @@ export default async function VideosPage() {
         <div className="page-kicker">THE TEACHINGS</div>
         <h1>The weekly teachings</h1>
         <p className="page-subtitle">
-          <em>Fifty-two parshiot. Fifty-two meetings of tradition and breath.</em>
+          <em>Fifty-four parshiot. One cycle through the Torah, told through the body.</em>
         </p>
       </header>
 

@@ -20,7 +20,7 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
   return (
     <nav className="site-nav">
       <Link href="/" className="nav-brand">
-        <Brand size={32} />
+        <Brand size={52} />
         <span>Torah Tai Chi</span>
       </Link>
       <div style={{ display: "flex", alignItems: "center" }}>

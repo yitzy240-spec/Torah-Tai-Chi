@@ -82,7 +82,7 @@ export default async function VideosPage() {
             fontVariationSettings: '"opsz" 110, "SOFT" 30',
           }}
         >
-          All <em style={{ fontStyle: 'italic', color: 'var(--ink-500)', fontVariationSettings: '"opsz" 110, "SOFT" 60' }}>52</em> parshiot.
+          All <em style={{ fontStyle: 'italic', color: 'var(--ink-500)', fontVariationSettings: '"opsz" 110, "SOFT" 60' }}>54</em> parshiot.
         </h1>
         <p
           style={{

@@ -12,9 +12,9 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 }
 @media(max-width:700px){.site-nav{padding:16px 20px}}
 
-.nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink-900);flex-shrink:0;min-width:0}
-.nav-brand svg{width:32px;height:32px;flex-shrink:0}
-.nav-brand span{font-family:var(--ff-display);font-weight:500;font-size:15px;letter-spacing:-.003em;white-space:nowrap}
+.nav-brand{display:flex;align-items:center;gap:12px;text-decoration:none;color:var(--ink-900);flex-shrink:0;min-width:0}
+.nav-brand svg,.nav-brand img{width:52px;height:52px;flex-shrink:0}
+.nav-brand span{font-family:var(--ff-display);font-weight:500;font-size:17px;letter-spacing:-.003em;white-space:nowrap}
 @media(max-width:480px){.nav-brand span{display:none}}
 
 .nav-links{display:flex;align-items:center;gap:32px;flex-shrink:0}
@@ -386,6 +386,15 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 .about-section:first-of-type{margin-top:0}
 .about-section h2{font-family:var(--ff-display);font-weight:500;font-size:22px;letter-spacing:-.01em;margin:0 0 16px 0;color:var(--ink-900);font-variation-settings:"opsz" 24,"SOFT" 30;}
 .about-section p{font-family:var(--ff-reading);font-size:19px;line-height:1.65;color:var(--ink-700);margin:0 0 20px 0;font-variation-settings:"opsz" 19,"SOFT" 40;}
+
+/* Meet Rav Eli block on /about */
+.meet-rav-eli{display:grid;grid-template-columns:180px 1fr;gap:32px;align-items:start;margin:56px 0 48px 0;padding:32px 0;border-top:1px solid var(--ink-100);border-bottom:1px solid var(--ink-100);}
+.meet-rav-eli .meet-portrait{width:180px;height:180px;border-radius:50%;object-fit:cover;border:1px solid var(--ink-100);box-shadow:0 10px 30px -10px rgba(35,27,16,.18);display:block;}
+.meet-rav-eli .meet-kicker{font-family:var(--ff-body);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--cedar-600);margin-bottom:6px;}
+.meet-rav-eli h2{font-family:var(--ff-display);font-weight:500;font-size:clamp(26px,3.4vw,36px);letter-spacing:-.01em;margin:0 0 14px 0;color:var(--ink-900);font-variation-settings:"opsz" 36,"SOFT" 30;}
+.meet-rav-eli p{font-family:var(--ff-reading);font-size:17px;line-height:1.6;color:var(--ink-700);margin:0;font-variation-settings:"opsz" 18,"SOFT" 40;}
+@media(max-width:640px){.meet-rav-eli{grid-template-columns:1fr;gap:20px;text-align:center;}.meet-rav-eli .meet-portrait{margin:0 auto;width:140px;height:140px;}}
+
 .social-list{list-style:none;padding:0;margin:8px 0 0 0;display:flex;flex-direction:column;gap:2px}
 .social-list a{display:flex;align-items:center;gap:16px;padding:16px 4px;min-height:48px;border-bottom:1px solid var(--ink-100);text-decoration:none;color:var(--ink-700);transition:all var(--trans);}
 .social-list a:hover{color:var(--cedar-700);padding-left:12px}

@@ -195,7 +195,7 @@ export default async function VideoDetailPage({ params }: Props) {
               More <em>teachings</em>
             </h2>
             <Link href="/videos" className="more">
-              All 52 parshiot &rarr;
+              All 54 parshiot &rarr;
             </Link>
           </div>
           <div className="more-grid stagger">

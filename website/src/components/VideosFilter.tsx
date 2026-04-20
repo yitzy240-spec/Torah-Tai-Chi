@@ -18,20 +18,29 @@ interface VideosFilterProps {
   parshiot: ParshaItem[];
 }
 
-const BOOKS = ["All", "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy"];
+const BOOKS = ["All", "Bereishit", "Shemot", "Vayikra", "Bamidbar", "Devarim"];
 
 const BOOK_NORMALIZE: Record<string, string> = {
-  Bereishit: "Genesis",
-  Shemot: "Exodus",
-  Vayikra: "Leviticus",
-  Bamidbar: "Numbers",
-  Devarim: "Deuteronomy",
-  Genesis: "Genesis",
-  Exodus: "Exodus",
-  Leviticus: "Leviticus",
-  Numbers: "Numbers",
-  Deuteronomy: "Deuteronomy",
+  Bereishit: "Bereishit",
+  Shemot: "Shemot",
+  Vayikra: "Vayikra",
+  Bamidbar: "Bamidbar",
+  Devarim: "Devarim",
+  // Legacy English aliases — normalise DB rows that still carry the English
+  // book name like "Bereishit (Genesis)" or just "Genesis".
+  Genesis: "Bereishit",
+  Exodus: "Shemot",
+  Leviticus: "Vayikra",
+  Numbers: "Bamidbar",
+  Deuteronomy: "Devarim",
 };
+
+/** Normalise messy book strings like "Bereishit (Genesis)" or "Vayikra (Leviticus)"
+ *  down to the Hebrew book name for filter matching. */
+function normaliseBook(book: string): string {
+  const clean = book.replace(/\s*\([^)]*\)\s*/g, '').trim();
+  return BOOK_NORMALIZE[clean] ?? clean;
+}
 
 export default function VideosFilter({ parshiot }: VideosFilterProps) {
   const [active, setActive] = useState("All");
@@ -39,7 +48,7 @@ export default function VideosFilter({ parshiot }: VideosFilterProps) {
   const filtered =
     active === "All"
       ? parshiot
-      : parshiot.filter((p) => (BOOK_NORMALIZE[p.book] ?? p.book) === active);
+      : parshiot.filter((p) => normaliseBook(p.book) === active);
 
   return (
     <>

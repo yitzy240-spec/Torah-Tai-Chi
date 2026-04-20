@@ -125,7 +125,7 @@ export default async function HomePage() {
         <div className="section-head">
           <h2>Recent teachings</h2>
           <Link href="/videos" className="more">
-            All 52 parshiot →
+            All 54 parshiot →
           </Link>
         </div>
         <div className="video-grid">
@@ -173,10 +173,27 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ABOUT STRIP */}
+      {/* ABOUT STRIP — Rav Eli portrait replaces the logo here (the logo
+          already lives in the nav + footer). The brand is character-led,
+          so surfacing the teacher at this moment feels right. */}
       <section className="about-strip stagger">
         <div className="about-portrait">
-          <Brand size={140} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/rav-eli.png"
+            alt="Rav Eli — the teacher at the heart of Torah Tai Chi"
+            width={220}
+            height={220}
+            style={{
+              display: 'block',
+              width: '220px',
+              height: '220px',
+              borderRadius: '50%',
+              objectFit: 'cover',
+              border: '1px solid var(--ink-100)',
+              boxShadow: '0 10px 30px -10px rgba(35,27,16,.18)',
+            }}
+          />
         </div>
         <div className="about-body">
           <h2>{content['home.about.title']}</h2>

@@ -3,7 +3,20 @@
 import { useState } from 'react';
 import { PLACEHOLDER_THUMB_URL as PLACEHOLDER_THUMB } from '@/lib/storage-url';
 
-const BOOKS = ['All', 'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy'];
+const BOOKS = ['All', 'Bereishit', 'Shemot', 'Vayikra', 'Bamidbar', 'Devarim'];
+
+/** Maps legacy English book names + messy "Bereishit (Genesis)" rows down
+ *  to the canonical Hebrew book name used by the filter pills. */
+const BOOK_NORMALIZE: Record<string, string> = {
+  Bereishit: 'Bereishit', Shemot: 'Shemot', Vayikra: 'Vayikra',
+  Bamidbar: 'Bamidbar', Devarim: 'Devarim',
+  Genesis: 'Bereishit', Exodus: 'Shemot', Leviticus: 'Vayikra',
+  Numbers: 'Bamidbar', Deuteronomy: 'Devarim',
+};
+function normaliseBook(book: string): string {
+  const clean = book.replace(/\s*\([^)]*\)\s*/g, '').trim();
+  return BOOK_NORMALIZE[clean] ?? clean;
+}
 
 interface Parsha {
   id: string;
@@ -45,7 +58,7 @@ export function VideosFilter({ parshiot }: VideosFilterProps) {
 
   const filtered = activeBook === 'All'
     ? parshiot
-    : parshiot.filter((p) => p.book === activeBook);
+    : parshiot.filter((p) => normaliseBook(p.book) === activeBook);
 
   return (
     <>
