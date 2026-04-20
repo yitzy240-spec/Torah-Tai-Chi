@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getAllParshiot } from "@/lib/parshiot";
 import { getAllArticles } from "@/lib/articles";
 import { getSiteContent, splitEm } from "@/lib/site-content";
+import { getThisWeekParsha } from "@/lib/hebcal";
 import VideoCard from "@/components/VideoCard";
 import ArticleCard from "@/components/ArticleCard";
 import Brand from "@/components/Brand";
@@ -34,7 +35,14 @@ export default async function HomePage() {
     parshiot = [];
   }
   const withScript = parshiot.filter((p) => p.atightScript);
-  const thisWeek = withScript[0] ?? parshiot[0];
+
+  // Feature A: Hebcal live parsha — fall back to first-with-script if Hebcal fails
+  const hebcalParsha = await getThisWeekParsha();
+  const hebcalMatch = hebcalParsha
+    ? (parshiot.find((p) => p.slug === hebcalParsha.slug) ?? null)
+    : null;
+  const thisWeek = hebcalMatch ?? withScript[0] ?? parshiot[0];
+
   const recentFour = withScript.slice(0, 4);
   const allArticles = await getAllArticles();
   const recentArticles = allArticles.slice(0, 3);
@@ -130,6 +138,8 @@ export default async function HomePage() {
                     date: "",
                     durationLabel: "0:45",
                   }}
+                  thumbUrl={p.thumbUrl}
+                  isCurrentWeek={p.slug === thisWeek?.slug}
                 />
               ))
             : FALLBACK_PARSHIOT.map((p) => (
