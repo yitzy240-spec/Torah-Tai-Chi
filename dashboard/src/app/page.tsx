@@ -3,6 +3,8 @@ import { StanceToggle } from '@/components/stance-toggle';
 import { Fab } from '@/components/fab';
 import { getThisWeekParsha } from '@/lib/hebcal';
 import { GenerateDialog } from '@/components/generate-dialog';
+import { checkHealth } from '@/lib/health';
+import { SystemHealthStrip } from '@/components/system-health';
 
 // Types
 interface Script {
@@ -48,9 +50,10 @@ async function getParshaBySlug(slug: string): Promise<Parsha | null> {
 
 export default async function TodayPage() {
   // Feature A: use Hebcal live parsha; fall back to first-ordered parsha from DB
-  const [hebcalParsha, fallbackParsha] = await Promise.all([
+  const [hebcalParsha, fallbackParsha, health] = await Promise.all([
     getThisWeekParsha(),
     getNextParsha(),
+    checkHealth(),
   ]);
 
   const parsha = hebcalParsha
@@ -67,6 +70,9 @@ export default async function TodayPage() {
       <div className="stagger">
         {/* Stance line — client component with toggle sheet */}
         <StanceToggle initialStance="reviewer" />
+
+        {/* System health — quiet status strip */}
+        <SystemHealthStrip health={health} />
 
         {/* REVIEWER VIEW */}
         <div>
