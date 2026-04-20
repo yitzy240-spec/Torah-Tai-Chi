@@ -44,6 +44,7 @@ export default defineConfig({
 
     { name: 'a11y',     testMatch: /a11y\/.*\.spec\.ts/,     use: { ...desktop, storageState: 'storageState.json' } },
     { name: 'seo',      testMatch: /seo\/.*\.spec\.ts/,      use: { ...desktop, baseURL: WEBSITE_URL } },
+    { name: 'perf',     testMatch: /perf\/.*\.spec\.ts/,     use: { ...desktop, baseURL: WEBSITE_URL } },
     { name: 'security', testMatch: /security\/.*\.spec\.ts/, use: { ...desktop } },
   ],
 });
