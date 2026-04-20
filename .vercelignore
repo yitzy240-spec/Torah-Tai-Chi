@@ -1,0 +1,31 @@
+# Python pipeline — not part of any Vercel deploy
+src/
+tools/
+tests/
+modal_app.py
+pyproject.toml
+parshiot.json
+*.py
+
+# Reference assets (heavy)
+references/
+
+# Venvs
+.venv/
+venv/
+__pycache__/
+
+# Output / work artifacts
+work/
+output/
+dist/
+
+# Other local scratch
+mockups/
+docs/
+.claude/
+.vscode/
+.idea/
+
+# Other Next app
+dashboard/
