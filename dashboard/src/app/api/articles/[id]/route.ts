@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/service';
+import { updateArticle, deleteArticle } from '@/lib/storyblok';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -7,7 +7,7 @@ interface RouteContext {
 
 export async function PATCH(req: NextRequest, ctx: RouteContext) {
   const { id } = await ctx.params;
-  const supabase = createServiceClient();
+  const storyId = Number(id);
 
   let body: Record<string, unknown>;
   try {
@@ -20,31 +20,39 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     'title', 'subtitle', 'slug', 'category', 'excerpt',
     'read_minutes', 'body_json', 'body_html', 'published', 'published_at',
   ];
-  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const update: Record<string, unknown> = {};
   for (const key of allowed) {
     if (key in body) update[key] = body[key];
   }
 
-  const { data, error } = await supabase
-    .from('articles')
-    .update(update)
-    .eq('id', id)
-    .select()
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  try {
+    const story = await updateArticle(storyId, {
+      title: update.title as string | undefined,
+      subtitle: update.subtitle as string | null | undefined,
+      slug: update.slug as string | undefined,
+      category: update.category as string | null | undefined,
+      excerpt: update.excerpt as string | null | undefined,
+      body_json: update.body_json as object | null | undefined,
+      read_minutes: update.read_minutes != null ? Number(update.read_minutes) : undefined,
+      published: update.published as boolean | undefined,
+      published_at: update.published_at as string | null | undefined,
+    });
+    return NextResponse.json({ id: String(story.id), slug: story.slug });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Failed to update article';
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
-  return NextResponse.json(data);
 }
 
 export async function DELETE(_req: NextRequest, ctx: RouteContext) {
   const { id } = await ctx.params;
-  const supabase = createServiceClient();
+  const storyId = Number(id);
 
-  const { error } = await supabase.from('articles').delete().eq('id', id);
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  try {
+    await deleteArticle(storyId);
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Failed to delete article';
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
-  return NextResponse.json({ success: true });
 }

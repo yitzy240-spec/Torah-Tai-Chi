@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
 import { ArticleForm } from '@/components/article-form';
+import { mapiGetStory } from '@/lib/storyblok-server';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -9,27 +9,41 @@ interface Props {
 
 export async function generateMetadata({ params }: Props) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from('articles')
-    .select('title')
-    .eq('id', id)
-    .single();
-  return { title: data?.title ? `Edit: ${data.title}` : 'Edit Article' };
+  try {
+    const story = await mapiGetStory(Number(id));
+    const title = story?.content?.title;
+    return { title: title ? `Edit: ${title}` : 'Edit Article' };
+  } catch {
+    return { title: 'Edit Article' };
+  }
 }
 
 export default async function EditArticlePage({ params }: Props) {
   const { id } = await params;
-  const supabase = await createClient();
-  const { data: article, error } = await supabase
-    .from('articles')
-    .select('*')
-    .eq('id', id)
-    .single();
+  const storyId = Number(id);
 
-  if (error || !article) {
+  let story: Awaited<ReturnType<typeof mapiGetStory>>;
+  try {
+    story = await mapiGetStory(storyId);
+  } catch {
     notFound();
   }
+
+  if (!story || story.content?.component !== 'article') {
+    notFound();
+  }
+
+  // content is Record<string, unknown> — cast to known shape
+  const c = story.content as {
+    component?: string;
+    title?: string;
+    subtitle?: string;
+    category?: string;
+    excerpt?: string;
+    body?: object;
+    read_minutes?: number;
+    published_at?: string;
+  };
 
   return (
     <div className="stagger">
@@ -45,7 +59,7 @@ export default async function EditArticlePage({ params }: Props) {
             fontVariationSettings: '"opsz" 14, "SOFT" 50',
           }}
         >
-          ← Articles
+          &larr; Articles
         </Link>
       </div>
 
@@ -67,16 +81,16 @@ export default async function EditArticlePage({ params }: Props) {
 
       <ArticleForm
         initial={{
-          id: article.id,
-          title: article.title ?? '',
-          subtitle: article.subtitle ?? '',
-          slug: article.slug ?? '',
-          category: article.category ?? '',
-          excerpt: article.excerpt ?? '',
-          read_minutes: article.read_minutes ?? '',
-          body_json: article.body_json ?? null,
-          body_html: article.body_html ?? '',
-          published: article.published ?? false,
+          id: String(story.id),
+          title: c.title ?? '',
+          subtitle: c.subtitle ?? '',
+          slug: story.slug ?? '',
+          category: (c.category as 'Essay' | 'Teaching' | 'Reflection' | '') ?? '',
+          excerpt: c.excerpt ?? '',
+          read_minutes: c.read_minutes ?? '',
+          body_json: (c.body as object) ?? null,
+          body_html: '',
+          published: story.published ?? false,
         }}
       />
     </div>

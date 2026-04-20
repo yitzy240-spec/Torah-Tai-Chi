@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/server';
+import { listArticles } from '@/lib/storyblok';
 
 export const metadata = {
   title: 'Articles',
@@ -28,11 +28,14 @@ function formatDate(ts: string | null) {
 }
 
 export default async function ArticlesPage() {
-  const supabase = await createClient();
-  const { data: articles, error } = await supabase
-    .from('articles')
-    .select('id, slug, title, category, published, published_at, updated_at, excerpt')
-    .order('updated_at', { ascending: false });
+  let articles: Awaited<ReturnType<typeof listArticles>> = [];
+  let errorMsg: string | null = null;
+
+  try {
+    articles = await listArticles();
+  } catch (e) {
+    errorMsg = e instanceof Error ? e.message : 'Unknown error';
+  }
 
   return (
     <div style={{ maxWidth: '900px' }} className="stagger">
@@ -86,13 +89,13 @@ export default async function ArticlesPage() {
         </Link>
       </div>
 
-      {error && (
+      {errorMsg && (
         <p style={{ color: 'var(--tassel)', fontFamily: 'var(--ff-display)', fontStyle: 'italic' }}>
-          Could not load articles: {error.message}
+          Could not load articles: {errorMsg}
         </p>
       )}
 
-      {(!articles || articles.length === 0) && !error && (
+      {articles.length === 0 && !errorMsg && (
         <div
           style={{
             padding: '64px 24px',
@@ -108,7 +111,7 @@ export default async function ArticlesPage() {
         </div>
       )}
 
-      {articles && articles.length > 0 && (
+      {articles.length > 0 && (
         <div
           style={{
             border: '1px solid var(--ink-100)',
@@ -172,9 +175,9 @@ export default async function ArticlesPage() {
                     fontVariationSettings: '"opsz" 18, "SOFT" 30',
                   }}
                 >
-                  {article.title || <em style={{ color: 'var(--ink-400)' }}>Untitled</em>}
+                  {article.content?.title || <em style={{ color: 'var(--ink-400)' }}>Untitled</em>}
                 </Link>
-                {article.excerpt && (
+                {article.content?.excerpt && (
                   <div
                     style={{
                       fontFamily: 'var(--ff-display)',
@@ -188,7 +191,7 @@ export default async function ArticlesPage() {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {article.excerpt}
+                    {article.content.excerpt}
                   </div>
                 )}
               </div>
@@ -203,7 +206,7 @@ export default async function ArticlesPage() {
                   fontVariationSettings: '"opsz" 13, "SOFT" 40',
                 }}
               >
-                {article.category ?? '—'}
+                {article.content?.category ?? '—'}
               </span>
 
               {/* Status */}

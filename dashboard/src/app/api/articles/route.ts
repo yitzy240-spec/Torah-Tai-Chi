@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceClient } from '@/lib/supabase/service';
+import { createArticle } from '@/lib/storyblok';
 
 export async function POST(req: NextRequest) {
-  const supabase = createServiceClient();
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -10,26 +9,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { data, error } = await supabase
-    .from('articles')
-    .insert({
-      title: body.title ?? null,
-      subtitle: body.subtitle ?? null,
-      slug: body.slug ?? null,
-      category: body.category ?? null,
-      excerpt: body.excerpt ?? null,
-      read_minutes: body.read_minutes ?? null,
-      body_json: body.body_json ?? null,
-      body_html: body.body_html ?? null,
-      published: body.published ?? false,
-      published_at: body.published_at ?? null,
-      updated_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
+  try {
+    const story = await createArticle({
+      title: String(body.title ?? ''),
+      subtitle: (body.subtitle as string) ?? null,
+      slug: String(body.slug ?? ''),
+      category: (body.category as string) ?? null,
+      excerpt: (body.excerpt as string) ?? null,
+      body_json: (body.body_json as object) ?? null,
+      read_minutes: body.read_minutes != null ? Number(body.read_minutes) : null,
+      published: Boolean(body.published),
+      published_at: (body.published_at as string) ?? null,
+    });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    // Return a shape compatible with what ArticleForm expects (needs .id)
+    return NextResponse.json({ id: String(story.id), slug: story.slug }, { status: 201 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Failed to create article';
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
-  return NextResponse.json(data, { status: 201 });
 }
