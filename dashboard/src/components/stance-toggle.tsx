@@ -63,21 +63,27 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
     setSheetOpen(false);
   };
 
-  // Own body.overflow + Escape key across the sheet's entire lifecycle,
-  // including unmount — otherwise navigating away while the sheet is open
-  // leaves the whole app scroll-locked until a hard refresh.
+  // The sheet is page-attached (position: absolute from the authenticated
+  // shell), not viewport-fixed, so we DO NOT lock body overflow — the user
+  // can scroll the page normally to see any part of a tall modal. Only the
+  // Escape keybinding is owned here.
   useEffect(() => {
     if (!sheetOpen) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setSheetOpen(false);
     };
     window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = previousOverflow;
-    };
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sheetOpen]);
+
+  // When the sheet opens, scroll it into view so it's not above/below the
+  // user's current scroll position.
+  useEffect(() => {
+    if (!sheetOpen) return;
+    // Next tick so layout has settled.
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
   }, [sheetOpen]);
 
   const saveStance = () => {
@@ -187,76 +193,77 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
         />
       )}
 
-      {/* Stance sheet */}
+      {/* Stance sheet — page-attached: the user scrolls the page to see any
+          overflowing part rather than scrolling inside a captive container. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="sheet-title"
         style={{
-          position: 'fixed',
+          position: 'absolute',
           zIndex: 31,
           left: '50%',
-          top: '50%',
-          transform: sheetOpen ? 'translate(-50%, -50%)' : 'translate(-50%, calc(-50% + 20px))',
+          top: '48px',
+          transform: sheetOpen ? 'translateX(-50%)' : 'translate(-50%, 20px)',
           width: 'min(560px, calc(100vw - 32px))',
-          maxHeight: 'calc(100vh - 48px)',
-          overflowY: 'auto',
           background: 'var(--linen-50)',
           border: '1px solid var(--ink-200)',
           borderRadius: 'var(--r-xl)',
           boxShadow: '0 30px 80px -30px rgba(35,27,16,.45)',
-          padding: '36px 40px 32px',
           opacity: sheetOpen ? 1 : 0,
           pointerEvents: sheetOpen ? 'auto' : 'none',
           transition: 'opacity var(--trans), transform var(--trans)',
+          marginBottom: '32px',
         }}
       >
-        <div
-          style={{
-            fontFamily: 'var(--ff-body)',
-            fontSize: '10.5px',
-            letterSpacing: '0.2em',
-            textTransform: 'uppercase',
-            color: 'var(--cedar-600)',
-            marginBottom: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}
-        >
-          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cedar-500)', display: 'inline-block' }} />
-          Live setting · changes how the business runs
-        </div>
-        <h2
-          id="sheet-title"
-          style={{
-            fontFamily: 'var(--ff-display)',
-            fontWeight: 400,
-            fontSize: 'clamp(24px, 3vw, 32px)',
-            lineHeight: 1.1,
-            letterSpacing: '-0.02em',
-            margin: '0 0 10px 0',
-            color: 'var(--ink-900)',
-            fontVariationSettings: '"opsz" 36, "SOFT" 30',
-          }}
-        >
-          How involved are you this season, <em style={{ fontStyle: 'italic', color: 'var(--ink-500)' }}>Yonah?</em>
-        </h2>
-        <p
-          style={{
-            fontFamily: 'var(--ff-display)',
-            fontStyle: 'italic',
-            fontSize: '14px',
-            color: 'var(--ink-500)',
-            margin: '0 0 24px 0',
-            fontVariationSettings: '"opsz" 14, "SOFT" 50',
-          }}
-        >
-          <strong style={{ fontWeight: 500, fontStyle: 'normal', color: 'var(--ink-700)' }}>This is not a view toggle.</strong>{' '}
-          Changing your stance changes what Torah Tai Chi does on its own.
-        </p>
+        {/* Body — header + radio options */}
+        <div style={{ padding: '36px 40px 24px' }}>
+          <div
+            style={{
+              fontFamily: 'var(--ff-body)',
+              fontSize: '10.5px',
+              letterSpacing: '0.2em',
+              textTransform: 'uppercase',
+              color: 'var(--cedar-600)',
+              marginBottom: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--cedar-500)', display: 'inline-block' }} />
+            Live setting · changes how the business runs
+          </div>
+          <h2
+            id="sheet-title"
+            style={{
+              fontFamily: 'var(--ff-display)',
+              fontWeight: 400,
+              fontSize: 'clamp(24px, 3vw, 32px)',
+              lineHeight: 1.1,
+              letterSpacing: '-0.02em',
+              margin: '0 0 10px 0',
+              color: 'var(--ink-900)',
+              fontVariationSettings: '"opsz" 36, "SOFT" 30',
+            }}
+          >
+            How involved are you this season, <em style={{ fontStyle: 'italic', color: 'var(--ink-500)' }}>Yonah?</em>
+          </h2>
+          <p
+            style={{
+              fontFamily: 'var(--ff-display)',
+              fontStyle: 'italic',
+              fontSize: '14px',
+              color: 'var(--ink-500)',
+              margin: '0 0 24px 0',
+              fontVariationSettings: '"opsz" 14, "SOFT" 50',
+            }}
+          >
+            <strong style={{ fontWeight: 500, fontStyle: 'normal', color: 'var(--ink-700)' }}>This is not a view toggle.</strong>{' '}
+            Changing your stance changes what Torah Tai Chi does on its own.
+          </p>
 
-        <div role="radiogroup" aria-label="Stance" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '22px' }}>
+          <div role="radiogroup" aria-label="Stance" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {CHOICES.map((choice) => {
             const selected = pendingStance === choice.value;
             return (
@@ -309,9 +316,22 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
               </label>
             );
           })}
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', paddingTop: '20px', borderTop: '1px solid var(--ink-100)', flexWrap: 'wrap' }}>
+        {/* Pinned footer — always visible regardless of viewport height */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '16px 40px 20px',
+            borderTop: '1px solid var(--ink-100)',
+            background: 'var(--linen-50)',
+            flexWrap: 'wrap',
+            flexShrink: 0,
+          }}
+        >
           <div style={{ flex: 1, fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: 'var(--ink-500)', minWidth: '200px', lineHeight: 1.45 }}>
             You can change this anytime. Work already in-flight won&apos;t be affected.
           </div>

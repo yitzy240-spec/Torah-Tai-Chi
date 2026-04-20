@@ -49,6 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               display: 'grid',
               gridTemplateColumns: '236px 1fr',
               minHeight: '100vh',
+              position: 'relative', // anchor for absolute-positioned modals (stance sheet)
             }}
             className="authenticated-shell"
           >
