@@ -1,49 +1,70 @@
 import { PlatformIcon } from '@/components/platform-icon';
+import { createClient } from '@/lib/supabase/server';
+import { listProfiles } from '@/lib/buffer';
+import Link from 'next/link';
 
-const CHANNELS = [
-  {
-    platform: 'tiktok' as const,
-    name: 'TikTok',
-    connected: true,
-    followers: '847',
-    followerLabel: 'followers',
-    lastPost: 'Apr 15',
-  },
-  {
-    platform: 'instagram' as const,
-    name: 'Instagram',
-    connected: true,
-    followers: '1,203',
-    followerLabel: 'followers',
-    lastPost: 'Apr 15',
-  },
-  {
-    platform: 'youtube' as const,
-    name: 'YouTube',
-    connected: true,
-    followers: '234',
-    followerLabel: 'subscribers',
-    lastPost: 'Apr 14',
-  },
-  {
-    platform: 'facebook' as const,
-    name: 'Facebook',
-    connected: true,
-    followers: '511',
-    followerLabel: 'followers',
-    lastPost: 'Apr 15',
-  },
-  {
-    platform: 'website' as const,
-    name: 'Website',
-    connected: false,
-    followers: null,
-    followerLabel: null,
-    lastPost: null,
-  },
-];
+const BUFFER_PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
+type BufferPlatform = typeof BUFFER_PLATFORMS[number];
 
-export default function ChannelsPage() {
+interface ChannelData {
+  platform: BufferPlatform | 'website';
+  name: string;
+  connected: boolean;
+  username: string | null;
+  recentPosts: number;
+}
+
+async function getChannelData(): Promise<ChannelData[]> {
+  const token = process.env.BUFFER_ACCESS_TOKEN;
+  const supabase = await createClient();
+
+  // Count recent posts per platform (last 7 days)
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: postCounts } = await supabase
+    .from('posts')
+    .select('platform')
+    .gte('created_at', sevenDaysAgo);
+
+  const countByPlatform: Record<string, number> = {};
+  for (const p of BUFFER_PLATFORMS) countByPlatform[p] = 0;
+  for (const row of postCounts ?? []) {
+    if (row.platform in countByPlatform) countByPlatform[row.platform]++;
+  }
+
+  // Try to get Buffer profiles
+  let profiles: Awaited<ReturnType<typeof listProfiles>> = [];
+  if (token) {
+    try {
+      profiles = await listProfiles(token);
+    } catch {
+      // token set but API failed — fall through to "not connected"
+    }
+  }
+
+  const platformChannels: ChannelData[] = BUFFER_PLATFORMS.map((platform) => {
+    const profile = profiles.find(
+      (p) => p.service?.toLowerCase() === platform || p.formatted_service?.toLowerCase().includes(platform),
+    );
+    return {
+      platform,
+      name: platform.charAt(0).toUpperCase() + platform.slice(1),
+      connected: !!profile,
+      username: profile?.service_username ?? null,
+      recentPosts: countByPlatform[platform] ?? 0,
+    };
+  });
+
+  return [
+    ...platformChannels,
+    { platform: 'website', name: 'Website', connected: false, username: null, recentPosts: 0 },
+  ];
+}
+
+export default async function ChannelsPage() {
+  const channels = await getChannelData();
+  const connectedCount = channels.filter((c) => c.connected).length;
+  const bufferConfigured = !!process.env.BUFFER_ACCESS_TOKEN;
+
   return (
     <div className="stagger">
       {/* Page header */}
@@ -72,7 +93,9 @@ export default function ChannelsPage() {
             fontVariationSettings: '"opsz" 16, "SOFT" 50',
           }}
         >
-          4 of 5 connected. Each video posts to all active channels automatically.
+          {bufferConfigured
+            ? `${connectedCount} of 5 connected. Each video posts to all active channels automatically.`
+            : 'Buffer not connected. Connect to schedule posts across all channels.'}
         </p>
       </div>
 
@@ -85,7 +108,7 @@ export default function ChannelsPage() {
         }}
         className="channel-grid"
       >
-        {CHANNELS.map((ch) => (
+        {channels.map((ch) => (
           <div
             key={ch.platform}
             style={{
@@ -116,17 +139,32 @@ export default function ChannelsPage() {
               >
                 <PlatformIcon name={ch.platform} size={22} />
               </div>
-              <div
-                style={{
-                  fontFamily: 'var(--ff-display)',
-                  fontWeight: 500,
-                  fontSize: '20px',
-                  color: 'var(--ink-900)',
-                  letterSpacing: '-0.015em',
-                  fontVariationSettings: '"opsz" 36, "SOFT" 30',
-                }}
-              >
-                {ch.name}
+              <div>
+                <div
+                  style={{
+                    fontFamily: 'var(--ff-display)',
+                    fontWeight: 500,
+                    fontSize: '20px',
+                    color: 'var(--ink-900)',
+                    letterSpacing: '-0.015em',
+                    fontVariationSettings: '"opsz" 36, "SOFT" 30',
+                  }}
+                >
+                  {ch.name}
+                </div>
+                {ch.username && (
+                  <div
+                    style={{
+                      fontFamily: 'var(--ff-display)',
+                      fontStyle: 'italic',
+                      fontSize: '12px',
+                      color: 'var(--ink-400)',
+                      fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                    }}
+                  >
+                    @{ch.username}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -146,8 +184,8 @@ export default function ChannelsPage() {
               </span>
             </div>
 
-            {/* Stats / CTA */}
-            {ch.connected && ch.followers ? (
+            {/* Stats */}
+            {ch.platform !== 'website' && (
               <div
                 style={{
                   fontFamily: 'var(--ff-display)',
@@ -158,21 +196,27 @@ export default function ChannelsPage() {
                   lineHeight: 1.6,
                 }}
               >
-                <strong
-                  style={{
-                    fontWeight: 500,
-                    fontStyle: 'normal',
-                    color: 'var(--ink-900)',
-                    fontVariationSettings: '"opsz" 14, "SOFT" 20',
-                  }}
-                >
-                  {ch.followers}
-                </strong>{' '}
-                {ch.followerLabel}
-                <br />
-                Last post: {ch.lastPost}
+                {ch.connected ? (
+                  <>
+                    <strong
+                      style={{
+                        fontWeight: 500,
+                        fontStyle: 'normal',
+                        color: 'var(--ink-900)',
+                        fontVariationSettings: '"opsz" 14, "SOFT" 20',
+                      }}
+                    >
+                      {ch.recentPosts}
+                    </strong>{' '}
+                    post{ch.recentPosts !== 1 ? 's' : ''} in last 7 days
+                  </>
+                ) : (
+                  'Not yet connected.'
+                )}
               </div>
-            ) : (
+            )}
+
+            {ch.platform === 'website' && (
               <div
                 style={{
                   fontFamily: 'var(--ff-display)',
@@ -182,7 +226,7 @@ export default function ChannelsPage() {
                   fontVariationSettings: '"opsz" 14, "SOFT" 50',
                 }}
               >
-                Not yet connected.
+                Published directly via Supabase.
               </div>
             )}
 
@@ -194,7 +238,29 @@ export default function ChannelsPage() {
                 borderTop: '1px dotted var(--ink-100)',
               }}
             >
-              {ch.connected ? (
+              {ch.platform === 'website' ? (
+                <button
+                  type="button"
+                  style={{
+                    fontFamily: 'var(--ff-body)',
+                    fontSize: '13px',
+                    color: 'var(--ink-500)',
+                    textDecoration: 'underline',
+                    textDecorationColor: 'var(--ink-200)',
+                    textUnderlineOffset: '4px',
+                    cursor: 'pointer',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    minHeight: '44px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    transition: 'all var(--trans)',
+                  }}
+                >
+                  Configure
+                </button>
+              ) : ch.connected ? (
                 <button
                   type="button"
                   style={{
@@ -217,8 +283,8 @@ export default function ChannelsPage() {
                   Disconnect
                 </button>
               ) : (
-                <button
-                  type="button"
+                <Link
+                  href="/settings/buffer"
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -232,12 +298,12 @@ export default function ChannelsPage() {
                     border: '1px solid var(--navy-800)',
                     background: 'var(--navy-800)',
                     color: 'var(--linen-50)',
-                    cursor: 'pointer',
+                    textDecoration: 'none',
                     transition: 'all var(--trans)',
                   }}
                 >
-                  Connect your site
-                </button>
+                  Connect
+                </Link>
               )}
             </div>
           </div>
