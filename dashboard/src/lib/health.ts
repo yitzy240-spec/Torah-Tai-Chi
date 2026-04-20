@@ -16,7 +16,7 @@ export interface SystemHealth {
   modal: ServiceHealth | null;  // null when URL not configured
 }
 
-const TIMEOUT_MS = 3000;
+const TIMEOUT_MS = 6000;
 const MODAL_TIMEOUT_MS = 10000; // Modal endpoints can cold-start; allow longer
 
 async function timedFetch(url: string, init?: RequestInit, timeoutMs = TIMEOUT_MS): Promise<{ ok: boolean; latencyMs: number; status?: number }> {

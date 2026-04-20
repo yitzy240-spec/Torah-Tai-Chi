@@ -99,10 +99,14 @@ function parshaFromItem(item: HebcalItem, holidays: HebcalItem[]): ShabbatParsha
 
   const holiday = holidays.find((h) => h.category === "holiday")?.title;
 
-  // Hebcal's hebrew sometimes includes a leading "פרשת" prefix; strip it
-  // so callers can render the prefix once without risk of duplication.
+  // Hebcal's hebrew includes a leading "פרשת" prefix (sometimes with niqqud);
+  // strip it so callers can render the prefix once without duplicating.
+  // The \u0591-\u05C7 range covers Hebrew niqqud/cantillation marks.
   const rawHebrew = (item.hebrew ?? "").trim();
-  const hebrew = rawHebrew.replace(/^פָּ?רָ?שַׁ?ת\s+/, "");
+  const hebrew = rawHebrew.replace(
+    /^פ[\u0591-\u05C7]*ר[\u0591-\u05C7]*ש[\u0591-\u05C7]*ת[\u0591-\u05C7]*\s+/,
+    "",
+  );
 
   return {
     slug,
