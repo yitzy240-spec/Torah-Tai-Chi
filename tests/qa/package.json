@@ -1,0 +1,25 @@
+{
+  "name": "torah-tai-chi-qa",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "qa": "tsx run.ts",
+    "qa:playwright": "playwright test",
+    "qa:cleanup": "tsx scripts/cleanup.ts",
+    "qa:install": "playwright install chromium webkit"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "^4.10.0",
+    "@playwright/test": "^1.49.0",
+    "@supabase/supabase-js": "^2.103.3",
+    "dotenv": "^16.4.5",
+    "lighthouse": "^12.3.0",
+    "playwright": "^1.49.0",
+    "tsx": "^4.21.0",
+    "zod": "^3.23.8",
+    "@anthropic-ai/sdk": "^0.57.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20"
+  }
+}

@@ -53,3 +53,4 @@ tests/qa/results/
 tests/qa/shots/
 tests/qa/storageState.json
 tests/qa/.env.qa
+!tests/qa/.env.qa.example
