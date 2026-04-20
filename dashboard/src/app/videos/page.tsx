@@ -9,9 +9,9 @@ interface Script {
   draft_text: string | null;
 }
 
-interface Video {
-  parsha_id: string;
+interface VideoWithJob {
   thumb_path: string | null;
+  jobs: { parsha_id: string } | { parsha_id: string }[] | null;
 }
 
 interface Parsha {
@@ -20,51 +20,43 @@ interface Parsha {
   name: string;
   book: string;
   slug: string;
-  name_hebrew: string | null;
+  hebrew_name: string | null;
   scripts: Script[];
   thumbUrl?: string | null;
 }
 
-async function getParshiot(): Promise<{ parshiot: Parsha[]; debug: string }> {
+async function getParshiot(): Promise<Parsha[]> {
   const supabase = await createClient();
   const [parshaResult, videoResult] = await Promise.all([
     supabase
       .from('parshiot')
-      .select('id, order, name, book, slug, name_hebrew, scripts(option, draft_text)')
+      .select('id, order, name, book, slug, hebrew_name, scripts(option, draft_text)')
       .order('order'),
     supabase
       .from('videos')
-      .select('parsha_id, thumb_path'),
+      .select('thumb_path, jobs(parsha_id)'),
   ]);
 
-  const debug = JSON.stringify({
-    parshaErr: parshaResult.error?.message ?? null,
-    parshaCount: parshaResult.data?.length ?? 0,
-    firstParshaScripts: parshaResult.data?.[0]?.scripts?.length ?? 0,
-    firstOptions: (parshaResult.data?.[0] as Parsha | undefined)?.scripts?.map((s) => s.option) ?? [],
-    videoErr: videoResult.error?.message ?? null,
-    videoCount: videoResult.data?.length ?? 0,
-  });
-
-  if (parshaResult.error || !parshaResult.data) return { parshiot: [], debug };
+  if (parshaResult.error || !parshaResult.data) return [];
 
   const thumbMap = new Map<string, string | null>();
-  for (const v of (videoResult.data ?? []) as Video[]) {
-    if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
+  for (const v of (videoResult.data ?? []) as VideoWithJob[]) {
+    if (!v.thumb_path || !v.jobs) continue;
+    const parshaId = Array.isArray(v.jobs) ? v.jobs[0]?.parsha_id : v.jobs.parsha_id;
+    if (parshaId) thumbMap.set(parshaId, v.thumb_path);
   }
 
-  const parshiot = (parshaResult.data as Parsha[]).map((p) => {
+  return (parshaResult.data as Parsha[]).map((p) => {
     const tp = thumbMap.get(p.id) ?? null;
     return {
       ...p,
       thumbUrl: tp ? `${SUPABASE_STORAGE_URL}${tp}` : null,
     };
   });
-  return { parshiot, debug };
 }
 
 export default async function VideosPage() {
-  const { parshiot, debug } = await getParshiot();
+  const parshiot = await getParshiot();
 
   const withScript = parshiot.filter((p) =>
     p.scripts?.some((s) => s.option === 'A-tight'),
@@ -107,9 +99,6 @@ export default async function VideosPage() {
           Every weekly portion, from Bereishit to V&apos;Zot HaBerachah.
         </p>
       </div>
-
-      {/* DEBUG — remove after root-cause */}
-      <pre style={{ background: '#fff3cd', padding: '8px', fontSize: '11px', marginBottom: '16px', whiteSpace: 'pre-wrap' }}>{debug} | withScript={withScript.length}</pre>
 
       {/* Filter + Grid — client component */}
       <VideosFilter parshiot={withThumbs} />
