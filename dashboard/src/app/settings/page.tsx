@@ -1,6 +1,8 @@
 import { StanceToggle } from '@/components/stance-toggle';
 import { DefaultQualitySection } from '@/components/default-quality-section';
+import { UsersSection } from '@/components/users-section';
 import { createClient } from '@/lib/supabase/server';
+import { listUsers } from '@/app/actions/manage-users';
 
 // Visual-only toggle component (no interactivity needed here)
 function ToggleSwitch({ on }: { on: boolean }) {
@@ -70,6 +72,8 @@ export default async function SettingsPage() {
     .eq('key', 'settings.default_tier')
     .single();
   const defaultTierKey: string = defaultTierRow?.value ?? '720p fast';
+
+  const { users = [] } = await listUsers();
 
   return (
     <div className="stagger" style={{ maxWidth: '680px' }}>
@@ -249,6 +253,13 @@ export default async function SettingsPage() {
             <ToggleSwitch on={on} />
           </div>
         ))}
+      </section>
+
+      {/* USERS */}
+      <section style={SECTION_STYLE}>
+        <h2 style={H2_STYLE}>Users</h2>
+        <p style={DESC_STYLE}>Who can sign in to the studio. Anyone added here can log in via magic link.</p>
+        <UsersSection initialUsers={users} />
       </section>
 
       {/* CONNECTED ACCOUNTS */}

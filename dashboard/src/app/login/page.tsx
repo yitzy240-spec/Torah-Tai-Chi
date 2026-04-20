@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
+import { requestLoginLink } from '@/app/actions/request-login-link';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -12,13 +12,12 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
+    const result = await requestLoginLink(
       email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-    });
+      `${window.location.origin}/auth/callback`,
+    );
     setLoading(false);
-    if (error) { setError(error.message); return; }
+    if (result.error) { setError(result.error); return; }
     setSent(true);
   }
 
