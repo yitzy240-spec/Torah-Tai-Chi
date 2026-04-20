@@ -165,7 +165,8 @@ export function SidebarNav() {
         </div>
       </aside>
 
-      {/* Mobile Bottom Tab Bar */}
+      {/* Mobile Bottom Tab Bar — visibility + grid layout owned by CSS so
+          display:none on desktop isn't clobbered by an inline display:grid. */}
       <nav
         aria-label="Primary"
         style={{
@@ -179,9 +180,6 @@ export function SidebarNav() {
           WebkitBackdropFilter: 'blur(10px)',
           borderTop: '1px solid var(--ink-100)',
           padding: '8px 10px 14px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
-          gap: '4px',
         }}
         className="tabbar-mobile"
       >

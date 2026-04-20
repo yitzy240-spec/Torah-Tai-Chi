@@ -168,7 +168,11 @@
 .tabbar-mobile   { display: none; }
 @media (max-width: 900px) {
   .sidebar-desktop { display: none !important; }
-  .tabbar-mobile   { display: grid !important; }
+  .tabbar-mobile {
+    display: grid !important;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+  }
 }
 
 /* Shell responsive layout */
