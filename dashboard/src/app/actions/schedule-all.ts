@@ -2,6 +2,23 @@
 import { createClient } from '@/lib/supabase/server';
 import { createUpdate, listProfiles } from '@/lib/buffer';
 
+// Retry a promise-returning fn up to `attempts` times with ms delays between retries.
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  delays = [200, 1000],
+): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i <= delays.length; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (i < delays.length) await new Promise((r) => setTimeout(r, delays[i]));
+    }
+  }
+  throw lastErr;
+}
+
 const PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
 type Platform = typeof PLATFORMS[number];
 
@@ -37,12 +54,12 @@ export async function scheduleAll(
     mediaUrl = urlData?.publicUrl;
   }
 
-  // Get Buffer profiles
+  // Get Buffer profiles (retry transient failures)
   let profiles: Awaited<ReturnType<typeof listProfiles>>;
   try {
-    profiles = await listProfiles(token);
+    profiles = await withRetry(() => listProfiles(token));
   } catch (e) {
-    return { error: `Failed to fetch Buffer profiles: ${String(e)}` };
+    return { error: `Failed to fetch Buffer profiles: ${String(e)}. Check your Buffer connection in Settings → Buffer.` };
   }
 
   const results: Array<{ platform: Platform; bufferId: string }> = [];
@@ -62,13 +79,13 @@ export async function scheduleAll(
     }
 
     try {
-      const update = await createUpdate({
+      const update = await withRetry(() => createUpdate({
         token,
         profileIds: [profile.id],
         text: caption,
         mediaUrl,
         scheduledAt: args.scheduledAt,
-      });
+      }));
 
       // Persist to posts table
       await supabase.from('posts').insert({

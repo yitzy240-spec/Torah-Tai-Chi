@@ -65,30 +65,48 @@ export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow
 
     setFields((prev) => ({ ...prev, [key]: { ...prev[key], saving: true, error: null } }));
 
-    try {
-      const res = await fetch('/api/site-content', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key, value: field.value }),
-      });
+    const RETRY_DELAYS = [200, 1000];
+    let lastError: unknown;
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(body.error ?? 'Save failed');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch('/api/site-content', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, value: field.value }),
+        });
+
+        if (res.status >= 500 && attempt < 2) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+          continue;
+        }
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({ error: 'Unknown error' }));
+          throw new Error(body.error ?? 'Save failed');
+        }
+
+        setFields((prev) => ({
+          ...prev,
+          [key]: { ...prev[key], saving: false, saved: true },
+        }));
+        showToast(key, 'Saved.');
+        return;
+      } catch (e) {
+        lastError = e;
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+        }
       }
-
-      setFields((prev) => ({
-        ...prev,
-        [key]: { ...prev[key], saving: false, saved: true },
-      }));
-      showToast(key, 'Saved.');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Save failed';
-      setFields((prev) => ({
-        ...prev,
-        [key]: { ...prev[key], saving: false, error: msg },
-      }));
     }
+
+    const msg = lastError instanceof Error
+      ? `${lastError.message} — check your connection and try again`
+      : 'Save failed — check your connection and try again';
+    setFields((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], saving: false, error: msg },
+    }));
   }, [fields]);
 
   const groups = groupByPrefix(initialRows);

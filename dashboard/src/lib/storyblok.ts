@@ -70,6 +70,37 @@ export interface SbBookStory {
 }
 
 // ─────────────────────────────────────────────
+// Retry helper
+// ─────────────────────────────────────────────
+
+const RETRY_DELAYS = [200, 1000]; // ms between attempts after first failure
+
+async function retryableFetch(
+  input: string,
+  init?: RequestInit,
+  attempts = 3,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(input, init);
+      // Retry on 5xx or network-level errors
+      if (res.status >= 500 && i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS[i] ?? 1000));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      lastError = e;
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS[i] ?? 1000));
+      }
+    }
+  }
+  throw lastError ?? new Error('retryableFetch exhausted attempts');
+}
+
+// ─────────────────────────────────────────────
 // Core fetch helpers
 // ─────────────────────────────────────────────
 
@@ -78,7 +109,7 @@ async function mapi(
   path: string,
   body?: object,
 ): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
+  return retryableFetch(`${BASE}${path}`, {
     method,
     headers: {
       Authorization: MGMT_TOKEN,
@@ -96,7 +127,7 @@ async function mapiGet(path: string, params?: Record<string, string>) {
       url.searchParams.set(k, v);
     }
   }
-  const res = await fetch(url.toString(), {
+  const res = await retryableFetch(url.toString(), {
     headers: { Authorization: MGMT_TOKEN },
     cache: 'no-store',
   });
