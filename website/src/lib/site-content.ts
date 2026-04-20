@@ -1,4 +1,11 @@
-import { supabaseClient } from './supabase';
+/**
+ * Site text — fetched from Storyblok CDN (preview token, read-only).
+ * Component: "site_text"  |  Folder: site-text/
+ * Returns the same key/value map the homepage, about, and footer expect.
+ */
+
+const PREVIEW_TOKEN = process.env.STORYBLOK_PREVIEW_TOKEN!;
+const CDN_BASE = 'https://api.storyblok.com/v2/cdn';
 
 export type SiteContentMap = Record<string, string>;
 
@@ -8,10 +15,10 @@ const FALLBACKS: SiteContentMap = {
   'home.hero.title': 'Where ancient wisdom meets the body.',
   'home.hero.title_em': 'meets the body.',
   'home.hero.body':
-    'Torah Tai Chi fuses the weekly parsha with the internal arts — rooting, yielding, song 松 — to find the place where Jewish wisdom and the body\u2019s intelligence say the same thing.',
+    'Torah Tai Chi fuses the weekly parsha with the internal arts \u2014 rooting, yielding, song \u2014 to find the place where Jewish wisdom and the body\u2019s intelligence say the same thing.',
   'home.about.title': 'The practice between traditions.',
   'home.about.body':
-    'Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts. Each week\u2019s parsha carries a teaching about character, restraint, holiness — and each of those teachings has a parallel in the body: rooting, yielding, releasing tension without collapsing structure.',
+    'Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts. Each week\u2019s parsha carries a teaching about character, restraint, holiness \u2014 and each of those teachings has a parallel in the body: rooting, yielding, releasing tension without collapsing structure.',
   'about.title': 'Where two traditions meet the body.',
   'about.subtitle': 'A practice, not a product.',
   'about.what_is':
@@ -25,8 +32,8 @@ const FALLBACKS: SiteContentMap = {
 
 /**
  * Split a title around an emphasized portion so callers can render
- * `<>{before}<em>{em}</em>{after}</>`. If `em` isn't found in `title`,
- * returns the whole title as `before` with empty `em`/`after`.
+ * `<>{before}<em>{em}</em>{after}</>`. If em is not found in title,
+ * returns the whole title as before with empty em/after.
  */
 export function splitEm(title: string, em: string): { before: string; em: string; after: string } {
   if (!em || !title.includes(em)) return { before: title, em: '', after: '' };
@@ -40,19 +47,23 @@ export function splitEm(title: string, em: string): { before: string; em: string
 
 export async function getSiteContent(): Promise<SiteContentMap> {
   try {
-    const supabase = supabaseClient();
-    const { data, error } = await supabase
-      .from('site_content')
-      .select('key, value');
+    const url = new URL(`${CDN_BASE}/stories`);
+    url.searchParams.set('token', PREVIEW_TOKEN);
+    url.searchParams.set('starts_with', 'site-text/');
+    url.searchParams.set('filter_query[component][in]', 'site_text');
+    url.searchParams.set('per_page', '100');
+    url.searchParams.set('version', 'published');
 
-    if (error || !data) {
-      return FALLBACKS;
-    }
+    const res = await fetch(url.toString(), { next: { revalidate: 60 } });
+    if (!res.ok) return FALLBACKS;
 
+    const data = await res.json();
     const map: SiteContentMap = { ...FALLBACKS };
-    for (const row of data) {
-      if (row.key && row.value != null) {
-        map[row.key] = row.value;
+    for (const story of data.stories ?? []) {
+      const key = story.content?.key;
+      const value = story.content?.value;
+      if (key && value != null) {
+        map[key] = value;
       }
     }
     return map;
