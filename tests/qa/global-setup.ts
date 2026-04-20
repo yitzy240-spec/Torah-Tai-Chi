@@ -15,11 +15,9 @@ export default async function globalSetup() {
   console.log('[qa] ensuring test user', email);
   await ensureTestUser(email, name);
 
-  // NOTE: seedAll is imported+called in this stage once Task A.4 lands.
-  // Commented out intentionally — do not restore until A.4 is complete.
-  // const { seedAll } = await import('./fixtures/seed-data');
-  // console.log('[qa] seeding test data');
-  // await seedAll();
+  const { seedAll } = await import('./fixtures/seed-data');
+  console.log('[qa] seeding test data');
+  await seedAll();
 
   console.log('[qa] minting session via admin.generateLink');
   const actionLink = await generateMagicLinkAction(email, `${dashboardUrl}/auth/callback`);
