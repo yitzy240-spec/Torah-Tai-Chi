@@ -47,8 +47,8 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       .eq("option", "A-tight"),
     client
       .from("videos")
-      .select("parsha_id, thumb_path")
-      .in("parsha_id", parshaIds),
+      .select("thumb_path, jobs!inner(parsha_id)")
+      .in("jobs.parsha_id", parshaIds),
   ]);
 
   const scriptMap = new Map<string, { title: string; draft_text: string }>();
@@ -57,8 +57,13 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   }
 
   const thumbMap = new Map<string, string | null>();
-  for (const v of videosResult.data ?? []) {
-    if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
+  for (const v of (videosResult.data ?? []) as Array<{
+    thumb_path: string | null;
+    jobs: { parsha_id: string } | { parsha_id: string }[] | null;
+  }>) {
+    if (!v.thumb_path || !v.jobs) continue;
+    const parshaId = Array.isArray(v.jobs) ? v.jobs[0]?.parsha_id : v.jobs.parsha_id;
+    if (parshaId) thumbMap.set(parshaId, v.thumb_path);
   }
 
   return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string }) => {
