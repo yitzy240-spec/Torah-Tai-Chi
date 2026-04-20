@@ -57,24 +57,27 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
   const openSheet = () => {
     setPendingStance(currentStance);
     setSheetOpen(true);
-    document.body.style.overflow = 'hidden';
   };
 
   const closeSheet = () => {
     setSheetOpen(false);
-    document.body.style.overflow = '';
   };
 
+  // Own body.overflow + Escape key across the sheet's entire lifecycle,
+  // including unmount — otherwise navigating away while the sheet is open
+  // leaves the whole app scroll-locked until a hard refresh.
   useEffect(() => {
     if (!sheetOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSheetOpen(false);
-        document.body.style.overflow = '';
-      }
+      if (e.key === 'Escape') setSheetOpen(false);
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [sheetOpen]);
 
   const saveStance = () => {
