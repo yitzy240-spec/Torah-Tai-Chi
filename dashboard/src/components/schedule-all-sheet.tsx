@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { scheduleAll } from '@/app/actions/schedule-all';
 
 const PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
@@ -46,6 +46,13 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
   const [toastVisible, setToastVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [open]);
+
   const openSheet = () => {
     if (!bufferConfigured) {
       setNotConfiguredOpen(true);
@@ -53,12 +60,10 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
     }
     setError(null);
     setOpen(true);
-    document.body.style.overflow = 'hidden';
   };
 
   const closeSheet = () => {
     setOpen(false);
-    document.body.style.overflow = '';
   };
 
   const confirm = () => {
