@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { logEvent } from '@/lib/events';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 
 export const dynamic = 'force-dynamic';
@@ -81,8 +82,16 @@ export async function POST(request: Request) {
     .select('id').single();
 
   if (insertErr || !job) {
+    const msg = insertErr?.message ?? 'Insert failed';
+    await logEvent({
+      actor: 'supabase',
+      level: 'error',
+      event: 'compose.video.job.insert.error',
+      message: `Job insert failed: ${msg}`,
+      details: { error: msg },
+    });
     return NextResponse.json(
-      { error: insertErr?.message ?? 'Insert failed' },
+      { error: msg },
       { status: 500 },
     );
   }
@@ -92,6 +101,14 @@ export async function POST(request: Request) {
     await supabase.from('jobs')
       .update({ status: FAILED_STATUS, error_message: 'MODAL_WORKER_URL not set' })
       .eq('id', job.id);
+    await logEvent({
+      actor: 'modal',
+      level: 'error',
+      event: 'compose.video.trigger.config.missing',
+      subjectType: 'job',
+      subjectId: job.id,
+      message: 'MODAL_WORKER_URL not set — cannot dispatch pipeline',
+    });
     return NextResponse.json({ error: 'MODAL_WORKER_URL not set' }, { status: 500 });
   }
 
@@ -104,11 +121,29 @@ export async function POST(request: Request) {
       // just enough to confirm dispatch.
       signal: AbortSignal.timeout(5000),
     });
+    await logEvent({
+      actor: 'modal',
+      level: 'info',
+      event: 'compose.video.trigger.ok',
+      subjectType: 'job',
+      subjectId: job.id,
+      message: `Dispatched topic job ${job.id} to Modal`,
+      details: { resolution, modelTier },
+    });
   } catch (e) {
     if ((e as Error).name !== 'TimeoutError' && (e as Error).name !== 'AbortError') {
       await supabase.from('jobs')
         .update({ status: FAILED_STATUS, error_message: String(e) })
         .eq('id', job.id);
+      await logEvent({
+        actor: 'modal',
+        level: 'error',
+        event: 'compose.video.trigger.error',
+        subjectType: 'job',
+        subjectId: job.id,
+        message: `Modal dispatch failed: ${String(e)}`,
+        details: { error: String(e), errorName: (e as Error).name },
+      });
       return NextResponse.json({ error: String(e) }, { status: 500 });
     }
   }

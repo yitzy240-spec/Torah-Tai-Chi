@@ -67,6 +67,7 @@ def run_pipeline(job_id: str) -> None:
     from src.kie_client import KieClient
     from src.models import ClipPlan
     from src.thumbnails import extract_thumbnail, upload_thumbnail
+    from src.events import log_event
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -75,6 +76,19 @@ def run_pipeline(job_id: str) -> None:
         if message is not None:
             update["status_message"] = message
         sb.table("jobs").update(update).eq("id", job_id).execute()
+        # Mirror every status transition into the diagnostics feed so the
+        # dashboard viewer can show a timeline even when jobs.status gets
+        # overwritten. log_event never raises.
+        log_event(
+            sb,
+            actor="modal",
+            level="info",
+            event=f"pipeline.status.{status}",
+            subject_type="job",
+            subject_id=job_id,
+            message=message or status,
+            details={"status": status},
+        )
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
         sb.table("cost_events").insert({
@@ -241,9 +255,24 @@ def run_pipeline(job_id: str) -> None:
 
     except Exception as e:
         import traceback
+        tb = traceback.format_exc()
         sb.table("jobs").update({
-            "status": "failed", "error_message": f"{type(e).__name__}: {e}\n{traceback.format_exc()}",
+            "status": "failed", "error_message": f"{type(e).__name__}: {e}\n{tb}",
         }).eq("id", job_id).execute()
+        log_event(
+            sb,
+            actor="modal",
+            level="error",
+            event="pipeline.failed",
+            subject_type="job",
+            subject_id=job_id,
+            message=f"{type(e).__name__}: {e}",
+            details={
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": tb,
+            },
+        )
         raise
 
 

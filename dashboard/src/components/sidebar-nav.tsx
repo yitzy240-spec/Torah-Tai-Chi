@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/analytics',     label: 'Analytics',    meta: '' },
   { href: '/settings',      label: 'Settings',     meta: '' },
   { href: '/settings/seo', label: 'SEO defaults', meta: '' },
+  { href: '/admin/events', label: 'Diagnostics',  meta: '' },
   { href: '/help',          label: 'Help',         meta: '' },
 ];
 

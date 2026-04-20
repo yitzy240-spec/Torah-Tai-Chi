@@ -8,6 +8,7 @@ import {
   type ReferenceKind,
   type AspectRatio,
 } from '@/lib/ai-image';
+import { logEvent } from '@/lib/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,9 +70,35 @@ export async function POST(request: Request) {
       aspectRatio: body.aspectRatio ?? '1:1',
     });
 
+    await logEvent({
+      actor: 'ai-image',
+      level: 'info',
+      event: 'compose.image.start',
+      subjectType: 'kie_task',
+      subjectId: taskId,
+      message: `Image generation started (task ${taskId})`,
+      details: {
+        referenceKind: refKind,
+        aspectRatio: body.aspectRatio ?? '1:1',
+        iterating: !!body.feedback,
+      },
+    });
+
     return NextResponse.json({ taskId, expandedPrompt });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    await logEvent({
+      actor: 'ai-image',
+      level: 'error',
+      event: 'compose.image.start.error',
+      message: `Image generation start failed: ${msg}`,
+      details: {
+        referenceKind: refKind,
+        aspectRatio: body.aspectRatio ?? '1:1',
+        userPromptPreview: userPrompt.slice(0, 200),
+        error: msg,
+      },
+    });
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
@@ -94,9 +121,29 @@ export async function GET(request: Request) {
 
   try {
     const result = await pollKieImageTask(taskId);
+    if (result.state === 'failed') {
+      await logEvent({
+        actor: 'ai-image',
+        level: 'error',
+        event: 'compose.image.poll.failed',
+        subjectType: 'kie_task',
+        subjectId: taskId,
+        message: `Image generation failed: ${result.error ?? 'unknown'}`,
+        details: { taskId, error: result.error ?? null },
+      });
+    }
     return NextResponse.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    await logEvent({
+      actor: 'ai-image',
+      level: 'error',
+      event: 'compose.image.poll.error',
+      subjectType: 'kie_task',
+      subjectId: taskId,
+      message: `Image poll threw: ${msg}`,
+      details: { taskId, error: msg },
+    });
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

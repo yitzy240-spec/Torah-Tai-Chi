@@ -3,6 +3,12 @@ import { createClient } from '@/lib/supabase/server';
 import { createUpdate, listProfiles } from '@/lib/buffer';
 import { getConnection as getYouTubeConnection, uploadVideo as uploadToYouTube } from '@/lib/youtube';
 import { PLATFORMS, BUFFER_PLATFORMS, type Platform } from '@/lib/platforms';
+import { logEvent, type EventActor } from '@/lib/events';
+
+/** Map a platform name to the actor that owns the post in our diagnostics feed. */
+function actorForPlatform(platform: Platform): EventActor {
+  return platform === 'youtube' ? 'youtube' : 'buffer';
+}
 
 // Retry a promise-returning fn up to `attempts` times with ms delays between retries.
 async function withRetry<T>(
@@ -67,11 +73,31 @@ export async function scheduleAll(
   const bufferToken = process.env.BUFFER_ACCESS_TOKEN;
   let profiles: Awaited<ReturnType<typeof listProfiles>> = [];
   if (needsBuffer) {
-    if (!bufferToken) return { error: 'BUFFER_NOT_CONFIGURED' };
+    if (!bufferToken) {
+      await logEvent({
+        actor: 'buffer',
+        level: 'error',
+        event: 'schedule.config.missing',
+        subjectType: 'video',
+        subjectId: args.videoId,
+        message: 'BUFFER_ACCESS_TOKEN not set — scheduleAll cannot post to Buffer channels',
+      });
+      return { error: 'BUFFER_NOT_CONFIGURED' };
+    }
     try {
       profiles = await withRetry(() => listProfiles(bufferToken));
     } catch (e) {
-      return { error: `Failed to fetch Buffer profiles: ${String(e)}. Check Settings → Buffer.` };
+      const msg = `Failed to fetch Buffer profiles: ${String(e)}. Check Settings → Buffer.`;
+      await logEvent({
+        actor: 'buffer',
+        level: 'error',
+        event: 'schedule.topic.error',
+        subjectType: 'video',
+        subjectId: args.videoId,
+        message: msg,
+        details: { stage: 'listProfiles', error: String(e) },
+      });
+      return { error: msg };
     }
   }
 
@@ -84,6 +110,15 @@ export async function scheduleAll(
     );
     if (!profile) {
       errors.push(`No Buffer profile found for ${platform}`);
+      await logEvent({
+        actor: 'buffer',
+        level: 'warn',
+        event: 'schedule.channel.error',
+        subjectType: 'video',
+        subjectId: args.videoId,
+        message: `No Buffer profile found for ${platform}`,
+        details: { platform },
+      });
       continue;
     }
 
@@ -107,14 +142,39 @@ export async function scheduleAll(
       });
 
       results.push({ platform, externalId: update.id });
+      await logEvent({
+        actor: actorForPlatform(platform),
+        level: 'action',
+        event: 'schedule.channel.ok',
+        subjectType: 'video',
+        subjectId: args.videoId,
+        message: `Scheduled ${platform} for ${args.scheduledAt.toISOString()} (${args.shareNow ? 'shareNow' : 'queued'})`,
+        details: {
+          platform,
+          channelId: profile.id,
+          bufferId: update.id,
+          scheduledAt: args.scheduledAt.toISOString(),
+          shareNow: !!args.shareNow,
+        },
+      });
     } catch (e) {
-      errors.push(`${platform}: ${String(e)}`);
+      const errMsg = String(e);
+      errors.push(`${platform}: ${errMsg}`);
       await supabase.from('posts').insert({
         video_id: args.videoId,
         platform,
         scheduled_at: args.scheduledAt.toISOString(),
         status: 'failed',
         caption,
+      });
+      await logEvent({
+        actor: actorForPlatform(platform),
+        level: 'error',
+        event: 'schedule.channel.error',
+        subjectType: 'video',
+        subjectId: args.videoId,
+        message: `Schedule failed for ${platform}: ${errMsg}`,
+        details: { platform, channelId: profile.id, error: errMsg },
       });
     }
   }
@@ -132,8 +192,24 @@ export async function scheduleAll(
         status: 'failed',
         caption,
       });
+      await logEvent({
+        actor: 'youtube',
+        level: 'error',
+        event: 'schedule.channel.error',
+        subjectType: 'video',
+        subjectId: args.videoId,
+        message: 'YouTube not connected — skipped upload',
+      });
     } else if (!mediaUrl) {
       errors.push('youtube: no video file to upload');
+      await logEvent({
+        actor: 'youtube',
+        level: 'error',
+        event: 'schedule.channel.error',
+        subjectType: 'video',
+        subjectId: args.videoId,
+        message: 'YouTube upload skipped: no video file present',
+      });
     } else {
       // Split caption into title (first line, ≤100 chars) + description (rest).
       const [firstLine, ...rest] = caption.split('\n');
@@ -161,8 +237,23 @@ export async function scheduleAll(
         });
 
         results.push({ platform: 'youtube', externalId: video.id });
+        await logEvent({
+          actor: 'youtube',
+          level: 'action',
+          event: 'schedule.channel.ok',
+          subjectType: 'video',
+          subjectId: args.videoId,
+          message: `YouTube upload ${args.shareNow ? 'published' : 'scheduled'} for ${args.scheduledAt.toISOString()}`,
+          details: {
+            platform: 'youtube',
+            youtubeVideoId: video.id,
+            scheduledAt: args.scheduledAt.toISOString(),
+            shareNow: !!args.shareNow,
+          },
+        });
       } catch (e) {
-        errors.push(`youtube: ${String(e)}`);
+        const errMsg = String(e);
+        errors.push(`youtube: ${errMsg}`);
         await supabase.from('posts').insert({
           video_id: args.videoId,
           platform: 'youtube',
@@ -170,11 +261,29 @@ export async function scheduleAll(
           status: 'failed',
           caption,
         });
+        await logEvent({
+          actor: 'youtube',
+          level: 'error',
+          event: 'schedule.channel.error',
+          subjectType: 'video',
+          subjectId: args.videoId,
+          message: `YouTube upload failed: ${errMsg}`,
+          details: { error: errMsg },
+        });
       }
     }
   }
 
   if (errors.length > 0 && results.length === 0) {
+    await logEvent({
+      actor: 'system',
+      level: 'error',
+      event: 'schedule.topic.error',
+      subjectType: 'video',
+      subjectId: args.videoId,
+      message: `scheduleAll: all channels failed (${errors.length})`,
+      details: { errors },
+    });
     return { error: errors.join('; ') };
   }
 

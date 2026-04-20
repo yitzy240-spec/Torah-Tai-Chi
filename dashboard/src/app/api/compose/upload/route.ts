@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
+import { logEvent } from '@/lib/events';
 import { randomBytes } from 'crypto';
 
 const BUCKET = 'videos';
@@ -47,7 +48,21 @@ export async function POST(request: Request) {
     .from(BUCKET)
     .createSignedUploadUrl(key);
   if (sigErr || !signed) {
-    return NextResponse.json({ error: `Sign failed: ${sigErr?.message ?? 'unknown'}` }, { status: 500 });
+    const msg = `Sign failed: ${sigErr?.message ?? 'unknown'}`;
+    await logEvent({
+      actor: 'supabase',
+      level: 'error',
+      event: 'compose.upload.sign.error',
+      message: msg,
+      details: {
+        bucket: BUCKET,
+        key,
+        contentType,
+        size: size ?? null,
+        error: sigErr?.message ?? 'unknown',
+      },
+    });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   const { data: pub } = svc.storage.from(BUCKET).getPublicUrl(key);

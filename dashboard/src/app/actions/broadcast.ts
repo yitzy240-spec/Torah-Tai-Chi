@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createUpdate, listProfiles, type BufferProfile } from '@/lib/buffer';
 import { normalizeForSocials } from '@/lib/image-processing';
+import { logEvent } from '@/lib/events';
 
 export interface BroadcastArgs {
   text: string;
@@ -34,7 +35,15 @@ export async function broadcast(
   args: BroadcastArgs,
 ): Promise<{ results: BroadcastResult[]; error?: string }> {
   const token = process.env.BUFFER_ACCESS_TOKEN;
-  if (!token) return { results: [], error: 'BUFFER_NOT_CONFIGURED' };
+  if (!token) {
+    await logEvent({
+      actor: 'buffer',
+      level: 'error',
+      event: 'broadcast.config.missing',
+      message: 'BUFFER_ACCESS_TOKEN not set — cannot broadcast',
+    });
+    return { results: [], error: 'BUFFER_NOT_CONFIGURED' };
+  }
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -47,13 +56,28 @@ export async function broadcast(
   try {
     profiles = await listProfiles(token);
   } catch (e) {
-    return { results: [], error: `Buffer listProfiles: ${String(e)}` };
+    const msg = `Buffer listProfiles: ${String(e)}`;
+    await logEvent({
+      actor: 'buffer',
+      level: 'error',
+      event: 'broadcast.topic.error',
+      message: msg,
+      details: { stage: 'listProfiles', error: String(e) },
+    });
+    return { results: [], error: msg };
   }
 
   const selected = args.channelIds && args.channelIds.length > 0
     ? profiles.filter((p) => args.channelIds!.includes(p.id))
     : profiles;
   if (selected.length === 0) {
+    await logEvent({
+      actor: 'buffer',
+      level: 'warn',
+      event: 'broadcast.topic.error',
+      message: 'No Buffer channels selected or connected.',
+      details: { requested: args.channelIds ?? [] },
+    });
     return { results: [], error: 'No Buffer channels selected or connected.' };
   }
 
@@ -64,7 +88,15 @@ export async function broadcast(
     try {
       normalizedImageUrl = await normalizeForSocials(args.imageUrl);
     } catch (e) {
-      return { results: [], error: `Image processing: ${e instanceof Error ? e.message : String(e)}` };
+      const msg = `Image processing: ${e instanceof Error ? e.message : String(e)}`;
+      await logEvent({
+        actor: 'buffer',
+        level: 'error',
+        event: 'broadcast.topic.error',
+        message: msg,
+        details: { stage: 'normalizeForSocials', imageUrl: args.imageUrl, error: String(e) },
+      });
+      return { results: [], error: msg };
     }
   }
 
@@ -85,11 +117,37 @@ export async function broadcast(
         ok: true,
         bufferId: update.id,
       });
+      await logEvent({
+        actor: 'buffer',
+        level: 'action',
+        event: 'broadcast.channel.ok',
+        message: `Broadcast sent to ${profile.service} (${profile.service_username})`,
+        details: {
+          channelId: profile.id,
+          service: profile.service,
+          username: profile.service_username,
+          bufferId: update.id,
+          shareNow: args.shareNow ?? true,
+        },
+      });
     } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
       results.push({
         channel: { id: profile.id, service: profile.service, username: profile.service_username },
         ok: false,
-        error: e instanceof Error ? e.message : String(e),
+        error: errMsg,
+      });
+      await logEvent({
+        actor: 'buffer',
+        level: 'error',
+        event: 'broadcast.channel.error',
+        message: `Broadcast failed for ${profile.service} (${profile.service_username}): ${errMsg}`,
+        details: {
+          channelId: profile.id,
+          service: profile.service,
+          username: profile.service_username,
+          error: errMsg,
+        },
       });
     }
   }

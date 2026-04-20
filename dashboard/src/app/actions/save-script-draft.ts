@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
+import { logEvent } from '@/lib/events';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -28,7 +29,34 @@ export async function saveScriptDraft(args: {
   if (args.tldr !== undefined) patch.tldr = args.tldr.trim();
 
   const { error } = await svc.from('scripts').update(patch).eq('id', args.scriptId);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    await logEvent({
+      actor: 'yonah',
+      level: 'error',
+      event: 'script.draft.error',
+      subjectType: 'script',
+      subjectId: args.scriptId,
+      message: `Script draft save failed: ${error.message}`,
+      details: { parshaSlug: args.parshaSlug, error: error.message },
+    });
+    return { ok: false, error: error.message };
+  }
+
+  await logEvent({
+    actor: 'yonah',
+    level: 'action',
+    event: 'script.draft.saved',
+    subjectType: 'script',
+    subjectId: args.scriptId,
+    message: 'Script draft saved',
+    details: {
+      parshaSlug: args.parshaSlug,
+      draftLength: draft.length,
+      titleChanged: args.title !== undefined,
+      tldrChanged: args.tldr !== undefined,
+      actorUserId: user.id,
+    },
+  });
 
   if (args.parshaSlug) revalidatePath(`/videos/${args.parshaSlug}`);
   revalidatePath('/');
