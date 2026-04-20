@@ -4,12 +4,14 @@ import { getSiteContent } from "@/lib/site-content";
 
 export default async function SiteFooter() {
   const c = await getSiteContent();
+  const showBook = c["book.visible"] === "true";
   return (
     <footer className="site-footer">
       <div className="footer-brand">{c['footer.copyright']}</div>
       <div className="footer-links">
         <Link href="/videos">Videos</Link>
         <Link href="/articles">Articles</Link>
+        {showBook && <Link href="/book">Book</Link>}
         <Link href="/about">About</Link>
       </div>
       <div className="footer-socials">

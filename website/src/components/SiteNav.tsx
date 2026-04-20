@@ -5,7 +5,11 @@ import { usePathname } from "next/navigation";
 import Brand from "./Brand";
 import { TikTokIcon, YouTubeIcon, InstagramIcon } from "./SocialIcons";
 
-export default function SiteNav() {
+interface SiteNavProps {
+  showBook?: boolean;
+}
+
+export default function SiteNav({ showBook = false }: SiteNavProps) {
   const pathname = usePathname();
 
   const isActive = (href: string) => {
@@ -24,6 +28,9 @@ export default function SiteNav() {
           <Link href="/" className={isActive("/") && pathname === "/" ? "active" : ""}>Home</Link>
           <Link href="/videos" className={isActive("/videos") ? "active" : ""}>Videos</Link>
           <Link href="/articles" className={isActive("/articles") ? "active" : ""}>Articles</Link>
+          {showBook && (
+            <Link href="/book" className={isActive("/book") ? "active" : ""}>Book</Link>
+          )}
           <Link href="/about" className={isActive("/about") ? "active" : ""}>About</Link>
         </div>
         <div className="nav-socials">
