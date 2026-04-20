@@ -5,7 +5,9 @@
 
 const SPACE_ID = process.env.STORYBLOK_SPACE_ID!;
 const MGMT_TOKEN = process.env.STORYBLOK_MANAGEMENT_TOKEN!;
+const PREVIEW_TOKEN = process.env.STORYBLOK_PREVIEW_TOKEN!;
 const BASE = `https://mapi.storyblok.com/v1/spaces/${SPACE_ID}`;
+const CDN_BASE = 'https://api.storyblok.com/v2/cdn';
 
 const ARTICLES_FOLDER = 'articles';
 const SITE_TEXT_FOLDER = 'site-text';
@@ -154,6 +156,26 @@ async function mapiGet(path: string, params?: Record<string, string>) {
   return res.json();
 }
 
+/**
+ * CDN-API read. The Management API list endpoint doesn't return the `content`
+ * field, so we use the CDN (preview token, draft version) for reads.
+ */
+async function cdnGet(path: string, params?: Record<string, string>) {
+  const url = new URL(`${CDN_BASE}${path}`);
+  url.searchParams.set('token', PREVIEW_TOKEN);
+  url.searchParams.set('version', 'draft');
+  url.searchParams.set('cv', String(Date.now()));
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, v);
+    }
+  }
+  const res = await retryableFetch(url.toString(), { cache: 'no-store' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Storyblok CDN GET ${path} → ${res.status}`);
+  return res.json();
+}
+
 // ─────────────────────────────────────────────
 // Folder ID cache (lazy)
 // ─────────────────────────────────────────────
@@ -176,9 +198,17 @@ async function getFolderId(slug: string): Promise<number> {
 // Story lookup helpers
 // ─────────────────────────────────────────────
 
+/**
+ * Look up a story by full slug. Uses the CDN API to find the id (the mapi
+ * list endpoint omits `content`), then hydrates via the mapi single-story
+ * endpoint so write-paths get the exact shape mapi PUT expects.
+ */
 async function getStoryBySlug(fullSlug: string) {
-  const data = await mapiGet('/stories/', { with_slug: fullSlug });
-  return (data.stories ?? [])[0] ?? null;
+  const cdnData = await cdnGet(`/stories/${fullSlug}`);
+  const id = cdnData?.story?.id;
+  if (!id) return null;
+  const mapiData = await mapiGet(`/stories/${id}`);
+  return mapiData?.story ?? null;
 }
 
 // ─────────────────────────────────────────────
@@ -186,12 +216,12 @@ async function getStoryBySlug(fullSlug: string) {
 // ─────────────────────────────────────────────
 
 export async function listArticles(): Promise<SbArticleStory[]> {
-  const data = await mapiGet('/stories/', {
+  const data = await cdnGet('/stories', {
     starts_with: ARTICLES_FOLDER + '/',
     per_page: '100',
     sort_by: 'content.published_at:desc',
   });
-  return (data.stories ?? []).filter(
+  return (data?.stories ?? []).filter(
     (s: SbArticleStory) => s.content?.component === 'article',
   );
 }
@@ -314,11 +344,11 @@ export async function deleteArticle(storyId: number): Promise<void> {
 // ─────────────────────────────────────────────
 
 export async function listSiteText(): Promise<SbSiteTextStory[]> {
-  const data = await mapiGet('/stories/', {
+  const data = await cdnGet('/stories', {
     starts_with: SITE_TEXT_FOLDER + '/',
     per_page: '100',
   });
-  return (data.stories ?? []).filter(
+  return (data?.stories ?? []).filter(
     (s: SbSiteTextStory) => s.content?.component === 'site_text',
   );
 }
