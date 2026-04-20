@@ -2,7 +2,10 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { getConnection, listChannelVideos, type ChannelVideoStats } from '@/lib/youtube';
 
-export const dynamic = 'force-dynamic';
+// Cache the analytics page for 5 minutes. Every load used to burn
+// 3 YouTube API calls (~3 quota units of 10k/day) — harmless but
+// slow (~300ms). Stats move slowly enough that 5 min is fine.
+export const revalidate = 300;
 
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + 'M';
