@@ -88,10 +88,14 @@ export type CreateUpdateArgs = {
   profileIds: string[];
   /** Caption / post text. */
   text: string;
-  /** Publicly reachable video URL (required for video posts). */
+  /** Publicly reachable media URL. */
   mediaUrl?: string;
-  /** If set, Buffer schedules the post at this time; if omitted, adds to queue. */
+  /** Whether mediaUrl is a video or an image. Defaults to video. */
+  mediaType?: 'video' | 'image';
+  /** If set + not shareNow, Buffer schedules the post at this time. */
   scheduledAt?: Date;
+  /** If true, publish immediately instead of queuing/scheduling. */
+  shareNow?: boolean;
 };
 
 interface CreatePostResponse {
@@ -120,13 +124,24 @@ const CREATE_POST_MUTATION = `
 export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; status: string }> {
   if (a.profileIds.length === 0) throw new Error('createUpdate: profileIds is empty');
 
-  const scheduled = !!a.scheduledAt;
+  const mode = a.shareNow
+    ? 'shareNow'
+    : a.scheduledAt
+    ? 'customScheduled'
+    : 'addToQueue';
+
+  const assets = a.mediaUrl
+    ? a.mediaType === 'image'
+      ? { images: [{ url: a.mediaUrl }] }
+      : { videos: [{ url: a.mediaUrl }] }
+    : undefined;
+
   const baseInput = {
     text: a.text,
-    mode: scheduled ? 'customScheduled' : 'addToQueue',
+    mode,
     schedulingType: 'automatic',
-    ...(scheduled ? { dueAt: a.scheduledAt!.toISOString() } : {}),
-    ...(a.mediaUrl ? { assets: { videos: [{ url: a.mediaUrl }] } } : {}),
+    ...(mode === 'customScheduled' && a.scheduledAt ? { dueAt: a.scheduledAt.toISOString() } : {}),
+    ...(assets ? { assets } : {}),
   };
 
   const results: Array<{ id: string; status: string }> = [];

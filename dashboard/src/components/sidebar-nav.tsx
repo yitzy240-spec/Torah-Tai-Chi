@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: '/',              label: 'Today',        meta: 'now' },
   { href: '/calendar',      label: 'Calendar',     meta: '4 ahead' },
   { href: '/videos',        label: 'Videos',       meta: '52' },
+  { href: '/compose',       label: 'Compose',      meta: '' },
   { href: '/articles',      label: 'Articles',     meta: '' },
   { href: '/site-content',  label: 'Site content', meta: '' },
   { href: '/channels',      label: 'Channels',     meta: '4 / 5' },
