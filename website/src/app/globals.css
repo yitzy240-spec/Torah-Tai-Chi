@@ -12,12 +12,14 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 }
 @media(max-width:700px){.site-nav{padding:16px 20px}}
 
-.nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink-900)}
+.nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink-900);flex-shrink:0;min-width:0}
 .nav-brand svg{width:32px;height:32px;flex-shrink:0}
-.nav-brand span{font-family:var(--ff-display);font-weight:500;font-size:15px;letter-spacing:-.003em}
+.nav-brand span{font-family:var(--ff-display);font-weight:500;font-size:15px;letter-spacing:-.003em;white-space:nowrap}
+@media(max-width:480px){.nav-brand span{display:none}}
 
-.nav-links{display:flex;align-items:center;gap:32px}
-@media(max-width:700px){.nav-links{gap:20px}}
+.nav-links{display:flex;align-items:center;gap:32px;flex-shrink:0}
+@media(max-width:700px){.nav-links{gap:16px}}
+@media(max-width:400px){.nav-links{gap:12px}}
 .nav-links a{font-family:var(--ff-body);font-size:14px;color:var(--ink-500);text-decoration:none;letter-spacing:.01em;transition:color var(--trans);padding:4px 0}
 .nav-links a:hover{color:var(--ink-900)}
 .nav-links a.active{color:var(--ink-900);font-weight:500}
