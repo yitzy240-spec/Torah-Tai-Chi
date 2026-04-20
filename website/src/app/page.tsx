@@ -180,10 +180,10 @@ export default async function HomePage() {
         <div className="about-portrait">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/rav-eli-landscape.jpg"
-            alt="Rav Eli in his dojo — afternoon light on cedar walls, Hebrew scroll in the background"
-            width={1600}
-            height={1073}
+            src="/rav-eli-landscape.png"
+            alt="Rav Eli — the teacher at the heart of Torah Tai Chi"
+            width={1400}
+            height={939}
             loading="lazy"
           />
         </div>

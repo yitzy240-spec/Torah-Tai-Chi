@@ -256,11 +256,12 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 @media(max-width:900px){.article-grid{grid-template-columns:1fr}}
 
 /* ===== ABOUT STRIP ===== */
-.about-strip{max-width:1400px;margin:0 auto;padding:96px 48px 0;display:grid;grid-template-columns:minmax(360px,520px) 1fr;gap:64px;align-items:center;}
-@media(max-width:900px){.about-strip{grid-template-columns:1fr;gap:32px;padding:64px 20px 0}}
-.about-portrait{width:100%;aspect-ratio:3/2;display:block;border-radius:var(--r-lg);overflow:hidden;box-shadow:0 30px 80px -40px rgba(35,27,16,.35);}
-.about-portrait img{width:100%;height:100%;object-fit:cover;display:block;}
-@media(max-width:900px){.about-portrait{max-width:520px;margin:0 auto;}}
+.about-strip{max-width:1400px;margin:0 auto;padding:96px 48px 0;display:grid;grid-template-columns:minmax(340px,480px) 1fr;gap:56px;align-items:center;}
+@media(max-width:900px){.about-strip{grid-template-columns:1fr;gap:24px;padding:64px 20px 0}}
+/* Transparent PNG floats on the linen — no card, no shadow, no frame. */
+.about-portrait{width:100%;display:block;}
+.about-portrait img{width:100%;height:auto;display:block;}
+@media(max-width:900px){.about-portrait{max-width:440px;margin:0 auto;}}
 .about-body{max-width:56ch}
 .about-body h2{font-family:var(--ff-display);font-weight:400;font-size:clamp(28px,4vw,42px);letter-spacing:-.02em;margin:0 0 20px 0;color:var(--ink-900);font-variation-settings:"opsz" 48,"SOFT" 30;}
 .about-body h2 em{font-style:italic;color:var(--cedar-600);font-variation-settings:"opsz" 48,"SOFT" 60}
@@ -388,13 +389,13 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 .about-section h2{font-family:var(--ff-display);font-weight:500;font-size:22px;letter-spacing:-.01em;margin:0 0 16px 0;color:var(--ink-900);font-variation-settings:"opsz" 24,"SOFT" 30;}
 .about-section p{font-family:var(--ff-reading);font-size:19px;line-height:1.65;color:var(--ink-700);margin:0 0 20px 0;font-variation-settings:"opsz" 19,"SOFT" 40;}
 
-/* Meet Rav Eli block on /about */
-.meet-rav-eli{display:grid;grid-template-columns:minmax(280px,360px) 1fr;gap:40px;align-items:center;margin:56px 0 48px 0;padding:40px 0;border-top:1px solid var(--ink-100);border-bottom:1px solid var(--ink-100);}
-.meet-rav-eli .meet-portrait{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:var(--r-lg);box-shadow:0 30px 80px -40px rgba(35,27,16,.35);display:block;}
+/* Meet Rav Eli block on /about — transparent PNG floats, no card. */
+.meet-rav-eli{display:grid;grid-template-columns:minmax(260px,320px) 1fr;gap:40px;align-items:center;margin:56px 0 48px 0;padding:40px 0;border-top:1px solid var(--ink-100);border-bottom:1px solid var(--ink-100);}
+.meet-rav-eli .meet-portrait{width:100%;height:auto;display:block;}
 .meet-rav-eli .meet-kicker{font-family:var(--ff-body);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--cedar-600);margin-bottom:6px;}
 .meet-rav-eli h2{font-family:var(--ff-display);font-weight:500;font-size:clamp(26px,3.4vw,36px);letter-spacing:-.01em;margin:0 0 14px 0;color:var(--ink-900);font-variation-settings:"opsz" 36,"SOFT" 30;}
 .meet-rav-eli p{font-family:var(--ff-reading);font-size:17px;line-height:1.6;color:var(--ink-700);margin:0;font-variation-settings:"opsz" 18,"SOFT" 40;}
-@media(max-width:640px){.meet-rav-eli{grid-template-columns:1fr;gap:24px;}.meet-rav-eli .meet-portrait{max-width:320px;margin:0 auto;}}
+@media(max-width:640px){.meet-rav-eli{grid-template-columns:1fr;gap:24px;}.meet-rav-eli .meet-portrait{max-width:280px;margin:0 auto;}}
 
 .social-list{list-style:none;padding:0;margin:8px 0 0 0;display:flex;flex-direction:column;gap:2px}
 .social-list a{display:flex;align-items:center;gap:16px;padding:16px 4px;min-height:48px;border-bottom:1px solid var(--ink-100);text-decoration:none;color:var(--ink-700);transition:all var(--trans);}

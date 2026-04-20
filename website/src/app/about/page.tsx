@@ -55,10 +55,10 @@ export default async function AboutPage() {
         <section className="meet-rav-eli">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/rav-eli-square.jpg"
-            alt="Rav Eli in his dojo — three-quarter portrait in a blue mandarin-collar tunic, standing-meditation pose"
-            width={1200}
-            height={1200}
+            src="/rav-eli-square.png"
+            alt="Rav Eli — the teacher at the heart of Torah Tai Chi"
+            width={1000}
+            height={1000}
             className="meet-portrait"
             loading="lazy"
           />
