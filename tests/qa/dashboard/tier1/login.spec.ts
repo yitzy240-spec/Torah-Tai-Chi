@@ -35,5 +35,54 @@ test.describe('dashboard: auth (canary)', () => {
       await expect(page.getByRole('textbox', { name: /email/i })).toBeVisible();
       await expect(page.getByRole('button', { name: /send|sign in|continue|magic|link/i })).toBeVisible();
     });
+
+    test('invalid email shows inline error on submit', async ({ page }) => {
+      await page.goto('/login');
+      await page.getByRole('textbox', { name: /email/i }).fill('not-an-email');
+      await page
+        .getByRole('button', { name: /send|sign in|continue|magic|link/i })
+        .click();
+      // Accept any of: built-in HTML5 validation (:invalid / aria-invalid),
+      // a screen-reader alert, or visible inline error copy. The first match
+      // is enough — we're asserting the form didn't silently succeed.
+      const alertOrInvalid = page.locator(
+        '[aria-invalid="true"], [role="alert"], text=/invalid|valid email/i',
+      );
+      await expect(alertOrInvalid.first()).toBeVisible({ timeout: 5_000 });
+    });
+
+    for (const route of [
+      '/',
+      '/compose',
+      '/channels',
+      '/calendar',
+      '/analytics',
+      '/videos',
+      '/articles',
+      '/settings',
+      '/site-content',
+    ]) {
+      test(`unauth on ${route} redirects to /login`, async ({ page }) => {
+        await page.goto(route);
+        await expect(page).toHaveURL(/\/login/);
+      });
+    }
+  });
+
+  test.describe('magic-link throttling', () => {
+    test.use({ storageState: { cookies: [], origins: [] } });
+
+    // Hitting the real Supabase magic-link rate limit from CI would (a) burn
+    // budget on the shared project and (b) be non-deterministic — Supabase
+    // caps are per-IP per-time-window and we'd need to burst from the same
+    // Playwright worker reliably. Skipping until we have a dev Supabase
+    // project where we can dial the limit down, or a mock layer that can
+    // simulate a 429 on the auth endpoint.
+    test.fixme(
+      'rate-limited after rapid repeated requests — not deterministic in CI against shared Supabase',
+      async () => {
+        // no-op: see comment above
+      },
+    );
   });
 });
