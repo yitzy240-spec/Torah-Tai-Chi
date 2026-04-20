@@ -4,6 +4,9 @@ import { useState } from 'react';
 
 const BOOKS = ['All', 'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy'];
 
+const PLACEHOLDER_THUMB =
+  'https://jswdfthmegjbhnwbgeca.supabase.co/storage/v1/object/public/videos/placeholders/video_placeholder.png';
+
 interface Parsha {
   id: string;
   order: number;
@@ -12,6 +15,7 @@ interface Parsha {
   slug: string;
   name_hebrew?: string | null;
   scripts: { option: string; draft_text: string | null }[];
+  thumbUrl?: string | null;
 }
 
 interface VideosFilterProps {
@@ -97,20 +101,50 @@ export function VideosFilter({ parshiot }: VideosFilterProps) {
               key={parsha.id}
               href={`/videos/${parsha.slug}`}
               style={{
-                padding: '22px 24px 20px',
+                padding: '0',
                 border: '1px solid var(--ink-100)',
                 borderRadius: 'var(--r-lg)',
                 background: 'var(--linen-50)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '12px',
+                gap: '0',
                 transition: 'all var(--trans)',
                 cursor: 'pointer',
                 textDecoration: 'none',
                 color: 'inherit',
+                overflow: 'hidden',
               }}
               className="v-card"
             >
+              {/* Feature B: Thumbnail strip */}
+              <div
+                style={{
+                  width: '100%',
+                  aspectRatio: '16 / 9',
+                  background: 'var(--ink-100)',
+                  overflow: 'hidden',
+                  flexShrink: 0,
+                  position: 'relative',
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={parsha.thumbUrl ?? PLACEHOLDER_THUMB}
+                  alt=""
+                  aria-hidden="true"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    display: 'block',
+                  }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = PLACEHOLDER_THUMB;
+                  }}
+                />
+              </div>
+              {/* Card body */}
+              <div style={{ padding: '16px 20px 18px', display: 'flex', flexDirection: 'column', gap: '10px', flex: 1 }}>
               {/* Top: Hebrew + book */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div
@@ -184,6 +218,7 @@ export function VideosFilter({ parshiot }: VideosFilterProps) {
                   </span>
                 )}
               </div>
+              </div>{/* end card body */}
             </a>
           );
         })}

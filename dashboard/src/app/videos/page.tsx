@@ -1,9 +1,17 @@
 import { createClient } from '@/lib/supabase/server';
 import { VideosFilter } from '@/components/videos-filter';
 
+const SUPABASE_STORAGE_URL =
+  'https://jswdfthmegjbhnwbgeca.supabase.co/storage/v1/object/public/videos/';
+
 interface Script {
   option: string;
   draft_text: string | null;
+}
+
+interface Video {
+  parsha_id: string;
+  thumb_path: string | null;
 }
 
 interface Parsha {
@@ -14,17 +22,35 @@ interface Parsha {
   slug: string;
   name_hebrew: string | null;
   scripts: Script[];
+  thumbUrl?: string | null;
 }
 
 async function getParshiot(): Promise<Parsha[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('parshiot')
-    .select('id, order, name, book, slug, name_hebrew, scripts(option, draft_text)')
-    .order('order');
+  const [parshaResult, videoResult] = await Promise.all([
+    supabase
+      .from('parshiot')
+      .select('id, order, name, book, slug, name_hebrew, scripts(option, draft_text)')
+      .order('order'),
+    supabase
+      .from('videos')
+      .select('parsha_id, thumb_path'),
+  ]);
 
-  if (error || !data) return [];
-  return data as Parsha[];
+  if (parshaResult.error || !parshaResult.data) return [];
+
+  const thumbMap = new Map<string, string | null>();
+  for (const v of (videoResult.data ?? []) as Video[]) {
+    if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
+  }
+
+  return (parshaResult.data as Parsha[]).map((p) => {
+    const tp = thumbMap.get(p.id) ?? null;
+    return {
+      ...p,
+      thumbUrl: tp ? `${SUPABASE_STORAGE_URL}${tp}` : null,
+    };
+  });
 }
 
 export default async function VideosPage() {
@@ -34,6 +60,12 @@ export default async function VideosPage() {
   const withScript = parshiot.filter((p) =>
     p.scripts?.some((s) => s.option === 'a-tight'),
   );
+
+  // Pass thumbUrl into each parsha for Feature B
+  const withThumbs = withScript.map((p) => ({
+    ...p,
+    thumbUrl: p.thumbUrl ?? null,
+  }));
 
   return (
     <div className="stagger">
@@ -68,7 +100,7 @@ export default async function VideosPage() {
       </div>
 
       {/* Filter + Grid — client component */}
-      <VideosFilter parshiot={withScript} />
+      <VideosFilter parshiot={withThumbs} />
     </div>
   );
 }

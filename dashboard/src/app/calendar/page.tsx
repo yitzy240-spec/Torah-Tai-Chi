@@ -1,76 +1,32 @@
 import Link from 'next/link';
+import { getUpcomingWeeks, ShabbatParsha } from '@/lib/hebcal';
 
-// Hardcoded 6-week rolling calendar. Hebcal integration comes later.
-const WEEKS = [
-  {
-    slug: 'kedoshim',
-    date: 'Apr 25',
-    when: 'This Friday',
-    eng: 'Kedoshim',
-    heb: 'קְדֹשִׁים',
-    dotColor: 'var(--jade)',
-    dotClass: 'jade',
-    status: 'Video approved, ships Friday',
-    current: true,
-  },
-  {
-    slug: 'emor',
-    date: 'May 2',
-    when: 'Next week',
-    eng: 'Emor',
-    heb: 'אֱמוֹר',
-    dotColor: 'var(--cedar-500)',
-    dotClass: 'cedar',
-    status: 'Script ready, video pending',
-    current: false,
-  },
-  {
-    slug: 'behar',
-    date: 'May 9',
-    when: 'In 3 weeks',
-    eng: 'Behar',
-    heb: 'בְּהַר',
-    dotColor: 'var(--cedar-500)',
-    dotClass: 'cedar',
-    status: 'Needs review',
-    current: false,
-  },
-  {
-    slug: 'bechukotai',
-    date: 'May 16',
-    when: 'In 4 weeks',
-    eng: 'Bechukotai',
-    heb: 'בְּחֻקֹּתַי',
-    dotColor: 'var(--navy-700)',
-    dotClass: 'navy',
-    status: 'Generating...',
-    current: false,
-  },
-  {
-    slug: 'bamidbar',
-    date: 'May 23',
-    when: 'In 5 weeks',
-    eng: 'Bamidbar',
-    heb: 'בְּמִדְבַּר',
-    dotColor: 'var(--ink-300)',
-    dotClass: 'gray',
-    status: 'Not started',
-    current: false,
-  },
-  {
-    slug: 'naso',
-    date: 'May 30',
-    when: 'In 6 weeks',
-    eng: 'Naso',
-    heb: 'נָשֹׂא',
-    dotColor: 'var(--ink-300)',
-    dotClass: 'gray',
-    status: 'Not started',
-    current: false,
-  },
-];
+// Hardcoded production status per parsha slug (wired to real Supabase later).
+const HARDCODED_STATUS: Record<string, { status: string; dotColor: string; dotClass: string }> = {
+  'kedoshim':    { status: 'Video approved, ships Friday', dotColor: 'var(--jade)',      dotClass: 'jade' },
+  'emor':        { status: 'Script ready, video pending',  dotColor: 'var(--cedar-500)', dotClass: 'cedar' },
+  'behar':       { status: 'Needs review',                 dotColor: 'var(--cedar-500)', dotClass: 'cedar' },
+  'bechukotai':  { status: 'Generating...',                dotColor: 'var(--navy-700)',  dotClass: 'navy' },
+  'bamidbar':    { status: 'Not started',                  dotColor: 'var(--ink-300)',   dotClass: 'gray' },
+  'naso':        { status: 'Not started',                  dotColor: 'var(--ink-300)',   dotClass: 'gray' },
+};
 
-export default function CalendarPage() {
+const DEFAULT_STATUS = { status: 'Not started', dotColor: 'var(--ink-300)', dotClass: 'gray' };
+
+function formatWhen(shabbatDate: string, index: number): { dateLabel: string; when: string } {
+  const d = new Date(shabbatDate + 'T12:00:00');
+  const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const when =
+    index === 0 ? 'This Friday' :
+    index === 1 ? 'Next week' :
+    `In ${index + 1} weeks`;
+  return { dateLabel, when };
+}
+
+export default async function CalendarPage() {
+  // Feature A: live Hebcal data
+  const weeks = await getUpcomingWeeks(6);
+
   return (
     <div className="stagger">
       {/* Page header */}
@@ -103,14 +59,29 @@ export default function CalendarPage() {
         </p>
       </div>
 
-      {/* Calendar rows */}
-      <div>
-        {WEEKS.map((week, i) => (
-          <>
-            {/* Holiday banner between week 2 and week 3 (index 1 and 2) */}
-            {i === 2 && (
+      {/* Calendar rows — live from Hebcal */}
+      {weeks.length === 0 ? (
+        <CalendarFallback />
+      ) : (
+        <CalendarRows weeks={weeks} />
+      )}
+    </div>
+  );
+}
+
+function CalendarRows({ weeks }: { weeks: ShabbatParsha[] }) {
+  return (
+    <div>
+      {weeks.map((week, i) => {
+        const { dateLabel, when } = formatWhen(week.shabbatDate, i);
+        const isCurrent = i === 0;
+        const statusCfg = HARDCODED_STATUS[week.slug] ?? DEFAULT_STATUS;
+
+        return (
+          <div key={week.slug}>
+            {/* Holiday banner: show if this week has a holiday */}
+            {week.holiday && (
               <div
-                key="lag-bomer"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -138,12 +109,11 @@ export default function CalendarPage() {
                 >
                   ✨
                 </div>
-                Lag B&apos;Omer · Sunday, May 4
+                {week.holiday} · {dateLabel}
               </div>
             )}
 
             <Link
-              key={week.slug}
               href={`/videos/${week.slug}`}
               style={{
                 display: 'grid',
@@ -151,9 +121,9 @@ export default function CalendarPage() {
                 gap: '20px',
                 alignItems: 'center',
                 padding: '20px 24px',
-                border: `1px solid ${week.current ? 'var(--cedar-300)' : 'var(--ink-100)'}`,
+                border: `1px solid ${isCurrent ? 'var(--cedar-300)' : 'var(--ink-100)'}`,
                 borderRadius: 'var(--r-lg)',
-                background: week.current
+                background: isCurrent
                   ? 'linear-gradient(180deg, var(--linen-100) 0%, var(--linen-50) 80%)'
                   : 'var(--linen-50)',
                 marginBottom: '10px',
@@ -164,10 +134,10 @@ export default function CalendarPage() {
                 minHeight: '44px',
                 position: 'relative',
               }}
-              className={`cal-week${week.current ? ' cal-week-current' : ''}`}
+              className={`cal-week${isCurrent ? ' cal-week-current' : ''}`}
             >
               {/* Current week top bar accent */}
-              {week.current && (
+              {isCurrent && (
                 <div
                   aria-hidden="true"
                   style={{
@@ -191,9 +161,9 @@ export default function CalendarPage() {
                 }}
               >
                 <strong style={{ fontWeight: 500, color: 'var(--ink-900)', display: 'block', fontSize: '14px' }}>
-                  {week.date}
+                  {dateLabel}
                 </strong>
-                {week.when}
+                {when}
               </div>
 
               {/* Parsha name */}
@@ -208,7 +178,12 @@ export default function CalendarPage() {
                     fontVariationSettings: '"opsz" 36, "SOFT" 30',
                   }}
                 >
-                  {week.eng}
+                  {week.name}
+                  {week.combined && (
+                    <span style={{ color: 'var(--ink-400)', fontWeight: 400, fontSize: '16px', marginLeft: '6px' }}>
+                      +{week.combined}
+                    </span>
+                  )}
                 </span>
                 <span
                   lang="he"
@@ -219,7 +194,7 @@ export default function CalendarPage() {
                     color: 'var(--ink-500)',
                   }}
                 >
-                  {week.heb}
+                  {week.hebrew}
                 </span>
               </div>
 
@@ -243,16 +218,36 @@ export default function CalendarPage() {
                     borderRadius: '50%',
                     marginRight: '8px',
                     transform: 'translateY(-1px)',
-                    background: week.dotColor,
-                    animation: week.dotClass === 'navy' ? 'pulse-navy 1.8s ease-in-out infinite' : undefined,
+                    background: statusCfg.dotColor,
+                    animation: statusCfg.dotClass === 'navy' ? 'pulse-navy 1.8s ease-in-out infinite' : undefined,
                   }}
                 />
-                {week.status}
+                {statusCfg.status}
               </div>
             </Link>
-          </>
-        ))}
-      </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Shown only if Hebcal API fails completely
+function CalendarFallback() {
+  return (
+    <div
+      style={{
+        padding: '40px',
+        textAlign: 'center',
+        fontFamily: 'var(--ff-display)',
+        fontStyle: 'italic',
+        fontSize: '16px',
+        color: 'var(--ink-400)',
+        border: '1px solid var(--ink-100)',
+        borderRadius: 'var(--r-lg)',
+      }}
+    >
+      Calendar unavailable — could not reach Hebcal. Check back shortly.
     </div>
   );
 }

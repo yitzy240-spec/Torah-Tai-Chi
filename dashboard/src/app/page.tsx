@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { StanceToggle } from '@/components/stance-toggle';
 import { Fab } from '@/components/fab';
+import { getThisWeekParsha } from '@/lib/hebcal';
 
 // Types
 interface Script {
@@ -32,8 +33,30 @@ async function getNextParsha(): Promise<Parsha | null> {
   return data as Parsha;
 }
 
+async function getParshaBySlug(slug: string): Promise<Parsha | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('parshiot')
+    .select('id, order, name, book, slug, scripts(id, option, title, draft_text)')
+    .eq('slug', slug)
+    .single();
+
+  if (error || !data) return null;
+  return data as Parsha;
+}
+
 export default async function TodayPage() {
-  const parsha = await getNextParsha();
+  // Feature A: use Hebcal live parsha; fall back to first-ordered parsha from DB
+  const [hebcalParsha, fallbackParsha] = await Promise.all([
+    getThisWeekParsha(),
+    getNextParsha(),
+  ]);
+
+  const parsha = hebcalParsha
+    ? ((await getParshaBySlug(hebcalParsha.slug)) ?? fallbackParsha)
+    : fallbackParsha;
+
+  const hebcalHebrew = hebcalParsha?.hebrew ?? null;
 
   // Get the A-tight script if available (option names from seed: 'a-tight', 'b-loose', 'c-hebrew')
   const aTightScript = parsha?.scripts?.find((s) => s.option === 'a-tight') ?? parsha?.scripts?.[0] ?? null;
@@ -95,7 +118,7 @@ export default async function TodayPage() {
                     direction: 'rtl',
                   }}
                 >
-                  פרשת קדושים
+                  {hebcalHebrew ? `פרשת ${hebcalHebrew}` : `פרשת ${parsha?.name ?? 'השבוע'}`}
                 </div>
 
               <div
@@ -140,7 +163,10 @@ export default async function TodayPage() {
                   fontVariationSettings: '"opsz" 16, "SOFT" 50',
                 }}
               >
-                Shabbat April 25 · script A-tight, 108 words
+                {hebcalParsha?.shabbatDate
+                  ? `Shabbat ${new Date(hebcalParsha.shabbatDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} · script A-tight`
+                  : 'Shabbat · script A-tight'
+                }{aTightScript?.draft_text ? `, ${aTightScript.draft_text.trim().split(/\s+/).length} words` : ''}
               </div>
             </header>
 
