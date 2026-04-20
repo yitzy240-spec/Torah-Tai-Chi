@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/reconcile-posts",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}

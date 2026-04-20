@@ -63,7 +63,7 @@ export async function getConnection(): Promise<YouTubeConnection | NoYouTubeConn
  * access token in oauth_tokens.access_token until ~1m before expiry so we
  * don't hit Google on every call within a request.
  */
-async function getAccessToken(): Promise<string> {
+export async function getAccessToken(): Promise<string> {
   const sb = createServiceClient();
   const { data: row, error } = await sb
     .from('oauth_tokens')
