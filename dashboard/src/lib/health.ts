@@ -70,14 +70,25 @@ async function checkBuffer(): Promise<ServiceHealth | null> {
   if (!token) return null; // not configured — show nothing, not red
 
   try {
-    const result = await timedFetch(
-      `https://api.bufferapp.com/1/profiles.json?access_token=${token}`,
-    );
-    if (result.status === 401 || result.status === 403) {
-      return { ok: false, latencyMs: result.latencyMs, error: 'Token expired or invalid — reconnect Buffer' };
+    const start = Date.now();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const res = await fetch('https://api.buffer.com/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: '{ account { id } }' }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const latencyMs = Date.now() - start;
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, latencyMs, error: 'Token expired or invalid — reconnect Buffer' };
     }
-    if (!result.ok) return { ok: false, latencyMs: result.latencyMs, error: `HTTP ${result.status}` };
-    return { ok: true, latencyMs: result.latencyMs };
+    if (!res.ok) return { ok: false, latencyMs, error: `HTTP ${res.status}` };
+    return { ok: true, latencyMs };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
