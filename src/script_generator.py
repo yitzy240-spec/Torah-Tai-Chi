@@ -86,17 +86,25 @@ VOICEOVER — YONAH'S WORDS, PRESERVED:
     nefesh -> "NEH-fesh"
     neshamah -> "neh-sha-MAH"
     olam -> "oh-LAHM"
-  Chinese internal-arts terms (always written together with the characters,
-  BUT the voiceover phonetic must be English only; the TTS cannot read
-  Chinese glyphs):
-    song 松 -> "sung"                    (rhymes with "rung", NOT like "song" the melody)
-    zhan zhuang -> "jahn jwahng"
-    jin 勁 -> "jeen"
-    peng 掤 -> "pung"
-    li 力 -> "lee"
-    kua -> "kwah"
-    yi 意 -> "yee"
-    ting jin -> "TING jeen"
+  Tai-chi vocabulary — use the ENGLISH terms that practitioners say in
+  English-speaking classes. Do NOT use transliterated Chinese (no "song",
+  "zhan zhuang", "jin", "peng", "kua", "yi", "ting jin", etc.) in the
+  voiceover. If Yonah's draft uses a transliterated Chinese term, render
+  it as the English equivalent below:
+    song            -> "release" (or "soft release", context permitting)
+    zhan zhuang     -> "standing meditation" (or just "the standing practice")
+    jin             -> "trained strength" (or "intention-led force")
+    peng            -> "ward-off" (or "expanding structure")
+    li              -> "brute force" (the thing we're moving AWAY from)
+    kua             -> "hip fold" (or "the kua" if naming an anatomical region)
+    yi              -> "intent" (or "mind-led intent")
+    ting jin        -> "listening" (sensing a partner's force)
+    fajin           -> "released force"
+    rooting         -> "rooting" (English already; fine as-is)
+  This is voiceover-only stylistic guidance — Yonah's body-of-knowledge
+  draft may well contain the transliterated term because he's fluent.
+  Your job is to translate it to the English phrase a beginner listener
+  would understand, preserving the teaching's meaning.
   DE-DUPLICATION RULE: when Yonah's draft uses two alternate transliterations
   of the same Hebrew word as a rhetorical device (e.g., "Eden — Aden"), this
   is a stylistic pause, NOT two words to say. Emit the phonetic form ONCE.
