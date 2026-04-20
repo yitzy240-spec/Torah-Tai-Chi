@@ -24,3 +24,4 @@ output/
 Gemini_Generated_Image_*.png
 WhatsApp Image*.jpeg
 grok-video-*.mp4
+.vercel
