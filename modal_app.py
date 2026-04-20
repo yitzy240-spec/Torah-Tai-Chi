@@ -117,24 +117,36 @@ def run_pipeline(job_id: str) -> None:
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
 
-        # --- Generate clips ---
+        # --- Generate clips (in parallel — Kie.ai polling is mostly I/O wait) ---
         set_status("generating_clips", f"Generating 0 of {len(plan.clips)} clips")
-        clip_paths: list[Path] = []
-        for i, clip in enumerate(plan.clips):
-            set_status("generating_clips", f"Generating {i + 1} of {len(plan.clips)} clips ({clip.setting_id})")
-            dest = work_dir / f"clip_{clip.index:02d}.mp4"
-            asyncio.run(generate_clip(
-                kie, clip,
-                character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
-                dest=dest, resolution="720p",
-            ))
-            sb.table("clips").update({
-                "mp4_path": f"internal/{dest.name}",
-                "status": "done", "cost_usd": 1.20,
-                "completed_at": "now()",
-            }).eq("job_id", job_id).eq("index", clip.index).execute()
-            log_cost("clip", "kie", 1.20, f"clip {clip.index}")
-            clip_paths.append(dest)
+
+        async def _generate_all() -> list[Path]:
+            completed = 0
+            lock = asyncio.Lock()
+
+            async def _one(clip):
+                nonlocal completed
+                dest = work_dir / f"clip_{clip.index:02d}.mp4"
+                await generate_clip(
+                    kie, clip,
+                    character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
+                    dest=dest, resolution="720p",
+                )
+                async with lock:
+                    completed += 1
+                    set_status("generating_clips", f"Generating {completed} of {len(plan.clips)} clips")
+                sb.table("clips").update({
+                    "mp4_path": f"internal/{dest.name}",
+                    "status": "done", "cost_usd": 1.20,
+                    "completed_at": "now()",
+                }).eq("job_id", job_id).eq("index", clip.index).execute()
+                log_cost("clip", "kie", 1.20, f"clip {clip.index}")
+                return dest
+
+            ordered = await asyncio.gather(*(_one(c) for c in plan.clips))
+            return [p for p in ordered]
+
+        clip_paths: list[Path] = asyncio.run(_generate_all())
 
         # --- Stitch ---
         set_status("stitching", "Crossfading clips into the final video")
