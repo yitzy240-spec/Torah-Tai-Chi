@@ -49,32 +49,6 @@ export default async function AboutPage() {
         <h1>{c['about.title']}</h1>
         <p className="about-deck">{c['about.subtitle']}</p>
 
-        {/* Meet-the-teacher block — editorial dojo portrait of Rav Eli
-            (square crop) + short bio. Rav Eli is the voice and body behind
-            every weekly video, so the About page earns a real portrait. */}
-        <section className="meet-rav-eli">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/rav-eli-square.png"
-            alt="Rav Eli — the teacher at the heart of Torah Tai Chi"
-            width={1000}
-            height={1000}
-            className="meet-portrait"
-            loading="lazy"
-          />
-          <div className="meet-body">
-            <div className="meet-kicker">Meet the teacher</div>
-            <h2>Rav Eli</h2>
-            <p>
-              Every weekly video opens with Rav Eli — rooted in his dojo,
-              voice low, drawing the line between a parsha&rsquo;s teaching
-              and the way the body carries it. He is the thread that holds
-              the cycle together: one teacher, fifty-four parshiot, one year
-              of walking the Torah through the feet.
-            </p>
-          </div>
-        </section>
-
         <section className="about-section">
           <h2>What Torah Tai Chi is</h2>
           {paras(c['about.what_is']).map((p, i) => <p key={i}>{p}</p>)}

@@ -173,19 +173,10 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ABOUT STRIP — editorial dojo portrait of Rav Eli (landscape crop)
-          next to the practice-between-traditions copy. Styling lives in
-          .about-strip / .about-portrait in globals.css. */}
+      {/* ABOUT STRIP */}
       <section className="about-strip stagger">
         <div className="about-portrait">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/rav-eli-landscape.png"
-            alt="Rav Eli — the teacher at the heart of Torah Tai Chi"
-            width={1400}
-            height={939}
-            loading="lazy"
-          />
+          <Brand size={140} />
         </div>
         <div className="about-body">
           <h2>{content['home.about.title']}</h2>
