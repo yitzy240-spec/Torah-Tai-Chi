@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { StanceToggle } from '@/components/stance-toggle';
 import { Fab } from '@/components/fab';
 import { getThisWeekParsha } from '@/lib/hebcal';
+import { GenerateDialog } from '@/components/generate-dialog';
 
 // Types
 interface Script {
@@ -324,28 +325,37 @@ export default async function TodayPage() {
                 >
                   Regenerate
                 </button>
-                <button
-                  type="button"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontFamily: 'var(--ff-body)',
-                    fontWeight: 500,
-                    fontSize: '14px',
-                    padding: '11px 22px',
-                    minHeight: '44px',
-                    borderRadius: '999px',
-                    border: '1px solid var(--navy-800)',
-                    background: 'var(--navy-800)',
-                    color: 'var(--linen-50)',
-                    cursor: 'pointer',
-                    transition: 'all var(--trans)',
-                    boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
-                  }}
-                >
-                  Approve · generate video
-                </button>
+                {parsha ? (
+                  <GenerateDialog
+                    parshaId={parsha.id}
+                    scriptId={aTightScript?.id ?? ''}
+                    parshaName={parsha.name}
+                    expectedDurationS={60}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontFamily: 'var(--ff-body)',
+                      fontWeight: 500,
+                      fontSize: '14px',
+                      padding: '11px 22px',
+                      minHeight: '44px',
+                      borderRadius: '999px',
+                      border: '1px solid var(--navy-800)',
+                      background: 'var(--navy-800)',
+                      color: 'var(--linen-50)',
+                      opacity: 0.5,
+                      cursor: 'not-allowed',
+                    }}
+                  >
+                    Approve · generate video
+                  </button>
+                )}
               </div>
             </footer>
           </article>

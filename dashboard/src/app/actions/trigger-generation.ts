@@ -1,8 +1,19 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 
 export async function triggerGeneration(
-  { parshaId, scriptId }: { parshaId: string; scriptId: string },
+  {
+    parshaId,
+    scriptId,
+    resolution = '720p',
+    modelTier = 'standard',
+  }: {
+    parshaId: string;
+    scriptId: string;
+    resolution?: Resolution;
+    modelTier?: ModelTier;
+  },
 ): Promise<{ jobId?: string; error?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -15,6 +26,8 @@ export async function triggerGeneration(
       script_id: scriptId,
       status: 'queued',
       triggered_by: user.id,
+      resolution,
+      model_tier: modelTier,
     })
     .select('id').single();
 

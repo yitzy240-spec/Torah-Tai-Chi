@@ -1,4 +1,6 @@
 import { StanceToggle } from '@/components/stance-toggle';
+import { DefaultQualitySection } from '@/components/default-quality-section';
+import { createClient } from '@/lib/supabase/server';
 
 // Visual-only toggle component (no interactivity needed here)
 function ToggleSwitch({ on }: { on: boolean }) {
@@ -60,7 +62,15 @@ const DESC_STYLE: React.CSSProperties = {
   fontVariationSettings: '"opsz" 14, "SOFT" 50',
 };
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const supabase = await createClient();
+  const { data: defaultTierRow } = await supabase
+    .from('site_content')
+    .select('value')
+    .eq('key', 'settings.default_tier')
+    .single();
+  const defaultTierKey: string = defaultTierRow?.value ?? '720p fast';
+
   return (
     <div className="stagger" style={{ maxWidth: '680px' }}>
       {/* Page header */}
@@ -127,6 +137,13 @@ export default function SettingsPage() {
           {/* Use the existing StanceToggle via its "Change stance" button pattern */}
           <StanceChangeButton />
         </div>
+      </section>
+
+      {/* DEFAULT QUALITY */}
+      <section style={SECTION_STYLE}>
+        <h2 style={H2_STYLE}>Default quality</h2>
+        <p style={DESC_STYLE}>Used when generating new videos. You can override per-video when approving.</p>
+        <DefaultQualitySection currentTierKey={defaultTierKey} />
       </section>
 
       {/* BUDGET */}
