@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { listProfiles } from '@/lib/buffer';
 import Link from 'next/link';
 
+const BUFFER_CHANNELS_URL = 'https://publish.buffer.com/channels';
+
 const BUFFER_PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
 type BufferPlatform = typeof BUFFER_PLATFORMS[number];
 
@@ -239,8 +241,8 @@ export default async function ChannelsPage() {
               }}
             >
               {ch.platform === 'website' ? (
-                <button
-                  type="button"
+                <Link
+                  href="/site-content"
                   style={{
                     fontFamily: 'var(--ff-body)',
                     fontSize: '13px',
@@ -248,10 +250,6 @@ export default async function ChannelsPage() {
                     textDecoration: 'underline',
                     textDecorationColor: 'var(--ink-200)',
                     textUnderlineOffset: '4px',
-                    cursor: 'pointer',
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
                     minHeight: '44px',
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -259,30 +257,8 @@ export default async function ChannelsPage() {
                   }}
                 >
                   Configure
-                </button>
-              ) : ch.connected ? (
-                <button
-                  type="button"
-                  style={{
-                    fontFamily: 'var(--ff-body)',
-                    fontSize: '13px',
-                    color: 'var(--ink-500)',
-                    textDecoration: 'underline',
-                    textDecorationColor: 'var(--ink-200)',
-                    textUnderlineOffset: '4px',
-                    cursor: 'pointer',
-                    background: 'none',
-                    border: 'none',
-                    padding: 0,
-                    minHeight: '44px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    transition: 'all var(--trans)',
-                  }}
-                >
-                  Disconnect
-                </button>
-              ) : (
+                </Link>
+              ) : !bufferConfigured ? (
                 <Link
                   href="/settings/buffer"
                   style={{
@@ -302,8 +278,55 @@ export default async function ChannelsPage() {
                     transition: 'all var(--trans)',
                   }}
                 >
-                  Connect
+                  Set up Buffer
                 </Link>
+              ) : ch.connected ? (
+                <a
+                  href={BUFFER_CHANNELS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontFamily: 'var(--ff-body)',
+                    fontSize: '13px',
+                    color: 'var(--ink-500)',
+                    textDecoration: 'underline',
+                    textDecorationColor: 'var(--ink-200)',
+                    textUnderlineOffset: '4px',
+                    minHeight: '44px',
+                    transition: 'all var(--trans)',
+                  }}
+                >
+                  Manage in Buffer
+                  <span aria-hidden="true" style={{ fontSize: '11px', color: 'var(--ink-400)' }}>↗</span>
+                </a>
+              ) : (
+                <a
+                  href={BUFFER_CHANNELS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontFamily: 'var(--ff-body)',
+                    fontWeight: 500,
+                    fontSize: '14px',
+                    padding: '11px 22px',
+                    minHeight: '44px',
+                    borderRadius: '999px',
+                    border: '1px solid var(--navy-800)',
+                    background: 'var(--navy-800)',
+                    color: 'var(--linen-50)',
+                    textDecoration: 'none',
+                    transition: 'all var(--trans)',
+                  }}
+                >
+                  Connect in Buffer
+                  <span aria-hidden="true" style={{ fontSize: '12px' }}>↗</span>
+                </a>
               )}
             </div>
           </div>
