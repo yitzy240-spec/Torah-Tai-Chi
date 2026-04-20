@@ -173,26 +173,18 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ABOUT STRIP — Rav Eli portrait replaces the logo here (the logo
-          already lives in the nav + footer). The brand is character-led,
-          so surfacing the teacher at this moment feels right. */}
+      {/* ABOUT STRIP — editorial dojo portrait of Rav Eli (landscape crop)
+          next to the practice-between-traditions copy. Styling lives in
+          .about-strip / .about-portrait in globals.css. */}
       <section className="about-strip stagger">
         <div className="about-portrait">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/rav-eli.png"
-            alt="Rav Eli — the teacher at the heart of Torah Tai Chi"
-            width={220}
-            height={220}
-            style={{
-              display: 'block',
-              width: '220px',
-              height: '220px',
-              borderRadius: '50%',
-              objectFit: 'cover',
-              border: '1px solid var(--ink-100)',
-              boxShadow: '0 10px 30px -10px rgba(35,27,16,.18)',
-            }}
+            src="/rav-eli-landscape.jpg"
+            alt="Rav Eli in his dojo — afternoon light on cedar walls, Hebrew scroll in the background"
+            width={1600}
+            height={1073}
+            loading="lazy"
           />
         </div>
         <div className="about-body">

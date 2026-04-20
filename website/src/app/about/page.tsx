@@ -49,16 +49,18 @@ export default async function AboutPage() {
         <h1>{c['about.title']}</h1>
         <p className="about-deck">{c['about.subtitle']}</p>
 
-        {/* Meet-the-teacher block — Rav Eli is the voice behind every weekly
-            teaching, so give him a face on the one page that explains us. */}
+        {/* Meet-the-teacher block — editorial dojo portrait of Rav Eli
+            (square crop) + short bio. Rav Eli is the voice and body behind
+            every weekly video, so the About page earns a real portrait. */}
         <section className="meet-rav-eli">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/rav-eli.png"
-            alt="Rav Eli — the teacher in every weekly video"
-            width={180}
-            height={180}
+            src="/rav-eli-square.jpg"
+            alt="Rav Eli in his dojo — three-quarter portrait in a blue mandarin-collar tunic, standing-meditation pose"
+            width={1200}
+            height={1200}
             className="meet-portrait"
+            loading="lazy"
           />
           <div className="meet-body">
             <div className="meet-kicker">Meet the teacher</div>
