@@ -26,5 +26,3 @@ __pycache__/
 .vscode/
 .idea/
 
-# Other Next app (top-level only, deployed separately)
-/dashboard/
