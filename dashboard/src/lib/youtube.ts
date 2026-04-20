@@ -16,6 +16,8 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const UPLOAD_ENDPOINT = 'https://www.googleapis.com/upload/youtube/v3/videos';
 const THUMBNAILS_ENDPOINT = 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set';
 const CHANNELS_ENDPOINT = 'https://www.googleapis.com/youtube/v3/channels';
+const PLAYLIST_ITEMS_ENDPOINT = 'https://www.googleapis.com/youtube/v3/playlistItems';
+const VIDEOS_ENDPOINT = 'https://www.googleapis.com/youtube/v3/videos';
 const REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
 
 export const YOUTUBE_SCOPES = [
@@ -269,4 +271,95 @@ export async function uploadVideo(args: UploadVideoArgs): Promise<UploadVideoRes
   }
 
   return { id: upBody.id, status: upBody.status.uploadStatus };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Reads for the performance page
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ChannelVideoStats {
+  id: string;
+  title: string;
+  publishedAt: string;
+  thumbnailUrl: string;
+  views: number;
+  likes: number;
+  comments: number;
+  durationIso: string;
+  privacyStatus: 'public' | 'unlisted' | 'private' | string;
+}
+
+/**
+ * Fetch the connected channel's most recent uploads with view/like/comment
+ * counts. Walks three YouTube Data API endpoints:
+ *   1. channels.list → get the uploads playlist id
+ *   2. playlistItems.list → page through recent uploads (ids + thumbs)
+ *   3. videos.list → hydrate stats in a single batch (up to 50 ids)
+ *
+ * Quota cost: ~3 units per call regardless of how many videos (videos.list
+ * is 1 unit per call even with 50 ids). Well under the 10k/day free tier.
+ */
+export async function listChannelVideos(limit = 25): Promise<ChannelVideoStats[]> {
+  const accessToken = await getAccessToken();
+
+  // 1. uploads playlist
+  const chRes = await fetch(`${CHANNELS_ENDPOINT}?mine=true&part=contentDetails`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!chRes.ok) throw new Error(`YouTube channels.list: ${chRes.status}`);
+  const chBody = (await chRes.json()) as {
+    items?: Array<{ contentDetails: { relatedPlaylists: { uploads: string } } }>;
+  };
+  const uploadsPlaylist = chBody.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+  if (!uploadsPlaylist) return [];
+
+  // 2. playlist items (capped at 50 per call; pagination if needed later)
+  const plRes = await fetch(
+    `${PLAYLIST_ITEMS_ENDPOINT}?playlistId=${uploadsPlaylist}&part=snippet,contentDetails&maxResults=${Math.min(limit, 50)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!plRes.ok) throw new Error(`YouTube playlistItems.list: ${plRes.status}`);
+  const plBody = (await plRes.json()) as {
+    items?: Array<{
+      contentDetails: { videoId: string };
+      snippet: { title: string; publishedAt: string; thumbnails?: Record<string, { url: string }> };
+    }>;
+  };
+  const items = plBody.items ?? [];
+  if (items.length === 0) return [];
+
+  const ids = items.map((i) => i.contentDetails.videoId);
+  const itemById = new Map(items.map((i) => [i.contentDetails.videoId, i]));
+
+  // 3. hydrate stats
+  const vRes = await fetch(
+    `${VIDEOS_ENDPOINT}?id=${ids.join(',')}&part=snippet,statistics,contentDetails,status`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!vRes.ok) throw new Error(`YouTube videos.list: ${vRes.status}`);
+  const vBody = (await vRes.json()) as {
+    items?: Array<{
+      id: string;
+      snippet: { title: string; publishedAt: string; thumbnails?: Record<string, { url: string }> };
+      statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
+      contentDetails?: { duration?: string };
+      status?: { privacyStatus?: string };
+    }>;
+  };
+
+  return (vBody.items ?? []).map((v) => {
+    const thumbs = v.snippet.thumbnails ?? itemById.get(v.id)?.snippet.thumbnails ?? {};
+    const thumb = thumbs.medium?.url ?? thumbs.default?.url ?? '';
+    return {
+      id: v.id,
+      title: v.snippet.title,
+      publishedAt: v.snippet.publishedAt,
+      thumbnailUrl: thumb,
+      views: Number(v.statistics?.viewCount ?? 0),
+      likes: Number(v.statistics?.likeCount ?? 0),
+      comments: Number(v.statistics?.commentCount ?? 0),
+      durationIso: v.contentDetails?.duration ?? '',
+      privacyStatus: v.status?.privacyStatus ?? 'public',
+    };
+  });
 }
