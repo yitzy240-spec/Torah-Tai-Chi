@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { createUpdate, listProfiles, type BufferProfile } from '@/lib/buffer';
+import { normalizeForSocials } from '@/lib/image-processing';
 
 export interface BroadcastArgs {
   text: string;
@@ -56,6 +57,17 @@ export async function broadcast(
     return { results: [], error: 'No Buffer channels selected or connected.' };
   }
 
+  // Normalize the image once for all channels so Buffer gets a single
+  // social-safe asset (fits TikTok's pixel cap, Twitter's 5MB cap, etc).
+  let normalizedImageUrl: string | undefined;
+  if (args.imageUrl) {
+    try {
+      normalizedImageUrl = await normalizeForSocials(args.imageUrl);
+    } catch (e) {
+      return { results: [], error: `Image processing: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+
   const results: BroadcastResult[] = [];
   for (const profile of selected) {
     try {
@@ -63,9 +75,10 @@ export async function broadcast(
         token,
         channelId: profile.id,
         text,
-        mediaUrl: args.imageUrl || undefined,
+        mediaUrl: normalizedImageUrl,
         mediaType: 'image',
         shareNow: args.shareNow ?? true,
+        channelService: profile.service,
       });
       results.push({
         channel: { id: profile.id, service: profile.service, username: profile.service_username },

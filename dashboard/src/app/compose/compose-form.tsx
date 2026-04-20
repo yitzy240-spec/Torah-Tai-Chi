@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { broadcast, type BroadcastResult } from '@/app/actions/broadcast';
+import { AiImagePanel } from './ai-image-panel';
 
 interface Channel {
   id: string;
@@ -20,8 +21,8 @@ export function ComposeForm({ channels }: Props) {
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(channels.map((c) => c.id)));
-  const [shareNow, setShareNow] = useState(true);
   const [pending, startTransition] = useTransition();
   const [results, setResults] = useState<BroadcastResult[] | null>(null);
   const [topError, setTopError] = useState<string | null>(null);
@@ -81,7 +82,7 @@ export function ComposeForm({ channels }: Props) {
     .map((c) => c.service);
   const showMediaWarning = !imageUrl.trim() && mediaRequiredChannels.length > 0;
 
-  const submit = () => {
+  const submit = (mode: 'post-now' | 'queue') => {
     setTopError(null);
     setResults(null);
     startTransition(async () => {
@@ -89,7 +90,7 @@ export function ComposeForm({ channels }: Props) {
         text,
         imageUrl: imageUrl.trim() || undefined,
         channelIds: Array.from(selected),
-        shareNow,
+        shareNow: mode === 'post-now',
       });
       if (res.error) setTopError(res.error);
       setResults(res.results);
@@ -165,6 +166,28 @@ export function ComposeForm({ channels }: Props) {
             <input type="file" accept="image/*" disabled={uploading} onChange={handleFileChange} style={{ display: 'none' }} />
             {uploading ? 'Uploading…' : imageUrl ? 'Replace image' : 'Upload image'}
           </label>
+          <button
+            type="button"
+            onClick={() => setAiPanelOpen(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontFamily: 'var(--ff-body)',
+              fontSize: '13px',
+              fontWeight: 500,
+              padding: '9px 16px',
+              minHeight: '40px',
+              borderRadius: '999px',
+              border: '1px solid var(--cedar-500)',
+              background: 'transparent',
+              color: 'var(--cedar-700)',
+              cursor: 'pointer',
+              transition: 'all var(--trans)',
+            }}
+          >
+            ✦ Generate with AI
+          </button>
           {imageUrl && !uploading && (
             <button
               type="button"
@@ -185,6 +208,15 @@ export function ComposeForm({ channels }: Props) {
             </button>
           )}
         </div>
+
+        {aiPanelOpen && (
+          <div style={{ marginBottom: '12px' }}>
+            <AiImagePanel
+              onSelect={(url) => { setImageUrl(url); setAiPanelOpen(false); setUploadError(null); }}
+              onCancel={() => setAiPanelOpen(false)}
+            />
+          </div>
+        )}
 
         <input
           id="imageUrl"
@@ -267,49 +299,17 @@ export function ComposeForm({ channels }: Props) {
         )}
       </div>
 
-      {/* When */}
-      <div>
-        <label style={LABEL_STYLE}>Timing</label>
-        <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
-          {[
-            { v: true, label: 'Post now' },
-            { v: false, label: 'Queue in Buffer' },
-          ].map((opt) => (
-            <button
-              key={String(opt.v)}
-              type="button"
-              onClick={() => setShareNow(opt.v)}
-              style={{
-                fontFamily: 'var(--ff-body)',
-                fontWeight: 500,
-                fontSize: '13.5px',
-                padding: '10px 18px',
-                minHeight: '40px',
-                borderRadius: '999px',
-                border: `1px solid ${shareNow === opt.v ? 'var(--navy-800)' : 'var(--ink-200)'}`,
-                background: shareNow === opt.v ? 'var(--navy-800)' : 'transparent',
-                color: shareNow === opt.v ? 'var(--linen-50)' : 'var(--ink-700)',
-                cursor: 'pointer',
-                transition: 'all var(--trans)',
-              }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Submit */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', paddingTop: '12px', borderTop: '1px solid var(--ink-100)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingTop: '12px', borderTop: '1px solid var(--ink-100)', flexWrap: 'wrap' }}>
         <button
           type="button"
-          onClick={submit}
+          onClick={() => submit('post-now')}
           disabled={!canSubmit}
           style={{
             fontFamily: 'var(--ff-body)',
             fontWeight: 500,
             fontSize: '14px',
-            padding: '12px 28px',
+            padding: '12px 24px',
             minHeight: '44px',
             borderRadius: '999px',
             border: '1px solid var(--navy-800)',
@@ -320,10 +320,30 @@ export function ComposeForm({ channels }: Props) {
             boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
           }}
         >
-          {pending ? 'Sending…' : shareNow ? `Post now to ${selected.size}` : `Queue to ${selected.size}`}
+          {pending ? 'Sending…' : `Post now to ${selected.size}`}
+        </button>
+        <button
+          type="button"
+          onClick={() => submit('queue')}
+          disabled={!canSubmit}
+          style={{
+            fontFamily: 'var(--ff-body)',
+            fontWeight: 500,
+            fontSize: '14px',
+            padding: '12px 24px',
+            minHeight: '44px',
+            borderRadius: '999px',
+            border: '1px solid var(--ink-200)',
+            background: 'transparent',
+            color: canSubmit ? 'var(--ink-700)' : 'var(--ink-400)',
+            cursor: canSubmit ? 'pointer' : 'not-allowed',
+            transition: 'all var(--trans)',
+          }}
+        >
+          {`Queue in Buffer`}
         </button>
         <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: 'var(--ink-400)' }}>
-          {shareNow ? 'Posts publish immediately.' : 'Posts land in Buffer\'s queue.'}
+          Post now publishes immediately. Queue lands it in Buffer&apos;s schedule.
         </span>
       </div>
 

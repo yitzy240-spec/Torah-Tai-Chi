@@ -97,6 +97,10 @@ export type CreateUpdateArgs = {
   scheduledAt?: Date;
   /** If true, publish immediately instead of queuing/scheduling. */
   shareNow?: boolean;
+  /** Lowercase Buffer service (instagram/tiktok/facebook/youtube/twitter)
+   *  for the target channel. Used to attach per-network metadata — e.g.
+   *  Instagram rejects posts without a type hint (post | story | reel). */
+  channelService?: string;
 };
 
 interface CreatePostResponse {
@@ -135,6 +139,14 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
       : { videos: [{ url: a.mediaUrl }] }
     : undefined;
 
+  // Per-network metadata. Instagram rejects createPost with media unless a
+  // post type is specified (post / story / reel); use 'post' for images,
+  // 'reel' for videos since Shorts-style vertical videos are our default.
+  const metadata: Record<string, unknown> = {};
+  if (a.channelService === 'instagram' && assets) {
+    metadata.instagram = { type: a.mediaType === 'video' ? 'reel' : 'post' };
+  }
+
   const input = {
     text: a.text,
     mode,
@@ -142,6 +154,7 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
     channelId: a.channelId,
     ...(mode === 'customScheduled' && a.scheduledAt ? { dueAt: a.scheduledAt.toISOString() } : {}),
     ...(assets ? { assets } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   };
 
   const data = await gql<CreatePostResponse>(a.token, CREATE_POST_MUTATION, { input });
