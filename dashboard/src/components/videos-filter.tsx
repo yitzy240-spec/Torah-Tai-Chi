@@ -13,7 +13,7 @@ interface Parsha {
   name: string;
   book: string;
   slug: string;
-  name_hebrew?: string | null;
+  hebrew_name?: string | null;
   scripts: { option: string; draft_text: string | null }[];
   thumbUrl?: string | null;
 }
@@ -159,7 +159,7 @@ export function VideosFilter({ parshiot }: VideosFilterProps) {
                     lineHeight: 1.1,
                   }}
                 >
-                  {parsha.name_hebrew ?? ''}
+                  {parsha.hebrew_name ?? ''}
                 </div>
                 <div
                   style={{

@@ -17,7 +17,7 @@ interface Parsha {
   name: string;
   book: string;
   slug: string;
-  name_hebrew: string | null;
+  hebrew_name: string | null;
   scripts: Script[];
 }
 
@@ -25,7 +25,7 @@ async function getParsha(slug: string): Promise<Parsha | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('parshiot')
-    .select('id, order, name, book, slug, name_hebrew, scripts(id, option, title, draft_text)')
+    .select('id, order, name, book, slug, hebrew_name, scripts(id, option, title, draft_text)')
     .eq('slug', slug)
     .single();
 
@@ -106,7 +106,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
           borderBottom: '1px solid var(--ink-100)',
         }}
       >
-        {parsha.name_hebrew && (
+        {parsha.hebrew_name && (
           <div
             lang="he"
             dir="rtl"
@@ -121,7 +121,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
               direction: 'rtl',
             }}
           >
-            {parsha.name_hebrew}
+            {parsha.hebrew_name}
           </div>
         )}
         <div
