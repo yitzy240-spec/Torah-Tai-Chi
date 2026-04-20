@@ -25,7 +25,7 @@ interface Parsha {
   thumbUrl?: string | null;
 }
 
-async function getParshiot(): Promise<Parsha[]> {
+async function getParshiot(): Promise<{ parshiot: Parsha[]; debug: string }> {
   const supabase = await createClient();
   const [parshaResult, videoResult] = await Promise.all([
     supabase
@@ -37,24 +37,34 @@ async function getParshiot(): Promise<Parsha[]> {
       .select('parsha_id, thumb_path'),
   ]);
 
-  if (parshaResult.error || !parshaResult.data) return [];
+  const debug = JSON.stringify({
+    parshaErr: parshaResult.error?.message ?? null,
+    parshaCount: parshaResult.data?.length ?? 0,
+    firstParshaScripts: parshaResult.data?.[0]?.scripts?.length ?? 0,
+    firstOptions: (parshaResult.data?.[0] as Parsha | undefined)?.scripts?.map((s) => s.option) ?? [],
+    videoErr: videoResult.error?.message ?? null,
+    videoCount: videoResult.data?.length ?? 0,
+  });
+
+  if (parshaResult.error || !parshaResult.data) return { parshiot: [], debug };
 
   const thumbMap = new Map<string, string | null>();
   for (const v of (videoResult.data ?? []) as Video[]) {
     if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
   }
 
-  return (parshaResult.data as Parsha[]).map((p) => {
+  const parshiot = (parshaResult.data as Parsha[]).map((p) => {
     const tp = thumbMap.get(p.id) ?? null;
     return {
       ...p,
       thumbUrl: tp ? `${SUPABASE_STORAGE_URL}${tp}` : null,
     };
   });
+  return { parshiot, debug };
 }
 
 export default async function VideosPage() {
-  const parshiot = await getParshiot();
+  const { parshiot, debug } = await getParshiot();
 
   const withScript = parshiot.filter((p) =>
     p.scripts?.some((s) => s.option === 'A-tight'),
@@ -97,6 +107,9 @@ export default async function VideosPage() {
           Every weekly portion, from Bereishit to V&apos;Zot HaBerachah.
         </p>
       </div>
+
+      {/* DEBUG — remove after root-cause */}
+      <pre style={{ background: '#fff3cd', padding: '8px', fontSize: '11px', marginBottom: '16px', whiteSpace: 'pre-wrap' }}>{debug} | withScript={withScript.length}</pre>
 
       {/* Filter + Grid — client component */}
       <VideosFilter parshiot={withThumbs} />
