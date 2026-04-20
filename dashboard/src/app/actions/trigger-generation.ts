@@ -1,6 +1,13 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
-import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
+import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
+
+const MONTHLY_BUDGET_USD = 80;
+const TYPICAL_DURATION_S = 60; // conservative ballpark before Claude writes the real plan
+const IN_PROGRESS_STATUSES = [
+  'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
+  'generating_clips', 'stitching',
+];
 
 export async function triggerGeneration(
   {
@@ -18,6 +25,34 @@ export async function triggerGeneration(
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated' };
+
+  // Idempotency — block if an active job already exists for this parsha+script.
+  const { data: existing } = await supabase
+    .from('jobs')
+    .select('id')
+    .eq('parsha_id', parshaId)
+    .eq('script_id', scriptId)
+    .in('status', IN_PROGRESS_STATUSES)
+    .limit(1);
+  if (existing && existing.length > 0) {
+    return { error: 'A video is already being generated for this parsha and script. Wait for it to finish.' };
+  }
+
+  // Monthly cost cap — block if adding this run would blow the budget.
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+  const { data: costRows } = await supabase
+    .from('cost_events')
+    .select('cost_usd')
+    .gte('created_at', startOfMonth.toISOString());
+  const monthlySpend = (costRows ?? []).reduce((sum, r) => sum + Number(r.cost_usd), 0);
+  const estimated = estimateSeedanceCost(TYPICAL_DURATION_S, resolution, modelTier) ?? 15;
+  if (monthlySpend + estimated > MONTHLY_BUDGET_USD) {
+    return {
+      error: `Monthly budget of $${MONTHLY_BUDGET_USD} would be exceeded: $${monthlySpend.toFixed(2)} already spent + $${estimated.toFixed(2)} estimated for this run. Wait for next month or raise MONTHLY_BUDGET_USD in trigger-generation.ts.`,
+    };
+  }
 
   const { data: job, error } = await supabase
     .from('jobs')
