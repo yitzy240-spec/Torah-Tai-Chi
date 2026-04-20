@@ -99,10 +99,15 @@ function parshaFromItem(item: HebcalItem, holidays: HebcalItem[]): ShabbatParsha
 
   const holiday = holidays.find((h) => h.category === "holiday")?.title;
 
+  // Hebcal's hebrew sometimes includes a leading "פרשת" prefix; strip it
+  // so callers can render the prefix once without risk of duplication.
+  const rawHebrew = (item.hebrew ?? "").trim();
+  const hebrew = rawHebrew.replace(/^פָּ?רָ?שַׁ?ת\s+/, "");
+
   return {
     slug,
     name: rawName.includes("-") ? rawName.split("-")[0].trim() : rawName,
-    hebrew: item.hebrew ?? "",
+    hebrew,
     shabbatDate: item.date,
     combined: combinedPartner(rawName),
     holiday,

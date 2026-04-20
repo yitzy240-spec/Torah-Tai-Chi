@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 type Stance = 'handson' | 'reviewer' | 'batch' | 'auto';
 
@@ -64,6 +64,18 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
     setSheetOpen(false);
     document.body.style.overflow = '';
   };
+
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSheetOpen(false);
+        document.body.style.overflow = '';
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sheetOpen]);
 
   const saveStance = () => {
     const prev = currentStance;
