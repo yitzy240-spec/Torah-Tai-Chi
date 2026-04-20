@@ -1,14 +1,13 @@
-# Python pipeline — not part of any Vercel deploy
-src/
-tools/
-tests/
-modal_app.py
-pyproject.toml
-parshiot.json
-*.py
+# Python pipeline — not part of any Vercel deploy (top-level only)
+/src/
+/tools/
+/tests/
+/modal_app.py
+/pyproject.toml
+/parshiot.json
 
 # Reference assets (heavy)
-references/
+/references/
 
 # Venvs
 .venv/
@@ -16,16 +15,16 @@ venv/
 __pycache__/
 
 # Output / work artifacts
-work/
-output/
-dist/
+/work/
+/output/
+/dist/
 
 # Other local scratch
-mockups/
-docs/
+/mockups/
+/docs/
 .claude/
 .vscode/
 .idea/
 
-# Other Next app
-dashboard/
+# Other Next app (top-level only, deployed separately)
+/dashboard/
