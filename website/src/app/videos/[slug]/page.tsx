@@ -3,6 +3,10 @@ import Link from "next/link";
 import { getAllParshiot, getParshaBySlug, getNearbyParshiot, ALL_PARSHA_SLUGS } from "@/lib/parshiot";
 import VideoCard from "@/components/VideoCard";
 
+// ISR: revalidate every 300 s (5 min); new slugs served on demand
+export const revalidate = 300;
+export const dynamicParams = true;
+
 interface Props {
   params: Promise<{ slug: string }>;
 }

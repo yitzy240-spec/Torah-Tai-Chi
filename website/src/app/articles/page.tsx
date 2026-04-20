@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllArticles } from "@/lib/articles";
 
+// ISR: revalidate every 60 s
+export const revalidate = 60;
+
 export const metadata: Metadata = {
   title: "Writings",
   description:

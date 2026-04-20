@@ -3,6 +3,9 @@ import Brand from "@/components/Brand";
 import { TikTokIcon, YouTubeIcon, InstagramIcon, FacebookIcon } from "@/components/SocialIcons";
 import { getSiteContent } from "@/lib/site-content";
 
+// ISR: revalidate every 60 s
+export const revalidate = 60;
+
 export async function generateMetadata(): Promise<Metadata> {
   let description = "Torah Tai Chi is a weekly practice of meeting two traditions in one body.";
   try {

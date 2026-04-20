@@ -7,6 +7,9 @@ import VideoCard from "@/components/VideoCard";
 import ArticleCard from "@/components/ArticleCard";
 import Brand from "@/components/Brand";
 
+// ISR: revalidate every 60 s; Storyblok webhook triggers on-demand revalidation
+export const revalidate = 60;
+
 const BOOK_SHORT: Record<string, string> = {
   Genesis: "Genesis",
   Exodus: "Exodus",

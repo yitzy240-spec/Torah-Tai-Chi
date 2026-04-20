@@ -3,6 +3,9 @@ import { getAllParshiot } from "@/lib/parshiot";
 import { getThisWeekParsha } from "@/lib/hebcal";
 import VideosFilter from "@/components/VideosFilter";
 
+// ISR: revalidate every 60 s
+export const revalidate = 60;
+
 export const metadata: Metadata = {
   title: "Teachings",
   description:

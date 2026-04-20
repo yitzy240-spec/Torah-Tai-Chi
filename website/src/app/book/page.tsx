@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { getSiteContent } from "@/lib/site-content";
 import Brand from "@/components/Brand";
 
+// ISR: revalidate every 60 s
+export const revalidate = 60;
+
 export async function generateMetadata(): Promise<Metadata> {
   const c = await getSiteContent();
   if (c["book.visible"] !== "true") return {};

@@ -7,6 +7,10 @@ interface Props {
   params: Promise<{ slug: string }>;
 }
 
+// ISR: revalidate every 60 s; new article slugs served on demand
+export const revalidate = 60;
+export const dynamicParams = true;
+
 // Fallback slugs used when Supabase returns no articles (e.g. empty DB at first build).
 // After running supabase/seed_articles.sql these will all exist in Supabase.
 const FIXTURE_SLUGS = [
