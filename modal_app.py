@@ -28,6 +28,7 @@ image = (
         "pydantic>=2.8.0",
         "python-dotenv>=1.0.0",
         "supabase>=2.6.0",
+        "fastapi[standard]>=0.115.0",  # required by @modal.fastapi_endpoint
     )
     .add_local_dir("src", remote_path="/root/src")
     .add_local_dir("references", remote_path="/root/references")
