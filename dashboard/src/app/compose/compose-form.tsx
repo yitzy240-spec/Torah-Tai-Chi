@@ -33,12 +33,33 @@ export function ComposeForm({ channels }: Props) {
     setUploadError(null);
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch('/api/compose/upload', { method: 'POST', body: fd });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? `Upload failed (${res.status})`);
-      setImageUrl(body.url);
+      // Step 1: ask our server for a signed URL (tiny JSON body, no Vercel body-size concern).
+      const signRes = await fetch('/api/compose/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentType: file.type, size: file.size }),
+      });
+      const signText = await signRes.text();
+      let signJson: { signedUrl?: string; publicUrl?: string; error?: string };
+      try {
+        signJson = JSON.parse(signText);
+      } catch {
+        throw new Error(`Signing failed (HTTP ${signRes.status}): ${signText.slice(0, 120)}`);
+      }
+      if (!signRes.ok || !signJson.signedUrl || !signJson.publicUrl) {
+        throw new Error(signJson.error ?? `Signing failed (${signRes.status})`);
+      }
+      // Step 2: PUT the bytes directly to Supabase Storage. Bypasses Vercel entirely.
+      const putRes = await fetch(signJson.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type, 'x-upsert': 'true' },
+        body: file,
+      });
+      if (!putRes.ok) {
+        const t = await putRes.text();
+        throw new Error(`Upload to storage failed (${putRes.status}): ${t.slice(0, 120)}`);
+      }
+      setImageUrl(signJson.publicUrl);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : String(err));
     } finally {
