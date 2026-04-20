@@ -42,3 +42,6 @@ website/dist/
 website/.env.local
 
 .vercel
+
+# Worktrees
+.worktrees/
