@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Torah Tai Chi — Where Ancient Wisdom Meets the Body</title>
+<meta name="description" content="Weekly teachings fusing Torah wisdom with tai chi philosophy. A body of work by Yonah Lloyd.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Mona+Sans:ital,wght@0,200..900;1,200..900&family=Frank+Ruhl+Libre:wght@300..900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --linen-50:#FAF4E8;--linen-100:#F3EAD5;--linen-200:#E9DDC1;
+    --cedar-900:#3D2A14;--cedar-700:#6A4622;--cedar-600:#8A5B2B;--cedar-500:#A8722F;--cedar-400:#C89256;--cedar-300:#DDB07E;--cedar-100:#F0DFC1;
+    --ink-900:#231B10;--ink-800:#3A2E1E;--ink-700:#4E3E29;--ink-500:#6F5E44;--ink-400:#8C7D64;--ink-300:#B0A287;--ink-200:#D2C5A9;--ink-100:#E6DCC4;
+    --navy-900:#131E38;--navy-800:#1F2C4B;--navy-700:#2B3A5C;--navy-500:#475E8C;--navy-300:#8195BA;--navy-100:#D6DDE9;
+    --brass:#9E7A3A;--tassel:#B23A2B;--jade:#5A6E3D;
+    --ff-display:"Fraunces","Iowan Old Style",Georgia,serif;
+    --ff-body:"Mona Sans",ui-sans-serif,system-ui,sans-serif;
+    --ff-hebrew:"Frank Ruhl Libre","Fraunces",serif;
+    --ff-reading:"Fraunces","Iowan Old Style",Georgia,serif;
+    --r-md:8px;--r-lg:14px;--r-xl:22px;
+    --trans:280ms cubic-bezier(.4,0,.2,1);
+  }
+  *,*::before,*::after{box-sizing:border-box}html,body{margin:0;padding:0}
+  body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;color:var(--ink-900);background:var(--linen-50);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+
+  /* ===== NAV ===== */
+  .site-nav {
+    display:flex;align-items:center;justify-content:space-between;
+    padding:20px 48px;
+    max-width:1400px;margin:0 auto;
+    position:relative;z-index:10;
+  }
+  @media(max-width:700px){.site-nav{padding:16px 20px}}
+
+  .nav-brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink-900)}
+  .nav-brand svg{width:32px;height:32px;flex-shrink:0}
+  .nav-brand span{font-family:var(--ff-display);font-weight:500;font-size:15px;letter-spacing:-.003em}
+
+  .nav-links{display:flex;align-items:center;gap:32px}
+  @media(max-width:700px){.nav-links{gap:20px}}
+  .nav-links a{font-family:var(--ff-body);font-size:14px;color:var(--ink-500);text-decoration:none;letter-spacing:.01em;transition:color var(--trans);padding:4px 0}
+  .nav-links a:hover{color:var(--ink-900)}
+  .nav-links a.active{color:var(--ink-900);font-weight:500}
+
+  .nav-socials{display:flex;gap:16px;align-items:center;margin-left:24px;padding-left:24px;border-left:1px solid var(--ink-200)}
+  @media(max-width:700px){.nav-socials{display:none}}
+  .nav-socials a{color:var(--ink-300);transition:color var(--trans);display:flex}
+  .nav-socials a:hover{color:var(--ink-900)}
+  .nav-socials a svg{width:18px;height:18px}
+
+  /* ===== HERO ===== */
+  .hero {
+    max-width:1400px;margin:0 auto;
+    padding:40px 48px 0;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:64px;
+    align-items:center;
+    min-height:min(80vh,700px);
+  }
+  @media(max-width:900px){
+    .hero{grid-template-columns:1fr;gap:40px;padding:32px 20px 0;min-height:auto}
+  }
+
+  .hero-text{max-width:560px}
+  .hero-kicker{
+    font-family:var(--ff-body);font-size:11px;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--cedar-600);margin-bottom:20px;
+    display:flex;align-items:center;gap:10px;
+  }
+  .hero-kicker .bar{width:28px;height:1px;background:var(--cedar-400)}
+
+  .hero h1{
+    font-family:var(--ff-display);font-weight:400;
+    font-size:clamp(42px,6vw,76px);line-height:.98;
+    letter-spacing:-.035em;margin:0 0 28px 0;
+    color:var(--ink-900);
+    font-variation-settings:"opsz" 144,"SOFT" 20;
+  }
+  .hero h1 em{
+    font-style:italic;color:var(--cedar-600);
+    font-variation-settings:"opsz" 144,"SOFT" 70;
+    display:block;margin-top:4px;
+  }
+
+  .hero-body{
+    font-family:var(--ff-reading);font-size:19px;line-height:1.6;
+    color:var(--ink-700);max-width:44ch;margin:0 0 36px 0;
+    font-variation-settings:"opsz" 18,"SOFT" 40;
+  }
+  .hero-body .ch{font-style:italic;color:var(--cedar-600);font-variation-settings:"opsz" 14,"SOFT" 80}
+
+  .hero-cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--ff-body);font-weight:500;font-size:14px;
+    padding:14px 28px;min-height:48px;
+    border-radius:999px;border:1px solid transparent;
+    text-decoration:none;cursor:pointer;transition:all var(--trans);
+  }
+  .btn-primary{background:var(--navy-800);color:var(--linen-50);border-color:var(--navy-800);box-shadow:0 1px 0 rgba(255,255,255,.08) inset,0 8px 18px -10px rgba(19,30,56,.45)}
+  .btn-primary:hover{background:var(--ink-900);border-color:var(--ink-900);transform:translateY(-1px)}
+  .btn-ghost{background:transparent;color:var(--ink-700);border-color:var(--ink-200)}
+  .btn-ghost:hover{background:var(--linen-100);border-color:var(--ink-400)}
+
+  /* Hero right: this week's video embed */
+  .hero-video{
+    position:relative;
+    display:flex;justify-content:center;align-items:center;
+  }
+  .video-frame{
+    width:min(320px,100%);
+    aspect-ratio:9/16;
+    background:var(--ink-900);
+    border-radius:var(--r-xl);
+    overflow:hidden;
+    box-shadow:
+      0 2px 0 rgba(35,27,16,.06),
+      0 40px 80px -40px rgba(35,27,16,.35),
+      0 0 0 1px rgba(35,27,16,.08);
+    display:flex;align-items:center;justify-content:center;
+    position:relative;
+  }
+  .video-frame .play{
+    width:64px;height:64px;border-radius:50%;
+    background:rgba(250,244,232,.15);backdrop-filter:blur(6px);
+    display:grid;place-items:center;cursor:pointer;
+    transition:all var(--trans);
+  }
+  .video-frame .play:hover{background:rgba(250,244,232,.25);transform:scale(1.06)}
+  .video-frame .play svg{width:28px;height:28px;color:var(--linen-50);margin-left:3px}
+  .video-frame .vlabel{
+    position:absolute;bottom:16px;left:16px;right:16px;
+    font-family:var(--ff-display);font-style:italic;font-size:13px;
+    color:rgba(250,244,232,.6);font-variation-settings:"opsz" 14,"SOFT" 50;
+  }
+  .video-parsha-tag{
+    position:absolute;top:-12px;left:50%;transform:translateX(-50%);
+    background:var(--linen-50);border:1px solid var(--ink-200);
+    padding:6px 18px;border-radius:999px;white-space:nowrap;
+    font-family:var(--ff-display);font-size:12px;font-weight:500;
+    color:var(--ink-900);letter-spacing:.02em;
+    box-shadow:0 2px 8px -4px rgba(35,27,16,.12);
+  }
+  .video-parsha-tag .heb{font-family:var(--ff-hebrew);color:var(--ink-500);margin-left:8px}
+
+  @media(max-width:900px){
+    .hero-video{order:-1}
+    .video-frame{width:min(260px,70vw)}
+  }
+
+  /* ===== DIVIDER ===== */
+  .divider{
+    max-width:1400px;margin:80px auto 0;padding:0 48px;
+  }
+  @media(max-width:700px){.divider{padding:0 20px;margin-top:56px}}
+  .divider-line{
+    height:1px;
+    background:linear-gradient(90deg,transparent 0%,var(--ink-200) 20%,var(--ink-200) 80%,transparent 100%);
+  }
+  .divider-text{
+    text-align:center;margin-top:-10px;
+    font-family:var(--ff-display);font-style:italic;
+    font-size:13px;color:var(--ink-400);
+    font-variation-settings:"opsz" 14,"SOFT" 60;
+  }
+  .divider-text span{background:var(--linen-50);padding:0 16px}
+  .divider-text .ch{font-style:normal;color:var(--cedar-500);margin:0 6px}
+
+  /* ===== RECENT SECTION ===== */
+  .recent{
+    max-width:1400px;margin:0 auto;
+    padding:72px 48px 0;
+  }
+  @media(max-width:700px){.recent{padding:48px 20px 0}}
+
+  .section-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    margin-bottom:32px;
+  }
+  .section-head h2{
+    font-family:var(--ff-display);font-weight:400;
+    font-size:clamp(28px,4vw,42px);letter-spacing:-.02em;
+    margin:0;color:var(--ink-900);
+    font-variation-settings:"opsz" 48,"SOFT" 30;
+  }
+  .section-head h2 em{font-style:italic;color:var(--ink-500);font-variation-settings:"opsz" 48,"SOFT" 60}
+  .section-head .more{
+    font-family:var(--ff-body);font-size:13px;color:var(--ink-500);
+    text-decoration:none;letter-spacing:.02em;
+  }
+  .section-head .more:hover{color:var(--navy-700)}
+
+  .video-grid{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:20px;
+  }
+  @media(max-width:1000px){.video-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:600px){.video-grid{grid-template-columns:1fr 1fr;gap:14px}}
+
+  .v-card{
+    text-decoration:none;color:inherit;
+    display:flex;flex-direction:column;gap:12px;
+    transition:transform var(--trans);
+  }
+  .v-card:hover{transform:translateY(-2px)}
+  .v-card .thumb{
+    aspect-ratio:9/16;
+    background:var(--ink-800);
+    border-radius:var(--r-lg);
+    overflow:hidden;
+    position:relative;
+    box-shadow:0 1px 0 rgba(35,27,16,.06),0 12px 24px -16px rgba(35,27,16,.22);
+  }
+  .v-card .thumb .dur{
+    position:absolute;bottom:10px;right:10px;
+    background:rgba(35,27,16,.65);backdrop-filter:blur(4px);
+    padding:3px 8px;border-radius:999px;
+    font-family:var(--ff-body);font-size:11px;
+    font-variant-numeric:tabular-nums;color:var(--linen-50);
+  }
+  .v-card .v-heb{
+    font-family:var(--ff-hebrew);font-size:13px;
+    color:var(--ink-500);text-align:right;direction:rtl;
+  }
+  .v-card .v-name{
+    font-family:var(--ff-display);font-weight:500;font-size:17px;
+    letter-spacing:-.01em;line-height:1.2;color:var(--ink-900);
+    font-variation-settings:"opsz" 18,"SOFT" 30;
+  }
+  .v-card .v-book{font-size:12px;color:var(--ink-400)}
+
+  /* ===== ARTICLE CARDS ===== */
+  .article-grid{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:20px;
+  }
+  @media(max-width:900px){.article-grid{grid-template-columns:1fr}}
+
+  .a-card{
+    padding:28px 28px 24px;
+    border:1px solid var(--ink-100);
+    border-radius:var(--r-lg);
+    background:var(--linen-50);
+    text-decoration:none;color:inherit;
+    display:flex;flex-direction:column;gap:12px;
+    transition:all var(--trans);
+  }
+  .a-card:hover{border-color:var(--cedar-300);transform:translateY(-2px)}
+
+  .a-card .a-tag{
+    font-family:var(--ff-body);font-size:10.5px;
+    letter-spacing:.16em;text-transform:uppercase;
+    color:var(--cedar-600);font-weight:500;
+  }
+  .a-card .a-title{
+    font-family:var(--ff-display);font-weight:500;
+    font-size:20px;line-height:1.25;letter-spacing:-.01em;
+    color:var(--ink-900);margin:0;
+    font-variation-settings:"opsz" 24,"SOFT" 30;
+  }
+  .a-card .a-excerpt{
+    font-family:var(--ff-reading);font-size:15px;
+    line-height:1.55;color:var(--ink-500);margin:0;
+    font-variation-settings:"opsz" 16,"SOFT" 40;
+    display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .a-card .a-meta{
+    font-family:var(--ff-display);font-style:italic;
+    font-size:12.5px;color:var(--ink-400);
+    margin-top:auto;padding-top:12px;
+    border-top:1px dotted var(--ink-100);
+    font-variation-settings:"opsz" 14,"SOFT" 50;
+  }
+
+  /* ===== ABOUT STRIP ===== */
+  .about-strip{
+    max-width:1400px;margin:0 auto;
+    padding:96px 48px 0;
+    display:grid;grid-template-columns:auto 1fr;
+    gap:56px;align-items:start;
+  }
+  @media(max-width:900px){.about-strip{grid-template-columns:1fr;gap:32px;padding:64px 20px 0}}
+
+  .about-portrait{
+    width:160px;height:160px;
+    flex-shrink:0;
+    display:grid;place-items:center;
+  }
+  .about-portrait svg{width:140px;height:140px}
+  @media(max-width:900px){.about-portrait{width:120px;height:120px;margin:0 auto}.about-portrait svg{width:100px;height:100px}}
+
+  .about-body{max-width:56ch}
+  .about-body h2{
+    font-family:var(--ff-display);font-weight:400;
+    font-size:clamp(28px,4vw,42px);letter-spacing:-.02em;
+    margin:0 0 20px 0;color:var(--ink-900);
+    font-variation-settings:"opsz" 48,"SOFT" 30;
+  }
+  .about-body h2 em{font-style:italic;color:var(--cedar-600);font-variation-settings:"opsz" 48,"SOFT" 60}
+  .about-body p{
+    font-family:var(--ff-reading);font-size:17px;line-height:1.65;
+    color:var(--ink-700);margin:0 0 18px 0;
+    font-variation-settings:"opsz" 18,"SOFT" 40;
+  }
+  /* book-note: reserved for future "Book" announcement — not active */
+
+  /* ===== FOOTER ===== */
+  .site-footer{
+    max-width:1400px;margin:96px auto 0;
+    padding:36px 48px 48px;
+    border-top:1px solid var(--ink-100);
+    display:flex;align-items:center;justify-content:space-between;
+    flex-wrap:wrap;gap:20px;
+  }
+  @media(max-width:700px){.site-footer{padding:28px 20px 36px;flex-direction:column;align-items:flex-start}}
+  .footer-brand{
+    font-family:var(--ff-display);font-size:13px;
+    color:var(--ink-400);font-style:italic;
+    font-variation-settings:"opsz" 14,"SOFT" 60;
+  }
+  .footer-links{display:flex;gap:24px;align-items:center}
+  .footer-links a{font-size:13px;color:var(--ink-400);text-decoration:none;transition:color var(--trans)}
+  .footer-links a:hover{color:var(--ink-900)}
+  .footer-socials{display:flex;gap:14px}
+  .footer-socials a{color:var(--ink-300);transition:color var(--trans);display:flex}
+  .footer-socials a:hover{color:var(--ink-900)}
+  .footer-socials a svg{width:18px;height:18px}
+
+  /* ===== STAGGER ===== */
+  .stagger > *{opacity:0;transform:translateY(12px);animation:rise 700ms cubic-bezier(.4,0,.2,1) forwards}
+  .stagger > *:nth-child(1){animation-delay:60ms}
+  .stagger > *:nth-child(2){animation-delay:160ms}
+  .stagger > *:nth-child(3){animation-delay:260ms}
+  .stagger > *:nth-child(4){animation-delay:360ms}
+  .stagger > *:nth-child(5){animation-delay:460ms}
+  @keyframes rise{to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<!-- Platform icon defs -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="icon-tiktok" viewBox="0 0 24 24"><path fill="currentColor" d="M16.6 5.82A4.28 4.28 0 0 1 15.54 2h-3.13v12.4a2.59 2.59 0 0 1-2.59 2.5 2.59 2.59 0 0 1-2.58-2.6 2.6 2.6 0 0 1 2.59-2.59c.28 0 .55.05.8.13V8.77a5.69 5.69 0 0 0-.8-.06 5.72 5.72 0 0 0-5.73 5.72 5.72 5.72 0 0 0 5.73 5.72 5.72 5.72 0 0 0 5.72-5.72V8.7a7.33 7.33 0 0 0 4.28 1.37V7a4.28 4.28 0 0 1-3.23-1.18z"/></symbol>
+    <symbol id="icon-youtube" viewBox="0 0 24 24"><path fill="currentColor" d="M23.5 6.19a3.02 3.02 0 0 0-2.12-2.14C19.5 3.5 12 3.5 12 3.5s-7.5 0-9.38.55A3.02 3.02 0 0 0 .5 6.19 31.6 31.6 0 0 0 0 12a31.6 31.6 0 0 0 .5 5.81 3.02 3.02 0 0 0 2.12 2.14c1.88.55 9.38.55 9.38.55s7.5 0 9.38-.55a3.02 3.02 0 0 0 2.12-2.14A31.6 31.6 0 0 0 24 12a31.6 31.6 0 0 0-.5-5.81zM9.55 15.57V8.43L15.82 12l-6.27 3.57z"/></symbol>
+    <symbol id="icon-instagram" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.97.24 2.44.41a4.08 4.08 0 0 1 2.51 2.51c.17.47.36 1.27.41 2.44.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.24 1.97-.41 2.44a4.37 4.37 0 0 1-2.51 2.51c-.47.17-1.27.36-2.44.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.97-.24-2.44-.41a4.37 4.37 0 0 1-2.51-2.51c-.17-.47-.36-1.27-.41-2.44C2.17 15.58 2.16 15.2 2.16 12s.01-3.58.07-4.85c.05-1.17.24-1.97.41-2.44a4.37 4.37 0 0 1 2.51-2.51c.47-.17 1.27-.36 2.44-.41C8.42 2.17 8.8 2.16 12 2.16M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63a6.5 6.5 0 0 0-3.51 3.51C.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91a6.5 6.5 0 0 0 3.51 3.51c.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56a6.5 6.5 0 0 0 3.51-3.51c.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91a6.5 6.5 0 0 0-3.51-3.51C19.1.33 18.22.13 16.95.07 15.67.01 15.26 0 12 0zm0 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.41-11.85a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></symbol>
+    <symbol id="icon-facebook" viewBox="0 0 24 24"><path fill="currentColor" d="M24 12.07C24 5.41 18.63 0 12 0S0 5.41 0 12.07c0 6.02 4.39 11.02 10.13 11.93v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.33l-.53 3.49h-2.8v8.44C19.61 23.09 24 18.09 24 12.07z"/></symbol>
+
+    <!-- Brand mark -->
+    <radialGradient id="cedarWood" cx="35%" cy="30%" r="80%"><stop offset="0%" stop-color="#E3B888"/><stop offset="45%" stop-color="#B8823A"/><stop offset="100%" stop-color="#6A4622"/></radialGradient>
+    <radialGradient id="linenLobe" cx="40%" cy="35%" r="80%"><stop offset="0%" stop-color="#FAF4E8"/><stop offset="100%" stop-color="#E9DDC1"/></radialGradient>
+    <radialGradient id="navyLobe" cx="60%" cy="60%" r="80%"><stop offset="0%" stop-color="#2B3A5C"/><stop offset="100%" stop-color="#131E38"/></radialGradient>
+    <g id="ttc-mark">
+      <circle cx="60" cy="60" r="42" fill="url(#cedarWood)" stroke="#3D2A14" stroke-width=".8"/>
+      <circle cx="60" cy="60" r="34" fill="none" stroke="#3D2A14" stroke-width=".4" opacity=".5"/>
+      <g transform="translate(60 60)"><circle r="28" fill="url(#linenLobe)"/>
+        <path d="M 0,-28 A 28,28 0 0,0 0,28 A 14,14 0 0,1 0,0 A 14,14 0 0,0 0,-28 Z" fill="url(#navyLobe)"/>
+        <circle cx="0" cy="-14" r="3.2" fill="#FAF4E8"/><circle cx="0" cy="14" r="3.2" fill="#2B3A5C"/>
+        <g transform="translate(0,-14) scale(.55)"><polygon points="0,-8 6.93,4 -6.93,4" fill="none" stroke="#9E7A3A" stroke-width="1.2"/><polygon points="0,8 6.93,-4 -6.93,-4" fill="none" stroke="#9E7A3A" stroke-width="1.2"/></g>
+      </g>
+      <defs><path id="arcTop" d="M 18,60 A 42,42 0 0,1 102,60"/></defs>
+      <text font-family="Fraunces,serif" font-size="9" font-weight="600" letter-spacing="3" fill="#3D2A14"><textPath href="#arcTop" startOffset="50%" text-anchor="middle">TORAH</textPath></text>
+      <text x="60" y="108" font-family="Fraunces,serif" font-size="8" font-weight="600" letter-spacing="3" fill="#3D2A14" text-anchor="middle">TAI CHI</text>
+    </g>
+  </defs>
+</svg>
+
+<!-- ===== NAV ===== -->
+<nav class="site-nav">
+  <a href="#" class="nav-brand">
+    <svg viewBox="0 0 120 120" aria-hidden="true"><use href="#ttc-mark"/></svg>
+    <span>Torah Tai Chi</span>
+  </a>
+  <div style="display:flex;align-items:center">
+    <div class="nav-links">
+      <a href="#" class="active">Home</a>
+      <a href="#">Videos</a>
+      <a href="#">Articles</a>
+      <a href="#">About</a>
+    </div>
+    <div class="nav-socials">
+      <a href="#" title="TikTok"><svg><use href="#icon-tiktok"/></svg></a>
+      <a href="#" title="YouTube"><svg><use href="#icon-youtube"/></svg></a>
+      <a href="#" title="Instagram"><svg><use href="#icon-instagram"/></svg></a>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<section class="hero stagger">
+  <div class="hero-text">
+    <div class="hero-kicker"><span class="bar"></span>Weekly teachings</div>
+    <h1>Where ancient wisdom <em>meets the body.</em></h1>
+    <p class="hero-body">
+      Torah Tai Chi fuses the weekly parsha with the internal arts — rooting, yielding, <span class="ch">song 松</span> — to find the place where Jewish wisdom and the body's intelligence say the same thing.
+    </p>
+    <div class="hero-cta">
+      <a href="#" class="btn btn-primary">Watch this week's teaching</a>
+      <a href="#" class="btn btn-ghost">Explore all parshiot</a>
+    </div>
+  </div>
+
+  <div class="hero-video">
+    <div class="video-parsha-tag">This week: Kedoshim <span class="heb" lang="he" dir="rtl">קדושים</span></div>
+    <div class="video-frame">
+      <div class="play">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </div>
+      <div class="vlabel">Kedoshim — 48s</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== DIVIDER ===== -->
+<div class="divider">
+  <div class="divider-line"></div>
+  <div class="divider-text"><span><span class="ch">松</span> rooted release, not collapse <span class="ch">·</span> the craft compounds <span class="ch">勁</span></span></div>
+</div>
+
+<!-- ===== RECENT VIDEOS ===== -->
+<section class="recent stagger">
+  <div class="section-head">
+    <h2>Recent teachings</h2>
+    <a href="#" class="more">All 52 parshiot →</a>
+  </div>
+
+  <div class="video-grid">
+    <a href="#" class="v-card">
+      <div class="thumb"><span class="dur">0:48</span></div>
+      <div class="v-heb" lang="he" dir="rtl">קדושים</div>
+      <div class="v-name">Kedoshim</div>
+      <div class="v-book">Leviticus · Apr 25</div>
+    </a>
+    <a href="#" class="v-card">
+      <div class="thumb"><span class="dur">0:45</span></div>
+      <div class="v-heb" lang="he" dir="rtl">אחרי מות</div>
+      <div class="v-name">Acharei Mot</div>
+      <div class="v-book">Leviticus · Apr 18</div>
+    </a>
+    <a href="#" class="v-card">
+      <div class="thumb"><span class="dur">0:52</span></div>
+      <div class="v-heb" lang="he" dir="rtl">שמות</div>
+      <div class="v-name">Shemot</div>
+      <div class="v-book">Exodus · Apr 11</div>
+    </a>
+    <a href="#" class="v-card">
+      <div class="thumb"><span class="dur">0:47</span></div>
+      <div class="v-heb" lang="he" dir="rtl">בא</div>
+      <div class="v-name">Bo</div>
+      <div class="v-book">Exodus · Apr 4</div>
+    </a>
+  </div>
+</section>
+
+<!-- ===== RECENT ARTICLES ===== -->
+<section class="recent stagger" style="padding-top:88px">
+  <div class="section-head">
+    <h2>From the writings</h2>
+    <a href="#" class="more">All articles →</a>
+  </div>
+
+  <div class="article-grid">
+    <a href="#" class="a-card">
+      <div class="a-tag">Essay</div>
+      <h3 class="a-title">Why the Body Knows Before the Mind</h3>
+      <p class="a-excerpt">There's a moment in zhan zhuang — standing meditation — where the legs begin to tremble. The mind screams quit. But something deeper holds. That something is what the Torah calls emunah...</p>
+      <div class="a-meta">April 12 · 6 min read</div>
+    </a>
+    <a href="#" class="a-card">
+      <div class="a-tag">Teaching</div>
+      <h3 class="a-title">Song and Anavah: The Shared Root of Release</h3>
+      <p class="a-excerpt">The Chinese concept of song 松 — deep, conscious relaxation without collapse — maps almost perfectly onto the Jewish middah of anavah, true humility...</p>
+      <div class="a-meta">April 4 · 8 min read</div>
+    </a>
+    <a href="#" class="a-card">
+      <div class="a-tag">Reflection</div>
+      <h3 class="a-title">What Shabbat Taught Me About Stillness in Motion</h3>
+      <p class="a-excerpt">For years I thought rest meant stopping. Then I started practicing tai chi on Shabbat morning — not the martial forms, but the standing. And I understood: Shabbat isn't absence of movement...</p>
+      <div class="a-meta">March 28 · 5 min read</div>
+    </a>
+  </div>
+</section>
+
+<!-- ===== ABOUT STRIP ===== -->
+<section class="about-strip stagger">
+  <div class="about-portrait">
+    <svg viewBox="0 0 120 120" aria-hidden="true"><use href="#ttc-mark"/></svg>
+  </div>
+  <div class="about-body">
+    <h2>The practice <em>between traditions.</em></h2>
+    <p>
+      Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts. Each week's parsha carries a teaching about character, restraint, holiness — and each of those teachings has a parallel in the body: rooting, yielding, releasing tension without collapsing structure.
+    </p>
+    <p>
+      This is where they meet. A weekly practice. A breath. A teaching that lives in the spine as much as the mind.
+    </p>
+  </div>
+</section>
+
+<!-- ===== FOOTER ===== -->
+<footer class="site-footer">
+  <div class="footer-brand">© 2026 Torah Tai Chi · torahtaichi.com</div>
+  <div class="footer-links">
+    <a href="#">Videos</a>
+    <a href="#">Articles</a>
+    <a href="#">About</a>
+  </div>
+  <div class="footer-socials">
+    <a href="#" title="TikTok"><svg><use href="#icon-tiktok"/></svg></a>
+    <a href="#" title="YouTube"><svg><use href="#icon-youtube"/></svg></a>
+    <a href="#" title="Instagram"><svg><use href="#icon-instagram"/></svg></a>
+    <a href="#" title="Facebook"><svg><use href="#icon-facebook"/></svg></a>
+  </div>
+</footer>
+
+</body>
+</html>

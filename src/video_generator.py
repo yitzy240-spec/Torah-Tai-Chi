@@ -58,12 +58,13 @@ async def generate_clip(
     first_frame_url: Optional[str] = None,
     audio_url: Optional[str] = None,
     resolution: str = "720p",
+    model: str = SEEDANCE_MODEL,
 ) -> Path:
     payload = build_seedance_input(
         clip, character_ref_urls, dojo_ref_urls,
         first_frame_url, audio_url, resolution,
     )
-    task_id = await client.create_task(SEEDANCE_MODEL, payload)
+    task_id = await client.create_task(model, payload)
     urls = await client.poll_task(task_id)
     await client.download(urls[0], dest)
     return dest

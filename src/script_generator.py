@@ -34,7 +34,10 @@ VIDEO STRUCTURE:
 - 3 to 8 clips total, 28-90 seconds combined (emergent from script length).
 - Dojo block FIRST, outdoor block SECOND. At least 1 clip of each. Clip count
   per block flexes based on where the script's natural beats fall.
-- Each clip: 4-15 seconds (Seedance hard limit).
+- Each clip: 4-15 seconds (Seedance hard limit). SOFT CAP: 12 seconds per
+  clip when the voiceover contains Hebrew terms or dense phonetics. Seedance
+  rushes speech on long dense clips, producing garbled Hebrew. Split long
+  Hebrew-dense beats into two clips at a natural pause instead.
 - Decide clip count and per-clip duration by reading the script at natural
   sage-teacher pace (~2.3 words per second average). Do not force short
   durations on text-dense beats; do not pad sparse beats. Let it breathe.
@@ -43,7 +46,12 @@ VOICEOVER — YONAH'S WORDS, PRESERVED:
 - Split his draft into clips at natural phrase boundaries (comma, period,
   em-dash, section break). NEVER paraphrase, rewrite, or drop content.
 - Hebrew names/terms in the voiceover field must be written as English-
-  phonetic breakdowns with CAPS on the stressed syllable:
+  phonetic breakdowns with CAPS on the stressed syllable.
+  CRITICAL RULE — Hebrew guttural "ch" (the sounds ח and sometimes כ) must
+  ALWAYS be rendered as "H" in phonetics, never as "Ch". English "Ch" sounds
+  like "church" and Seedance reads it that way, producing incorrect
+  pronunciation. Use H (sometimes KH for strong emphasis) for every
+  guttural.
     Vayikra -> "Vah-yeek-RAH"
     Moshe -> "MOH-sheh"
     Bereishit -> "Beh-ray-SHEET"
@@ -54,12 +62,47 @@ VOICEOVER — YONAH'S WORDS, PRESERVED:
     Shabbat -> "shah-BAHT"
     Eden -> "Eh-den" (short E as in "effort", NOT "Ay-den" NOT "Ah-den")
     Adam -> "AH-dahm" (only if draft uses Hebrew form; Yonah often writes "Adam" in English)
-    Chava -> "Chah-VAH"
     Elohim -> "Eh-loh-HEEM"
     tzedakah -> "tzeh-dah-KAH"
     mitzvah -> "mits-VAH"
     mishkan -> "meesh-KAHN"
     aleph -> "AH-lef"
+    # Words with guttural ח/כ — use H, NEVER "Ch":
+    Chava -> "Hah-VAH"                   (the name Eve — Hebrew ח)
+    nachash -> "na-HASH"                 (snake)
+    Chanukah -> "Ha-noo-KAH"
+    Chai -> "HAI"                        (life)
+    Chayim -> "ha-YEEM"
+    Chaim -> "HAI-yeem"
+    Chesed -> "HEH-sed"                  (lovingkindness)
+    lechem -> "LEH-hem"                  (bread)
+    rachamim -> "rah-hah-MEEM"           (mercy)
+    melech -> "MEH-lehk"
+    ruach -> "ROO-ahh"                   (spirit/breath — soft guttural)
+    teshuvah -> "teh-SHOO-vah"
+    kavanah -> "kah-vah-NAH"
+    anavah -> "ah-nah-VAH"
+    binah -> "bee-NAH"
+    nefesh -> "NEH-fesh"
+    neshamah -> "neh-sha-MAH"
+    olam -> "oh-LAHM"
+  Chinese internal-arts terms (always written together with the characters,
+  BUT the voiceover phonetic must be English only; the TTS cannot read
+  Chinese glyphs):
+    song 松 -> "sung"                    (rhymes with "rung", NOT like "song" the melody)
+    zhan zhuang -> "jahn jwahng"
+    jin 勁 -> "jeen"
+    peng 掤 -> "pung"
+    li 力 -> "lee"
+    kua -> "kwah"
+    yi 意 -> "yee"
+    ting jin -> "TING jeen"
+  DE-DUPLICATION RULE: when Yonah's draft uses two alternate transliterations
+  of the same Hebrew word as a rhetorical device (e.g., "Eden — Aden"), this
+  is a stylistic pause, NOT two words to say. Emit the phonetic form ONCE.
+  Don't render "Eden — Aden" as "Eh-den — AH-den" — that sounds like two
+  separate mispronunciations. Instead, render as a single "Eh-den" and let
+  the em-dash pause carry the rhetorical weight.
   If you are UNSURE of a Hebrew word's pronunciation and it's not in this list,
   keep the English transliteration as-is (e.g., "Eden" — spoken in the English
   way) rather than inventing a phonetic. A wrong phonetic is worse than an
@@ -70,23 +113,42 @@ VOICEOVER — YONAH'S WORDS, PRESERVED:
   commas, periods. Use them where they naturally fall in Yonah's prose.
   Don't invent new pauses to pad; don't delete existing ones.
 
-VISUAL PROMPT per clip (concise, composed in this order):
-1. Setting anchor verbatim (DOJO_ANCHOR_TEXT for dojo clips, archetype
-   anchor for outdoor clips).
-2. Subject action: what Rav Eli is doing. Prefer naturalistic (walking,
-   gesturing, observing, breathing, sitting, hand on heart). Micro-
-   expressions welcome ("eyes close gently", "slight smile").
-3. Single camera-direction phrase from this list: "static medium shot",
-   "slow push in", "slight pull back", "pan left", "pan right", "tilt up",
-   "tilt down", "slow orbit", "lateral tracking shot".
-4. Lighting cue from the anchor (carry it forward).
-5. Optional: a brief tone/cadence note ("speaks reverently", "this lands
-   with a held breath before the next line").
+VISUAL PROMPT per clip — ACTION-FIRST composition:
+
+IMPORTANT: the visual_prompt is what Seedance sees alongside the reference
+images. For DOJO clips, Seedance gets 4 dojo reference images that ARE the
+spatial ground truth — don't describe the room in detail in the prompt,
+the refs already anchor it. For OUTDOOR clips there are no environment
+refs, so the archetype text IS the primary anchor and gets used verbatim.
+
+Compose visual_prompt in this order:
+1. Subject action FIRST: what Rav Eli is doing (prefer naturalistic —
+   walking, gesturing, sitting, hand on heart, eyes softening, slight
+   smile). Put this at the start where Seedance weighs it most.
+2. Framing cue: specify the shot AND frame proportions. For any clip with
+   Rav Eli on-screen, include: "9:16 vertical portrait frame. Rav Eli
+   centered with natural human proportions — not elongated, not
+   compressed." Then the camera-direction verb (see list below).
+3. Scene tag:
+     - For DOJO clips: ONE brief line — "In the Torah Tai Chi dojo:
+       warm cedar floor, pale linen walls, soft morning light through
+       the south lattice." Do NOT paste the full dojo anchor; the
+       reference images carry the scene.
+     - For OUTDOOR clips: the full archetype text verbatim (see below).
+4. Lighting cue — one short phrase carrying the scene's light.
+5. Optional: a tone/cadence note ("speaks reverently", "lands with a
+   held breath before the next line").
+
+Camera-direction verbs (pick ONE per clip):
+"static medium shot, head-and-shoulders centered", "static waist-up,
+centered", "slow push in", "slight pull back", "pan left", "pan right",
+"tilt up", "tilt down", "slow orbit", "lateral tracking shot".
 
 OUTDOOR ARCHETYPE — pick ONE id whose tonal fit matches the parsha theme:
 {archetype_menu}
 
-DOJO ANCHOR (prepend to every dojo visual_prompt, verbatim):
+DOJO SCENE CONTEXT (for YOUR reasoning only — do NOT paste into
+visual_prompt; use the brief scene tag described above):
 {dojo_anchor}
 
 GUARDRAILS (failures the video model makes every time; enforce strictly):
@@ -239,7 +301,7 @@ async def transform_draft_to_clip_plan(
             },
             json={
                 "model": model,
-                "max_tokens": 4000,
+                "max_tokens": 8000,
                 "system": SYSTEM_TEMPLATE,
                 "messages": [{"role": "user", "content": prompt}],
             },

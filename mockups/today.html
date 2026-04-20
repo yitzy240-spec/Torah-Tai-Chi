@@ -1,0 +1,1752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Torah Tai Chi — Today</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Mona+Sans:ital,wght@0,200..900;1,200..900&family=Frank+Ruhl+Libre:wght@300..900&display=swap" rel="stylesheet">
+<style>
+  /* =====================================================================
+     TOKENS
+     ===================================================================== */
+  :root {
+    /* Linen — walls of the dojo, paper of a sefer */
+    --linen-50:  #FAF4E8;
+    --linen-100: #F3EAD5;
+    --linen-200: #E9DDC1;
+
+    /* Cedar — floor, carved iconography, warmth */
+    --cedar-900: #3D2A14;
+    --cedar-700: #6A4622;
+    --cedar-600: #8A5B2B;
+    --cedar-500: #A8722F;
+    --cedar-400: #C89256;
+    --cedar-300: #DDB07E;
+    --cedar-100: #F0DFC1;
+
+    /* Ink — warm sepia-black */
+    --ink-900: #231B10;
+    --ink-800: #3A2E1E;
+    --ink-700: #4E3E29;
+    --ink-500: #6F5E44;
+    --ink-400: #8C7D64;
+    --ink-300: #B0A287;
+    --ink-200: #D2C5A9;
+    --ink-100: #E6DCC4;
+
+    /* Navy — Rav Eli's shirt, kippah sruga, runner stripes. Primary accent. */
+    --navy-900: #131E38;
+    --navy-800: #1F2C4B;
+    --navy-700: #2B3A5C;
+    --navy-500: #475E8C;
+    --navy-300: #8195BA;
+    --navy-100: #D6DDE9;
+    --navy-wash: #E8ECF3;
+
+    /* Rare accents */
+    --brass:   #9E7A3A;
+    --tassel:  #B23A2B;
+    --jade:    #5A6E3D;
+
+    /* Type */
+    --ff-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --ff-body:    "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+    --ff-hebrew:  "Frank Ruhl Libre", "Fraunces", serif;
+    --ff-reading: "Fraunces", "Iowan Old Style", Georgia, serif; /* script body */
+
+    /* Radius */
+    --r-sm: 4px;
+    --r-md: 8px;
+    --r-lg: 14px;
+    --r-xl: 22px;
+
+    /* Shadow (restrained) */
+    --shadow-quiet: 0 1px 0 0 rgba(35,27,16,.04), 0 1px 2px 0 rgba(35,27,16,.04);
+    --shadow-page:  0 1px 0 0 rgba(35,27,16,.05), 0 30px 60px -40px rgba(35,27,16,.22);
+
+    --trans: 280ms cubic-bezier(.4,0,.2,1);
+    --trans-slow: 520ms cubic-bezier(.4,0,.2,1);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--ff-body);
+    font-weight: 400;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--ink-900);
+    background: var(--linen-50);
+    background-image:
+      radial-gradient(1000px 560px at -5% -10%, rgba(200,146,86,.12), transparent 60%),
+      radial-gradient(1100px 600px at 110% 115%, rgba(43,58,92,.06), transparent 60%);
+    background-attachment: fixed;
+    font-feature-settings: "ss01", "ss02";
+    letter-spacing: 0.002em;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* =====================================================================
+     LAYOUT SHELL
+     ===================================================================== */
+  .shell {
+    display: grid;
+    grid-template-columns: 236px 1fr;
+    min-height: 100vh;
+  }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+  }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    border-right: 1px solid var(--ink-100);
+    padding: 30px 20px 24px 28px;
+    position: sticky; top: 0;
+    height: 100vh;
+    display: flex; flex-direction: column; gap: 32px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.28) 100%),
+      var(--linen-50);
+  }
+  @media (max-width: 900px) { .sidebar { display: none; } }
+
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    font-family: var(--ff-display);
+    font-weight: 500;
+    font-size: 16px;
+    letter-spacing: -0.003em;
+    color: var(--ink-900);
+  }
+  .brand-mark { width: 36px; height: 36px; flex-shrink: 0; }
+
+  .nav { display: flex; flex-direction: column; gap: 1px; margin-top: 0; }
+  .nav a {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: var(--r-md);
+    font-size: 14px;
+    color: var(--ink-700);
+    text-decoration: none;
+    transition: background var(--trans), color var(--trans);
+  }
+  .nav a:hover { background: var(--linen-100); color: var(--ink-900); }
+  .nav a.active {
+    background: var(--navy-800);
+    color: var(--linen-50);
+  }
+  .nav a.active .meta { color: var(--navy-300); }
+  .nav .meta {
+    font-size: 11px;
+    color: var(--ink-300);
+    font-variant-numeric: tabular-nums;
+    font-family: var(--ff-display);
+    font-style: italic;
+  }
+
+  .sidebar-foot {
+    margin-top: auto;
+    font-family: var(--ff-display);
+    font-size: 11.5px;
+    font-style: italic;
+    color: var(--ink-500);
+    line-height: 1.5;
+    font-variation-settings: "opsz" 14, "SOFT" 70;
+  }
+  .sidebar-foot .rule { width: 24px; height: 1px; background: var(--cedar-300); margin: 0 0 12px 0; }
+
+  /* ---------- Main ---------- */
+  main {
+    padding: 30px 56px 120px;
+    max-width: 1080px;
+  }
+  @media (max-width: 900px) { main { padding: 18px 18px 104px; } }
+
+  /* =====================================================================
+     TOP BAR — minimal
+     ===================================================================== */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 28px;
+  }
+  .topbar .date {
+    font-family: var(--ff-display);
+    font-size: 13px;
+    font-style: italic;
+    color: var(--ink-500);
+    font-variation-settings: "opsz" 14, "SOFT" 30;
+  }
+  .topbar .date .heb {
+    font-family: var(--ff-hebrew);
+    font-style: normal;
+    color: var(--ink-700);
+    margin-left: 8px;
+    padding-left: 10px;
+    border-left: 1px solid var(--ink-200);
+  }
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--navy-800); color: var(--linen-50);
+    display: grid; place-items: center;
+    font-family: var(--ff-display); font-size: 13px; font-weight: 500;
+    cursor: pointer;
+  }
+  @media (max-width: 900px) {
+    .topbar .date .heb { display: none; }
+  }
+
+  /* =====================================================================
+     STANCE LINE — Yonah's stated relationship to the work
+     ===================================================================== */
+  .stance {
+    font-family: var(--ff-display);
+    font-size: 15px;
+    font-style: italic;
+    font-variation-settings: "opsz" 16, "SOFT" 60;
+    color: var(--ink-700);
+    margin-bottom: 56px;
+    display: flex; align-items: baseline; gap: 12px;
+    flex-wrap: wrap;
+  }
+  .stance .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--jade);
+    display: inline-block;
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 3px rgba(90,110,61,.15);
+    animation: pulse-jade 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse-jade {
+    0%,100% { box-shadow: 0 0 0 3px rgba(90,110,61,.15); }
+    50%     { box-shadow: 0 0 0 6px rgba(90,110,61,.02); }
+  }
+  /* Stance line — the one "CHANGE" action. It opens a real settings sheet. */
+  .stance-swap {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--ff-body);
+    font-size: 12px;
+    font-style: normal;
+    letter-spacing: 0.06em;
+    color: var(--ink-500);
+    text-transform: uppercase;
+    text-decoration: none;
+    padding: 6px 12px 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--ink-200);
+    background: var(--linen-50);
+    transition: all var(--trans);
+    cursor: pointer;
+    min-height: 32px;
+  }
+  .stance-swap:hover {
+    color: var(--navy-800);
+    border-color: var(--cedar-400);
+    background: var(--linen-100);
+  }
+  .stance-swap svg { width: 13px; height: 13px; flex-shrink: 0; }
+  .stance-swap .lbl { font-weight: 500; }
+  .stance-swap .mark {
+    font-family: var(--ff-display);
+    font-size: 10px; font-style: italic; letter-spacing: 0.02em;
+    color: var(--cedar-600); text-transform: none;
+    padding-left: 8px; margin-left: 2px;
+    border-left: 1px solid var(--ink-200);
+  }
+
+  /* =====================================================================
+     SAGE PAGE — the hero for Reviewer stance
+     The parsha IS the page, set as a sefer spread.
+     ===================================================================== */
+  .page {
+    position: relative;
+    padding: 60px 70px 56px;
+    background: var(--linen-50);
+    border: 1px solid var(--ink-100);
+    border-radius: var(--r-xl);
+    box-shadow: var(--shadow-page);
+    margin-bottom: 48px;
+    overflow: hidden;
+  }
+  .page::before {
+    /* warm rice-paper wash top-right (the lattice doorway) */
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    background-image:
+      radial-gradient(800px 400px at 95% -10%, rgba(200,146,86,.14), transparent 55%),
+      repeating-linear-gradient(91deg, transparent 0 3px, rgba(106,70,34,.010) 3px 4px);
+  }
+  @media (max-width: 700px) { .page { padding: 40px 26px 38px; } }
+
+  /* page header: bilingual — Hebrew anchors right (RTL), English anchors left (LTR).
+     The eye reads the Hebrew right-to-left, drops, picks up the English left-to-right.
+     Like turning a page from one tradition to the other. */
+  .page-head {
+    position: relative;
+    margin-bottom: 44px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--ink-100);
+  }
+  .page-head .heb {
+    font-family: var(--ff-hebrew);
+    font-size: clamp(30px, 4vw, 46px);
+    font-weight: 400;
+    color: var(--ink-700);
+    letter-spacing: 0;
+    line-height: 1;
+    margin-bottom: 20px;
+    text-align: right;
+    direction: rtl;
+  }
+  .page-head .order-tag {
+    font-family: var(--ff-body);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cedar-600);
+    margin-bottom: 10px;
+    text-align: left;
+  }
+  .page-head .eng {
+    font-family: var(--ff-display);
+    font-weight: 400;
+    font-size: clamp(40px, 7vw, 92px);
+    line-height: 0.96;
+    letter-spacing: -0.035em;
+    color: var(--ink-900);
+    margin: 0;
+    text-align: left;
+    font-variation-settings: "opsz" 144, "SOFT" 20;
+  }
+  .page-head .eng em {
+    font-style: italic;
+    color: var(--cedar-600);
+    font-variation-settings: "opsz" 144, "SOFT" 70;
+  }
+  .page-head .meta {
+    margin-top: 14px;
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-500);
+    text-align: left;
+    font-variation-settings: "opsz" 16, "SOFT" 50;
+  }
+
+  /* script body — reads like a book */
+  .script {
+    position: relative;
+    max-width: 62ch;
+    margin: 0 auto;
+    font-family: var(--ff-reading);
+    font-size: 19px;
+    line-height: 1.68;
+    color: var(--ink-800);
+    font-variation-settings: "opsz" 18, "SOFT" 30;
+  }
+  .script p {
+    margin: 0 0 22px 0;
+  }
+  .script .lede {
+    font-style: italic;
+    font-size: 22px;
+    line-height: 1.5;
+    color: var(--ink-900);
+    margin-bottom: 28px;
+    font-variation-settings: "opsz" 36, "SOFT" 40;
+  }
+  .script .heb { font-family: var(--ff-hebrew); font-style: normal; color: var(--ink-700); }
+  .script .ch  { font-family: var(--ff-display); font-style: italic; color: var(--cedar-600); font-variation-settings: "opsz" 14, "SOFT" 80; }
+  .script-end {
+    margin-top: 28px;
+    text-align: center;
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 12px;
+    color: var(--ink-400);
+    letter-spacing: 0.18em;
+  }
+
+  /* script footer — quiet actions */
+  .page-foot {
+    margin-top: 52px;
+    padding-top: 28px;
+    border-top: 1px solid var(--ink-100);
+    display: flex; align-items: center; gap: 18px;
+    flex-wrap: wrap;
+  }
+  .page-foot .ready {
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-500);
+    font-variation-settings: "opsz" 14, "SOFT" 30;
+  }
+  .page-foot .ready .dot {
+    display: inline-block;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--cedar-500); margin-right: 8px;
+    transform: translateY(-2px);
+  }
+  .page-foot .spacer { flex: 1; }
+  .page-foot .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--ff-body); font-weight: 500; font-size: 14px;
+    padding: 11px 22px; min-height: 44px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    text-decoration: none; cursor: pointer;
+    transition: all var(--trans);
+    letter-spacing: 0.005em;
+  }
+  .btn-primary {
+    background: var(--navy-800); color: var(--linen-50);
+    border-color: var(--navy-800);
+    box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42);
+  }
+  .btn-primary:hover { background: var(--ink-900); border-color: var(--ink-900); transform: translateY(-1px); }
+  .btn-ghost {
+    background: transparent; color: var(--ink-700); border-color: var(--ink-200);
+  }
+  .btn-ghost:hover { color: var(--ink-900); border-color: var(--ink-400); background: var(--linen-100); }
+  .btn-text {
+    font-family: var(--ff-body); font-size: 13px; color: var(--ink-500);
+    background: none; border: none; padding: 11px 4px; min-height: 44px;
+    cursor: pointer; text-decoration: underline; text-decoration-color: var(--ink-200);
+    text-underline-offset: 4px;
+    transition: all var(--trans);
+  }
+  .btn-text:hover { color: var(--navy-700); text-decoration-color: var(--cedar-400); }
+
+  /* =====================================================================
+     PRODUCTION ARC — a single line, not a checklist
+     ===================================================================== */
+  .arc {
+    display: flex; align-items: center; gap: 18px;
+    padding: 22px 28px;
+    border: 1px solid var(--ink-100);
+    border-radius: var(--r-lg);
+    background: var(--linen-50);
+    margin-bottom: 40px;
+    font-family: var(--ff-display);
+    font-size: 14.5px;
+    font-style: italic;
+    color: var(--ink-500);
+    font-variation-settings: "opsz" 14, "SOFT" 40;
+    flex-wrap: wrap;
+  }
+  .arc-stage {
+    display: inline-flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+  }
+  .arc-stage .g {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: transparent;
+    border: 1.5px solid var(--ink-200);
+    display: inline-block;
+  }
+  .arc-stage.done .g { background: var(--jade); border-color: var(--jade); }
+  .arc-stage.run .g  { background: var(--navy-700); border-color: var(--navy-700); animation: pulse-navy 1.8s ease-in-out infinite; }
+  @keyframes pulse-navy {
+    0%,100% { box-shadow: 0 0 0 3px rgba(43,58,92,.2); }
+    50%     { box-shadow: 0 0 0 7px rgba(43,58,92,.04); }
+  }
+  .arc-stage.done .n { color: var(--ink-700); }
+  .arc-stage.run .n  { color: var(--ink-900); font-style: normal; font-weight: 500; font-family: var(--ff-body); }
+  .arc-sep {
+    font-family: var(--ff-display);
+    color: var(--ink-200);
+    font-style: normal;
+    font-size: 13px;
+  }
+  .arc-peek {
+    font-family: var(--ff-body);
+    font-size: 12px;
+    font-style: normal;
+    color: var(--ink-400);
+    margin-left: auto;
+    text-decoration: none;
+    letter-spacing: 0.02em;
+  }
+  .arc-peek:hover { color: var(--navy-700); }
+
+  /* =====================================================================
+     LAST-WEEK WHISPER — single calm line of performance
+     ===================================================================== */
+  .whisper-line {
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 15px;
+    color: var(--ink-500);
+    margin-bottom: 40px;
+    line-height: 1.55;
+    font-variation-settings: "opsz" 18, "SOFT" 50;
+  }
+  .whisper-line strong {
+    font-weight: 500;
+    font-style: normal;
+    color: var(--ink-900);
+    font-variation-settings: "opsz" 18, "SOFT" 20;
+  }
+  .whisper-line a {
+    font-family: var(--ff-body);
+    font-size: 12px;
+    font-style: normal;
+    color: var(--ink-400);
+    text-decoration: none;
+    letter-spacing: 0.03em;
+    margin-left: 10px;
+    padding-left: 12px;
+    border-left: 1px solid var(--ink-200);
+  }
+  .whisper-line a:hover { color: var(--navy-700); }
+
+  /* =====================================================================
+     BATCH VIEW — queue of upcoming weeks, calm
+     ===================================================================== */
+  .batch-head {
+    margin-bottom: 36px;
+  }
+  .batch-head h1 {
+    font-family: var(--ff-display);
+    font-weight: 400;
+    font-size: clamp(36px, 5vw, 56px);
+    line-height: 1.02;
+    letter-spacing: -0.025em;
+    margin: 0 0 12px 0;
+    color: var(--ink-900);
+    font-variation-settings: "opsz" 110, "SOFT" 30;
+  }
+  .batch-head h1 em { font-style: italic; color: var(--ink-500); font-variation-settings: "opsz" 110, "SOFT" 60; }
+  .batch-head .summary {
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 16px;
+    color: var(--ink-500);
+    font-variation-settings: "opsz" 16, "SOFT" 50;
+  }
+
+  .queue {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+    margin-bottom: 40px;
+  }
+  @media (max-width: 1000px) { .queue { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px) {
+    .queue {
+      display: flex;
+      grid-template-columns: none;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      padding-bottom: 8px;
+      margin-left: -18px; margin-right: -18px;
+      padding-left: 18px; padding-right: 18px;
+    }
+    .q-card { min-width: 240px; scroll-snap-align: start; }
+  }
+
+  .q-card {
+    padding: 22px 22px 20px;
+    border: 1px solid var(--ink-100);
+    border-radius: var(--r-lg);
+    background: var(--linen-50);
+    display: flex; flex-direction: column; gap: 14px;
+    transition: all var(--trans);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+  .q-card:hover { border-color: var(--cedar-300); transform: translateY(-1px); }
+  .q-card.next {
+    background: linear-gradient(180deg, var(--linen-100) 0%, var(--linen-50) 80%);
+    border-color: var(--cedar-300);
+  }
+  .q-card.next::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--cedar-500), var(--cedar-600));
+  }
+
+  .q-card .q-when {
+    font-family: var(--ff-body);
+    font-size: 10.5px; letter-spacing: 0.15em; text-transform: uppercase;
+    color: var(--ink-400);
+  }
+  .q-card.next .q-when { color: var(--cedar-600); font-weight: 500; }
+  .q-card .q-heb {
+    font-family: var(--ff-hebrew);
+    font-size: 14px;
+    color: var(--ink-500);
+    direction: rtl;
+    text-align: right;
+    margin-bottom: 4px;
+  }
+  .q-card .q-name {
+    font-family: var(--ff-display);
+    font-weight: 500; font-size: 22px;
+    letter-spacing: -0.015em;
+    color: var(--ink-900);
+    line-height: 1.1;
+    margin: 0;
+    text-align: left;
+    font-variation-settings: "opsz" 36, "SOFT" 30;
+  }
+  .q-card .q-status {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px;
+    color: var(--ink-500);
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px dotted var(--ink-100);
+  }
+  .q-card .q-status .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .q-card .q-status.approved .dot  { background: var(--jade); }
+  .q-card .q-status.pending  .dot  { background: var(--cedar-500); }
+  .q-card .q-status.generating .dot { background: var(--navy-700); animation: pulse-navy 1.8s ease-in-out infinite; }
+  .q-card .q-status.pending { color: var(--cedar-700); }
+
+  .batch-foot {
+    display: flex; align-items: center; gap: 14px;
+    padding: 20px 24px;
+    border: 1px dashed var(--cedar-300);
+    border-radius: var(--r-lg);
+    background: rgba(250,244,232,.6);
+    flex-wrap: wrap;
+    margin-bottom: 40px;
+  }
+  .batch-foot .line {
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 15.5px;
+    color: var(--ink-700);
+    font-variation-settings: "opsz" 18, "SOFT" 40;
+    flex: 1;
+    min-width: 240px;
+  }
+  .batch-foot .line strong {
+    font-style: normal; font-weight: 500; color: var(--ink-900);
+    font-variation-settings: "opsz" 18, "SOFT" 20;
+  }
+
+  /* =====================================================================
+     AUTOPILOT VIEW — the quietest surface
+     ===================================================================== */
+  .autopilot {
+    display: flex; flex-direction: column; gap: 56px;
+    padding: 64px 0 20px;
+  }
+  .autopilot h1 {
+    font-family: var(--ff-display);
+    font-weight: 400;
+    font-size: clamp(38px, 6vw, 64px);
+    line-height: 1;
+    letter-spacing: -0.03em;
+    margin: 0;
+    color: var(--ink-900);
+    font-variation-settings: "opsz" 144, "SOFT" 30;
+  }
+  .autopilot h1 em { font-style: italic; color: var(--cedar-600); font-variation-settings: "opsz" 144, "SOFT" 70; }
+  .auto-card {
+    padding: 34px 36px;
+    border: 1px solid var(--ink-100);
+    border-radius: var(--r-lg);
+    background: var(--linen-50);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: center;
+  }
+  @media (max-width: 700px) { .auto-card { grid-template-columns: 1fr; } }
+  .auto-card .t {
+    font-family: var(--ff-body); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-400);
+  }
+  .auto-card .l {
+    font-family: var(--ff-display);
+    font-weight: 500;
+    font-size: 22px; letter-spacing: -0.015em;
+    margin: 6px 0 4px;
+    color: var(--ink-900);
+    font-variation-settings: "opsz" 36, "SOFT" 30;
+  }
+  .auto-card .s {
+    font-family: var(--ff-display); font-style: italic; font-size: 13.5px; color: var(--ink-500);
+    font-variation-settings: "opsz" 14, "SOFT" 50;
+  }
+
+  /* =====================================================================
+     HIDDEN TOGGLE MACHINERY
+     ===================================================================== */
+  [data-stance] .view { display: none; }
+  [data-stance="reviewer"] .view.reviewer { display: block; }
+  [data-stance="batch"]    .view.batch    { display: block; }
+  [data-stance="auto"]     .view.auto     { display: block; }
+
+  /* =====================================================================
+     STANCE SHEET — the real setting change, with consequences spelled out
+     ===================================================================== */
+  .sheet-scrim {
+    position: fixed; inset: 0; z-index: 30;
+    background: rgba(35,27,16,.38);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--trans);
+  }
+  .sheet-scrim.open { opacity: 1; pointer-events: auto; }
+
+  .sheet {
+    position: fixed; z-index: 31;
+    left: 50%; top: 50%;
+    transform: translate(-50%, calc(-50% + 20px));
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    background: var(--linen-50);
+    border: 1px solid var(--ink-200);
+    border-radius: var(--r-xl);
+    box-shadow: 0 30px 80px -30px rgba(35,27,16,.45);
+    padding: 36px 40px 32px;
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--trans), transform var(--trans);
+  }
+  .sheet.open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%); }
+  @media (max-width: 700px) {
+    .sheet { padding: 28px 22px 24px; border-radius: var(--r-lg); }
+  }
+
+  .sheet-kicker {
+    font-family: var(--ff-body);
+    font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--cedar-600);
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sheet-kicker .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--cedar-500);
+  }
+  .sheet h2 {
+    font-family: var(--ff-display);
+    font-weight: 400; font-size: clamp(24px, 3vw, 32px);
+    line-height: 1.1; letter-spacing: -0.02em;
+    margin: 0 0 10px 0;
+    color: var(--ink-900);
+    font-variation-settings: "opsz" 36, "SOFT" 30;
+  }
+  .sheet h2 em { font-style: italic; color: var(--ink-500); font-variation-settings: "opsz" 36, "SOFT" 60; }
+  .sheet .sheet-sub {
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-500);
+    margin: 0 0 24px 0;
+    font-variation-settings: "opsz" 14, "SOFT" 50;
+  }
+  .sheet .sheet-sub strong {
+    font-weight: 500; font-style: normal; color: var(--ink-700);
+    font-variation-settings: "opsz" 14, "SOFT" 20;
+  }
+
+  .choices { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
+  .choice {
+    position: relative;
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 14px;
+    align-items: start;
+    padding: 16px 18px;
+    border: 1px solid var(--ink-100);
+    border-radius: var(--r-md);
+    background: var(--linen-50);
+    cursor: pointer;
+    transition: all var(--trans);
+  }
+  .choice:hover { border-color: var(--cedar-300); background: var(--linen-100); }
+  .choice input { position: absolute; opacity: 0; pointer-events: none; }
+  .choice .radio {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 1.5px solid var(--ink-300);
+    background: var(--linen-50);
+    display: grid; place-items: center;
+    margin-top: 3px;
+    transition: all var(--trans);
+  }
+  .choice .radio::after {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--navy-800);
+    transform: scale(0);
+    transition: transform 200ms var(--trans);
+  }
+  .choice.selected .radio { border-color: var(--navy-800); }
+  .choice.selected .radio::after { transform: scale(1); }
+  .choice.selected { border-color: var(--navy-500); background: var(--navy-wash); }
+  .choice .name {
+    font-family: var(--ff-display);
+    font-weight: 500; font-size: 16px;
+    color: var(--ink-900);
+    letter-spacing: -0.005em;
+    margin: 0 0 3px 0;
+    font-variation-settings: "opsz" 18, "SOFT" 20;
+  }
+  .choice .lede { font-size: 13.5px; color: var(--ink-700); margin: 0; line-height: 1.45; }
+  .choice .consequence {
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 12.5px;
+    color: var(--ink-500);
+    margin-top: 7px;
+    padding-top: 7px;
+    border-top: 1px dotted var(--ink-100);
+    line-height: 1.5;
+    font-variation-settings: "opsz" 14, "SOFT" 60;
+  }
+  .choice .consequence strong { font-weight: 500; font-style: normal; color: var(--cedar-700); font-variation-settings: "opsz" 14, "SOFT" 20; }
+
+  .sheet-foot {
+    display: flex; align-items: center; gap: 12px;
+    padding-top: 20px;
+    border-top: 1px solid var(--ink-100);
+    flex-wrap: wrap;
+  }
+  .sheet-foot .note {
+    flex: 1;
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 12.5px;
+    color: var(--ink-500);
+    min-width: 200px;
+    line-height: 1.45;
+  }
+
+  /* Saved toast — shown briefly after a real change */
+  .toast {
+    position: fixed; z-index: 40;
+    bottom: 28px; left: 50%;
+    transform: translate(-50%, 40px);
+    padding: 12px 20px 12px 16px;
+    background: var(--ink-900); color: var(--linen-50);
+    border-radius: 999px;
+    font-family: var(--ff-body); font-size: 13.5px;
+    display: flex; align-items: center; gap: 10px;
+    opacity: 0; pointer-events: none;
+    transition: all var(--trans);
+    box-shadow: 0 20px 40px -20px rgba(35,27,16,.4);
+  }
+  @media (max-width: 900px) { .toast { bottom: 96px; } }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast .check {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--jade);
+    display: grid; place-items: center;
+    color: var(--linen-50);
+  }
+  .toast .check svg { width: 10px; height: 10px; }
+  .toast .note { font-family: var(--ff-display); font-style: italic; color: var(--cedar-300); margin-left: 6px; font-size: 12.5px; }
+
+  /* =====================================================================
+     MOBILE TAB BAR
+     ===================================================================== */
+  .tabbar {
+    display: none;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    background: rgba(250,244,232,.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid var(--ink-100);
+    padding: 8px 10px 14px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+  }
+  @media (max-width: 900px) { .tabbar { display: grid; } }
+  .tab {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; padding: 6px; min-height: 48px;
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-400); text-decoration: none;
+    border-radius: var(--r-md);
+  }
+  .tab svg { width: 20px; height: 20px; }
+  .tab.active { color: var(--ink-900); }
+  .tab.active svg { color: var(--navy-700); }
+
+  /* =====================================================================
+     PAGE-LOAD STAGGER & TRANSITIONS
+     ===================================================================== */
+  .stagger > * { opacity: 0; transform: translateY(10px); animation: rise 700ms var(--trans) forwards; }
+  .stagger > *:nth-child(1) { animation-delay: 50ms; }
+  .stagger > *:nth-child(2) { animation-delay: 130ms; }
+  .stagger > *:nth-child(3) { animation-delay: 220ms; }
+  .stagger > *:nth-child(4) { animation-delay: 310ms; }
+  .stagger > *:nth-child(5) { animation-delay: 400ms; }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+
+  .view { animation: fade 520ms var(--trans) both; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* =====================================================================
+     FAB — floating action button, bottom-right
+     ===================================================================== */
+  .fab {
+    position: fixed;
+    z-index: 25;
+    bottom: 36px; right: 36px;
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--navy-800);
+    color: var(--linen-50);
+    border: none;
+    cursor: pointer;
+    display: grid; place-items: center;
+    box-shadow: 0 4px 14px -4px rgba(19,30,56,.45), 0 1px 0 rgba(255,255,255,.06) inset;
+    transition: all var(--trans);
+  }
+  .fab:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 8px 22px -6px rgba(19,30,56,.5), 0 1px 0 rgba(255,255,255,.08) inset;
+  }
+  .fab svg { width: 24px; height: 24px; }
+  .fab-tooltip {
+    position: absolute;
+    right: 66px; top: 50%;
+    transform: translateY(-50%);
+    background: var(--ink-900); color: var(--linen-50);
+    font-family: var(--ff-body); font-size: 12px; font-weight: 500;
+    padding: 5px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    opacity: 0; pointer-events: none;
+    transition: opacity 180ms ease;
+  }
+  .fab:hover .fab-tooltip { opacity: 1; }
+  @media (max-width: 900px) {
+    .fab { bottom: 80px; right: 18px; }
+    .fab-tooltip { display: none; }
+  }
+
+  /* =====================================================================
+     CREATE SHEET — modal for ad-hoc video creation
+     ===================================================================== */
+  .create-scrim {
+    position: fixed; inset: 0; z-index: 30;
+    background: rgba(35,27,16,.38);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--trans);
+  }
+  .create-scrim.open { opacity: 1; pointer-events: auto; }
+
+  .create-sheet {
+    position: fixed; z-index: 31;
+    left: 50%; top: 50%;
+    transform: translate(-50%, calc(-50% + 20px));
+    width: min(600px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    background: var(--linen-50);
+    border: 1px solid var(--ink-200);
+    border-radius: var(--r-xl);
+    box-shadow: 0 30px 80px -30px rgba(35,27,16,.45);
+    padding: 36px 40px 32px;
+    opacity: 0; pointer-events: none;
+    transition: opacity var(--trans), transform var(--trans);
+  }
+  .create-sheet.open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%); }
+  @media (max-width: 700px) {
+    .create-sheet { padding: 28px 22px 24px; border-radius: var(--r-lg); }
+  }
+
+  .create-sheet .sheet-kicker {
+    font-family: var(--ff-body);
+    font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--cedar-600); margin-bottom: 8px;
+  }
+  .create-sheet h2 {
+    font-family: var(--ff-display);
+    font-weight: 400; font-size: clamp(24px, 3vw, 32px);
+    line-height: 1.1; letter-spacing: -0.02em;
+    margin: 0 0 6px 0;
+    color: var(--ink-900);
+    font-style: italic;
+    font-variation-settings: "opsz" 36, "SOFT" 50;
+  }
+  .create-sheet .create-sub {
+    font-family: var(--ff-display);
+    font-style: italic; font-size: 14px;
+    color: var(--ink-500); margin: 0 0 24px 0;
+    font-variation-settings: "opsz" 14, "SOFT" 50;
+    line-height: 1.5;
+  }
+
+  /* Mode toggle pills */
+  .mode-toggle {
+    display: inline-flex;
+    border: 1px solid var(--ink-200);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 20px;
+    background: var(--linen-100);
+  }
+  .mode-toggle button {
+    font-family: var(--ff-body); font-size: 13px; font-weight: 500;
+    padding: 8px 20px; min-height: 36px;
+    border: none; background: transparent;
+    color: var(--ink-500); cursor: pointer;
+    transition: all var(--trans);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .mode-toggle button.active {
+    background: var(--navy-800); color: var(--linen-50);
+    border-radius: 999px;
+  }
+  .mode-toggle button svg { width: 14px; height: 14px; }
+
+  /* Voice mode */
+  .voice-area { text-align: center; padding: 16px 0 8px; }
+  .record-btn {
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--navy-800); color: var(--linen-50);
+    border: none; cursor: pointer;
+    display: inline-grid; place-items: center;
+    transition: all var(--trans);
+    position: relative;
+  }
+  .record-btn svg { width: 28px; height: 28px; }
+  .record-btn.recording {
+    background: var(--tassel);
+  }
+  .record-btn.recording::before {
+    content: "";
+    position: absolute; inset: -8px;
+    border-radius: 50%;
+    border: 2px solid var(--tassel);
+    animation: pulse-record 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse-record {
+    0%,100% { transform: scale(1); opacity: 0.6; }
+    50%     { transform: scale(1.18); opacity: 0; }
+  }
+  .record-label {
+    font-family: var(--ff-body); font-size: 13px;
+    color: var(--ink-500); margin-top: 12px;
+  }
+  .transcript-area {
+    display: none;
+    margin-top: 20px;
+    padding: 18px;
+    background: var(--linen-100);
+    border: 1px solid var(--cedar-100);
+    border-radius: var(--r-md);
+    font-family: var(--ff-reading); font-size: 15px;
+    line-height: 1.6; color: var(--ink-800);
+    text-align: left;
+    font-variation-settings: "opsz" 16, "SOFT" 30;
+  }
+  .transcript-area.show { display: block; }
+  .edit-transcript {
+    display: none;
+    margin-top: 8px;
+    font-family: var(--ff-body); font-size: 13px;
+    color: var(--ink-500); background: none; border: none;
+    cursor: pointer; text-decoration: underline;
+    text-decoration-color: var(--ink-200);
+    text-underline-offset: 4px;
+  }
+  .edit-transcript.show { display: inline-block; }
+  .edit-transcript:hover { color: var(--navy-700); text-decoration-color: var(--cedar-400); }
+
+  /* Text mode */
+  .text-area { display: none; padding: 8px 0; }
+  .text-area.show { display: block; }
+  .text-area textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: 16px;
+    font-family: var(--ff-reading); font-size: 15px;
+    line-height: 1.6; color: var(--ink-800);
+    background: var(--linen-100);
+    border: 1px solid var(--cedar-100);
+    border-radius: var(--r-md);
+    resize: vertical;
+    font-variation-settings: "opsz" 16, "SOFT" 30;
+    transition: border-color var(--trans);
+  }
+  .text-area textarea:focus {
+    outline: none;
+    border-color: var(--cedar-400);
+  }
+  .text-area textarea::placeholder { color: var(--ink-300); }
+
+  /* Category pills */
+  .cat-pills {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    margin: 16px 0 24px;
+  }
+  .cat-pill {
+    font-family: var(--ff-body); font-size: 12px; font-weight: 500;
+    padding: 6px 14px; min-height: 32px;
+    border-radius: 999px;
+    border: 1px solid var(--ink-200);
+    background: transparent;
+    color: var(--ink-500);
+    cursor: pointer;
+    transition: all var(--trans);
+    display: inline-flex; align-items: center;
+  }
+  .cat-pill:hover { border-color: var(--cedar-300); color: var(--ink-700); }
+  .cat-pill.selected {
+    background: var(--navy-wash);
+    color: var(--navy-800);
+    border-color: var(--navy-300);
+  }
+
+  /* Create sheet footer */
+  .create-foot {
+    display: flex; align-items: center; gap: 12px;
+    padding-top: 20px;
+    border-top: 1px solid var(--ink-100);
+    flex-wrap: wrap;
+  }
+  .create-foot .hint {
+    flex: 1;
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 12.5px;
+    color: var(--ink-500);
+    min-width: 200px;
+    line-height: 1.45;
+    font-variation-settings: "opsz" 14, "SOFT" 50;
+  }
+
+  /* Whisper line variant — more subdued */
+  .whisper-line-quiet {
+    font-family: var(--ff-display);
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-400);
+    margin-bottom: 40px;
+    line-height: 1.55;
+    font-variation-settings: "opsz" 16, "SOFT" 50;
+  }
+  .whisper-line-quiet strong {
+    font-weight: 500;
+    font-style: normal;
+    color: var(--ink-700);
+    font-variation-settings: "opsz" 16, "SOFT" 20;
+  }
+  .whisper-line-quiet a {
+    font-family: var(--ff-body);
+    font-size: 12px;
+    font-style: normal;
+    color: var(--ink-400);
+    text-decoration: none;
+    letter-spacing: 0.03em;
+    margin-left: 10px;
+    padding-left: 12px;
+    border-left: 1px solid var(--ink-200);
+  }
+  .whisper-line-quiet a:hover { color: var(--navy-700); }
+
+</style>
+</head>
+<body>
+
+<!-- ===== Torah Tai Chi brand mark (SVG def) ===== -->
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <defs>
+    <radialGradient id="cedarWood" cx="35%" cy="30%" r="80%">
+      <stop offset="0%"  stop-color="#E3B888"/>
+      <stop offset="45%" stop-color="#B8823A"/>
+      <stop offset="100%" stop-color="#6A4622"/>
+    </radialGradient>
+    <radialGradient id="linenLobe" cx="40%" cy="35%" r="80%">
+      <stop offset="0%" stop-color="#FAF4E8"/>
+      <stop offset="100%" stop-color="#E9DDC1"/>
+    </radialGradient>
+    <radialGradient id="navyLobe" cx="60%" cy="60%" r="80%">
+      <stop offset="0%" stop-color="#2B3A5C"/>
+      <stop offset="100%" stop-color="#131E38"/>
+    </radialGradient>
+
+    <g id="ttc-mark">
+      <circle cx="60" cy="60" r="42" fill="url(#cedarWood)" stroke="#3D2A14" stroke-width="0.8"/>
+      <circle cx="60" cy="60" r="34" fill="none" stroke="#3D2A14" stroke-width="0.4" opacity="0.5"/>
+      <g transform="translate(60 60)">
+        <circle r="28" fill="url(#linenLobe)"/>
+        <path d="M 0,-28 A 28,28 0 0,0 0,28 A 14,14 0 0,1 0,0 A 14,14 0 0,0 0,-28 Z" fill="url(#navyLobe)"/>
+        <circle cx="0" cy="-14" r="3.2" fill="#FAF4E8"/>
+        <circle cx="0" cy="14" r="3.2" fill="#2B3A5C"/>
+        <g transform="translate(0,-14) scale(0.55)">
+          <polygon points="0,-8 6.93,4 -6.93,4" fill="none" stroke="#9E7A3A" stroke-width="1.2"/>
+          <polygon points="0,8 6.93,-4 -6.93,-4" fill="none" stroke="#9E7A3A" stroke-width="1.2"/>
+        </g>
+      </g>
+      <defs><path id="arcTop" d="M 18,60 A 42,42 0 0,1 102,60"/></defs>
+      <text font-family="Fraunces, serif" font-size="9" font-weight="600" letter-spacing="3" fill="#3D2A14">
+        <textPath href="#arcTop" startOffset="50%" text-anchor="middle">TORAH</textPath>
+      </text>
+      <text x="60" y="108" font-family="Fraunces, serif" font-size="8" font-weight="600" letter-spacing="3" fill="#3D2A14" text-anchor="middle">TAI CHI</text>
+    </g>
+  </defs>
+</svg>
+
+<div class="shell" id="shell" data-stance="reviewer">
+
+  <!-- =============== SIDEBAR =============== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 120 120" aria-hidden="true"><use href="#ttc-mark"/></svg>
+      <span>Torah&nbsp;Tai&nbsp;Chi</span>
+    </div>
+
+    <nav class="nav" aria-label="Primary">
+      <a href="today.html" class="active">Today<span class="meta">now</span></a>
+      <a href="calendar.html">Calendar<span class="meta">4 ahead</span></a>
+      <a href="videos.html">Videos<span class="meta">52</span></a>
+      <a href="#">Articles<span class="meta">soon</span></a>
+      <a href="channels.html">Channels<span class="meta">4 / 5</span></a>
+      <a href="analytics.html">Analytics</a>
+      <a href="settings.html">Settings</a>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="rule"></div>
+      <div>Root before you rise.<br>The craft compounds.</div>
+    </div>
+  </aside>
+
+  <!-- =============== MAIN =============== -->
+  <main class="stagger">
+
+    <!-- TOP BAR — minimal -->
+    <div class="topbar">
+      <div class="date">Thursday, April 16<span class="heb" lang="he" dir="rtl">כ״ז ניסן תשפ״ו</span></div>
+      <div class="avatar" title="Yonah">Y</div>
+    </div>
+
+    <!-- STANCE LINE — a stated setting. Clicking opens the real setting sheet. -->
+    <div class="stance">
+      <span class="stance-text" id="stance-text"><!-- filled by JS per stance --></span>
+      <button class="stance-swap" id="stance-open" type="button" aria-haspopup="dialog">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+          <path d="M10 3v3M10 14v3M4.8 4.8l2.1 2.1M13.1 13.1l2.1 2.1M3 10h3M14 10h3M4.8 15.2l2.1-2.1M13.1 6.9l2.1-2.1"/>
+          <circle cx="10" cy="10" r="2.4"/>
+        </svg>
+        <span class="lbl">Change stance</span>
+        <span class="mark">live setting</span>
+      </button>
+    </div>
+
+    <!-- =========================================================
+         VIEW A — REVIEWER
+         The sage page is the hero. The script itself is the page.
+         ========================================================= -->
+    <div class="view reviewer">
+
+      <article class="page">
+        <header class="page-head">
+          <div class="heb" lang="he" dir="rtl">פרשת קדושים</div>
+          <div class="order-tag">This week · Leviticus · order 30</div>
+          <h1 class="eng">Kedoshim<em>.</em></h1>
+          <div class="meta">Shabbat April 25 · script A-tight, 108 words</div>
+        </header>
+
+        <div class="script">
+          <p class="lede">Everyone quotes <em>love your neighbor as yourself</em> — but nobody reads the verse before it.</p>
+
+          <p>Parshat Kedoshim begins with <span class="heb" lang="he" dir="rtl">קדושים תהיו</span> — <em>Kedoshim tihiyu, be holy.</em> Then dozens of commands: don't gossip, don't hold grudges, pay workers on time. Kedusha isn't a feeling. It's restraint — what you don't do when your ego wants to strike.</p>
+
+          <p>In tai chi this is <span class="ch">song 松</span> — not collapse, not force. Stand in <span class="ch">zhan zhuang</span> and someone pushes your chest. You don't brace, don't crumble. You soften into your root and the pressure passes through.</p>
+
+          <p>That's kedusha. The discipline of non-reactivity that makes <em>love your neighbor</em> even possible.</p>
+
+          <p>One breath before you respond. That breath is the practice.</p>
+
+          <div class="script-end">· · ·</div>
+        </div>
+
+        <footer class="page-foot">
+          <div class="ready"><span class="dot"></span>Ready for your eye.</div>
+          <div class="spacer"></div>
+          <div class="actions">
+            <button class="btn-text">Adjust the script</button>
+            <a href="#" class="btn btn-ghost">Regenerate</a>
+            <a href="#" class="btn btn-primary">Approve · generate video</a>
+          </div>
+        </footer>
+      </article>
+
+      <div class="arc">
+        <span class="arc-stage done"><span class="g"></span><span class="n">Script · approved Tue</span></span>
+        <span class="arc-sep">—</span>
+        <span class="arc-stage run"><span class="g"></span><span class="n">Video · awaiting your go</span></span>
+        <span class="arc-sep">—</span>
+        <span class="arc-stage"><span class="g"></span><span class="n">Captions</span></span>
+        <span class="arc-sep">—</span>
+        <span class="arc-stage"><span class="g"></span><span class="n">Schedule</span></span>
+        <a href="#" class="arc-peek">See under the hood →</a>
+      </div>
+
+      <p class="whisper-line">
+        <strong>Shemot</strong> is out in the world. 3,412 have seen it; 3 questions await your eye on TikTok.
+        <a href="#">Open Shemot →</a>
+      </p>
+
+      <p class="whisper-line-quiet">
+        You also have <strong>1 ad-hoc draft</strong> from yesterday awaiting your eye.
+        <a href="#">Review it →</a>
+      </p>
+    </div>
+
+    <!-- =========================================================
+         VIEW B — BATCH-AHEAD
+         Queue of the next five weeks. Confidence, not tasks.
+         ========================================================= -->
+    <div class="view batch">
+      <header class="batch-head">
+        <h1>Five weeks stocked. <em>Kedoshim ships Friday.</em></h1>
+        <p class="summary">Three of the five are fully approved; two still want your eye before they post.</p>
+      </header>
+
+      <div class="queue">
+        <div class="q-card next">
+          <div class="q-when">Ships Friday · Apr 25</div>
+          <div>
+            <div class="q-heb" lang="he" dir="rtl">קדושים</div>
+            <div class="q-name">Kedoshim</div>
+          </div>
+          <div class="q-status approved"><span class="dot"></span>Video approved · captions set</div>
+        </div>
+
+        <div class="q-card">
+          <div class="q-when">May 2</div>
+          <div>
+            <div class="q-heb" lang="he" dir="rtl">אמור</div>
+            <div class="q-name">Emor</div>
+          </div>
+          <div class="q-status approved"><span class="dot"></span>Approved</div>
+        </div>
+
+        <div class="q-card">
+          <div class="q-when">May 9</div>
+          <div>
+            <div class="q-heb" lang="he" dir="rtl">בהר</div>
+            <div class="q-name">Behar</div>
+          </div>
+          <div class="q-status pending"><span class="dot"></span>Script ready for your eye</div>
+        </div>
+
+        <div class="q-card">
+          <div class="q-when">May 16</div>
+          <div>
+            <div class="q-heb" lang="he" dir="rtl">בחוקתי</div>
+            <div class="q-name">Bechukotai</div>
+          </div>
+          <div class="q-status approved"><span class="dot"></span>Approved</div>
+        </div>
+
+        <div class="q-card">
+          <div class="q-when">May 23</div>
+          <div>
+            <div class="q-heb" lang="he" dir="rtl">במדבר</div>
+            <div class="q-name">Bamidbar</div>
+          </div>
+          <div class="q-status generating"><span class="dot"></span>Generating video now</div>
+        </div>
+      </div>
+
+      <div class="batch-foot">
+        <div class="line">
+          Two posts — <strong>Behar</strong> and <strong>Bamidbar</strong> — want a few minutes of your attention this week.
+        </div>
+        <a href="#" class="btn btn-ghost">Review the two</a>
+        <a href="#" class="btn btn-primary">Approve all ready</a>
+      </div>
+
+      <p class="whisper-line">
+        <strong>Shemot</strong> is out in the world. 3,412 have seen it; 3 questions await your eye on TikTok.
+        <a href="#">Open Shemot →</a>
+      </p>
+    </div>
+
+    <!-- =========================================================
+         VIEW C — AUTOPILOT
+         The quietest surface. Nothing demands anything.
+         ========================================================= -->
+    <div class="view auto">
+      <div class="autopilot">
+        <h1>The shop is open. <em>Nothing asks of you today.</em></h1>
+
+        <div class="auto-card">
+          <div>
+            <div class="t">Now live</div>
+            <div class="l">Kedoshim — published Friday 6:00 pm to all four channels</div>
+            <div class="s">1,204 views across platforms · rising steadily through Shabbat</div>
+          </div>
+          <a href="#" class="btn btn-ghost">Peek at Kedoshim</a>
+        </div>
+
+        <div class="auto-card">
+          <div>
+            <div class="t">Next Friday</div>
+            <div class="l">Emor — already approved, cued for 6:00 pm May 2</div>
+            <div class="s">Captions written · 4 of 4 channels scheduled</div>
+          </div>
+          <a href="#" class="btn btn-ghost">See the queue</a>
+        </div>
+
+        <div class="auto-card">
+          <div>
+            <div class="t">Want to step in?</div>
+            <div class="l">Pause autopilot any time — nothing ships without you after that.</div>
+            <div class="s">Or change your stance: review-per-post, batch, hands-on.</div>
+          </div>
+          <a href="#" class="btn btn-primary">Pause autopilot</a>
+        </div>
+
+        <p class="whisper-line" style="margin-top: 8px">
+          Weekly digest arrives Sunday at 7 am. <a href="#">Change cadence →</a>
+        </p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- =============== MOBILE BOTTOM TAB BAR =============== -->
+<nav class="tabbar" aria-label="Primary">
+  <a href="today.html" class="tab active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    Today
+  </a>
+  <a href="calendar.html" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+    Calendar
+  </a>
+  <a href="videos.html" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>
+    Videos
+  </a>
+  <a href="channels.html" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 12a8 8 0 1 1 16 0 8 8 0 0 1-16 0z"/><path d="M4 12h16M12 4c2 2.5 3 5 3 8s-1 5.5-3 8c-2-2.5-3-5-3-8s1-5.5 3-8z"/></svg>
+    Channels
+  </a>
+  <a href="analytics.html" class="tab">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+    Analytics
+  </a>
+</nav>
+
+<!-- ===== Stance settings sheet ===== -->
+<div class="sheet-scrim" id="scrim" aria-hidden="true"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+  <div class="sheet-kicker"><span class="dot"></span>Live setting · changes how the business runs</div>
+  <h2 id="sheet-title">How involved are you this season, <em>Yonah?</em></h2>
+  <p class="sheet-sub">
+    <strong>This is not a view toggle.</strong> Changing your stance changes what Torah Tai Chi does on its own — which posts ship without you, which wait for your eye.
+  </p>
+
+  <div class="choices" role="radiogroup" aria-label="Stance">
+    <label class="choice" data-choice="handson">
+      <input type="radio" name="stance" value="handson">
+      <span class="radio" aria-hidden="true"></span>
+      <div>
+        <p class="name">Hands-on</p>
+        <p class="lede">You initiate each step — generate, review, schedule, publish. Nothing happens unless you act.</p>
+        <p class="consequence">Slowest rhythm. <strong>Requires your attention every week.</strong> Best for a new season when you want to feel each video.</p>
+      </div>
+    </label>
+
+    <label class="choice selected" data-choice="reviewer">
+      <input type="radio" name="stance" value="reviewer" checked>
+      <span class="radio" aria-hidden="true"></span>
+      <div>
+        <p class="name">Reviewer <span style="font-family: var(--ff-body); font-style: normal; font-size: 11px; color: var(--navy-700); letter-spacing: .08em; text-transform: uppercase; margin-left: 10px; padding: 2px 8px; background: var(--navy-wash); border-radius: 999px; vertical-align: middle;">current</span></p>
+        <p class="lede">System drafts and generates weekly. You approve each video before it ships.</p>
+        <p class="consequence">You see every post before it goes out. <strong>Nothing ships without your approval.</strong></p>
+      </div>
+    </label>
+
+    <label class="choice" data-choice="batch">
+      <input type="radio" name="stance" value="batch">
+      <span class="radio" aria-hidden="true"></span>
+      <div>
+        <p class="name">Batch-ahead</p>
+        <p class="lede">System generates several weeks at a time. You pre-approve in sessions; approved weeks ship on their calendar.</p>
+        <p class="consequence">Good for travel or intense weeks. <strong>Approved-ahead weeks ship without further check-in.</strong> You set a review cadence for the queue.</p>
+      </div>
+    </label>
+
+    <label class="choice" data-choice="auto">
+      <input type="radio" name="stance" value="auto">
+      <span class="radio" aria-hidden="true"></span>
+      <div>
+        <p class="name">Autopilot</p>
+        <p class="lede">Full auto: generate, schedule, publish. You check in only when you want to.</p>
+        <p class="consequence"><strong>Videos ship weekly without your approval.</strong> You still get a Sunday digest and can pause anytime.</p>
+      </div>
+    </label>
+  </div>
+
+  <div class="sheet-foot">
+    <div class="note">
+      You can change this anytime. Work already in-flight won't be affected by a stance change mid-week.
+    </div>
+    <button class="btn btn-ghost" id="sheet-cancel" type="button">Cancel</button>
+    <button class="btn btn-primary" id="sheet-save" type="button">Save stance</button>
+  </div>
+</div>
+
+<!-- ===== FAB — New video ===== -->
+<button class="fab" id="fab-create" type="button" aria-label="New video">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  <span class="fab-tooltip">New video</span>
+</button>
+
+<!-- ===== Create sheet ===== -->
+<div class="create-scrim" id="create-scrim" aria-hidden="true"></div>
+<div class="create-sheet" id="create-sheet" role="dialog" aria-modal="true" aria-labelledby="create-title">
+  <div class="sheet-kicker">CREATE &middot; NEW VIDEO</div>
+  <h2 id="create-title">What's on your mind?</h2>
+  <p class="create-sub">Speak or type an idea. Claude will draft a script in the Torah Tai Chi voice.</p>
+
+  <div class="mode-toggle" role="tablist">
+    <button class="active" id="mode-voice" role="tab" aria-selected="true" type="button">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0 0 12 0"/><path d="M10 16v2"/></svg>
+      Voice
+    </button>
+    <button id="mode-text" role="tab" aria-selected="false" type="button">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M6 7h8M6 10h8M6 13h4"/></svg>
+      Text
+    </button>
+  </div>
+
+  <!-- Voice mode -->
+  <div class="voice-area" id="voice-mode">
+    <button class="record-btn" id="record-btn" type="button" aria-label="Record">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="8" y="2" width="8" height="12" rx="4"/><path d="M4 12a8 8 0 0 0 16 0"/><path d="M12 20v2"/></svg>
+    </button>
+    <div class="record-label" id="record-label">Tap to record</div>
+    <div class="transcript-area" id="transcript">I want to talk about how the concept of teshuvah — returning — connects to the tai chi principle of returning to center. There's a beautiful parallel between the High Holiday liturgy and the standing meditation practice of zhan zhuang...</div>
+    <button class="edit-transcript" id="edit-transcript" type="button">Edit transcript</button>
+  </div>
+
+  <!-- Text mode -->
+  <div class="text-area" id="text-mode">
+    <textarea placeholder="A teaching, a response to something in the news, a holiday thought..."></textarea>
+  </div>
+
+  <!-- Category pills -->
+  <div class="cat-pills">
+    <button class="cat-pill" type="button">Torah insight</button>
+    <button class="cat-pill" type="button">Holiday</button>
+    <button class="cat-pill" type="button">Topical</button>
+    <button class="cat-pill" type="button">Announcement</button>
+  </div>
+
+  <div class="create-foot">
+    <div class="hint">Claude will return a ~100-word script in about 15 seconds.</div>
+    <button class="btn btn-ghost" id="create-cancel" type="button">Cancel</button>
+    <button class="btn btn-primary" id="create-submit" type="button">Draft script →</button>
+  </div>
+</div>
+
+<!-- ===== Saved toast ===== -->
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <div class="check">
+    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.4 2.3 4.6-4.8"/></svg>
+  </div>
+  <span id="toast-msg">Stance saved.</span>
+  <span class="note" id="toast-note"></span>
+</div>
+
+<script>
+  // Stance copy — rendered into the stance line + toast subtext.
+  const STANCE = {
+    handson:  { line: 'Hands-on — you initiate every step.',
+                toast: 'Nothing ships without your action.' },
+    reviewer: { line: 'Reviewing each post before it ships.',
+                toast: 'The system drafts; you approve.' },
+    batch:    { line: 'Running on autopilot — five weeks stocked.',
+                toast: 'Approved weeks will ship on schedule.' },
+    auto:     { line: 'Running on autopilot · weekly digest on Sunday.',
+                toast: 'Videos will ship weekly without approval.' },
+  };
+
+  const shell       = document.getElementById('shell');
+  const stanceText  = document.getElementById('stance-text');
+  const openBtn     = document.getElementById('stance-open');
+  const scrim       = document.getElementById('scrim');
+  const sheet       = document.getElementById('sheet');
+  const cancelBtn   = document.getElementById('sheet-cancel');
+  const saveBtn     = document.getElementById('sheet-save');
+  const toast       = document.getElementById('toast');
+  const toastMsg    = document.getElementById('toast-msg');
+  const toastNote   = document.getElementById('toast-note');
+
+  // Map data-stance to which of 3 views to show. (handson = same surface as reviewer
+  // in this mockup; we focus on three distinctly-shaped views.)
+  const VIEW_FOR = { handson: 'reviewer', reviewer: 'reviewer', batch: 'batch', auto: 'auto' };
+
+  let currentStance = 'reviewer';
+  let pendingStance = currentStance;
+
+  function applyStance(s) {
+    currentStance = s;
+    pendingStance = s;
+    stanceText.textContent = STANCE[s].line;
+    shell.dataset.stance = VIEW_FOR[s];
+    // Reflect selection in sheet
+    document.querySelectorAll('.choice').forEach(c => {
+      c.classList.toggle('selected', c.dataset.choice === s);
+      const input = c.querySelector('input');
+      if (input) input.checked = c.dataset.choice === s;
+    });
+  }
+
+  function openSheet() {
+    pendingStance = currentStance;
+    scrim.classList.add('open');
+    sheet.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeSheet() {
+    scrim.classList.remove('open');
+    sheet.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  function showToast(msg, note) {
+    toastMsg.textContent = msg;
+    toastNote.textContent = note || '';
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), 3400);
+  }
+
+  openBtn.addEventListener('click', openSheet);
+  scrim.addEventListener('click', closeSheet);
+  cancelBtn.addEventListener('click', closeSheet);
+
+  // Pending-stance selection inside the sheet
+  document.querySelectorAll('.choice').forEach(c => {
+    c.addEventListener('click', (e) => {
+      e.preventDefault();
+      pendingStance = c.dataset.choice;
+      document.querySelectorAll('.choice').forEach(x => x.classList.toggle('selected', x === c));
+      const input = c.querySelector('input'); if (input) input.checked = true;
+    });
+  });
+
+  saveBtn.addEventListener('click', () => {
+    const prev = currentStance;
+    applyStance(pendingStance);
+    closeSheet();
+    if (prev !== currentStance) {
+      showToast(`Stance saved — ${STANCE[currentStance].line.replace(/\.$/, '')}.`, STANCE[currentStance].toast);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSheet();
+  });
+
+  // Initial
+  applyStance('reviewer');
+
+  // ========= CREATE SHEET =========
+  const fab           = document.getElementById('fab-create');
+  const createScrim   = document.getElementById('create-scrim');
+  const createSheet   = document.getElementById('create-sheet');
+  const createCancel  = document.getElementById('create-cancel');
+  const createSubmit  = document.getElementById('create-submit');
+  const modeVoice     = document.getElementById('mode-voice');
+  const modeTextBtn   = document.getElementById('mode-text');
+  const voiceMode     = document.getElementById('voice-mode');
+  const textMode      = document.getElementById('text-mode');
+  const recordBtn     = document.getElementById('record-btn');
+  const recordLabel   = document.getElementById('record-label');
+  const transcript    = document.getElementById('transcript');
+  const editTranscript = document.getElementById('edit-transcript');
+
+  function openCreate() {
+    createScrim.classList.add('open');
+    createSheet.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeCreate() {
+    createScrim.classList.remove('open');
+    createSheet.classList.remove('open');
+    document.body.style.overflow = '';
+    // Reset state
+    recordBtn.classList.remove('recording');
+    recordLabel.textContent = 'Tap to record';
+    transcript.classList.remove('show');
+    editTranscript.classList.remove('show');
+  }
+
+  fab.addEventListener('click', openCreate);
+  createScrim.addEventListener('click', closeCreate);
+  createCancel.addEventListener('click', closeCreate);
+
+  // Mode toggle
+  modeVoice.addEventListener('click', () => {
+    modeVoice.classList.add('active');
+    modeVoice.setAttribute('aria-selected', 'true');
+    modeTextBtn.classList.remove('active');
+    modeTextBtn.setAttribute('aria-selected', 'false');
+    voiceMode.style.display = '';
+    textMode.classList.remove('show');
+  });
+  modeTextBtn.addEventListener('click', () => {
+    modeTextBtn.classList.add('active');
+    modeTextBtn.setAttribute('aria-selected', 'true');
+    modeVoice.classList.remove('active');
+    modeVoice.setAttribute('aria-selected', 'false');
+    voiceMode.style.display = 'none';
+    textMode.classList.add('show');
+  });
+
+  // Record toggle (simulated)
+  let isRecording = false;
+  recordBtn.addEventListener('click', () => {
+    if (!isRecording) {
+      isRecording = true;
+      recordBtn.classList.add('recording');
+      recordLabel.textContent = 'Recording\u2026 tap to stop';
+    } else {
+      isRecording = false;
+      recordBtn.classList.remove('recording');
+      recordLabel.textContent = 'Tap to record again';
+      transcript.classList.add('show');
+      editTranscript.classList.add('show');
+    }
+  });
+
+  // Category pills
+  document.querySelectorAll('.cat-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      pill.classList.toggle('selected');
+    });
+  });
+
+  // Submit → toast
+  createSubmit.addEventListener('click', () => {
+    closeCreate();
+    showToast('Claude is drafting your script\u2026', 'This usually takes about 15 seconds.');
+  });
+
+  // ESC closes create sheet too
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeCreate();
+  });
+</script>
+
+</body>
+</html>
