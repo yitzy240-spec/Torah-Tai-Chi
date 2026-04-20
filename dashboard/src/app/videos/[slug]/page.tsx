@@ -3,12 +3,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PlatformIcon } from '@/components/platform-icon';
 import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
+import { ScriptCarousel } from '@/components/script-carousel';
 import { PLATFORMS, type Platform } from '@/lib/platforms';
 
 interface Script {
   id: string;
   option: string;
   title: string | null;
+  tldr: string | null;
   draft_text: string | null;
 }
 
@@ -26,7 +28,7 @@ async function getParsha(slug: string): Promise<Parsha | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('parshiot')
-    .select('id, order, name, book, slug, hebrew_name, scripts(id, option, title, draft_text)')
+    .select('id, order, name, book, slug, hebrew_name, scripts(id, option, title, tldr, draft_text)')
     .eq('slug', slug)
     .single();
 
@@ -289,78 +291,12 @@ export default async function VideoDetailPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Script panel */}
-        <div
-          style={{
-            padding: '28px 30px',
-            border: '1px solid var(--ink-100)',
-            borderRadius: 'var(--r-lg)',
-            background: 'var(--linen-50)',
-          }}
-        >
-          <h2
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontWeight: 500,
-              fontSize: '15px',
-              color: 'var(--ink-900)',
-              margin: '0 0 4px 0',
-              fontVariationSettings: '"opsz" 18, "SOFT" 30',
-            }}
-          >
-            Script
-          </h2>
-          <p
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: '12.5px',
-              color: 'var(--ink-400)',
-              margin: '0 0 18px 0',
-              fontVariationSettings: '"opsz" 14, "SOFT" 50',
-            }}
-          >
-            {aTight ? `A-tight · ${words} words` : 'No script available'}
-          </p>
-          <div
-            style={{
-              fontFamily: 'var(--ff-reading)',
-              fontSize: '17px',
-              lineHeight: 1.65,
-              color: 'var(--ink-800)',
-              fontVariationSettings: '"opsz" 18, "SOFT" 30',
-            }}
-          >
-            {aTight?.draft_text ? (
-              aTight.draft_text.split('\n\n').map((para, i) => (
-                <p key={i} style={{ margin: '0 0 14px 0' }}>{para}</p>
-              ))
-            ) : (
-              <p style={{ fontStyle: 'italic', color: 'var(--ink-400)' }}>Script not yet available for this parsha.</p>
-            )}
-          </div>
-          <button
-            type="button"
-            style={{
-              fontFamily: 'var(--ff-body)',
-              fontSize: '13px',
-              color: 'var(--ink-500)',
-              textDecoration: 'underline',
-              textDecorationColor: 'var(--ink-200)',
-              textUnderlineOffset: '4px',
-              cursor: 'pointer',
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              minHeight: '44px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              transition: 'all var(--trans)',
-            }}
-          >
-            Edit script
-          </button>
-        </div>
+        {/* Script carousel — arrow through A / B / C / A-tight / custom variants */}
+        <ScriptCarousel
+          parshaId={parsha.id}
+          parshaName={parsha.name}
+          scripts={parsha.scripts ?? []}
+        />
       </div>
 
       {/* Regen box — full width */}
