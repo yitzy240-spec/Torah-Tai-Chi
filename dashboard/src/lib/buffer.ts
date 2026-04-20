@@ -69,6 +69,54 @@ const LIST_CHANNELS_QUERY = `
   }
 `;
 
+const POST_LINKS_QUERY = `
+  query PostLinks($orgId: OrganizationId!) {
+    posts(input: { organizationId: $orgId }, first: 50) {
+      edges { node { id status externalLink } }
+    }
+  }
+`;
+
+interface PostsResponse {
+  posts: {
+    edges: Array<{
+      node: { id: string; status: string; externalLink: string | null };
+    }>;
+  };
+}
+
+async function getOrgId(token: string): Promise<string> {
+  const data = await gql<{ account: { organizations: Array<{ id: string }> } }>(
+    token,
+    `{ account { organizations { id } } }`,
+  );
+  const id = data.account?.organizations?.[0]?.id;
+  if (!id) throw new Error('No Buffer organization');
+  return id;
+}
+
+/**
+ * Fetch the platform-direct URL for a set of Buffer post ids.
+ * Returns a map of id → externalLink (may be null if the post is still
+ * queued/scheduled and hasn't been published to the network yet).
+ */
+export async function getPostExternalLinks(
+  token: string,
+  postIds: string[],
+): Promise<Record<string, string | null>> {
+  if (postIds.length === 0) return {};
+  const orgId = await getOrgId(token);
+  const data = await gql<PostsResponse>(token, POST_LINKS_QUERY, { orgId });
+  const wanted = new Set(postIds);
+  const out: Record<string, string | null> = {};
+  for (const { node } of data.posts.edges ?? []) {
+    if (wanted.has(node.id)) out[node.id] = node.externalLink;
+  }
+  // Any id not seen in the page of 50 is just not resolved yet.
+  for (const id of postIds) if (!(id in out)) out[id] = null;
+  return out;
+}
+
 export async function listProfiles(token: string): Promise<BufferProfile[]> {
   const data = await gql<AccountChannelsResponse>(token, LIST_CHANNELS_QUERY);
   const channels = data.account?.organizations?.flatMap((o) => o.channels ?? []) ?? [];

@@ -1,9 +1,17 @@
 'use client';
 
-import { useState, useTransition } from 'react';
-import { broadcast, type BroadcastResult } from '@/app/actions/broadcast';
+import { useEffect, useRef, useState, useTransition } from 'react';
+import { broadcast } from '@/app/actions/broadcast';
 import { AiImagePanel } from './ai-image-panel';
 import { AiVideoPanel } from './ai-video-panel';
+
+const PLATFORM_LABELS: Record<string, string> = {
+  tiktok: 'View on TikTok',
+  instagram: 'View on Instagram',
+  twitter: 'View on X',
+  facebook: 'View on Facebook',
+  youtube: 'View on YouTube',
+};
 
 interface Channel {
   id: string;
@@ -27,8 +35,59 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(channels.map((c) => c.id)));
   const [pending, startTransition] = useTransition();
-  const [results, setResults] = useState<BroadcastResult[] | null>(null);
   const [topError, setTopError] = useState<string | null>(null);
+  // Per-channel status lives inline in the channel cards.
+  type ChannelState =
+    | { kind: 'idle' }
+    | { kind: 'posting' }
+    | { kind: 'success'; bufferId: string; link?: string }
+    | { kind: 'failed'; error: string };
+  const [statuses, setStatuses] = useState<Record<string, ChannelState>>({});
+  const linkPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll Buffer for platform-direct externalLink for any successful post.
+  // Buffer populates it once the network actually publishes — seconds for X,
+  // up to ~2 min for TikTok. Gives up after 3 minutes.
+  useEffect(() => {
+    if (linkPollRef.current) clearInterval(linkPollRef.current);
+    const pending = Object.entries(statuses)
+      .filter(([, s]) => s.kind === 'success' && !s.link)
+      .map(([channelId, s]) => ({ channelId, bufferId: (s as { bufferId: string }).bufferId }));
+    if (pending.length === 0) return;
+    const started = Date.now();
+    const MAX_MS = 3 * 60 * 1000;
+    const tick = async () => {
+      try {
+        const ids = pending.map((p) => p.bufferId).join(',');
+        const res = await fetch(`/api/buffer/post-links?ids=${ids}`, { cache: 'no-store' });
+        if (res.ok) {
+          const body = (await res.json()) as { links: Record<string, string | null> };
+          setStatuses((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            for (const { channelId, bufferId } of pending) {
+              const link = body.links[bufferId];
+              if (link && next[channelId]?.kind === 'success') {
+                next[channelId] = { kind: 'success', bufferId, link };
+                changed = true;
+              }
+            }
+            return changed ? next : prev;
+          });
+        }
+      } catch {
+        // ignore; keep trying
+      }
+      if (Date.now() - started > MAX_MS && linkPollRef.current) {
+        clearInterval(linkPollRef.current);
+      }
+    };
+    tick();
+    linkPollRef.current = setInterval(tick, 5000);
+    return () => {
+      if (linkPollRef.current) clearInterval(linkPollRef.current);
+    };
+  }, [statuses]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -87,7 +146,11 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
 
   const submit = (mode: 'post-now' | 'queue') => {
     setTopError(null);
-    setResults(null);
+    // Flash every selected card into posting state immediately.
+    const initial: Record<string, ChannelState> = {};
+    for (const id of selected) initial[id] = { kind: 'posting' };
+    setStatuses(initial);
+
     startTransition(async () => {
       const res = await broadcast({
         text,
@@ -96,7 +159,16 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
         shareNow: mode === 'post-now',
       });
       if (res.error) setTopError(res.error);
-      setResults(res.results);
+      // Apply per-channel outcomes
+      setStatuses((prev) => {
+        const next = { ...prev };
+        for (const r of res.results ?? []) {
+          next[r.channel.id] = r.ok && r.bufferId
+            ? { kind: 'success', bufferId: r.bufferId }
+            : { kind: 'failed', error: r.error ?? 'Failed' };
+        }
+        return next;
+      });
     });
   };
 
@@ -247,6 +319,8 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
           {channels.map((c) => {
             const isSelected = selected.has(c.id);
             const needsMedia = MEDIA_REQUIRED.has(c.service);
+            const status = statuses[c.id];
+            const posted = status?.kind === 'success' || status?.kind === 'failed';
             return (
               <label
                 key={c.id}
@@ -255,10 +329,19 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
                   alignItems: 'center',
                   gap: '12px',
                   padding: '12px 16px',
-                  border: `1px solid ${isSelected ? 'var(--navy-500)' : 'var(--ink-100)'}`,
+                  border: `1px solid ${
+                    status?.kind === 'success' ? 'var(--jade)'
+                    : status?.kind === 'failed' ? 'rgba(192,57,43,.5)'
+                    : isSelected ? 'var(--navy-500)'
+                    : 'var(--ink-100)'
+                  }`,
                   borderRadius: 'var(--r-md)',
-                  background: isSelected ? 'var(--navy-wash)' : 'var(--linen-50)',
-                  cursor: 'pointer',
+                  background:
+                    status?.kind === 'success' ? 'rgba(90,110,61,.08)'
+                    : status?.kind === 'failed' ? 'rgba(192,57,43,.05)'
+                    : isSelected ? 'var(--navy-wash)'
+                    : 'var(--linen-50)',
+                  cursor: posted ? 'default' : 'pointer',
                   transition: 'all var(--trans)',
                 }}
               >
@@ -266,6 +349,7 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => toggleChannel(c.id)}
+                  disabled={posted || pending}
                   style={{ width: '16px', height: '16px', accentColor: 'var(--navy-800)' }}
                 />
                 <span style={{ fontFamily: 'var(--ff-display)', fontWeight: 500, textTransform: 'capitalize', color: 'var(--ink-900)' }}>
@@ -274,18 +358,78 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
                 <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '13px', color: 'var(--ink-500)' }}>
                   @{c.username}
                 </span>
-                {needsMedia && (
-                  <span style={{
-                    marginLeft: 'auto',
-                    fontFamily: 'var(--ff-body)',
-                    fontSize: '10.5px',
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    color: 'var(--cedar-600)',
-                  }}>
-                    needs image
-                  </span>
-                )}
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {status?.kind === 'posting' && (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: '14px',
+                          height: '14px',
+                          borderRadius: '50%',
+                          border: '2px solid var(--ink-100)',
+                          borderTopColor: 'var(--navy-800)',
+                          display: 'inline-block',
+                          animation: 'tt-spin 0.9s linear infinite',
+                        }}
+                      />
+                      <span style={{ fontFamily: 'var(--ff-body)', fontSize: '12.5px', color: 'var(--ink-500)' }}>
+                        Posting…
+                      </span>
+                    </>
+                  )}
+                  {status?.kind === 'success' && (
+                    <>
+                      <span style={{
+                        width: '18px', height: '18px', borderRadius: '50%',
+                        background: 'var(--jade)', color: 'var(--linen-50)',
+                        display: 'grid', placeItems: 'center', fontSize: '11px', fontWeight: 700,
+                      }}>✓</span>
+                      {status.link ? (
+                        <a
+                          href={status.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            fontFamily: 'var(--ff-body)', fontSize: '12.5px',
+                            color: 'var(--navy-700)', textDecoration: 'underline',
+                            textDecorationColor: 'var(--navy-300)', textUnderlineOffset: '3px',
+                          }}
+                        >
+                          {PLATFORM_LABELS[c.service] ?? 'View post'} ↗
+                        </a>
+                      ) : (
+                        <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12px', color: 'var(--ink-400)' }}>
+                          Publishing to {c.service}…
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {status?.kind === 'failed' && (
+                    <>
+                      <span style={{
+                        width: '18px', height: '18px', borderRadius: '50%',
+                        background: '#c0392b', color: 'var(--linen-50)',
+                        display: 'grid', placeItems: 'center', fontSize: '11px', fontWeight: 700,
+                      }}>!</span>
+                      <span title={status.error} style={{ fontFamily: 'var(--ff-body)', fontSize: '12px', color: '#8b2d1c', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {status.error}
+                      </span>
+                    </>
+                  )}
+                  {!status && needsMedia && (
+                    <span style={{
+                      fontFamily: 'var(--ff-body)',
+                      fontSize: '10.5px',
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      color: 'var(--cedar-600)',
+                    }}>
+                      needs image
+                    </span>
+                  )}
+                </div>
               </label>
             );
           })}
@@ -353,7 +497,6 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
         </span>
       </div>
 
-      {/* Results */}
       {topError && (
         <div style={{
           padding: '14px 18px',
@@ -366,58 +509,6 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
           lineHeight: 1.5,
         }}>
           {topError}
-        </div>
-      )}
-      {results && results.length > 0 && (
-        <div>
-          <div style={LABEL_STYLE}>Result</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
-            {results.map((r) => (
-              <div
-                key={r.channel.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  padding: '10px 14px',
-                  borderRadius: 'var(--r-sm)',
-                  background: r.ok ? 'rgba(90,110,61,.08)' : 'rgba(192,57,43,.08)',
-                  fontFamily: 'var(--ff-body)',
-                  fontSize: '13px',
-                }}
-              >
-                <span style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: r.ok ? 'var(--jade)' : '#c0392b',
-                  flexShrink: 0,
-                }} />
-                <span style={{ textTransform: 'capitalize', fontWeight: 500, color: 'var(--ink-900)' }}>{r.channel.service}</span>
-                <span style={{ color: 'var(--ink-400)', fontStyle: 'italic', fontFamily: 'var(--ff-display)' }}>@{r.channel.username}</span>
-                <span style={{ marginLeft: 'auto', color: r.ok ? 'var(--jade)' : '#8b2d1c' }}>
-                  {r.ok ? 'Posted ✓' : (r.error ?? 'Failed')}
-                </span>
-                {r.ok && r.bufferId && (
-                  <a
-                    href={`https://publish.buffer.com/post/${r.bufferId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      fontFamily: 'var(--ff-body)',
-                      fontSize: '12px',
-                      color: 'var(--navy-700)',
-                      textDecoration: 'underline',
-                      textDecorationColor: 'var(--navy-300)',
-                      textUnderlineOffset: '3px',
-                    }}
-                  >
-                    View in Buffer ↗
-                  </a>
-                )}
-              </div>
-            ))}
-          </div>
         </div>
       )}
     </div>
