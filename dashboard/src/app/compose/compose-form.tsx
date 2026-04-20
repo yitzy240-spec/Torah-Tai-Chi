@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { broadcast, type BroadcastResult } from '@/app/actions/broadcast';
 import { AiImagePanel } from './ai-image-panel';
+import { AiVideoPanel } from './ai-video-panel';
 
 interface Channel {
   id: string;
@@ -12,11 +13,13 @@ interface Channel {
 
 interface Props {
   channels: Channel[];
+  /** Whether BUFFER_ACCESS_TOKEN is set — gates the Schedule-all button on the video panel. */
+  bufferConfigured: boolean;
 }
 
 const MEDIA_REQUIRED = new Set(['instagram', 'tiktok']);
 
-export function ComposeForm({ channels }: Props) {
+export function ComposeForm({ channels, bufferConfigured }: Props) {
   const [text, setText] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -233,6 +236,9 @@ export function ComposeForm({ channels }: Props) {
           </div>
         )}
       </div>
+
+      {/* AI video from topic */}
+      <AiVideoPanel bufferConfigured={bufferConfigured} />
 
       {/* Channels */}
       <div>

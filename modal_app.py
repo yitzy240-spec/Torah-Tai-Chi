@@ -61,6 +61,7 @@ def run_pipeline(job_id: str) -> None:
     # Import after path setup so src/ modules resolve
     from supabase import create_client
     from src.script_generator import transform_draft_to_clip_plan
+    from src.topic_pipeline import generate_draft_from_topic
     from src.video_generator import generate_clip
     from src.stitcher import concat_clips
     from src.kie_client import KieClient
@@ -84,20 +85,77 @@ def run_pipeline(job_id: str) -> None:
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
     try:
-        set_status("loading_parsha", "Loading parsha and script")
-        job = sb.table("jobs").select("parsha_id, script_id").eq("id", job_id).single().execute().data
-        parsha = sb.table("parshiot").select("name, book").eq("id", job["parsha_id"]).single().execute().data
-        script = sb.table("scripts").select("option, title, style_note, draft_text").eq("id", job["script_id"]).single().execute().data
+        set_status("loading_parsha", "Loading job inputs")
+        # `kind` defaults to 'parsha' for legacy rows (see migration
+        # 20260420_topic_jobs.sql). Topic jobs have parsha_id/script_id
+        # nullable and carry the user-supplied `topic` text instead.
+        job = (
+            sb.table("jobs")
+            .select("kind, parsha_id, script_id, topic")
+            .eq("id", job_id)
+            .single()
+            .execute()
+            .data
+        )
+        kind = (job.get("kind") or "parsha").lower()
 
         work_dir = Path(f"/tmp/job-{job_id}")
         work_dir.mkdir(parents=True, exist_ok=True)
 
+        if kind == "topic":
+            topic_text = (job.get("topic") or "").strip()
+            if not topic_text:
+                raise ValueError("topic job has no topic text")
+
+            # Ask Claude to write a Rav-Eli-voiced ~45s draft from the
+            # user's topic. Reuses the same A-tight voice as parsha jobs.
+            set_status("generating_plan", "Writing Rav Eli's script from your topic")
+            draft_text = asyncio.run(
+                generate_draft_from_topic(
+                    topic=topic_text,
+                    api_key=os.environ["ANTHROPIC_API_KEY"],
+                )
+            )
+
+            # For downstream prompting we synthesize the usual fields so
+            # the clip-plan prompt doesn't need a separate code path.
+            # Using "Topic" as the parsha name keeps ClipPlan.parsha valid
+            # without claiming a specific weekly reading.
+            parsha_name = "Topic"
+            book = "Topic"
+            option = "A-tight"
+            style_note = "Topic-driven short: ~45s, Rav-Eli voice, A-tight style."
+            title = topic_text[:80]
+        else:
+            parsha = (
+                sb.table("parshiot")
+                .select("name, book")
+                .eq("id", job["parsha_id"])
+                .single()
+                .execute()
+                .data
+            )
+            script = (
+                sb.table("scripts")
+                .select("option, title, style_note, draft_text")
+                .eq("id", job["script_id"])
+                .single()
+                .execute()
+                .data
+            )
+            parsha_name = parsha["name"]
+            book = parsha["book"]
+            option = script["option"]
+            style_note = script["style_note"] or ""
+            title = script["title"]
+            draft_text = script["draft_text"]
+
         # --- Script → ClipPlan via Claude ---
         set_status("generating_plan", "Claude is writing the clip plan")
         plan = asyncio.run(transform_draft_to_clip_plan(
-            parsha_name=parsha["name"], book=parsha["book"],
-            option=script["option"], style_note=script["style_note"] or "",
-            title=script["title"], draft=script["draft_text"],
+            parsha_name=parsha_name, book=book,
+            option=option, style_note=style_note,
+            title=title, draft=draft_text,
             api_key=os.environ["ANTHROPIC_API_KEY"],
         ))
         sb.table("clip_plans").insert({

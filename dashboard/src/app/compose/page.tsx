@@ -23,6 +23,7 @@ async function getBufferChannels(): Promise<AvailableChannel[]> {
 
 export default async function ComposePage() {
   const channels = await getBufferChannels();
+  const bufferConfigured = !!process.env.BUFFER_ACCESS_TOKEN;
 
   return (
     <div className="stagger" style={{ maxWidth: '720px' }}>
@@ -77,7 +78,7 @@ export default async function ComposePage() {
           <a href="https://publish.buffer.com/channels" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--navy-700)' }}>publish.buffer.com/channels ↗</a>, then reload this page.
         </div>
       ) : (
-        <ComposeForm channels={channels} />
+        <ComposeForm channels={channels} bufferConfigured={bufferConfigured} />
       )}
     </div>
   );
