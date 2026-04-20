@@ -141,7 +141,10 @@ async function _fetchThisWeekParsha(): Promise<ShabbatParsha | null> {
 async function _fetchUpcomingWeeks(n: number): Promise<ShabbatParsha[]> {
   try {
     const res = await fetch(
-      "https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=off&nx=on&year=now&month=x&ss=on&mf=on&c=on&geo=none&geonameid=5128581",
+      // `s=on` is the Sedrot/Parashiyot flag — without it Hebcal returns
+      // candles/holidays but zero parashat entries, causing /calendar to fall
+      // through to the "can't connect" empty state.
+      "https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=off&nx=on&year=now&month=x&ss=on&mf=on&c=on&s=on&geo=none&geonameid=5128581",
       { cache: "no-store" }
     );
     if (!res.ok) return [];
@@ -182,6 +185,6 @@ export const getThisWeekParsha = unstable_cache(
 /** Fetch next n Shabbat parshiot, cached 1 hour. */
 export const getUpcomingWeeks = unstable_cache(
   async (n = 6): Promise<ShabbatParsha[]> => _fetchUpcomingWeeks(n),
-  ["hebcal-upcoming-weeks-v2"],
+  ["hebcal-upcoming-weeks-v3-sedrot"],
   { revalidate: 3600 }
 );

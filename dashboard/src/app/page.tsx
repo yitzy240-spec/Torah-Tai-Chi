@@ -6,6 +6,7 @@ import { getThisWeekParsha } from '@/lib/hebcal';
 import { GenerateDialog } from '@/components/generate-dialog';
 import { checkHealth } from '@/lib/health';
 import { SystemHealthStrip } from '@/components/system-health';
+import { ScriptCarousel, type CarouselScript } from '@/components/script-carousel';
 
 async function SystemHealthAsync() {
   const health = await checkHealth();
@@ -205,193 +206,36 @@ export default async function TodayPage() {
               </div>
             </header>
 
-            {/* Script body */}
-            <div
-              style={{
-                position: 'relative',
-                maxWidth: '62ch',
-                margin: '0 auto',
-                fontFamily: 'var(--ff-reading)',
-                fontSize: '19px',
-                lineHeight: 1.68,
-                color: 'var(--ink-800)',
-                fontVariationSettings: '"opsz" 18, "SOFT" 30',
-              }}
-            >
-              {aTightScript?.draft_text ? (
-                <div>
-                  <p style={{ margin: '0 0 22px 0' }}>{aTightScript.draft_text}</p>
-                </div>
-              ) : (
-                <>
-                  <p
-                    style={{
-                      fontStyle: 'italic',
-                      fontSize: '22px',
-                      lineHeight: 1.5,
-                      color: 'var(--ink-900)',
-                      marginBottom: '28px',
-                      fontVariationSettings: '"opsz" 36, "SOFT" 40',
-                      margin: '0 0 28px 0',
-                    }}
-                  >
-                    Everyone quotes <em>love your neighbor as yourself</em> — but nobody reads the verse before it.
-                  </p>
-
-                  <p style={{ margin: '0 0 22px 0' }}>
-                    Parshat Kedoshim begins with{' '}
-                    <span lang="he" dir="rtl" style={{ fontFamily: 'var(--ff-hebrew)', fontStyle: 'normal', color: 'var(--ink-700)' }}>
-                      קדושים תהיו
-                    </span>
-                    {' '}— <em>Kedoshim tihiyu, be holy.</em> Then dozens of commands: don&apos;t gossip, don&apos;t hold grudges, pay workers on time. Kedusha isn&apos;t a feeling. It&apos;s restraint — what you don&apos;t do when your ego wants to strike.
-                  </p>
-
-                  <p style={{ margin: '0 0 22px 0' }}>
-                    In tai chi this is{' '}
-                    <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', color: 'var(--cedar-600)', fontVariationSettings: '"opsz" 14, "SOFT" 80' }}>
-                      song 松
-                    </span>
-                    {' '}— not collapse, not force. Stand in{' '}
-                    <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', color: 'var(--cedar-600)', fontVariationSettings: '"opsz" 14, "SOFT" 80' }}>
-                      zhan zhuang
-                    </span>{' '}
-                    and someone pushes your chest. You don&apos;t brace, don&apos;t crumble. You soften into your root and the pressure passes through.
-                  </p>
-
-                  <p style={{ margin: '0 0 22px 0' }}>
-                    That&apos;s kedusha. The discipline of non-reactivity that makes <em>love your neighbor</em> even possible.
-                  </p>
-
-                  <p style={{ margin: '0 0 22px 0' }}>
-                    One breath before you respond. That breath is the practice.
-                  </p>
-
-                  <div
-                    style={{
-                      marginTop: '28px',
-                      textAlign: 'center',
-                      fontFamily: 'var(--ff-display)',
-                      fontStyle: 'italic',
-                      fontSize: '12px',
-                      color: 'var(--ink-400)',
-                      letterSpacing: '0.18em',
-                    }}
-                  >
-                    · · ·
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* Page footer actions */}
-            <footer
-              style={{
-                marginTop: '52px',
-                paddingTop: '28px',
-                borderTop: '1px solid var(--ink-100)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '18px',
-                flexWrap: 'wrap',
-              }}
-            >
+            {/* Script carousel — flip between variants or generate a new one from an idea */}
+            {parsha && parsha.scripts && parsha.scripts.length > 0 ? (
+              <div style={{ position: 'relative', maxWidth: '62ch', margin: '0 auto' }}>
+                <ScriptCarousel
+                  parshaId={parsha.id}
+                  parshaName={parsha.name}
+                  parshaSlug={parsha.slug}
+                  scripts={parsha.scripts as CarouselScript[]}
+                />
+              </div>
+            ) : (
+              /* Fallback: no parsha in DB yet — show a teaser preview */
               <div
                 style={{
-                  fontFamily: 'var(--ff-display)',
-                  fontStyle: 'italic',
-                  fontSize: '14px',
-                  color: 'var(--ink-500)',
-                  fontVariationSettings: '"opsz" 14, "SOFT" 30',
+                  position: 'relative',
+                  maxWidth: '62ch',
+                  margin: '0 auto',
+                  fontFamily: 'var(--ff-reading)',
+                  fontSize: '19px',
+                  lineHeight: 1.68,
+                  color: 'var(--ink-800)',
+                  fontVariationSettings: '"opsz" 18, "SOFT" 30',
                 }}
               >
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: '6px',
-                    height: '6px',
-                    borderRadius: '50%',
-                    background: 'var(--cedar-500)',
-                    marginRight: '8px',
-                    transform: 'translateY(-2px)',
-                  }}
-                />
-                Ready for your eye.
+                <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--ink-500)' }}>
+                  No scripts for this parsha yet.
+                </p>
               </div>
-              <div style={{ flex: 1 }} />
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  style={{
-                    fontFamily: 'var(--ff-body)',
-                    fontSize: '13px',
-                    color: 'var(--ink-500)',
-                    background: 'none',
-                    border: 'none',
-                    padding: '11px 4px',
-                    minHeight: '44px',
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                    textDecorationColor: 'var(--ink-200)',
-                    textUnderlineOffset: '4px',
-                    transition: 'all var(--trans)',
-                  }}
-                >
-                  Adjust the script
-                </button>
-                <button
-                  type="button"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontFamily: 'var(--ff-body)',
-                    fontWeight: 500,
-                    fontSize: '14px',
-                    padding: '11px 22px',
-                    minHeight: '44px',
-                    borderRadius: '999px',
-                    border: '1px solid var(--ink-200)',
-                    background: 'transparent',
-                    color: 'var(--ink-700)',
-                    cursor: 'pointer',
-                    transition: 'all var(--trans)',
-                  }}
-                >
-                  Regenerate
-                </button>
-                {parsha ? (
-                  <GenerateDialog
-                    parshaId={parsha.id}
-                    scriptId={aTightScript?.id ?? ''}
-                    parshaName={parsha.name}
-                    expectedDurationS={60}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    disabled
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontFamily: 'var(--ff-body)',
-                      fontWeight: 500,
-                      fontSize: '14px',
-                      padding: '11px 22px',
-                      minHeight: '44px',
-                      borderRadius: '999px',
-                      border: '1px solid var(--navy-800)',
-                      background: 'var(--navy-800)',
-                      color: 'var(--linen-50)',
-                      opacity: 0.5,
-                      cursor: 'not-allowed',
-                    }}
-                  >
-                    Approve · generate video
-                  </button>
-                )}
-              </div>
-            </footer>
+            )}
+
           </article>
 
           {/* PRODUCTION ARC */}

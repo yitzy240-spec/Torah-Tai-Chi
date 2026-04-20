@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { generateCustomScript } from '@/app/actions/generate-custom-script';
+import { saveScriptDraft } from '@/app/actions/save-script-draft';
 import { GenerateDialog } from '@/components/generate-dialog';
 
 export interface CarouselScript {
@@ -16,6 +17,7 @@ export interface CarouselScript {
 interface ScriptCarouselProps {
   parshaId: string;
   parshaName: string;
+  parshaSlug?: string;
   scripts: CarouselScript[];
   /** Optional default tier key pre-selected in the generate dialog. */
   defaultTierKey?: string;
@@ -63,6 +65,7 @@ function optionLabel(opt: string): string {
 export function ScriptCarousel({
   parshaId,
   parshaName,
+  parshaSlug,
   scripts,
   defaultTierKey,
 }: ScriptCarouselProps) {
@@ -199,6 +202,7 @@ export function ScriptCarousel({
           script={currentScript!}
           parshaId={parshaId}
           parshaName={parshaName}
+          parshaSlug={parshaSlug}
           defaultTierKey={defaultTierKey}
         />
       )}
@@ -212,14 +216,54 @@ function ScriptCard({
   script,
   parshaId,
   parshaName,
+  parshaSlug,
   defaultTierKey,
 }: {
   script: CarouselScript;
   parshaId: string;
   parshaName: string;
+  parshaSlug?: string;
   defaultTierKey?: string;
 }) {
-  const words = wordCount(script.draft_text);
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(script.draft_text ?? '');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+
+  // Reset local draft whenever the script actually changes (carousel navigation).
+  useMemo(() => {
+    setDraft(script.draft_text ?? '');
+    setEditing(false);
+    setSaveError(null);
+    setJustSaved(false);
+  }, [script.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const words = wordCount(editing ? draft : script.draft_text);
+
+  const save = async () => {
+    setSaveError(null);
+    setSaving(true);
+    const res = await saveScriptDraft({
+      scriptId: script.id,
+      draftText: draft,
+      parshaSlug,
+    });
+    setSaving(false);
+    if (!res.ok) { setSaveError(res.error ?? 'Save failed'); return; }
+    setEditing(false);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2500);
+    router.refresh();
+  };
+
+  const cancel = () => {
+    setDraft(script.draft_text ?? '');
+    setEditing(false);
+    setSaveError(null);
+  };
+
   return (
     <div>
       {/* Title */}
@@ -238,7 +282,7 @@ function ScriptCard({
         {script.title ?? optionLabel(script.option)}
       </h3>
 
-      {/* TLDR (italic display) */}
+      {/* TLDR */}
       {script.tldr && (
         <p
           style={{
@@ -255,7 +299,7 @@ function ScriptCard({
         </p>
       )}
 
-      {/* Word count / option sub-label */}
+      {/* Option + word count */}
       <p
         style={{
           fontFamily: 'var(--ff-display)',
@@ -266,28 +310,58 @@ function ScriptCard({
           fontVariationSettings: '"opsz" 14, "SOFT" 50',
         }}
       >
-        {optionLabel(script.option)} · {words} words
+        {optionLabel(script.option)} · {words} words{justSaved && ' · saved ✓'}
       </p>
 
-      {/* Preview text (~300 chars) */}
-      <div
-        style={{
-          fontFamily: 'var(--ff-reading)',
-          fontSize: '16px',
-          lineHeight: 1.65,
-          color: 'var(--ink-800)',
-          fontVariationSettings: '"opsz" 18, "SOFT" 30',
-          marginBottom: '18px',
-        }}
-      >
-        {script.draft_text ? (
-          <p style={{ margin: 0 }}>{preview(script.draft_text, 300)}</p>
-        ) : (
-          <p style={{ fontStyle: 'italic', color: 'var(--ink-400)', margin: 0 }}>
-            No draft text.
-          </p>
-        )}
-      </div>
+      {/* Full draft — read mode or edit mode */}
+      {editing ? (
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          disabled={saving}
+          rows={14}
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            fontFamily: 'var(--ff-reading)',
+            fontSize: '15.5px',
+            lineHeight: 1.65,
+            color: 'var(--ink-900)',
+            background: 'var(--linen-50)',
+            border: '1px solid var(--ink-200)',
+            borderRadius: 'var(--r-md)',
+            padding: '14px 16px',
+            resize: 'vertical',
+            minHeight: '260px',
+            marginBottom: '14px',
+            outline: 'none',
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            fontFamily: 'var(--ff-reading)',
+            fontSize: '16px',
+            lineHeight: 1.65,
+            color: 'var(--ink-800)',
+            fontVariationSettings: '"opsz" 18, "SOFT" 30',
+            marginBottom: '18px',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {script.draft_text ? (
+            script.draft_text
+          ) : (
+            <span style={{ fontStyle: 'italic', color: 'var(--ink-400)' }}>No draft text.</span>
+          )}
+        </div>
+      )}
+
+      {saveError && (
+        <div style={{ padding: '10px 14px', marginBottom: '14px', borderRadius: 'var(--r-sm)', background: 'rgba(192,57,43,.08)', border: '1px solid rgba(192,57,43,.2)', color: '#8b2d1c', fontFamily: 'var(--ff-body)', fontSize: '12.5px' }}>
+          {saveError}
+        </div>
+      )}
 
       {/* Actions */}
       <div
@@ -298,33 +372,83 @@ function ScriptCard({
           flexWrap: 'wrap',
         }}
       >
-        <GenerateDialog
-          parshaId={parshaId}
-          scriptId={script.id}
-          parshaName={parshaName}
-          defaultTierKey={defaultTierKey}
-        />
-        <button
-          type="button"
-          style={{
-            fontFamily: 'var(--ff-body)',
-            fontSize: '13px',
-            color: 'var(--ink-500)',
-            textDecoration: 'underline',
-            textDecorationColor: 'var(--ink-200)',
-            textUnderlineOffset: '4px',
-            cursor: 'pointer',
-            background: 'none',
-            border: 'none',
-            padding: 0,
-            minHeight: '44px',
-            display: 'inline-flex',
-            alignItems: 'center',
-            transition: 'all var(--trans)',
-          }}
-        >
-          Edit script
-        </button>
+        {editing ? (
+          <>
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving || !draft.trim() || draft === (script.draft_text ?? '')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                fontFamily: 'var(--ff-body)',
+                fontWeight: 500,
+                fontSize: '14px',
+                padding: '11px 22px',
+                minHeight: '44px',
+                borderRadius: '999px',
+                border: '1px solid var(--navy-800)',
+                background: saving || !draft.trim() ? 'var(--ink-300)' : 'var(--navy-800)',
+                color: 'var(--linen-50)',
+                cursor: saving ? 'wait' : 'pointer',
+                transition: 'all var(--trans)',
+              }}
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+            <button
+              type="button"
+              onClick={cancel}
+              disabled={saving}
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: '13px',
+                color: 'var(--ink-500)',
+                textDecoration: 'underline',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                minHeight: '44px',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <GenerateDialog
+              parshaId={parshaId}
+              scriptId={script.id}
+              parshaName={parshaName}
+              defaultTierKey={defaultTierKey}
+            />
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: '13px',
+                color: 'var(--ink-500)',
+                textDecoration: 'underline',
+                textDecorationColor: 'var(--ink-200)',
+                textUnderlineOffset: '4px',
+                cursor: 'pointer',
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                minHeight: '44px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                transition: 'all var(--trans)',
+              }}
+            >
+              Edit script
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
