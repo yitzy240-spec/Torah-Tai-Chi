@@ -1,8 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { VideosFilter } from '@/components/videos-filter';
-
-const SUPABASE_STORAGE_URL =
-  'https://jswdfthmegjbhnwbgeca.supabase.co/storage/v1/object/public/videos/';
+import { publicVideoUrl } from '@/lib/storage-url';
 
 interface Script {
   option: string;
@@ -50,7 +48,7 @@ async function getParshiot(): Promise<Parsha[]> {
     const tp = thumbMap.get(p.id) ?? null;
     return {
       ...p,
-      thumbUrl: tp ? `${SUPABASE_STORAGE_URL}${tp}` : null,
+      thumbUrl: tp ? publicVideoUrl(tp) : null,
     };
   });
 }

@@ -1,8 +1,6 @@
 import { supabaseClient } from "./supabase";
+import { publicVideoUrl } from "./storage-url";
 import { HEBREW_NAMES } from "@/data/hebrew-names";
-
-const SUPABASE_STORAGE_URL =
-  "https://jswdfthmegjbhnwbgeca.supabase.co/storage/v1/object/public/videos/";
 
 export interface Parsha {
   id: string;
@@ -78,7 +76,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       hebrewName: HEBREW_NAMES[row.slug] ?? "",
       atightScript: script?.draft_text,
       atightTitle: script?.title,
-      thumbUrl: thumbPath ? `${SUPABASE_STORAGE_URL}${thumbPath}` : null,
+      thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
     };
   });
 }
@@ -122,7 +120,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     hebrewName: HEBREW_NAMES[parshaData.slug] ?? "",
     atightScript: scriptResult.data?.draft_text,
     atightTitle: scriptResult.data?.title,
-    thumbUrl: thumbPath ? `${SUPABASE_STORAGE_URL}${thumbPath}` : null,
+    thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
   };
 }
 

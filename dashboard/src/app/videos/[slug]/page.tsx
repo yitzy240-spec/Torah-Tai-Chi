@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PlatformIcon } from '@/components/platform-icon';
 import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
+import { PLATFORMS, type Platform } from '@/lib/platforms';
 
 interface Script {
   id: string;
@@ -37,8 +38,6 @@ interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
-const PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
-type Platform = typeof PLATFORMS[number];
 
 export default async function VideoDetailPage({ params }: PageProps) {
   const { slug } = await params;

@@ -2,9 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { scheduleAll } from '@/app/actions/schedule-all';
-
-const PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
-type Platform = typeof PLATFORMS[number];
+import type { Platform } from '@/lib/platforms';
 
 interface ScheduleAllSheetProps {
   videoId: string;

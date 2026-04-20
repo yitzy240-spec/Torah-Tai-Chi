@@ -2,6 +2,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createUpdate, listProfiles } from '@/lib/buffer';
 import { getConnection as getYouTubeConnection, uploadVideo as uploadToYouTube } from '@/lib/youtube';
+import { PLATFORMS, BUFFER_PLATFORMS, type Platform } from '@/lib/platforms';
 
 // Retry a promise-returning fn up to `attempts` times with ms delays between retries.
 async function withRetry<T>(
@@ -19,11 +20,6 @@ async function withRetry<T>(
   }
   throw lastErr;
 }
-
-const PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const;
-type Platform = typeof PLATFORMS[number];
-// YouTube goes direct via the YouTube Data API; the others are scheduled through Buffer.
-const BUFFER_PLATFORMS = PLATFORMS.filter((p) => p !== 'youtube') as readonly ('tiktok' | 'instagram' | 'facebook')[];
 
 interface ScheduleAllArgs {
   videoId: string;

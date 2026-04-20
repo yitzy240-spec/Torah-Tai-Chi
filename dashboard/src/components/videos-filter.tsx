@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { PLACEHOLDER_THUMB_URL as PLACEHOLDER_THUMB } from '@/lib/storage-url';
 
 const BOOKS = ['All', 'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy'];
-
-const PLACEHOLDER_THUMB =
-  'https://jswdfthmegjbhnwbgeca.supabase.co/storage/v1/object/public/videos/placeholders/video_placeholder.png';
 
 interface Parsha {
   id: string;

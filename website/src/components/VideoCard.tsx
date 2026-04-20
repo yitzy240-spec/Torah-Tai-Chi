@@ -1,7 +1,5 @@
 import Link from "next/link";
-
-const PLACEHOLDER_THUMB =
-  "https://jswdfthmegjbhnwbgeca.supabase.co/storage/v1/object/public/videos/placeholders/video_placeholder.png";
+import { PLACEHOLDER_THUMB_URL as PLACEHOLDER_THUMB } from "@/lib/storage-url";
 
 interface ParshaCardData {
   name: string;
