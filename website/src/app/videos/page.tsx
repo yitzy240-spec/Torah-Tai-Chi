@@ -4,8 +4,24 @@ import { getThisWeekParsha } from "@/lib/hebcal";
 import VideosFilter from "@/components/VideosFilter";
 
 export const metadata: Metadata = {
-  title: "Videos",
-  description: "Browse every parsha teaching. 52 weeks of Torah wisdom meeting the body.",
+  title: "Teachings",
+  description:
+    "Fifty-two parshiot, fifty-two teachings where Torah wisdom meets the Chinese internal arts.",
+  openGraph: {
+    title: "Teachings · Torah Tai Chi",
+    description:
+      "Fifty-two parshiot, fifty-two teachings where Torah wisdom meets the Chinese internal arts.",
+    type: "website",
+    url: "https://torahtaichi.com/videos",
+    siteName: "Torah Tai Chi",
+    images: [{ url: "/og/default.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Teachings · Torah Tai Chi",
+    description:
+      "Fifty-two parshiot, fifty-two teachings where Torah wisdom meets the Chinese internal arts.",
+  },
 };
 
 export default async function VideosPage() {

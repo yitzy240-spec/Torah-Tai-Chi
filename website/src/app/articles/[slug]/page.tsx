@@ -37,9 +37,24 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const article = await getArticleBySlug(slug);
   if (!article) return { title: "Article" };
+  const description = article.excerpt ?? article.subtitle ?? undefined;
+  const ogImageUrl = `/og/article/${slug}`;
   return {
     title: article.title,
-    description: article.excerpt ?? undefined,
+    description,
+    openGraph: {
+      title: `${article.title} · Torah Tai Chi`,
+      description,
+      type: "article",
+      url: `https://torahtaichi.com/articles/${slug}`,
+      siteName: "Torah Tai Chi",
+      images: [{ url: ogImageUrl, width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${article.title} · Torah Tai Chi`,
+      description,
+    },
   };
 }
 

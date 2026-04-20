@@ -25,9 +25,26 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
     const parsha = await getParshaBySlug(slug);
     if (!parsha) return { title: "Teaching" };
+    const excerpt = parsha.atightScript
+      ? parsha.atightScript.slice(0, 160).replace(/\s+\S*$/, "") + "…"
+      : `Parshat ${parsha.name}. A Torah Tai Chi teaching — where tradition meets the body.`;
+    const ogImageUrl = `/og/parsha/${slug}`;
     return {
       title: parsha.name,
-      description: `Parshat ${parsha.name}. A Torah Tai Chi teaching — where tradition meets the body.`,
+      description: excerpt,
+      openGraph: {
+        title: `${parsha.name} · Torah Tai Chi`,
+        description: excerpt,
+        type: "video.other",
+        url: `https://torahtaichi.com/videos/${slug}`,
+        siteName: "Torah Tai Chi",
+        images: [{ url: ogImageUrl, width: 1200, height: 630 }],
+      },
+      twitter: {
+        card: "summary_large_image",
+        title: `${parsha.name} · Torah Tai Chi`,
+        description: excerpt,
+      },
     };
   } catch {
     return { title: "Teaching" };

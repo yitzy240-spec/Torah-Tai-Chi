@@ -3,8 +3,24 @@ import Link from "next/link";
 import { getAllArticles } from "@/lib/articles";
 
 export const metadata: Metadata = {
-  title: "Articles",
-  description: "Reflections on where wisdom lives in the body. Long-form essays, teachings, and reflections.",
+  title: "Writings",
+  description:
+    "Reflections on where wisdom lives in the body. Long-form essays, teachings, and reflections.",
+  openGraph: {
+    title: "Writings · Torah Tai Chi",
+    description:
+      "Reflections on where wisdom lives in the body. Long-form essays, teachings, and reflections.",
+    type: "website",
+    url: "https://torahtaichi.com/articles",
+    siteName: "Torah Tai Chi",
+    images: [{ url: "/og/default.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Writings · Torah Tai Chi",
+    description:
+      "Reflections on where wisdom lives in the body. Long-form essays, teachings, and reflections.",
+  },
 };
 
 function formatDate(ts: string | null | undefined): string {

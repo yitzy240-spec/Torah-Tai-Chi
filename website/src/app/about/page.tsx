@@ -3,10 +3,32 @@ import Brand from "@/components/Brand";
 import { TikTokIcon, YouTubeIcon, InstagramIcon, FacebookIcon } from "@/components/SocialIcons";
 import { getSiteContent } from "@/lib/site-content";
 
-export const metadata: Metadata = {
-  title: "About",
-  description: "Torah Tai Chi is a weekly practice of meeting two traditions in one body.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  let description = "Torah Tai Chi is a weekly practice of meeting two traditions in one body.";
+  try {
+    const c = await getSiteContent();
+    if (c["about.subtitle"]) description = c["about.subtitle"];
+  } catch {
+    // use default
+  }
+  return {
+    title: "About",
+    description,
+    openGraph: {
+      title: "About · Torah Tai Chi",
+      description,
+      type: "website",
+      url: "https://torahtaichi.com/about",
+      siteName: "Torah Tai Chi",
+      images: [{ url: "/og/default.png", width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: "About · Torah Tai Chi",
+      description,
+    },
+  };
+}
 
 function paras(text: string): string[] {
   return text.split(/\n\n+/).map(s => s.trim()).filter(Boolean);
