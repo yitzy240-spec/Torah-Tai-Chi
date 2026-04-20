@@ -62,8 +62,7 @@ export default async function TodayPage() {
 
   const hebcalHebrew = hebcalParsha?.hebrew ?? null;
 
-  // Get the A-tight script if available (option names from seed: 'a-tight', 'b-loose', 'c-hebrew')
-  const aTightScript = parsha?.scripts?.find((s) => s.option === 'a-tight') ?? parsha?.scripts?.[0] ?? null;
+  const aTightScript = parsha?.scripts?.find((s) => s.option === 'A-tight') ?? parsha?.scripts?.[0] ?? null;
 
   return (
     <>

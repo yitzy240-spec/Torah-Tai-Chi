@@ -47,7 +47,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
   const parsha = await getParsha(slug);
   if (!parsha) notFound();
 
-  const aTight = parsha.scripts?.find((s) => s.option === 'a-tight') ?? null;
+  const aTight = parsha.scripts?.find((s) => s.option === 'A-tight') ?? null;
 
   // Fetch most recent video for this parsha (via jobs)
   const { data: latestJob } = await supabase

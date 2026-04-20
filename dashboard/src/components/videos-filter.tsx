@@ -30,7 +30,7 @@ function wordCount(text: string | null | undefined): number {
 type StatusType = 'published' | 'video-ready' | 'script-ready' | 'not-started';
 
 function getStatus(parsha: Parsha): StatusType {
-  const aTight = parsha.scripts?.find((s) => s.option === 'a-tight');
+  const aTight = parsha.scripts?.find((s) => s.option === 'A-tight');
   if (aTight) return 'script-ready';
   return 'not-started';
 }
@@ -92,7 +92,7 @@ export function VideosFilter({ parshiot }: VideosFilterProps) {
         className="video-grid"
       >
         {filtered.map((parsha) => {
-          const aTight = parsha.scripts?.find((s) => s.option === 'a-tight');
+          const aTight = parsha.scripts?.find((s) => s.option === 'A-tight');
           const status = getStatus(parsha);
           const words = wordCount(aTight?.draft_text);
 
