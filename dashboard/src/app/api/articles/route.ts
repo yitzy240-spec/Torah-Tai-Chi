@@ -20,6 +20,9 @@ export async function POST(req: NextRequest) {
       read_minutes: body.read_minutes != null ? Number(body.read_minutes) : null,
       published: Boolean(body.published),
       published_at: (body.published_at as string) ?? null,
+      seo_title: (body.seo_title as string) ?? null,
+      seo_description: (body.seo_description as string) ?? null,
+      seo_og_image: (body.seo_og_image as string) ?? null,
     });
 
     // Return a shape compatible with what ArticleForm expects (needs .id)

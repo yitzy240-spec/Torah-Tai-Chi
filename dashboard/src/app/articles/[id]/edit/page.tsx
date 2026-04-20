@@ -43,6 +43,9 @@ export default async function EditArticlePage({ params }: Props) {
     body?: object;
     read_minutes?: number;
     published_at?: string;
+    seo_title?: string;
+    seo_description?: string;
+    seo_og_image?: string;
   };
 
   return (
@@ -91,6 +94,9 @@ export default async function EditArticlePage({ params }: Props) {
           body_json: (c.body as object) ?? null,
           body_html: '',
           published: story.published ?? false,
+          seo_title: c.seo_title ?? '',
+          seo_description: c.seo_description ?? '',
+          seo_og_image: c.seo_og_image ?? '',
         }}
       />
     </div>

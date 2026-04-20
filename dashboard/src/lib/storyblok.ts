@@ -24,6 +24,9 @@ export interface SbArticleContent {
   body?: object;
   published_at?: string;
   read_minutes?: number;
+  seo_title?: string;
+  seo_description?: string;
+  seo_og_image?: string;
 }
 
 export interface SbArticleStory {
@@ -62,6 +65,22 @@ export interface SbBookContent {
   cover_url?: string;
   purchase_url?: string;
   cta_label?: string;
+  seo_title?: string;
+  seo_description?: string;
+  seo_og_image?: string;
+}
+
+export interface SbSeoDefaultsContent {
+  component: 'seo_defaults';
+  site_default_title?: string;
+  site_default_description?: string;
+  site_default_og_image?: string;
+  twitter_handle?: string;
+}
+
+export interface SbSeoDefaultsStory {
+  id: number;
+  content: SbSeoDefaultsContent;
 }
 
 export interface SbBookStory {
@@ -192,6 +211,9 @@ export async function createArticle(articleData: {
   read_minutes?: number | null;
   published: boolean;
   published_at?: string | null;
+  seo_title?: string | null;
+  seo_description?: string | null;
+  seo_og_image?: string | null;
 }): Promise<SbArticleStory> {
   const folderId = await getFolderId(ARTICLES_FOLDER);
   const content: SbArticleContent = {
@@ -203,6 +225,9 @@ export async function createArticle(articleData: {
     body: articleData.body_json ?? { type: 'doc', content: [] },
     published_at: articleData.published_at ?? '',
     read_minutes: articleData.read_minutes ?? 0,
+    ...(articleData.seo_title ? { seo_title: articleData.seo_title } : {}),
+    ...(articleData.seo_description ? { seo_description: articleData.seo_description } : {}),
+    ...(articleData.seo_og_image ? { seo_og_image: articleData.seo_og_image } : {}),
   };
   const res = await mapi('POST', '/stories/', {
     story: {
@@ -233,6 +258,9 @@ export async function updateArticle(
     read_minutes?: number | null;
     published?: boolean;
     published_at?: string | null;
+    seo_title?: string | null;
+    seo_description?: string | null;
+    seo_og_image?: string | null;
   },
 ): Promise<SbArticleStory> {
   // Get current story first
@@ -248,6 +276,9 @@ export async function updateArticle(
     ...(articleData.body_json !== undefined && { body: articleData.body_json ?? { type: 'doc', content: [] } }),
     ...(articleData.read_minutes !== undefined && { read_minutes: articleData.read_minutes ?? 0 }),
     ...(articleData.published_at !== undefined && { published_at: articleData.published_at ?? '' }),
+    ...(articleData.seo_title !== undefined && { seo_title: articleData.seo_title ?? '' }),
+    ...(articleData.seo_description !== undefined && { seo_description: articleData.seo_description ?? '' }),
+    ...(articleData.seo_og_image !== undefined && { seo_og_image: articleData.seo_og_image ?? '' }),
   };
   const storyPayload: Record<string, unknown> = {
     ...current,
@@ -364,4 +395,46 @@ export async function updateBook(bookData: Partial<SbBookContent>): Promise<SbBo
   }
   const data = await res.json();
   return data.story;
+}
+
+// ─────────────────────────────────────────────
+// SEO Defaults
+// ─────────────────────────────────────────────
+
+export async function getSeoDefaults(): Promise<SbSeoDefaultsStory | null> {
+  const story = await getStoryBySlug('seo-defaults');
+  return story ?? null;
+}
+
+export async function updateSeoDefaults(
+  seoData: Partial<SbSeoDefaultsContent>,
+): Promise<SbSeoDefaultsStory> {
+  const existing = await getSeoDefaults();
+  if (!existing) throw new Error('SEO defaults story not found in Storyblok');
+  const content: SbSeoDefaultsContent = {
+    ...existing.content,
+    component: 'seo_defaults',
+    ...seoData,
+  };
+  const res = await mapi('PUT', `/stories/${existing.id}`, {
+    story: { ...existing, content },
+    publish: 1,
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(JSON.stringify(err));
+  }
+  const data = await res.json();
+  return data.story;
+}
+
+// ─────────────────────────────────────────────
+// Article SEO overrides (convenience wrappers)
+// ─────────────────────────────────────────────
+
+export async function updateArticleSeo(
+  storyId: number,
+  seoData: { seo_title?: string; seo_description?: string; seo_og_image?: string },
+): Promise<SbArticleStory> {
+  return updateArticle(storyId, seoData as Parameters<typeof updateArticle>[1]);
 }

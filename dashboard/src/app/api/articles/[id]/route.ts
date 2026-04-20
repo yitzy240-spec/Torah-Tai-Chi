@@ -19,6 +19,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   const allowed = [
     'title', 'subtitle', 'slug', 'category', 'excerpt',
     'read_minutes', 'body_json', 'body_html', 'published', 'published_at',
+    'seo_title', 'seo_description', 'seo_og_image',
   ];
   const update: Record<string, unknown> = {};
   for (const key of allowed) {
@@ -36,6 +37,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       read_minutes: update.read_minutes != null ? Number(update.read_minutes) : undefined,
       published: update.published as boolean | undefined,
       published_at: update.published_at as string | null | undefined,
+      seo_title: update.seo_title as string | null | undefined,
+      seo_description: update.seo_description as string | null | undefined,
+      seo_og_image: update.seo_og_image as string | null | undefined,
     });
     return NextResponse.json({ id: String(story.id), slug: story.slug });
   } catch (e) {

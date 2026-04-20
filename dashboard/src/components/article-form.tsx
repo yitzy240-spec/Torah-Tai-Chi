@@ -17,6 +17,9 @@ interface ArticleFormData {
   body_json: object | null;
   body_html: string;
   published: boolean;
+  seo_title: string;
+  seo_description: string;
+  seo_og_image: string;
 }
 
 function slugify(str: string) {
@@ -59,6 +62,12 @@ interface ArticleFormProps {
   initial?: Partial<ArticleFormData>;
 }
 
+const SEO_SECTION_STYLE: React.CSSProperties = {
+  border: '1px solid var(--ink-100)',
+  borderRadius: 'var(--r-lg)',
+  overflow: 'hidden',
+};
+
 export function ArticleForm({ initial }: ArticleFormProps) {
   const router = useRouter();
   const [form, setForm] = useState<ArticleFormData>({
@@ -72,7 +81,11 @@ export function ArticleForm({ initial }: ArticleFormProps) {
     body_json: initial?.body_json ?? null,
     body_html: initial?.body_html ?? '',
     published: initial?.published ?? false,
+    seo_title: initial?.seo_title ?? '',
+    seo_description: initial?.seo_description ?? '',
+    seo_og_image: initial?.seo_og_image ?? '',
   });
+  const [seoOpen, setSeoOpen] = useState(false);
 
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initial?.slug);
   const [saving, setSaving] = useState(false);
@@ -108,6 +121,9 @@ export function ArticleForm({ initial }: ArticleFormProps) {
       body_html: form.body_html || null,
       published: publish,
       ...(publish && !form.published ? { published_at: new Date().toISOString() } : {}),
+      seo_title: form.seo_title || null,
+      seo_description: form.seo_description || null,
+      seo_og_image: form.seo_og_image || null,
     };
 
     const url = form.id ? `/api/articles/${form.id}` : '/api/articles';
@@ -234,6 +250,93 @@ export function ArticleForm({ initial }: ArticleFormProps) {
             onChange={handleEditorChange}
             placeholder="Begin writing…"
           />
+        </div>
+
+        {/* SEO Settings (collapsible) */}
+        <div style={SEO_SECTION_STYLE}>
+          <button
+            type="button"
+            onClick={() => setSeoOpen((v) => !v)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 18px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              fontFamily: 'var(--ff-body)',
+              fontWeight: 600,
+              fontSize: '11px',
+              letterSpacing: '0.09em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-500)',
+            }}
+          >
+            SEO settings
+            <span style={{ fontSize: '16px', color: 'var(--ink-400)', lineHeight: 1 }}>
+              {seoOpen ? '−' : '+'}
+            </span>
+          </button>
+
+          {seoOpen && (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '18px',
+                padding: '4px 18px 18px',
+                borderTop: '1px solid var(--ink-100)',
+              }}
+            >
+              <div>
+                <label style={LABEL_STYLE}>SEO title override</label>
+                <input
+                  type="text"
+                  placeholder={form.title || 'Defaults to article title'}
+                  value={form.seo_title}
+                  onChange={(e) => set('seo_title', e.target.value)}
+                  style={INPUT_STYLE}
+                />
+              </div>
+              <div>
+                <label style={LABEL_STYLE}>SEO description override</label>
+                <textarea
+                  rows={3}
+                  placeholder={form.excerpt || 'Defaults to excerpt'}
+                  value={form.seo_description}
+                  onChange={(e) => set('seo_description', e.target.value)}
+                  style={{ ...INPUT_STYLE, resize: 'vertical', lineHeight: 1.55 }}
+                />
+              </div>
+              <div>
+                <label style={LABEL_STYLE}>SEO OG image URL override</label>
+                <input
+                  type="url"
+                  placeholder="https://…"
+                  value={form.seo_og_image}
+                  onChange={(e) => set('seo_og_image', e.target.value)}
+                  style={{ ...INPUT_STYLE, fontFamily: 'monospace', fontSize: '13px' }}
+                />
+                {form.seo_og_image && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={form.seo_og_image}
+                    alt="OG image preview"
+                    style={{
+                      marginTop: '8px',
+                      width: '100%',
+                      maxWidth: '320px',
+                      height: 'auto',
+                      borderRadius: 'var(--r-sm)',
+                      border: '1px solid var(--ink-100)',
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Error */}

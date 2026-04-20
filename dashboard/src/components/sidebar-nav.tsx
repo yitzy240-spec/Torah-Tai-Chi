@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: '/channels',      label: 'Channels',     meta: '4 / 5' },
   { href: '/analytics',     label: 'Analytics',    meta: '' },
   { href: '/settings',      label: 'Settings',     meta: '' },
+  { href: '/settings/seo', label: 'SEO defaults', meta: '' },
   { href: '/help',          label: 'Help',         meta: '' },
 ];
 
