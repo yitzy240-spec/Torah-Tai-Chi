@@ -17,10 +17,11 @@ export interface SystemHealth {
 }
 
 const TIMEOUT_MS = 3000;
+const MODAL_TIMEOUT_MS = 10000; // Modal endpoints can cold-start; allow longer
 
-async function timedFetch(url: string, init?: RequestInit): Promise<{ ok: boolean; latencyMs: number; status?: number }> {
+async function timedFetch(url: string, init?: RequestInit, timeoutMs = TIMEOUT_MS): Promise<{ ok: boolean; latencyMs: number; status?: number }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const start = Date.now();
   try {
     const res = await fetch(url, { ...init, signal: controller.signal });
@@ -87,10 +88,10 @@ async function checkModal(): Promise<ServiceHealth | null> {
   if (!url) return null; // not configured — show nothing
 
   try {
-    const result = await timedFetch(url, { method: 'HEAD' });
-    // Modal returns 200 or 405 (method not allowed) both indicate the service is up
-    const ok = result.ok || result.status === 405;
-    return { ok, latencyMs: result.latencyMs, error: ok ? undefined : `HTTP ${result.status}` };
+    // GET — Modal's @fastapi_endpoint ignores HEAD. Any response (200/404/405)
+    // proves the router is alive; only a network-level failure is "down".
+    const result = await timedFetch(url, { method: 'GET' }, MODAL_TIMEOUT_MS);
+    return { ok: true, latencyMs: result.latencyMs };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
