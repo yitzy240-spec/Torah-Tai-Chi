@@ -7,6 +7,7 @@ import { GenerateDialog } from '@/components/generate-dialog';
 import { checkHealth } from '@/lib/health';
 import { SystemHealthStrip } from '@/components/system-health';
 import { ScriptCarousel, type CarouselScript } from '@/components/script-carousel';
+import { getStance } from '@/lib/stance';
 
 async function SystemHealthAsync() {
   const health = await checkHealth();
@@ -79,9 +80,10 @@ export default async function TodayPage() {
   // checkHealth is intentionally NOT awaited here — it pings 5 external
   // services and would hold the whole page back. We render it inside a
   // Suspense boundary below so the rest of the page appears immediately.
-  const [hebcalParsha, fallbackParsha] = await Promise.all([
+  const [hebcalParsha, fallbackParsha, stance] = await Promise.all([
     getThisWeekParsha(),
     getNextParsha(),
+    getStance(),
   ]);
 
   const parsha = hebcalParsha
@@ -96,7 +98,7 @@ export default async function TodayPage() {
     <>
       <div className="stagger">
         {/* Stance line — client component with toggle sheet */}
-        <StanceToggle initialStance="reviewer" />
+        <StanceToggle initialStance={stance} />
 
         {/* System health — quiet status strip; suspended so page paints fast */}
         <Suspense fallback={<SystemHealthSkeleton />}>

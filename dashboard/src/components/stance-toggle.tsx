@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useTransition } from 'react';
+import { saveStance as persistStance } from '@/app/actions/save-stance';
 
 type Stance = 'handson' | 'reviewer' | 'batch' | 'auto';
 
@@ -53,6 +54,8 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
   const [toastMsg, setToastMsg] = useState('');
   const [toastNote, setToastNote] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, startSaving] = useTransition();
 
   const openSheet = () => {
     setPendingStance(currentStance);
@@ -88,15 +91,29 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
 
   const saveStance = () => {
     const prev = currentStance;
-    setCurrentStance(pendingStance);
-    closeSheet();
-    if (prev !== pendingStance) {
-      const copy = STANCE_COPY[pendingStance];
-      setToastMsg(`Stance saved — ${copy.line.replace(/\.$/, '')}.`);
-      setToastNote(copy.toast);
-      setToastVisible(true);
-      setTimeout(() => setToastVisible(false), 3400);
+    const next = pendingStance;
+    setSaveError(null);
+
+    // No-op: close and do nothing if unchanged.
+    if (prev === next) {
+      closeSheet();
+      return;
     }
+
+    startSaving(async () => {
+      const res = await persistStance(next);
+      if (res.ok) {
+        setCurrentStance(next);
+        closeSheet();
+        const copy = STANCE_COPY[next];
+        setToastMsg(`Stance saved — ${copy.line.replace(/\.$/, '')}.`);
+        setToastNote(copy.toast);
+        setToastVisible(true);
+        setTimeout(() => setToastVisible(false), 3400);
+      } else {
+        setSaveError(res.error ?? 'Failed to save stance.');
+      }
+    });
   };
 
   return (
@@ -332,22 +349,26 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
             flexShrink: 0,
           }}
         >
-          <div style={{ flex: 1, fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: 'var(--ink-500)', minWidth: '200px', lineHeight: 1.45 }}>
-            You can change this anytime. Work already in-flight won&apos;t be affected.
+          <div style={{ flex: 1, fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: saveError ? 'var(--cedar-600)' : 'var(--ink-500)', minWidth: '200px', lineHeight: 1.45 }}>
+            {saveError
+              ? `Couldn't save: ${saveError}`
+              : 'You can change this anytime. Work already in-flight won\u2019t be affected.'}
           </div>
           <button
             type="button"
             onClick={closeSheet}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px', padding: '11px 22px', minHeight: '44px', borderRadius: '999px', border: '1px solid var(--ink-200)', background: 'transparent', color: 'var(--ink-700)', cursor: 'pointer', transition: 'all var(--trans)' }}
+            disabled={isSaving}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px', padding: '11px 22px', minHeight: '44px', borderRadius: '999px', border: '1px solid var(--ink-200)', background: 'transparent', color: 'var(--ink-700)', cursor: isSaving ? 'not-allowed' : 'pointer', opacity: isSaving ? 0.5 : 1, transition: 'all var(--trans)' }}
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={saveStance}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px', padding: '11px 22px', minHeight: '44px', borderRadius: '999px', border: '1px solid var(--navy-800)', background: 'var(--navy-800)', color: 'var(--linen-50)', cursor: 'pointer', transition: 'all var(--trans)', boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)' }}
+            disabled={isSaving}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px', padding: '11px 22px', minHeight: '44px', borderRadius: '999px', border: '1px solid var(--navy-800)', background: 'var(--navy-800)', color: 'var(--linen-50)', cursor: isSaving ? 'wait' : 'pointer', opacity: isSaving ? 0.7 : 1, transition: 'all var(--trans)', boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)' }}
           >
-            Save stance
+            {isSaving ? 'Saving…' : 'Save stance'}
           </button>
         </div>
       </div>

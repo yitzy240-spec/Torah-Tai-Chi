@@ -253,6 +253,50 @@ def run_pipeline(job_id: str) -> None:
         set_status("done", "Video ready")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
+        # --- Autopilot webhook ---
+        # Tell the dashboard the video is ready. The dashboard route
+        # checks the current stance and, if 'auto', fans out Buffer +
+        # YouTube for this week's Shabbat. Only parsha jobs trigger it —
+        # topic jobs have their own in-flight UI in Compose.
+        # Failure here must never fail the pipeline; the video row is
+        # already committed.
+        if kind == "parsha":
+            try:
+                # We just inserted videos row above; read its id back so
+                # the webhook can address the specific video.
+                video_lookup = (
+                    sb.table("videos")
+                    .select("id")
+                    .eq("job_id", job_id)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                    .data
+                )
+                video_id = video_lookup[0]["id"] if video_lookup else None
+
+                dashboard_url = os.environ.get("DASHBOARD_URL")
+                webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+                if dashboard_url and webhook_secret and video_id:
+                    import httpx  # imported lazily so missing webhook config never crashes the pipeline
+                    with httpx.Client(timeout=10.0) as client:
+                        resp = client.post(
+                            f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
+                            headers={"x-pipeline-secret": webhook_secret},
+                            json={"jobId": job_id, "videoId": video_id},
+                        )
+                        print(
+                            f"[autopilot] webhook {resp.status_code} for job {job_id}: {resp.text[:200]}"
+                        )
+                else:
+                    print(
+                        f"[autopilot] skipped webhook — missing DASHBOARD_URL / PIPELINE_WEBHOOK_SECRET / video_id (job {job_id})"
+                    )
+            except Exception as hook_err:
+                print(
+                    f"[autopilot] webhook failed for job {job_id}: {type(hook_err).__name__}: {hook_err}"
+                )
+
     except Exception as e:
         import traceback
         tb = traceback.format_exc()

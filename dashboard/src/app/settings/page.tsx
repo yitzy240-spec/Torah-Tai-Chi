@@ -3,6 +3,7 @@ import { DefaultQualitySection } from '@/components/default-quality-section';
 import { UsersSection } from '@/components/users-section';
 import { createClient } from '@/lib/supabase/server';
 import { listUsers } from '@/app/actions/manage-users';
+import { getStance, type Stance } from '@/lib/stance';
 
 // Visual-only toggle component (no interactivity needed here)
 function ToggleSwitch({ on }: { on: boolean }) {
@@ -64,6 +65,25 @@ const DESC_STYLE: React.CSSProperties = {
   fontVariationSettings: '"opsz" 14, "SOFT" 50',
 };
 
+const STANCE_LABEL: Record<Stance, { name: string; sub: string }> = {
+  handson: {
+    name: 'Hands-on',
+    sub: 'You initiate every step. Nothing ships without your action.',
+  },
+  reviewer: {
+    name: 'Reviewer',
+    sub: 'System drafts and generates weekly. You approve each video before it ships.',
+  },
+  batch: {
+    name: 'Batch-ahead',
+    sub: 'Generates several weeks at a time. Approved weeks ship without further check-in.',
+  },
+  auto: {
+    name: 'Autopilot',
+    sub: 'Full auto: generate, schedule, publish. Videos ship weekly without your approval.',
+  },
+};
+
 export default async function SettingsPage() {
   const supabase = await createClient();
   const { data: defaultTierRow } = await supabase
@@ -74,6 +94,8 @@ export default async function SettingsPage() {
   const defaultTierKey: string = defaultTierRow?.value ?? '720p fast';
 
   const { users = [] } = await listUsers();
+  const stance = await getStance();
+  const stanceCopy = STANCE_LABEL[stance];
 
   return (
     <div className="stagger" style={{ maxWidth: '680px' }}>
@@ -123,7 +145,7 @@ export default async function SettingsPage() {
                 fontVariationSettings: '"opsz" 18, "SOFT" 30',
               }}
             >
-              Reviewer
+              {stanceCopy.name}
             </div>
             <div
               style={{
@@ -135,11 +157,13 @@ export default async function SettingsPage() {
                 marginTop: '4px',
               }}
             >
-              System drafts and generates weekly. You approve each video before it ships.
+              {stanceCopy.sub}
             </div>
           </div>
-          {/* Use the existing StanceToggle via its "Change stance" button pattern */}
-          <StanceChangeButton />
+          {/* StanceToggle renders its own "Change stance" button inline with
+              the sage dot and current-stance copy. It lives at the right of
+              the card so Yonah can switch without leaving Settings. */}
+          <StanceToggle initialStance={stance} />
         </div>
       </section>
 
@@ -335,31 +359,3 @@ export default async function SettingsPage() {
   );
 }
 
-// Lightweight "Change stance" button — opens the StanceToggle sheet
-// We embed the full StanceToggle invisible (it renders the button inline)
-// Simplest approach: just a ghost button that's visually correct
-function StanceChangeButton() {
-  return (
-    <button
-      type="button"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '8px',
-        fontFamily: 'var(--ff-body)',
-        fontWeight: 500,
-        fontSize: '14px',
-        padding: '11px 22px',
-        minHeight: '44px',
-        borderRadius: '999px',
-        border: '1px solid var(--ink-200)',
-        background: 'transparent',
-        color: 'var(--ink-700)',
-        cursor: 'pointer',
-        transition: 'all var(--trans)',
-      }}
-    >
-      Change stance
-    </button>
-  );
-}
