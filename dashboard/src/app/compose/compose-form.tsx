@@ -18,11 +18,33 @@ const MEDIA_REQUIRED = new Set(['instagram', 'tiktok']);
 export function ComposeForm({ channels }: Props) {
   const [text, setText] = useState('');
   const [imageUrl, setImageUrl] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(channels.map((c) => c.id)));
   const [shareNow, setShareNow] = useState(true);
   const [pending, startTransition] = useTransition();
   const [results, setResults] = useState<BroadcastResult[] | null>(null);
   const [topError, setTopError] = useState<string | null>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // let users re-upload the same file if needed
+    if (!file) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/compose/upload', { method: 'POST', body: fd });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? `Upload failed (${res.status})`);
+      setImageUrl(body.url);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const toggleChannel = (id: string) => {
     setSelected((prev) => {
@@ -77,17 +99,86 @@ export function ComposeForm({ channels }: Props) {
         <div style={HELP_STYLE}>{text.length} characters</div>
       </div>
 
-      {/* Image URL */}
+      {/* Image — upload or paste URL */}
       <div>
-        <label htmlFor="imageUrl" style={LABEL_STYLE}>Image URL <span style={{ color: 'var(--ink-400)', fontWeight: 400 }}>(optional, required for Instagram & TikTok)</span></label>
+        <label style={LABEL_STYLE}>
+          Image <span style={{ color: 'var(--ink-400)', fontWeight: 400 }}>(required for Instagram & TikTok)</span>
+        </label>
+
+        {imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt="Selected image"
+            style={{
+              maxHeight: '220px',
+              width: 'auto',
+              borderRadius: 'var(--r-md)',
+              border: '1px solid var(--ink-100)',
+              display: 'block',
+              marginBottom: '12px',
+            }}
+          />
+        )}
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontFamily: 'var(--ff-body)',
+              fontSize: '13px',
+              fontWeight: 500,
+              padding: '9px 16px',
+              minHeight: '40px',
+              borderRadius: '999px',
+              border: '1px solid var(--ink-200)',
+              background: 'var(--linen-50)',
+              color: 'var(--ink-700)',
+              cursor: uploading ? 'wait' : 'pointer',
+              transition: 'all var(--trans)',
+              opacity: uploading ? 0.6 : 1,
+            }}
+          >
+            <input type="file" accept="image/*" disabled={uploading} onChange={handleFileChange} style={{ display: 'none' }} />
+            {uploading ? 'Uploading…' : imageUrl ? 'Replace image' : 'Upload image'}
+          </label>
+          {imageUrl && !uploading && (
+            <button
+              type="button"
+              onClick={() => { setImageUrl(''); setUploadError(null); }}
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: '12.5px',
+                color: 'var(--ink-500)',
+                textDecoration: 'underline',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                minHeight: '40px',
+              }}
+            >
+              Remove
+            </button>
+          )}
+        </div>
+
         <input
           id="imageUrl"
           type="url"
           value={imageUrl}
-          onChange={(e) => setImageUrl(e.target.value)}
-          placeholder="https://torahtaichi.com/og/default.png"
-          style={INPUT_STYLE}
+          onChange={(e) => { setImageUrl(e.target.value); setUploadError(null); }}
+          placeholder="…or paste a public image URL"
+          style={{ ...INPUT_STYLE, fontSize: '13.5px' }}
         />
+
+        {uploadError && (
+          <div style={{ marginTop: '8px', fontFamily: 'var(--ff-body)', fontSize: '12.5px', color: '#8b2d1c' }}>
+            {uploadError}
+          </div>
+        )}
       </div>
 
       {/* Channels */}
