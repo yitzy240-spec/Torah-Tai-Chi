@@ -175,13 +175,13 @@ async function _fetchUpcomingWeeks(n: number): Promise<ShabbatParsha[]> {
 /** Fetch this Shabbat's parsha, cached 1 hour. */
 export const getThisWeekParsha = unstable_cache(
   async (): Promise<ShabbatParsha | null> => _fetchThisWeekParsha(),
-  ["hebcal-this-week"],
+  ["hebcal-this-week-v2"],
   { revalidate: 3600 }
 );
 
 /** Fetch next n Shabbat parshiot, cached 1 hour. */
 export const getUpcomingWeeks = unstable_cache(
   async (n = 6): Promise<ShabbatParsha[]> => _fetchUpcomingWeeks(n),
-  ["hebcal-upcoming-weeks"],
+  ["hebcal-upcoming-weeks-v2"],
   { revalidate: 3600 }
 );
