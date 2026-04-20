@@ -345,16 +345,51 @@ Exit code: 0 always — this is a *reporting* tool, not a CI gate. Severity coun
 | Supabase `admin.generateLink` rate limits | Cache `storageState.json` between runs; refresh every 24h |
 | Magic-link redirect_to mismatch | `redirectTo` explicitly points at preview domain; Supabase project's allowed redirect URLs must include it |
 
-## 8. Open questions
+## 8. Resolved decisions
 
-1. **Should `findings.md` be committed?** — My lean: yes, per run, with timestamp in filename (`findings-2026-04-20.md`), so history is readable. Alternative: gitignored, regenerate each run.
-2. **Dev vs preview Supabase?** — Plan assumes Vercel preview uses the same Supabase project as prod. If not, `.env.qa` needs separate URL/keys.
-3. **Cron endpoint testing?** — `/api/cron/reconcile-posts` is hit by Vercel's scheduler. In scope to test the handler directly (auth + happy path), not its scheduling. Treating as Tier 2.
+1. **`findings.md` is gitignored, single latest file.** Overwritten each run. Rationale: the historical record of what was fixed lives in git commits that reference finding IDs (e.g., `fix(compose): dash-compose-03 prevent post-now double-submit`). Keeping findings files in git would churn the tree on every QA run and rot fast as fixes land. A fix agent always looks at the same path.
+2. **Vercel preview shares the prod Supabase project.** There is no separate dev Supabase. This means QA test data lands in prod tables. Section 9 below locks the safety rules for this.
+3. **`/api/cron/reconcile-posts` is Tier 2.** Handler-level tests only (auth gate, happy path, YouTube mock failure). Not testing Vercel's scheduler itself.
 
-## 9. Implementation plan handoff
+## 9. Safety rules for prod-Supabase testing
+
+Because QA shares prod Supabase, every write the suite performs must be safely isolated and reversible. The following are non-negotiable:
+
+### 9.1 Test user
+- Email: `qa-bot@torahtaichi.test` — `.test` TLD is RFC 2606 reserved, guaranteed non-deliverable, visually obvious.
+- Created via `admin.createUser({ email_confirm: true })` — never receives a real email.
+- Deleted in `global-teardown`. If a run crashes, a `tests/qa/scripts/cleanup.ts` one-shot can purge by email.
+
+### 9.2 Seed-data invariants
+- Every seed row is tagged `qa_seed=true` (new column, or reuse an existing metadata column) — **this is the master kill switch**.
+- Every seed article: slug MUST start with `qa-test-`, title MUST start with `QA TEST — `, status defaults to `draft` and never flips to `published` EXCEPT inside the article-publish flow test (Tier 1), which:
+  - Publishes with an `afterEach` cleanup registered BEFORE publish.
+  - Rolls status back to `draft` (or deletes) within 5 seconds.
+  - Triggers `revalidate` again after cleanup so the website ISR cache forgets it.
+- Every seed video: `qa_seed=true` + slug prefix `qa-test-` + never surfaced on the website (website query MUST be confirmed to filter out `qa_seed=true` rows — if it doesn't, either add that filter to the website query OR keep seed videos in a status the website doesn't render).
+- Seed scheduled posts: mocked at the Buffer layer so nothing actually posts; the row itself is tagged and cleaned up.
+
+### 9.3 Required pre-flight verification (run once before first QA run)
+- Add `qa_seed boolean default false` column to `articles`, `videos`, `posts` via migration. OR reuse an existing metadata JSON column and filter accordingly.
+- Confirm the website's public queries exclude `qa_seed=true` rows. If they don't, add `.eq('qa_seed', false)` to the relevant Supabase queries in [website/src/lib/](website/src/lib/) before the first QA run.
+- Confirm `.test` TLD is accepted by Supabase Auth's email validator (it is, by default).
+
+### 9.4 Teardown guarantees
+- `global-teardown` runs `delete from articles where qa_seed=true`, same for videos and posts.
+- Every individual write test that mutates prod state registers an `afterEach` inverse-action — cleanup does not rely on global teardown alone (runs can crash).
+- A standalone `npm run qa:cleanup` target exists for manual recovery.
+
+### 9.5 Blast radius summary
+If every safeguard above fails simultaneously:
+- Worst case: a handful of obviously-named `qa-test-*` rows stay in prod tables with `qa_seed=true`. They are invisible on the public website (filter), invisible in the dashboard to non-QA users (they see them, but they're clearly labeled), and purgeable with one SQL statement at any time.
+- Nothing is posted publicly (all outbound APIs mocked).
+- No real email is sent.
+
+## 10. Implementation plan handoff
 
 Once this spec is approved, the writing-plans skill will break the build into phases:
 
+- **Phase 0** — pre-flight: add `qa_seed` column migration, verify/add website query filters, confirm `.test` TLD accepted, add `docs/qa/` to `.gitignore`.
 - **Phase A** — harness scaffolding: `tests/qa/` layout, Playwright config, auth fixture, mocks fixture, seed helper, one canary spec (`dashboard/tier1/login.spec.ts`) running green against preview.
 - **Phase B** — Tier 1 specs, dashboard + website.
 - **Phase C** — Tier 2 specs.
