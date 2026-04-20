@@ -3,6 +3,7 @@ import "./globals.css";
 import SiteNav from "@/components/SiteNav";
 import SiteFooter from "@/components/SiteFooter";
 import { getSiteContent } from "@/lib/site-content";
+import { organizationSchema, websiteSchema } from "@/lib/jsonld";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://torahtaichi.com"),
@@ -19,6 +20,19 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
   },
+  alternates: {
+    canonical: "https://torahtaichi.com",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+    other: [
+      { rel: "manifest", url: "/manifest.json" },
+    ],
+  },
 };
 
 export default async function RootLayout({
@@ -29,6 +43,9 @@ export default async function RootLayout({
   const content = await getSiteContent();
   const showBook = content["book.visible"] === "true";
 
+  const orgSchemaJson = JSON.stringify(organizationSchema());
+  const siteSchemaJson = JSON.stringify(websiteSchema());
+
   return (
     <html lang="en">
       <head>
@@ -37,6 +54,14 @@ export default async function RootLayout({
         <link
           href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Mona+Sans:ital,wght@0,200..900;1,200..900&family=Frank+Ruhl+Libre:wght@300..900&display=swap"
           rel="stylesheet"
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: orgSchemaJson }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: siteSchemaJson }}
         />
       </head>
       <body>

@@ -9,6 +9,10 @@ export const metadata: Metadata = {
   title: "Writings",
   description:
     "Reflections on where wisdom lives in the body. Long-form essays, teachings, and reflections.",
+  alternates: {
+    canonical: "https://torahtaichi.com/articles",
+    types: { "application/rss+xml": "/articles/feed.xml" },
+  },
   openGraph: {
     title: "Writings · Torah Tai Chi",
     description:

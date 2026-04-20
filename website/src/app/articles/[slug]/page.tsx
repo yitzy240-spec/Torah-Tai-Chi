@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllArticles, getArticleBySlug, tiptapJsonToHtml } from "@/lib/articles";
 import ArticleCard from "@/components/ArticleCard";
+import { articleSchema, breadcrumbSchema } from "@/lib/jsonld";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -41,13 +42,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const article = await getArticleBySlug(slug);
   if (!article) return { title: "Article" };
-  const description = article.excerpt ?? article.subtitle ?? undefined;
-  const ogImageUrl = `/og/article/${slug}`;
+  const description = article.seo_description ?? article.excerpt ?? article.subtitle ?? undefined;
+  const titleStr = article.seo_title ?? article.title;
+  const ogImageUrl = article.seo_og_image ?? `/og/article/${slug}`;
   return {
-    title: article.title,
+    title: titleStr,
     description,
+    alternates: {
+      canonical: `https://torahtaichi.com/articles/${slug}`,
+      types: { "application/rss+xml": "/articles/feed.xml" },
+    },
     openGraph: {
-      title: `${article.title} · Torah Tai Chi`,
+      title: `${titleStr} · Torah Tai Chi`,
       description,
       type: "article",
       url: `https://torahtaichi.com/articles/${slug}`,
@@ -56,7 +62,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     },
     twitter: {
       card: "summary_large_image",
-      title: `${article.title} · Torah Tai Chi`,
+      title: `${titleStr} · Torah Tai Chi`,
       description,
     },
   };
@@ -86,8 +92,26 @@ export default async function ArticleDetailPage({ params }: Props) {
   const allArticles = await getAllArticles();
   const otherArticles = allArticles.filter((a) => a.slug !== slug).slice(0, 2);
 
+  const artSchema = JSON.stringify(
+    articleSchema({
+      title: article.title,
+      description: article.excerpt ?? article.subtitle ?? undefined,
+      datePublished: article.published_at ?? undefined,
+      slug: article.slug,
+    })
+  );
+  const crumbSchema = JSON.stringify(
+    breadcrumbSchema([
+      { name: "Home", url: "https://torahtaichi.com" },
+      { name: "Writings", url: "https://torahtaichi.com/articles" },
+      { name: article.title, url: `https://torahtaichi.com/articles/${slug}` },
+    ])
+  );
+
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: artSchema }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: crumbSchema }} />
       <div className="back-wrap" style={{ maxWidth: "720px" }}>
         <Link href="/articles" className="back-link">
           &larr; All writings

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSiteContent } from "@/lib/site-content";
 import Brand from "@/components/Brand";
+import { bookSchema } from "@/lib/jsonld";
 
 // ISR: revalidate every 60 s
 export const revalidate = 60;
@@ -12,6 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: `${c["book.title"]} — The Book`,
     description: c["book.subtitle"],
+    alternates: { canonical: "https://torahtaichi.com/book" },
     openGraph: {
       title: `${c["book.title"]} — The Book`,
       description: c["book.subtitle"],
@@ -43,9 +45,11 @@ export default async function BookPage() {
   const ctaLabel = c["book.cta_label"] || "Buy the book";
 
   const descParagraphs = description.split(/\n\n+/).filter(Boolean);
+  const bookSchemaJson = JSON.stringify(bookSchema({ name: title, description: description || null }));
 
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: bookSchemaJson }} />
       <header className="page-header stagger">
         <div className="page-kicker">THE BOOK</div>
         <h1>{title}</h1>

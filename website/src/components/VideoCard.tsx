@@ -51,8 +51,7 @@ export default function VideoCard({ parsha, thumbUrl, isCurrentWeek }: VideoCard
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={thumbUrl ?? PLACEHOLDER_THUMB}
-          alt=""
-          aria-hidden="true"
+          alt={`${parsha.name} — Torah Tai Chi weekly teaching`}
           style={{
             position: "absolute",
             inset: 0,

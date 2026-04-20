@@ -21,6 +21,10 @@ export interface Article {
   read_minutes: number | null;
   published: boolean;
   published_at: string | null;
+  // SEO overrides (optional — from Storyblok seo_title / seo_description / seo_og_image fields)
+  seo_title: string | null;
+  seo_description: string | null;
+  seo_og_image: string | null;
 }
 
 // ─────────────────────────────────────────────
@@ -92,6 +96,9 @@ function storyToArticle(story: any): Article {
     read_minutes: c.read_minutes ? Number(c.read_minutes) : null,
     published: true,  // CDN only returns published stories
     published_at: c.published_at || story.published_at || null,
+    seo_title: c.seo_title || null,
+    seo_description: c.seo_description || null,
+    seo_og_image: c.seo_og_image || null,
   };
 }
 

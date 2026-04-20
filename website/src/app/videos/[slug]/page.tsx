@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllParshiot, getParshaBySlug, getNearbyParshiot, ALL_PARSHA_SLUGS } from "@/lib/parshiot";
 import VideoCard from "@/components/VideoCard";
+import { videoSchema, breadcrumbSchema } from "@/lib/jsonld";
 
 // ISR: revalidate every 300 s (5 min); new slugs served on demand
 export const revalidate = 300;
@@ -36,6 +37,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     return {
       title: parsha.name,
       description: excerpt,
+      alternates: {
+        canonical: `https://torahtaichi.com/videos/${slug}`,
+      },
       openGraph: {
         title: `${parsha.name} · Torah Tai Chi`,
         description: excerpt,
@@ -92,8 +96,36 @@ export default async function VideoDetailPage({ params }: Props) {
     ? parsha.atightScript.split(/\n\n+/).filter(Boolean)
     : [];
 
+  const vidSchemaJson = parsha
+    ? JSON.stringify(
+        videoSchema({
+          name: parsha.name,
+          description: parsha.atightScript
+            ? parsha.atightScript.slice(0, 160).replace(/\s+\S*$/, "") + "…"
+            : null,
+          slug,
+        })
+      )
+    : null;
+
+  const crumbSchemaJson = parsha
+    ? JSON.stringify(
+        breadcrumbSchema([
+          { name: "Home", url: "https://torahtaichi.com" },
+          { name: "Teachings", url: "https://torahtaichi.com/videos" },
+          { name: parsha.name, url: `https://torahtaichi.com/videos/${slug}` },
+        ])
+      )
+    : null;
+
   return (
     <>
+      {vidSchemaJson && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: vidSchemaJson }} />
+      )}
+      {crumbSchemaJson && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: crumbSchemaJson }} />
+      )}
       <div className="back-wrap">
         <Link href="/videos" className="back-link">
           &larr; All teachings
