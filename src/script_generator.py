@@ -176,7 +176,7 @@ A directorial tone cue for this clip, e.g., "speak this reverently",
 Omit the field (or set null) if no special direction needed.
 
 PLATFORM CAPTIONS (the "captions" field in output):
-Generate all four in one pass. Not for on-screen use — these are the
+Generate all SIX in one pass. Not for on-screen use — these are the
 captions that live under the video on each platform.
 - tiktok: punchy, 1-2 sentences, hashtag-heavy at end. <=250 chars.
   Example style: "The smallest letter in the Torah carries a teaching
@@ -189,6 +189,11 @@ captions that live under the video on each platform.
   chars. Can mention the parsha and book of Torah.
 - facebook: longer-form, conversational 2-4 sentences. Fewer hashtags
   than TT/IG. <=550 chars.
+- twitter: ONE tight sentence — X caps at 280 chars total, so aim for
+  <=260 to leave room for auto-linking. Lead with the hook + a teaser,
+  max 1-2 hashtags at the end. Example: "Kedusha isn't a feeling —
+  it's the breath before the reaction. 45s on the tai chi of
+  non-reactivity. #torahtaichi"
 
 OUTPUT SCHEMA (JSON only, no markdown fences, no commentary):
 {{
@@ -201,7 +206,8 @@ OUTPUT SCHEMA (JSON only, no markdown fences, no commentary):
     "instagram": "...",
     "youtube_title": "...",
     "youtube_description": "...",
-    "facebook": "..."
+    "facebook": "...",
+    "twitter": "..."
   }},
   "clips": [
     {{"index": 0, "voiceover": "...", "visual_prompt": "...",
@@ -284,7 +290,8 @@ def build_prompt(parsha_name: str, book: str, option: str,
         f"---\n{draft}\n---\n\n"
         "Produce the ClipPlan JSON now. Remember: 3-8 clips, dojo first then outdoor, "
         "total 28-90 seconds based on natural sage pace (~2.3 wps). Include the "
-        "full 'captions' object with all four platform variants."
+        "full 'captions' object with all six platform variants "
+        "(tiktok, instagram, youtube_title, youtube_description, facebook, twitter)."
     )
 
 

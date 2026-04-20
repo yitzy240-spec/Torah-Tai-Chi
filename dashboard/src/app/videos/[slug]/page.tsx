@@ -444,9 +444,10 @@ export default async function VideoDetailPage({ params }: PageProps) {
           {(
             [
               { platform: 'tiktok' as const, caption: `Everyone quotes "love your neighbor" — but nobody reads the verse before it. #torah #taichi #${parsha.slug}` },
-              { platform: 'instagram' as const, caption: `Kedusha isn't a feeling. It's restraint. This week's parsha, ${parsha.name}, meets tai chi's song...` },
+              { platform: 'instagram' as const, caption: `Kedusha isn't a feeling. It's restraint. This week's parsha, ${parsha.name}, meets tai chi's release.` },
               { platform: 'youtube' as const, caption: `Parshat ${parsha.name}: the discipline of non-reactivity that makes "love your neighbor" even possible.` },
-              { platform: 'facebook' as const, caption: `One breath before you respond. That breath is the practice. ${parsha.name} teaches us what holiness...` },
+              { platform: 'facebook' as const, caption: `One breath before you respond. That breath is the practice. ${parsha.name} teaches us what holiness demands.` },
+              { platform: 'twitter' as const, caption: `${parsha.name}: kedusha = the breath before the reaction. A ~45s teaching on the tai chi of non-reactivity. #torah #taichi` },
             ]
           ).map(({ platform, caption }) => (
             <div
@@ -539,6 +540,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
               { platform: 'instagram' as const, name: 'Instagram' },
               { platform: 'youtube' as const, name: 'YouTube' },
               { platform: 'facebook' as const, name: 'Facebook' },
+              { platform: 'twitter' as const, name: 'X' },
             ].map(({ platform, name }) => {
               const post = postsByPlatform[platform];
               let status = 'Not scheduled';

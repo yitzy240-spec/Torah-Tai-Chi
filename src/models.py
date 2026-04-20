@@ -21,6 +21,7 @@ class PlatformCaptions(BaseModel):
     youtube_title: str = Field(min_length=1, max_length=100)
     youtube_description: str = Field(min_length=1, max_length=800)
     facebook: str = Field(min_length=1, max_length=600)
+    twitter: str = Field(min_length=1, max_length=280)
 
 
 class ClipPlan(BaseModel):

@@ -176,7 +176,7 @@ export async function GET(request: Request) {
     .single();
 
   // plan_json.captions follows PlatformCaptions — tiktok/instagram/
-  // youtube_title/youtube_description/facebook. We need to shape it into
+  // youtube_title/youtube_description/facebook/twitter. We shape it into
   // the Partial<Record<Platform, string>> the schedule-all sheet expects.
   const planJson = (clipPlanRow?.plan_json ?? {}) as {
     captions?: {
@@ -185,6 +185,7 @@ export async function GET(request: Request) {
       youtube_title?: string;
       youtube_description?: string;
       facebook?: string;
+      twitter?: string;
     };
   };
   const src = planJson.captions ?? {};
@@ -192,6 +193,7 @@ export async function GET(request: Request) {
   if (src.tiktok) captions.tiktok = src.tiktok;
   if (src.instagram) captions.instagram = src.instagram;
   if (src.facebook) captions.facebook = src.facebook;
+  if (src.twitter) captions.twitter = src.twitter;
   if (src.youtube_title || src.youtube_description) {
     const title = src.youtube_title?.trim() ?? '';
     const desc = src.youtube_description?.trim() ?? '';

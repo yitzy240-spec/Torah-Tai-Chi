@@ -7,7 +7,7 @@ import Link from 'next/link';
 const BUFFER_CHANNELS_URL = 'https://publish.buffer.com/channels';
 
 // YouTube is handled direct via the Data API, not Buffer.
-const BUFFER_PLATFORMS = ['tiktok', 'instagram', 'facebook'] as const;
+const BUFFER_PLATFORMS = ['tiktok', 'instagram', 'facebook', 'twitter'] as const;
 type BufferPlatform = typeof BUFFER_PLATFORMS[number];
 type Platform = BufferPlatform | 'youtube' | 'website';
 
@@ -53,7 +53,7 @@ async function getChannelData(): Promise<ChannelData[]> {
     );
     return {
       platform,
-      name: platform.charAt(0).toUpperCase() + platform.slice(1),
+      name: platform === 'twitter' ? 'X' : platform.charAt(0).toUpperCase() + platform.slice(1),
       connected: !!profile,
       username: profile?.service_username ?? null,
       recentPosts: countByPlatform[platform] ?? 0,

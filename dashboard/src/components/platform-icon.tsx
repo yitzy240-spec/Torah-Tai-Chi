@@ -1,7 +1,7 @@
 // PlatformIcon — reusable SVG icons for TikTok, Instagram, YouTube, Facebook, Website
 // Usage: <PlatformIcon name="tiktok" size={22} />
 
-type Platform = 'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'website';
+type Platform = 'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'twitter' | 'website';
 
 interface PlatformIconProps {
   name: Platform;
@@ -40,6 +40,14 @@ export function PlatformIcon({ name, size = 22, className }: PlatformIconProps) 
     return (
       <svg viewBox="0 0 24 24" style={style} className={className} aria-label="Facebook">
         <path fill="currentColor" d="M24 12.07C24 5.41 18.63 0 12 0S0 5.41 0 12.07c0 6.02 4.39 11.02 10.13 11.93v-8.44H7.08v-3.49h3.04V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.33l-.53 3.49h-2.8v8.44C19.61 23.09 24 18.09 24 12.07z"/>
+      </svg>
+    );
+  }
+
+  if (name === 'twitter') {
+    return (
+      <svg viewBox="0 0 24 24" style={style} className={className} aria-label="X">
+        <path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
       </svg>
     );
   }

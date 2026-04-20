@@ -352,8 +352,8 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
                   disabled={posted || pending}
                   style={{ width: '16px', height: '16px', accentColor: 'var(--navy-800)' }}
                 />
-                <span style={{ fontFamily: 'var(--ff-display)', fontWeight: 500, textTransform: 'capitalize', color: 'var(--ink-900)' }}>
-                  {c.service}
+                <span style={{ fontFamily: 'var(--ff-display)', fontWeight: 500, textTransform: c.service === 'twitter' ? 'none' : 'capitalize', color: 'var(--ink-900)' }}>
+                  {c.service === 'twitter' ? 'X' : c.service}
                 </span>
                 <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '13px', color: 'var(--ink-500)' }}>
                   @{c.username}
@@ -401,7 +401,7 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
                         </a>
                       ) : (
                         <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12px', color: 'var(--ink-400)' }}>
-                          Publishing to {c.service}…
+                          Publishing to {c.service === 'twitter' ? 'X' : c.service}…
                         </span>
                       )}
                     </>

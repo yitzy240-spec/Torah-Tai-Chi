@@ -335,7 +335,7 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
             lineHeight: 1.55,
           }}
         >
-          TikTok · Instagram · YouTube · Facebook
+          TikTok · Instagram · YouTube · Facebook · X
         </div>
 
         {error && (
