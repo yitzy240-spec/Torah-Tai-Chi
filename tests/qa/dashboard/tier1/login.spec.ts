@@ -45,10 +45,10 @@ test.describe('dashboard: auth (canary)', () => {
       // Accept any of: built-in HTML5 validation (:invalid / aria-invalid),
       // a screen-reader alert, or visible inline error copy. The first match
       // is enough — we're asserting the form didn't silently succeed.
-      const alertOrInvalid = page.locator(
-        '[aria-invalid="true"], [role="alert"], text=/invalid|valid email/i',
-      );
-      await expect(alertOrInvalid.first()).toBeVisible({ timeout: 5_000 });
+      const invalid = page.locator('[aria-invalid="true"]');
+      const alert = page.getByRole('alert');
+      const copy = page.getByText(/invalid|valid email/i);
+      await expect(invalid.or(alert).or(copy).first()).toBeVisible({ timeout: 5_000 });
     });
 
     for (const route of [
