@@ -112,6 +112,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
         <button
           type="button"
           title="Heading 2"
+          aria-label="Heading 2"
           style={btnStyle(editor.isActive('heading', { level: 2 }))}
           onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
         >
@@ -120,6 +121,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
         <button
           type="button"
           title="Heading 3"
+          aria-label="Heading 3"
           style={btnStyle(editor.isActive('heading', { level: 3 }))}
           onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
         >
@@ -131,6 +133,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
         <button
           type="button"
           title="Bold"
+          aria-label="Bold"
           style={{ ...btnStyle(editor.isActive('bold')), fontWeight: 700 }}
           onClick={() => editor.chain().focus().toggleBold().run()}
         >
@@ -139,6 +142,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
         <button
           type="button"
           title="Italic"
+          aria-label="Italic"
           style={{ ...btnStyle(editor.isActive('italic')), fontStyle: 'italic' }}
           onClick={() => editor.chain().focus().toggleItalic().run()}
         >
@@ -150,6 +154,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
         <button
           type="button"
           title="Bullet list"
+          aria-label="Bullet list"
           style={btnStyle(editor.isActive('bulletList'))}
           onClick={() => editor.chain().focus().toggleBulletList().run()}
         >
@@ -162,6 +167,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
         <button
           type="button"
           title="Numbered list"
+          aria-label="Numbered list"
           style={btnStyle(editor.isActive('orderedList'))}
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
         >
@@ -180,6 +186,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
         <button
           type="button"
           title="Link"
+          aria-label="Link"
           style={btnStyle(editor.isActive('link'))}
           onClick={handleLink}
         >
@@ -191,6 +198,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
         <button
           type="button"
           title="Blockquote"
+          aria-label="Blockquote"
           style={btnStyle(editor.isActive('blockquote'))}
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
         >
