@@ -116,3 +116,35 @@ async def test_transform_draft_strips_json_fence_wrapper():
             api_key="test-key",
         )
     assert plan.outdoor_archetype_id == "MOUNTAIN_RIDGE"
+
+
+def test_build_prompt_without_selected_move_has_no_featured_block():
+    from src.script_generator import build_prompt
+    prompt = build_prompt(
+        parsha_name="X", book="Y", option="A",
+        style_note="", title="t", draft="draft text",
+    )
+    assert "FEATURED TAI CHI MOVE" not in prompt
+
+
+def test_build_prompt_with_selected_move_appends_featured_block():
+    from src.script_generator import build_prompt
+    move = {
+        "slug": "white_crane_spreads_wings",
+        "english": "White Crane Spreads Its Wings",
+        "pinyin": "Báihè Liàngchì",
+        "visual": "stands on right leg, left toe touching, right hand above head",
+        "motion_description": "torso rotates 90 degrees to the left as weight shifts onto the right leg...",
+    }
+    prompt = build_prompt(
+        parsha_name="X", book="Y", option="A",
+        style_note="", title="t", draft="draft text",
+        selected_move=move,
+    )
+    assert "FEATURED TAI CHI MOVE" in prompt
+    assert "White Crane Spreads Its Wings" in prompt
+    assert "Báihè Liàngchì" in prompt
+    assert "torso rotates" in prompt
+    assert "motion_ref_slug" in prompt
+    assert "white_crane_spreads_wings" in prompt
+    assert "exactly one" in prompt.lower() or "exactly ONE" in prompt

@@ -280,19 +280,40 @@ Possible output (sketch):
 
 
 def build_prompt(parsha_name: str, book: str, option: str,
-                 style_note: str, title: str, draft: str) -> str:
-    return (
+                 style_note: str, title: str, draft: str,
+                 selected_move: dict | None = None) -> str:
+    base = (
         f"PARSHA: {parsha_name} ({book})\n"
         f"OPTION: {option}\n"
         f"TITLE: {title}\n"
         f"STYLE NOTE: {style_note}\n\n"
         f"DRAFT SCRIPT (preserve wording exactly — you split it, you do not rewrite it):\n"
         f"---\n{draft}\n---\n\n"
-        "Produce the ClipPlan JSON now. Remember: 3-8 clips, dojo first then outdoor, "
-        "total 28-90 seconds based on natural sage pace (~2.3 wps). Include the "
-        "full 'captions' object with all six platform variants "
-        "(tiktok, instagram, youtube_title, youtube_description, facebook, twitter)."
     )
+    featured = ""
+    if selected_move is not None:
+        featured = (
+            "FEATURED TAI CHI MOVE (Yonah selected this):\n"
+            f"- Name: {selected_move['english']} ({selected_move['pinyin']})\n"
+            f"- Posture: {selected_move['visual']}\n"
+            f"- Motion: {selected_move['motion_description']}\n\n"
+            "Pick exactly ONE dojo clip whose voiceover best pairs thematically "
+            "with this move. In that clip's visual_prompt, write Rav Eli performing "
+            "this move as the primary physical action, weaving the motion "
+            "description into your scene direction naturally (don't paste it "
+            "verbatim — direct the scene with it). Keep the voiceover as Yonah's "
+            "words, unchanged. On that clip only, emit an extra field: "
+            f'"motion_ref_slug": "{selected_move["slug"]}". All other dojo clips '
+            "continue as you'd direct them without a featured move.\n\n"
+        )
+    tail = (
+        "Produce the ClipPlan JSON now. Remember: 3-8 clips, dojo first then "
+        "outdoor, total 28-90 seconds based on natural sage pace (~2.3 wps). "
+        "Include the full 'captions' object with all six platform variants "
+        "(tiktok, instagram, youtube_title, youtube_description, facebook, "
+        "twitter)."
+    )
+    return base + featured + tail
 
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
@@ -303,9 +324,13 @@ async def transform_draft_to_clip_plan(
     style_note: str, title: str, draft: str,
     api_key: str, model: str = "claude-opus-4-6",
     timeout_s: float = 180.0,
+    selected_move: dict | None = None,
 ) -> ClipPlan:
     import httpx
-    prompt = build_prompt(parsha_name, book, option, style_note, title, draft)
+    prompt = build_prompt(
+        parsha_name, book, option, style_note, title, draft,
+        selected_move=selected_move,
+    )
     async with httpx.AsyncClient(timeout=timeout_s) as http:
         r = await http.post(
             ANTHROPIC_URL,
