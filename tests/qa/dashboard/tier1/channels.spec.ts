@@ -53,11 +53,19 @@ async function wipeFakeYoutubeConnection(): Promise<void> {
  * `ch.name` in page.tsx). Buffer cards are Tiktok / Instagram / Facebook / X.
  * We scope CTAs by locating the card's root div that contains the platform
  * name, then descending into it for the action link/button.
+ *
+ * NOTE: `filter({ hasText: /^Name$/ })` matches the *full concatenated text*
+ * of `.ch-card`, not just the name heading. A connected YouTube card's text
+ * is e.g. "Youtube @handle Connected 3 posts in last 7 days Disconnect" —
+ * an anchored `/^Youtube$/` never matches. We use an unanchored
+ * case-insensitive match on the platform name as a word. Each platform name
+ * is unique across cards so this is unambiguous (Tiktok, Instagram,
+ * Facebook, X, Youtube, Website).
  */
 function cardFor(page: Page, platformName: string) {
-  // The card is the outer div with class "ch-card" that contains a heading
-  // with the platform name. getByText + filter by ancestor is cleanest here.
-  return page.locator('.ch-card').filter({ hasText: new RegExp(`^${platformName}$`, 'i') });
+  // Word-boundary match is needed so `X` doesn't match inside other words.
+  const pattern = new RegExp(`\\b${platformName}\\b`, 'i');
+  return page.locator('.ch-card').filter({ hasText: pattern });
 }
 
 test.describe('dashboard: channels', () => {
