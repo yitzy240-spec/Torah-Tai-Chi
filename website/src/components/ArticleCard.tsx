@@ -20,7 +20,7 @@ interface ArticleCardProps {
 function formatDate(ts: string | null | undefined): string {
   if (!ts) return "";
   const d = new Date(ts);
-  return d.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
 export default function ArticleCard({ article }: ArticleCardProps) {
