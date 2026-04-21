@@ -115,3 +115,22 @@ def search_youtube(query: str, n: int = 5, max_duration_sec: int = 120) -> list[
         for e in entries
         if e and (e.get("webpage_url") or e.get("url"))
     ]
+
+
+def download_candidate(url: str, out_path: Path) -> Path:
+    """Download a single YouTube URL to out_path (mp4). Returns the actual written path."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best",
+        "outtmpl": str(out_path.with_suffix(".%(ext)s")),
+        "merge_output_format": "mp4",
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    # yt-dlp may produce .mp4 or .webm — find it
+    candidates = list(out_path.parent.glob(f"{out_path.stem}.*"))
+    if not candidates:
+        raise RuntimeError(f"yt-dlp produced no output for {url}")
+    return candidates[0]

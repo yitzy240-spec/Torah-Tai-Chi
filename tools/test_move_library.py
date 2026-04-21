@@ -165,3 +165,20 @@ def test_search_youtube_skips_entries_without_url():
     with patch("tools.move_library.yt_dlp.YoutubeDL", return_value=fake_ydl):
         urls = search_youtube("query", n=3)
     assert len(urls) == 2
+
+
+from tools.move_library import download_candidate
+
+
+def test_download_candidate_calls_ytdlp_with_correct_options(tmp_path):
+    fake_ydl = MagicMock()
+    fake_ydl.__enter__.return_value.download.return_value = 0
+    # Simulate yt-dlp writing an output file with .mp4 extension
+    (tmp_path / "x.mp4").write_bytes(b"dummy video data")
+    with patch("tools.move_library.yt_dlp.YoutubeDL", return_value=fake_ydl) as ctor:
+        out = download_candidate("https://youtube.com/watch?v=abc", tmp_path / "x.mp4")
+    assert out.exists()
+    assert out.parent == tmp_path
+    opts = ctor.call_args[0][0]
+    assert "format" in opts
+    assert "outtmpl" in opts
