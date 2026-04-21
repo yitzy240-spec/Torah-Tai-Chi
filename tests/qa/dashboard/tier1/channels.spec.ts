@@ -229,7 +229,10 @@ test.describe('dashboard: channels', () => {
       // pre-disconnect HTML from the first goto — force a hard reload so the
       // server component re-runs and reflects the wiped seed row.
       await expect(page).toHaveURL(/\/channels/);
-      await page.reload({ waitUntil: 'networkidle' });
+      // domcontentloaded not networkidle — some background fetches
+      // (realtime subscriptions, analytics beacons) keep the network busy
+      // indefinitely on this page and networkidle never resolves.
+      await page.reload({ waitUntil: 'domcontentloaded' });
       const youtubeCardAfter = cardFor(page, 'Youtube');
       await expect(youtubeCardAfter.getByText(/^Not connected$/)).toBeVisible();
       await expect(youtubeCardAfter.getByRole('link', { name: /connect youtube/i })).toBeVisible();
