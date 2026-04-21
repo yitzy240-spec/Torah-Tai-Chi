@@ -407,3 +407,78 @@ def test_process_move_leaves_review_md_when_all_fail(tmp_path, monkeypatch):
     text = review_md.read_text()
     assert "quality" in text
     assert "fits_in_15s" in text
+
+
+from tools.move_library import describe_clip, write_sidecar, run_describe_pass
+import json as _json
+
+
+def test_describe_clip_posts_video_and_returns_description(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+    move = Move(slug="x", english="Single Whip", pinyin="Dān Biān",
+                section="yang_24_form", order=9, priority="high",
+                visual="Wide bow stance...")
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"fake-mp4")
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": '{"motion_description": "Right hand rises past the face, extends left as the body rotates 45 degrees."}'}}]
+    }
+    mock_resp.raise_for_status = MagicMock()
+    with patch("tools.move_library.httpx.post", return_value=mock_resp) as mock_post:
+        desc = describe_clip(move, video, model="google/gemini-3.1-pro-preview")
+    assert "rises past the face" in desc
+    content = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+    video_block = next(c for c in content if c.get("type") == "video_url")
+    assert video_block["video_url"]["url"].startswith("data:video/mp4;base64,")
+
+
+def test_write_sidecar_creates_parseable_json(tmp_path):
+    move = Move(slug="white_crane_spreads_wings",
+                english="White Crane Spreads Its Wings",
+                pinyin="Báihè Liàngchì",
+                section="yang_24_form", order=3, priority="high",
+                visual="Stands on right leg...")
+    sidecar = write_sidecar(move, "Right hand rises above forehead.", tmp_path)
+    assert sidecar.exists()
+    data = _json.loads(sidecar.read_text(encoding="utf-8"))
+    assert data["slug"] == "white_crane_spreads_wings"
+    assert data["english"] == "White Crane Spreads Its Wings"
+    assert data["pinyin"] == "Báihè Liàngchì"
+    assert data["motion_description"] == "Right hand rises above forehead."
+
+
+def test_write_sidecar_preserves_existing_fields(tmp_path):
+    move = Move(slug="x", english="X", pinyin="X", section="bonus",
+                order=1, priority="low", visual="V")
+    # First write adds a custom field
+    initial = tmp_path / "x.json"
+    initial.write_text(_json.dumps({"source_url": "https://youtu.be/abc",
+                                    "quality_score": 9,
+                                    "motion_description": "old"}),
+                       encoding="utf-8")
+    # Re-run describe — should update motion_description but keep source_url/quality_score
+    write_sidecar(move, "new description", tmp_path)
+    data = _json.loads(initial.read_text(encoding="utf-8"))
+    assert data["motion_description"] == "new description"
+    assert data["source_url"] == "https://youtu.be/abc"
+    assert data["quality_score"] == 9
+
+
+def test_run_describe_pass_skips_moves_without_clip(tmp_path, monkeypatch):
+    # Set up a library_root with moves.yaml but no clips
+    lib = tmp_path / "library"
+    lib.mkdir()
+    yaml = lib / "moves.yaml"
+    yaml.write_text("moves:\n"
+                    "  - slug: a\n    english: A\n    pinyin: A\n"
+                    "    section: bonus\n    order: 1\n    priority: low\n"
+                    "    visual: V\n    query: null\n", encoding="utf-8")
+    # No clips on disk → describe pass is a no-op
+    calls = []
+    monkeypatch.setattr("tools.move_library.describe_clip",
+                        lambda m, v, model: calls.append(m.slug) or "desc")
+    rc = run_describe_pass(lib, model="google/gemini-3.1-pro-preview")
+    assert rc == 0
+    assert calls == []

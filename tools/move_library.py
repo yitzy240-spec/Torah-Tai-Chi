@@ -53,6 +53,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--min-quality", type=int, default=7, help="Minimum Gemini quality score to accept (1-10, default 7).")
     p.add_argument("--model", default="google/gemini-3.1-pro-preview", help="OpenRouter model ID for video review (must support native video input).")
     p.add_argument("--query-override", help="Per-slug query override in format 'slug=search query'.")
+    p.add_argument("--describe", action="store_true",
+                   help="Skip download pipeline; generate/refresh motion_description sidecar JSONs for existing clips.")
     return p.parse_args(argv)
 
 
@@ -96,6 +98,12 @@ def main(args: argparse.Namespace) -> int:
 
     yaml_path = Path("references/tai_chi_moves/moves.yaml")
     library_root = Path("references/tai_chi_moves")
+
+    if args.describe:
+        return run_describe_pass(library_root, model=args.model,
+                                 slug_filter=args.slug or args.redo,
+                                 priority_filter=args.priority)
+
     moves = load_moves(yaml_path)
 
     # Apply filters
@@ -355,6 +363,120 @@ def review_candidate(move: Move, video_path: Path, model: str) -> CandidateRevie
     resp.raise_for_status()
     content_str = resp.json()["choices"][0]["message"]["content"]
     return parse_review_response(content_str)
+
+
+DESCRIBE_PROMPT_TEMPLATE = """You are describing the motion in a short tai chi video clip. The description will be passed to a video-generation model as a motion-reference prompt alongside this same clip, so it must be concrete and physically specific.
+
+The move shown is "{english}" ({pinyin}). It is visually characterized as: "{visual}"
+
+Watch the clip carefully and produce a 2-4 sentence description of the motion. Cover:
+- Limb trajectories: which hand/arm goes where, in what order, at what height relative to the body.
+- Stance and weight: which leg bears weight, how weight shifts, any step or pivot.
+- Body rotation: waist or torso turning, approximate degree.
+- Tempo cues where relevant: slow steady, deliberate pause, continuous flow.
+
+Avoid:
+- Restating the move's name or high-level interpretation (already known).
+- Subjective quality words ("graceful", "beautiful").
+- Environment, camera, or instructor details.
+
+Return JSON only, no surrounding prose. Shape:
+{{"motion_description": "str"}}
+"""
+
+
+def describe_clip(move: Move, video_path: Path, model: str) -> str:
+    """Call OpenRouter/Gemini with a video and return a concrete motion description."""
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY missing -- add it to .env")
+
+    prompt = DESCRIBE_PROMPT_TEMPLATE.format(
+        english=move.english, pinyin=move.pinyin, visual=move.visual,
+    )
+    video_b64 = base64.b64encode(video_path.read_bytes()).decode("ascii")
+    content = [
+        {"type": "text", "text": prompt},
+        {"type": "video_url",
+         "video_url": {"url": f"data:video/mp4;base64,{video_b64}"}},
+    ]
+    resp = httpx.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/anthropics/torah-tai-chi",
+            "X-Title": "Torah Tai Chi reference library",
+        },
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_object"},
+            "max_tokens": 6000,
+        },
+        timeout=240,
+    )
+    resp.raise_for_status()
+    raw = resp.json()["choices"][0]["message"]["content"]
+    m = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", raw, re.DOTALL)
+    if not m:
+        raise ValueError(f"No JSON object in describe response: {raw[:200]}")
+    data = json.loads(m.group(0))
+    return str(data["motion_description"])
+
+
+def write_sidecar(move: Move, motion_description: str,
+                  library_root: Path, existing_fields: Optional[dict] = None) -> Path:
+    """Write <slug>.json next to the clip. Preserves existing fields not managed here."""
+    sidecar = library_root / f"{move.slug}.json"
+    data = dict(existing_fields) if existing_fields else {}
+    if sidecar.exists() and not existing_fields:
+        try:
+            data = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    data.update({
+        "slug": move.slug,
+        "english": move.english,
+        "pinyin": move.pinyin,
+        "section": move.section,
+        "visual": move.visual,
+        "motion_description": motion_description,
+    })
+    sidecar.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return sidecar
+
+
+def run_describe_pass(library_root: Path, model: str,
+                      slug_filter: Optional[str] = None,
+                      priority_filter: Optional[str] = None) -> int:
+    """Backfill or refresh motion_description sidecars for every clip on disk."""
+    yaml_path = library_root / "moves.yaml"
+    moves = load_moves(yaml_path)
+    if slug_filter:
+        moves = [m for m in moves if m.slug == slug_filter]
+    if priority_filter:
+        moves = [m for m in moves if m.priority == priority_filter]
+    # Only process moves where a clip exists
+    moves = [m for m in moves if (library_root / f"{m.slug}.mp4").exists()]
+    if not moves:
+        print("No clips on disk to describe.")
+        return 0
+    ok = 0
+    fail = 0
+    for i, m in enumerate(moves, start=1):
+        video = library_root / f"{m.slug}.mp4"
+        print(f"[{i}/{len(moves)}] {m.slug} -- describing...")
+        try:
+            desc = describe_clip(m, video, model=model)
+            write_sidecar(m, desc, library_root)
+            print(f"    -> wrote {m.slug}.json ({len(desc)} chars)")
+            ok += 1
+        except Exception as e:
+            print(f"    -> FAILED: {e}")
+            fail += 1
+    print(f"\n=== Describe Report ===  ok: {ok}  failed: {fail}")
+    return 0 if fail == 0 else 2
 
 
 def trim_and_encode(src: Path, dst: Path, start_sec: int, duration_sec: int) -> Path:
