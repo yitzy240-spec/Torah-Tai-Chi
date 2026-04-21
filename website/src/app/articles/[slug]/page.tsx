@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllArticles, getArticleBySlug, tiptapJsonToHtml } from "@/lib/articles";
 import ArticleCard from "@/components/ArticleCard";
+import ShareButton from "@/components/ShareButton";
 import { articleSchema, breadcrumbSchema } from "@/lib/jsonld";
 
 interface Props {
@@ -108,24 +109,48 @@ export default async function ArticleDetailPage({ params }: Props) {
     ])
   );
 
+  const pageUrl = `https://torahtaichi.com/articles/${slug}`;
+  const formattedDate = formatDate(article.published_at);
+
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: artSchema }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: crumbSchema }} />
-      <div className="back-wrap" style={{ maxWidth: "720px" }}>
-        <Link href="/articles" className="back-link">
-          &larr; All writings
-        </Link>
-      </div>
 
       <header className="ad-header stagger">
-        {article.category && <span className="ad-tag">{article.category}</span>}
+        {/* Subtle meta row sits above the H1 so H1 owns the hierarchy */}
+        <div className="ad-eyebrow">
+          <Link href="/articles" className="ad-eyebrow-back">
+            &larr; All writings
+          </Link>
+          {article.category && (
+            <>
+              <span className="ad-eyebrow-sep" aria-hidden="true">·</span>
+              <span className="ad-eyebrow-tag">{article.category}</span>
+            </>
+          )}
+        </div>
+
         <h1>{article.title}</h1>
         {article.subtitle && <p className="ad-deck">{article.subtitle}</p>}
-        <div className="ad-meta">
-          {formatDate(article.published_at)}
-          {article.published_at && article.read_minutes ? " · " : ""}
-          {article.read_minutes ? `${article.read_minutes} min read` : ""}
+
+        {/* Byline row — uses "Yonah Lloyd" as a hardcoded default author.
+            TODO: wire to a real Storyblok author field when the schema
+            supports it. */}
+        <div className="ad-byline">
+          <span className="ad-byline-author">Yonah Lloyd</span>
+          {formattedDate && (
+            <>
+              <span className="ad-byline-sep" aria-hidden="true">·</span>
+              <time dateTime={article.published_at ?? undefined}>{formattedDate}</time>
+            </>
+          )}
+          {article.read_minutes ? (
+            <>
+              <span className="ad-byline-sep" aria-hidden="true">·</span>
+              <span>{article.read_minutes} min read</span>
+            </>
+          ) : null}
         </div>
       </header>
 
@@ -136,6 +161,16 @@ export default async function ArticleDetailPage({ params }: Props) {
           <p style={{ color: "var(--ink-400)", fontStyle: "italic" }}>No content yet.</p>
         )}
       </article>
+
+      {/* End-of-article rail: share + back + related */}
+      <section className="ad-endrail">
+        <div className="ad-endrail-actions">
+          <Link href="/articles" className="hero-cta-link">
+            &larr; Back to essays
+          </Link>
+          <ShareButton url={pageUrl} title={article.title} />
+        </div>
+      </section>
 
       {otherArticles.length > 0 && (
         <section className="continue-section">
