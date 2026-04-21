@@ -520,17 +520,39 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 .more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
 @media(max-width:700px){.more-grid{grid-template-columns:1fr 1fr;gap:14px}}
 
-/* ===== ARTICLES LIST PAGE ===== */
-.articles-section{max-width:720px;margin:0 auto;padding:56px 48px 0}
-@media(max-width:700px){.articles-section{padding:40px 20px 0}}
-.article-entry{display:block;padding:32px 0;border-bottom:1px solid var(--ink-100);text-decoration:none;color:inherit;transition:all var(--trans);}
-.article-entry:first-child{padding-top:0}
-.article-entry:last-child{border-bottom:none}
+/* ===== ARTICLES LIST PAGE =====
+   Entries used to be flat text blocks separated by hairline borders —
+   on cream the boundary dissolved and the list read as an unstructured
+   stream (website-articles-index-8). Upgrading to a card treatment
+   matches the visual rhythm of .a-card / .v-card on the home page
+   while keeping the reading-weight typography. */
+.articles-section{
+  max-width:760px;margin:0 auto;padding:56px 48px 0;
+  display:flex;flex-direction:column;gap:20px;
+}
+@media(max-width:700px){.articles-section{padding:40px 20px 0;gap:16px}}
+.article-entry{
+  display:flex;flex-direction:column;gap:10px;
+  padding:28px 32px 24px;
+  border:1px solid var(--ink-100);
+  border-radius:var(--r-lg);
+  background:var(--linen-50);
+  text-decoration:none;color:inherit;
+  box-shadow:0 1px 0 rgba(35,27,16,.03);
+  transition:border-color var(--trans),transform var(--trans),box-shadow var(--trans);
+}
+@media(max-width:700px){.article-entry{padding:22px 22px 20px}}
+.article-entry:hover{
+  border-color:var(--cedar-300);
+  transform:translateY(-2px);
+  box-shadow:0 1px 0 rgba(35,27,16,.04),0 12px 28px -22px rgba(35,27,16,.25);
+}
 .article-entry:hover .ae-title{color:var(--cedar-700)}
-.ae-tag{font-family:var(--ff-body);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--cedar-600);font-weight:500;margin-bottom:10px;display:block;}
-.ae-title{font-family:var(--ff-display);font-weight:500;font-size:clamp(24px,3vw,30px);line-height:1.2;letter-spacing:-.015em;margin:0 0 10px 0;color:var(--ink-900);transition:color var(--trans);font-variation-settings:"opsz" 36,"SOFT" 30;}
-.ae-excerpt{font-family:var(--ff-reading);font-size:17px;line-height:1.55;color:var(--ink-500);margin:0 0 14px 0;font-variation-settings:"opsz" 18,"SOFT" 40;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.ae-meta{font-family:var(--ff-display);font-style:italic;font-size:13px;color:var(--ink-400);font-variation-settings:"opsz" 14,"SOFT" 50;}
+.article-entry:focus-visible{outline:2px solid var(--navy-800);outline-offset:3px}
+.ae-tag{font-family:var(--ff-body);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--cedar-700);font-weight:600;display:block;}
+.ae-title{font-family:var(--ff-display);font-weight:500;font-size:clamp(22px,2.6vw,28px);line-height:1.2;letter-spacing:-.015em;margin:0;color:var(--ink-900);transition:color var(--trans);font-variation-settings:"opsz" 32,"SOFT" 30;}
+.ae-excerpt{font-family:var(--ff-reading);font-size:16px;line-height:1.55;color:var(--ink-700);margin:0;font-variation-settings:"opsz" 18,"SOFT" 40;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.ae-meta{font-family:var(--ff-display);font-style:italic;font-size:13px;color:var(--ink-500);margin-top:2px;padding-top:10px;border-top:1px dotted var(--ink-100);font-variation-settings:"opsz" 14,"SOFT" 50;}
 
 /* ===== ARTICLE DETAIL ===== */
 .ad-header{max-width:720px;margin:0 auto;padding:40px 48px 0}
@@ -539,17 +561,23 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
   margin-bottom:24px;
   font-family:var(--ff-body);font-size:12px;
-  color:var(--ink-400);letter-spacing:.02em;
+  /* Bump container default from --ink-400 to --ink-700 so the back-link
+     and eyebrow tokens inherit at AA-friendly contrast on cream
+     (website-article-detail-7). */
+  color:var(--ink-700);letter-spacing:.02em;
 }
 .ad-eyebrow-back{
-  color:var(--ink-400);text-decoration:none;
+  color:var(--ink-700);text-decoration:none;
   transition:color var(--trans);
 }
 .ad-eyebrow-back:hover{color:var(--ink-900)}
-.ad-eyebrow-sep{color:var(--ink-200)}
+.ad-eyebrow-sep{color:var(--ink-300)}
 .ad-eyebrow-tag{
   font-size:11px;letter-spacing:.2em;text-transform:uppercase;
-  color:var(--cedar-600);font-weight:500;
+  /* cedar-600 on linen was below AA at this size; cedar-700 is the
+     next darker stop in the palette and still reads as warm/cedar
+     rather than ink. */
+  color:var(--cedar-700);font-weight:600;
 }
 /* legacy .ad-tag retained for fallbacks */
 .ad-tag{font-family:var(--ff-body);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cedar-600);font-weight:500;margin-bottom:20px;display:block;}
