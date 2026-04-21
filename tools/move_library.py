@@ -173,3 +173,113 @@ def extract_frames(video_path: Path, n: int, out_dir: Path) -> list[FrameSample]
         )
         samples.append(FrameSample(timestamp_sec=ts, image_path=img_path))
     return samples
+
+
+import base64
+import os
+import re
+import httpx
+from dotenv import load_dotenv
+
+load_dotenv()  # loads .env once on import
+
+
+@dataclass
+class CandidateReview:
+    matches: bool
+    quality: int
+    best_start_sec: int
+    best_duration_sec: int
+    reason: str
+
+
+REVIEW_PROMPT_TEMPLATE = """You are evaluating a YouTube clip as a reference for the tai chi move "{english}" ({pinyin}).
+
+Visually the move looks like: "{visual}"
+
+You are shown {n_frames} frames sampled at these timestamps (seconds): {ts_list}.
+
+Evaluate:
+1. Does this clip clearly demonstrate that specific tai chi move? Answer with `matches` (bool).
+2. Rate demonstration quality 1-10 (`quality`). Factors that raise the score: full body visible, clean background, minimal text/captions, no talking-head cutaways, single clean execution, instructor filmed flat-on not mid-class.
+3. Identify the single cleanest 10-15 second window showing the move. Return `best_start_sec` (int) and `best_duration_sec` (int, 10-15). If the whole clip is the move, start at 0.
+4. One-sentence `reason` summarizing your call.
+
+Return JSON only, no surrounding prose. Shape:
+{{"matches": bool, "quality": int, "best_start_sec": int, "best_duration_sec": int, "reason": str}}
+"""
+
+
+def build_review_prompt(move: Move, timestamps: list[float]) -> str:
+    return REVIEW_PROMPT_TEMPLATE.format(
+        english=move.english,
+        pinyin=move.pinyin,
+        visual=move.visual,
+        n_frames=len(timestamps),
+        ts_list=", ".join(f"{t:.1f}" for t in timestamps),
+    )
+
+
+def parse_review_response(raw: str) -> CandidateReview:
+    """Extract JSON from the model response and parse into a CandidateReview."""
+    # Try to find a JSON object first
+    m = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", raw, re.DOTALL)
+    if m:
+        data = json.loads(m.group(0))
+    else:
+        # Fall back: try parsing the whole response or a JSON array containing an object
+        stripped = raw.strip()
+        try:
+            parsed = json.loads(stripped)
+            # If it's a list, take the first element
+            if isinstance(parsed, list) and parsed:
+                data = parsed[0]
+            else:
+                data = parsed
+        except json.JSONDecodeError:
+            raise ValueError(f"No JSON object found in response: {raw[:200]}")
+    duration = min(int(data["best_duration_sec"]), 15)
+    duration = max(duration, 10)
+    return CandidateReview(
+        matches=bool(data["matches"]),
+        quality=int(data["quality"]),
+        best_start_sec=int(data["best_start_sec"]),
+        best_duration_sec=duration,
+        reason=str(data.get("reason", "")),
+    )
+
+
+def review_candidate(move: Move, frames: list[FrameSample], model: str) -> CandidateReview:
+    """Call OpenRouter/Gemini with move metadata + frames, return parsed review."""
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY missing — add it to .env")
+
+    prompt = build_review_prompt(move, [f.timestamp_sec for f in frames])
+    content = [{"type": "text", "text": prompt}]
+    for f in frames:
+        img_b64 = base64.b64encode(f.image_path.read_bytes()).decode("ascii")
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
+        })
+
+    resp = httpx.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/anthropics/torah-tai-chi",
+            "X-Title": "Torah Tai Chi reference library",
+        },
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_object"},
+            "max_tokens": 400,
+        },
+        timeout=120,
+    )
+    resp.raise_for_status()
+    content_str = resp.json()["choices"][0]["message"]["content"]
+    return parse_review_response(content_str)

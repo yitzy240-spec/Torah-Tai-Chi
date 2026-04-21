@@ -207,3 +207,77 @@ def test_extract_frames_produces_valid_images(sample_video, tmp_path):
     for s in samples:
         assert s.image_path.exists()
         assert s.image_path.stat().st_size > 100  # non-trivial JPEG
+
+
+from tools.move_library import (
+    CandidateReview,
+    build_review_prompt,
+    parse_review_response,
+    review_candidate,
+)
+
+
+def test_build_review_prompt_contains_move_info():
+    move = Move(
+        slug="single_whip",
+        english="Single Whip",
+        pinyin="Dān Biān",
+        section="yang_24_form",
+        order=9,
+        priority="high",
+        visual="Wide bow stance with arms extended...",
+    )
+    prompt = build_review_prompt(move, timestamps=[0.5, 1.5, 2.5])
+    assert "Single Whip" in prompt
+    assert "Dān Biān" in prompt
+    assert "Wide bow stance" in prompt
+    assert "0.5" in prompt
+    assert "matches" in prompt
+    assert "quality" in prompt
+    assert "best_start_sec" in prompt
+
+
+def test_parse_review_response_valid_json():
+    raw = '{"matches": true, "quality": 8, "best_start_sec": 3, "best_duration_sec": 12, "reason": "clean"}'
+    r = parse_review_response(raw)
+    assert r.matches is True
+    assert r.quality == 8
+    assert r.best_start_sec == 3
+    assert r.best_duration_sec == 12
+    assert r.reason == "clean"
+
+
+def test_parse_review_response_with_surrounding_prose():
+    raw = 'Here is my review:\n```json\n{"matches": false, "quality": 3, "best_start_sec": 0, "best_duration_sec": 10, "reason": "wrong move"}\n```\nDone.'
+    r = parse_review_response(raw)
+    assert r.matches is False
+    assert r.quality == 3
+
+
+def test_parse_review_response_clamps_duration_to_15():
+    raw = '{"matches": true, "quality": 9, "best_start_sec": 0, "best_duration_sec": 30, "reason": "ok"}'
+    r = parse_review_response(raw)
+    assert r.best_duration_sec == 15  # clamped
+
+
+def test_review_candidate_posts_to_openrouter(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+    move = Move(
+        slug="x", english="X", pinyin="X", section="bonus", order=1,
+        priority="low", visual="V",
+    )
+    img_path = tmp_path / "f.jpg"
+    img_path.write_bytes(b"\xff\xd8\xff\xd9")  # minimal JPEG
+    samples = [FrameSample(timestamp_sec=0.5, image_path=img_path)]
+
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": '{"matches": true, "quality": 8, "best_start_sec": 0, "best_duration_sec": 10, "reason": "ok"}'}}]
+    }
+    mock_resp.raise_for_status = MagicMock()
+    with patch("tools.move_library.httpx.post", return_value=mock_resp) as mock_post:
+        r = review_candidate(move, samples, model="google/gemini-3.1-pro-preview")
+    assert r.quality == 8
+    mock_post.assert_called_once()
+    call_kwargs = mock_post.call_args.kwargs
+    assert call_kwargs["headers"]["Authorization"] == "Bearer fake-key"
