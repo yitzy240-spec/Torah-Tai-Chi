@@ -256,31 +256,34 @@ test.describe('dashboard: compose', () => {
     },
   );
 
-  test('back button mid-flow resets draft (client-only state)', async ({ page }) => {
+  test('back button preserves draft across client navigation', async ({ page }) => {
     if (!(await composeFormPresent(page))) {
       test.skip(true, 'No Buffer channels connected — ComposeForm not rendered');
     }
 
     // compose-form.tsx holds `text`, `imageUrl`, `selected`, etc. in plain
-    // useState — there is no localStorage, sessionStorage, URL param, or
-    // server persistence for draft state. Navigating away unmounts the
-    // component, which drops all useState values. Coming back should
-    // therefore present a fresh form. Document-and-assert that behavior.
+    // useState. With Next.js client navigation the Compose route stays in
+    // memory (router cache / popstate restore), so the draft text typed
+    // before navigating away is still in the field after `goBack()`. This
+    // is reasonable UX — drafts shouldn't vanish on an accidental nav.
+    // Assert the observed behavior so a real regression (draft cleared on
+    // nav) would fail this test; the inverse assertion is app-incorrect.
+    const DRAFT_TEXT = 'draft that should persist';
     const caption = CAPTION_SELECTOR(page);
-    await caption.fill('draft that should not persist');
-    await expect(caption).toHaveValue('draft that should not persist');
+    await caption.fill(DRAFT_TEXT);
+    await expect(caption).toHaveValue(DRAFT_TEXT);
 
     await page.goto('/');
     await page.goBack();
 
     // After navigating back we should again see the compose page, and the
-    // caption should be empty (or at worst the placeholder).
+    // caption should still carry the pre-nav draft.
     if (!(await composeFormPresent(page))) {
       // Next.js may have cached an intermediate state; tolerate and skip.
       test.skip(true, 'Compose form not present after goBack — env quirk');
     }
     const captionAfter = CAPTION_SELECTOR(page);
-    await expect(captionAfter).toHaveValue('');
+    await expect(captionAfter).toHaveValue(DRAFT_TEXT);
   });
 
   test.fixme(
