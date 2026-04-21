@@ -101,17 +101,35 @@ def load_sidecar(library_root: Path, slug: str) -> dict:
     return json.loads(sidecar.read_text(encoding="utf-8"))
 
 
-def build_prompt(sidecar: dict) -> str:
+def build_prompt(sidecar: dict, voiceover: str | None = None) -> str:
     english = sidecar["english"]
     pinyin = sidecar.get("pinyin", "")
     visual = sidecar["visual"]
     motion = sidecar["motion_description"]
+
+    if voiceover is None:
+        # Original silent-demo path
+        style = TAI_CHI_STYLE_LOCK
+        voice_line = ""
+    else:
+        # Production-style: import and reuse the voice-enabled lock
+        from src.settings import STYLE_LOCK
+        style = STYLE_LOCK
+        voice_line = (
+            f'\nCharacter speaks: "{voiceover}"\n'
+            f"Rav Eli speaks this line naturally while performing the move. "
+            f"Mouth moves with the words; facial expression warm and engaged. "
+            f"The reference video is a silent motion study — use it for tempo, "
+            f"trajectory, and stance only. Do NOT mute the character or freeze "
+            f"his face.\n"
+        )
 
     return (
         f"Rav Eli performs the tai chi move {english} ({pinyin}) in a quiet "
         f"dojo with warm morning light. The posture: {visual} The motion: "
         f"{motion} Slow, deliberate, meditative pace. Upright spine, relaxed "
         f"shoulders.\n\n"
+        f"{voice_line}"
         f"Use the reference video to mirror the tempo, trajectory, and "
         f"stance of the core motion precisely, adapted to Rav Eli's body. "
         f"IMPORTANT: the reference video may cut before the move fully "
@@ -121,7 +139,7 @@ def build_prompt(sidecar: dict) -> str:
         f"position. Over the full 10 seconds the clip should show the move "
         f"begin, complete its core motion, and settle cleanly. No freeze "
         f"mid-motion at the end.\n\n"
-        f"{TAI_CHI_STYLE_LOCK}\n\n"
+        f"{style}\n\n"
         f"Composition: 9:16 vertical, full body framed head to foot with a "
         f"touch of headroom."
     )
@@ -129,7 +147,8 @@ def build_prompt(sidecar: dict) -> str:
 
 async def run_test(slug: str, resolution: str = "480p",
                    duration: int = 10,
-                   output_dir: Optional[Path] = None) -> Path:
+                   output_dir: Optional[Path] = None,
+                   voiceover: Optional[str] = None) -> Path:
     api_key = os.environ["KIE_AI_API_KEY"]
     client = KieClient(api_key=api_key)
 
@@ -141,7 +160,7 @@ async def run_test(slug: str, resolution: str = "480p",
         raise FileNotFoundError(f"Reference clip not on disk: {ref_clip}")
 
     sidecar = load_sidecar(LIBRARY_ROOT, slug)
-    prompt = build_prompt(sidecar)
+    prompt = build_prompt(sidecar, voiceover=voiceover)
 
     print(f"Slug: {slug}")
     print(f"Reference clip: {ref_clip}  ({ref_clip.stat().st_size / 1024:.0f} KB)")
@@ -179,7 +198,8 @@ async def run_test(slug: str, resolution: str = "480p",
     urls = await client.poll_task(task_id)
     print(f"  result urls: {urls}")
 
-    out = output_dir / f"ref_test_{slug}.mp4"
+    suffix = "_with_voiceover" if voiceover else ""
+    out = output_dir / f"ref_test_{slug}{suffix}.mp4"
     print(f"Downloading to {out}...")
     await client.download(urls[0], out)
     size_kb = out.stat().st_size / 1024
@@ -205,6 +225,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help="Output clip duration in seconds (default 10).")
     p.add_argument("--output-dir", type=Path,
                    help="Where to write the output clip (default: work/seedance_ref_tests/).")
+    p.add_argument("--voiceover", type=str, default=None,
+                   help="When set, use the production-style voice-enabled prompt "
+                        "and have Rav Eli speak this line while performing the move. "
+                        "Validates that reference_video_urls does not break lip sync.")
     return p.parse_args(argv)
 
 
@@ -215,6 +239,7 @@ def main(args: argparse.Namespace) -> int:
             resolution=args.resolution,
             duration=args.duration,
             output_dir=args.output_dir,
+            voiceover=args.voiceover,
         ))
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
