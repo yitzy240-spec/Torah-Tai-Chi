@@ -6,7 +6,7 @@ from src.models import Clip, ClipPlan, PlatformCaptions
 def _captions() -> PlatformCaptions:
     return PlatformCaptions(
         tiktok="t", instagram="i", youtube_title="y",
-        youtube_description="d", facebook="f",
+        youtube_description="d", facebook="f", twitter="tw",
     )
 
 
@@ -206,3 +206,62 @@ def test_clipplan_accepts_six_clips():
         ],
     )
     assert plan.total_duration_s == 60
+
+
+def test_clip_motion_ref_slug_defaults_none():
+    c = _dojo_clip(0)
+    assert c.motion_ref_slug is None
+
+
+def test_clip_accepts_motion_ref_slug():
+    c = Clip(index=0, voiceover="x", visual_prompt="y", duration_s=6,
+             setting_id="DOJO", motion_ref_slug="white_crane_spreads_wings")
+    assert c.motion_ref_slug == "white_crane_spreads_wings"
+
+
+def test_clipplan_allows_exactly_one_motion_ref_clip():
+    plan = ClipPlan(
+        parsha="X", hook="x", full_script="x",
+        outdoor_archetype_id="GARDEN_PATH",
+        captions=_captions(),
+        clips=[
+            Clip(index=0, voiceover="a", visual_prompt="b", duration_s=8,
+                 setting_id="DOJO", motion_ref_slug="white_crane_spreads_wings"),
+            _dojo_clip(1),
+            _outdoor_clip(2, "GARDEN_PATH"),
+            _outdoor_clip(3, "GARDEN_PATH"),
+        ],
+    )
+    refs = [c.motion_ref_slug for c in plan.clips if c.motion_ref_slug]
+    assert refs == ["white_crane_spreads_wings"]
+
+
+def test_clipplan_rejects_two_motion_ref_clips():
+    with pytest.raises(ValidationError, match="motion_ref_slug"):
+        ClipPlan(
+            parsha="X", hook="x", full_script="x",
+            outdoor_archetype_id="GARDEN_PATH",
+            captions=_captions(),
+            clips=[
+                Clip(index=0, voiceover="a", visual_prompt="b", duration_s=8,
+                     setting_id="DOJO", motion_ref_slug="white_crane_spreads_wings"),
+                Clip(index=1, voiceover="c", visual_prompt="d", duration_s=8,
+                     setting_id="DOJO", motion_ref_slug="brush_knee_and_push"),
+                _outdoor_clip(2, "GARDEN_PATH"),
+                _outdoor_clip(3, "GARDEN_PATH"),
+            ],
+        )
+
+
+def test_clipplan_allows_zero_motion_ref_clips():
+    # Sanity: none of the existing tests broke — a plan with no motion_ref is fine.
+    plan = ClipPlan(
+        parsha="X", hook="x", full_script="x",
+        outdoor_archetype_id="GARDEN_PATH",
+        captions=_captions(),
+        clips=[
+            _dojo_clip(0), _dojo_clip(1),
+            _outdoor_clip(2, "GARDEN_PATH"), _outdoor_clip(3, "GARDEN_PATH"),
+        ],
+    )
+    assert all(c.motion_ref_slug is None for c in plan.clips)

@@ -13,6 +13,7 @@ class Clip(BaseModel):
     caption_position: Literal["bottom", "top", "middle"] = "bottom"
     emotive_note: str | None = None
     motion_ref_url: str | None = None
+    motion_ref_slug: str | None = None
 
 
 class PlatformCaptions(BaseModel):
@@ -66,6 +67,13 @@ class ClipPlan(BaseModel):
         if dojo_end == len(self.clips):
             raise ValueError(
                 "all clips are DOJO — outdoor block must have at least 1 clip"
+            )
+
+        n_motion_refs = sum(1 for c in self.clips if c.motion_ref_slug is not None)
+        if n_motion_refs > 1:
+            raise ValueError(
+                f"ClipPlan has {n_motion_refs} clips with motion_ref_slug set; "
+                f"at most one clip may carry a motion reference"
             )
 
         total = self.total_duration_s
