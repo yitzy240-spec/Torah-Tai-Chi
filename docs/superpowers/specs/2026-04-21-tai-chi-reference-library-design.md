@@ -82,9 +82,9 @@ For each move in moves.yaml (priority order):
 
 ## AI video review
 
-**Model:** `google/gemini-2.5-flash` via OpenRouter (`OPENROUTER_API_KEY` in `.env`).
+**Model:** `google/gemini-3.1-pro-preview` via OpenRouter (`OPENROUTER_API_KEY` in `.env`) by default.
 
-**Why this model:** Cheap (~$0.002 per evaluation, ~$0.40 for full first run of 205 evals), multimodal frame support, fast. Pro variant available via `--model-pro` flag if we hit accuracy issues.
+**Why Gemini 3.1 Pro:** Strongest multimodal model currently exposed on OpenRouter. "Preview" status carries some API-stability risk but this is a utility run a handful of times — not production infra — so the risk is irrelevant. Full first pass is ~$2.50 across 205 evaluations. Fallbacks via `--model <openrouter_id>`: `google/gemini-2.5-pro` (stable GA, ~$1.50), `google/gemini-2.5-flash` (cheap bulk mode, ~$0.40), or `anthropic/claude-opus-4.7` for problem-move escalation.
 
 **Input per candidate:**
 - 15 frames extracted at even intervals from the candidate video
@@ -121,7 +121,9 @@ python tools/download_moves.py --priority high         # filter by priority tier
 python tools/download_moves.py --redo single_whip      # ignore cached clip, redo pipeline
 python tools/download_moves.py --candidates 10         # grab more candidates per move (default 5)
 python tools/download_moves.py --min-quality 6         # lower acceptance threshold
-python tools/download_moves.py --model-pro             # use gemini-2.5-pro instead of flash
+python tools/download_moves.py --model google/gemini-2.5-pro      # stable GA fallback if 3.1 preview breaks
+python tools/download_moves.py --model google/gemini-2.5-flash    # cheap bulk mode
+python tools/download_moves.py --model anthropic/claude-opus-4.7  # escalate for stubborn moves
 python tools/download_moves.py --query "<slug>=<custom search>" # override query for this run
 ```
 
