@@ -56,7 +56,12 @@ test.describe('website: videos list', () => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
     page.on('requestfailed', (req) => {
-      requestFailures.push(`${req.method()} ${req.url()} — ${req.failure()?.errorText}`);
+      // Ignore ERR_ABORTED on Next RSC prefetches (`?_rsc=...`) — those are
+      // user-navigation aborts, not real failures. Matches home.spec.ts.
+      const err = req.failure()?.errorText ?? '';
+      const url = req.url();
+      if (err === 'net::ERR_ABORTED' && /_rsc=/.test(url)) return;
+      requestFailures.push(`${req.method()} ${url} — ${err}`);
     });
     await page.goto('/videos');
     await page.waitForLoadState('networkidle');

@@ -47,10 +47,13 @@ export default function LoginPage() {
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        // Anchor card high on desktop (~35% from top). Mobile falls back to a
-        // tighter top padding via the media-query rule in globals.css so the
-        // field is within thumb reach without excessive scroll.
-        paddingTop: 'max(10vh, 64px)',
+        // Anchor card at ~25-30% from the top on desktop — using `justify`
+        // via flex column was unbalanced (dashboard-login-5). A vh-scaled
+        // top-pad puts the card in the upper third while still leaving
+        // breathing room above the fold. Mobile overrides via the media
+        // query in globals.css.
+        justifyContent: 'flex-start',
+        paddingTop: 'clamp(64px, 22vh, 220px)',
         paddingBottom: '48px',
         paddingLeft: '24px',
         paddingRight: '24px',
@@ -119,21 +122,28 @@ export default function LoginPage() {
           }}
         >
           Root before you{' '}
+          {/* Wrap only the word in italics; keep the period roman so the
+              optical gap at the stop looks intentional, not glitchy
+              (dashboard-login-3). */}
           <em
             style={{
               fontStyle: 'italic',
-              color: 'var(--ink-500)',
+              color: 'var(--ink-700)',
               fontVariationSettings: '"opsz" 40, "SOFT" 60',
             }}
           >
-            rise.
+            rise
           </em>
+          <span style={{ fontStyle: 'normal', color: 'var(--ink-900)' }}>.</span>
         </h1>
         <p
           style={{
             fontFamily: 'var(--ff-body)',
             fontSize: '14px',
-            color: 'var(--ink-700)',
+            // Bump to --ink-900 for strong AA body-text contrast on cream
+            // (dashboard-login-1). Warm sepia ink-700 on warm linen reads
+            // as fading at small sizes; --ink-900 is the canonical body ink.
+            color: 'var(--ink-900)',
             margin: '0 0 28px 0',
             lineHeight: 1.55,
           }}
@@ -286,7 +296,11 @@ export default function LoginPage() {
               style={{
                 fontFamily: 'var(--ff-body)',
                 fontSize: '12.5px',
-                color: 'var(--ink-500)',
+                // Bump helper text to --ink-700 — --ink-500 on linen sits
+                // right at the WCAG AA 4.5:1 knife-edge for body text
+                // (dashboard-login-2). ink-700 is the nearest darker
+                // neutral and still reads as subordinate to the label.
+                color: 'var(--ink-700)',
                 margin: '2px 0 0 0',
                 lineHeight: 1.5,
                 textAlign: 'center',
@@ -298,33 +312,47 @@ export default function LoginPage() {
         )}
       </div>
 
-      {/* Escape hatch — so a stuck user isn't dead-ended (dash-login-7, -8). */}
+      {/* Escape hatch — so a stuck user isn't dead-ended (dash-login-7, -8).
+          The "Ask Yitzy" chip now carries a visible border, an arrow, and
+          higher contrast so it reads as interactive rather than as prose
+          (dashboard-login-4). */}
       <p
         style={{
           fontFamily: 'var(--ff-display)',
           fontStyle: 'italic',
           fontSize: '13px',
-          color: 'var(--ink-500)',
-          margin: '24px 0 0 0',
+          color: 'var(--ink-700)',
+          margin: '28px 0 0 0',
           lineHeight: 1.5,
           textAlign: 'center',
           fontVariationSettings: '"opsz" 14, "SOFT" 60',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '10px',
         }}
       >
-        Need access, or the email never arrived?{' '}
+        <span>Need access, or the email never arrived?</span>
         <a
           href="mailto:yitzy@torahtaichi.com?subject=Torah%20Tai%20Chi%20dashboard%20access"
-          style={{
-            color: 'var(--navy-800)',
-            textDecoration: 'underline',
-            textUnderlineOffset: '2px',
-            textDecorationColor: 'var(--navy-300)',
-            fontStyle: 'normal',
-          }}
+          className="tt-login-ask"
         >
-          Ask Yitzy
+          <span>Ask Yitzy</span>
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 16 16"
+            style={{ width: '12px', height: '12px', flexShrink: 0 }}
+          >
+            <path
+              d="M3 8h9.5M8.5 3.5L13 8l-4.5 4.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </a>
-        .
       </p>
     </main>
   );
