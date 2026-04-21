@@ -86,17 +86,30 @@ test.describe('dashboard: site-content (tier 2)', () => {
 
     await page.goto('/site-content');
 
-    const firstTextarea = page.locator('textarea').first();
-    // If no textareas rendered (empty store or fetch failure) skip — this
-    // assertion can't run without at least one editable row.
+    // Scope fill + save to the SAME FieldCard — .first() against textareas
+    // and .first() against save-buttons can resolve to siblings if the
+    // layout wraps on narrow viewports (observed on dashboard-mobile).
+    // Grab the first field-card-like container and drive its textarea +
+    // save button in lockstep.
+    const firstCard = page.locator('textarea').first().locator('xpath=ancestor::div[.//button][1]');
+    const firstTextarea = firstCard.locator('textarea').first();
     if ((await firstTextarea.count()) === 0) {
       test.skip(true, 'No editable rows rendered — nothing to save.');
     }
 
-    await firstTextarea.fill('QA-edited value');
-    // The Save button is disabled until the field is dirty; once dirty
-    // it un-disables. Click the first enabled Save.
-    const saveBtn = page.getByRole('button', { name: /^save$/i }).first();
+    // Use a timestamp-suffixed value so `saved: value === original` can
+    // never be vacuously true (previous runs against a live backend may
+    // have left a matching string in storyblok).
+    const uniqueValue = `QA-edited value ${Date.now()}`;
+    // Clear first — .fill() *should* replace content, but on mobile
+    // Playwright occasionally surfaces the input event before React's
+    // onChange runs; explicit clear + type is more predictable.
+    await firstTextarea.click();
+    await firstTextarea.fill('');
+    await firstTextarea.fill(uniqueValue);
+
+    // Save button lives in the same FieldCard.
+    const saveBtn = firstCard.getByRole('button', { name: /^save$/i });
     await expect(saveBtn).toBeEnabled();
     await saveBtn.click();
 
