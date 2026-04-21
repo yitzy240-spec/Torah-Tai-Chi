@@ -51,7 +51,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--redo", help="Re-run the pipeline for this slug even if the clip already exists.")
     p.add_argument("--candidates", type=int, default=5, help="How many search candidates per move (default 5).")
     p.add_argument("--min-quality", type=int, default=7, help="Minimum Gemini quality score to accept (1-10, default 7).")
-    p.add_argument("--model", default="google/gemini-3.1-pro-preview", help="OpenRouter model ID for video review.")
+    p.add_argument("--model", default="google/gemini-2.5-flash", help="OpenRouter model ID for video review.")
     p.add_argument("--query-override", help="Per-slug query override in format 'slug=search query'.")
     return p.parse_args(argv)
 
@@ -120,12 +120,12 @@ def main(args: argparse.Namespace) -> int:
         moves = [m for m in moves if not (library_root / f"{m.slug}.mp4").exists()]
 
     if not moves:
-        print("Nothing to do — all requested moves already have clips.")
+        print("Nothing to do -- all requested moves already have clips.")
         return 0
 
     results: list[PipelineResult] = []
     for i, m in enumerate(moves, start=1):
-        print(f"[{i}/{len(moves)}] {m.slug} ({m.priority}) — searching…")
+        print(f"[{i}/{len(moves)}] {m.slug} ({m.priority}) -- searching...")
         try:
             r = process_move(m, library_root=library_root,
                              candidates=args.candidates,
@@ -133,7 +133,7 @@ def main(args: argparse.Namespace) -> int:
                              model=args.model)
         except Exception as e:
             r = PipelineResult(m, status="needs_review", notes=f"pipeline error: {e}")
-        print(f"    → {r.status}" + (f" (quality {r.chosen_quality})" if r.chosen_quality else ""))
+        print(f"    -> {r.status}" + (f" (quality {r.chosen_quality})" if r.chosen_quality else ""))
         results.append(r)
 
     print_report(results)

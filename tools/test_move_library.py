@@ -68,7 +68,7 @@ def test_parse_args_defaults():
     assert args.redo is None
     assert args.candidates == 5
     assert args.min_quality == 7
-    assert args.model == "google/gemini-3.1-pro-preview"
+    assert args.model == "google/gemini-2.5-flash"
     assert args.query_override is None
 
 
