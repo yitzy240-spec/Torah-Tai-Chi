@@ -56,3 +56,48 @@ def test_section_values_are_valid():
     moves = load_moves(MOVES_YAML)
     for m in moves:
         assert m.section in ("yang_24_form", "bonus", "warmups_and_stances"), f"Bad section on {m.slug}"
+
+
+from tools.move_library import parse_args
+
+
+def test_parse_args_defaults():
+    args = parse_args([])
+    assert args.slug is None
+    assert args.priority is None
+    assert args.redo is None
+    assert args.candidates == 5
+    assert args.min_quality == 7
+    assert args.model == "google/gemini-3.1-pro-preview"
+    assert args.query_override is None
+
+
+def test_parse_args_slug():
+    args = parse_args(["--slug", "single_whip"])
+    assert args.slug == "single_whip"
+
+
+def test_parse_args_priority():
+    args = parse_args(["--priority", "high"])
+    assert args.priority == "high"
+
+
+def test_parse_args_redo():
+    args = parse_args(["--redo", "cloud_hands"])
+    assert args.redo == "cloud_hands"
+
+
+def test_parse_args_candidates_and_quality():
+    args = parse_args(["--candidates", "10", "--min-quality", "5"])
+    assert args.candidates == 10
+    assert args.min_quality == 5
+
+
+def test_parse_args_model():
+    args = parse_args(["--model", "google/gemini-2.5-pro"])
+    assert args.model == "google/gemini-2.5-pro"
+
+
+def test_parse_args_query_override():
+    args = parse_args(["--query-override", "single_whip=single whip fast tai chi"])
+    assert args.query_override == "single_whip=single whip fast tai chi"

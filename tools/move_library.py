@@ -33,3 +33,27 @@ def load_moves(yaml_path: Path) -> list[Move]:
         data = yaml.safe_load(f)
     raw_moves = data.get("moves", [])
     return [Move(**raw) for raw in raw_moves]
+
+
+import argparse
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="download_moves",
+        description="Auto-curate a library of tai chi move reference clips from YouTube.",
+    )
+    p.add_argument("--slug", help="Process only the move with this slug.")
+    p.add_argument("--priority", choices=["high", "medium", "low"], help="Only process moves at this priority tier.")
+    p.add_argument("--redo", help="Re-run the pipeline for this slug even if the clip already exists.")
+    p.add_argument("--candidates", type=int, default=5, help="How many search candidates per move (default 5).")
+    p.add_argument("--min-quality", type=int, default=7, help="Minimum Gemini quality score to accept (1-10, default 7).")
+    p.add_argument("--model", default="google/gemini-3.1-pro-preview", help="OpenRouter model ID for video review.")
+    p.add_argument("--query-override", help="Per-slug query override in format 'slug=search query'.")
+    return p.parse_args(argv)
+
+
+def main(args: argparse.Namespace) -> int:
+    """Entry point. Returns exit code. Fully wired in Task 11."""
+    print(f"Parsed args: {args}")
+    return 0
