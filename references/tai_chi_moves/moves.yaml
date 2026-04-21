@@ -1,0 +1,383 @@
+# Tai Chi Move Reference Library — canonical seed
+# Sources: Wikipedia 24-form tai chi chuan, IWUF competition manual,
+# YMAA publications, Tai Chi Foundation, Chen-style Lao Jia Yi Lu refs.
+# URLs are not seeded — they're discovered by the pipeline.
+
+moves:
+  # ============================================================
+  # Yang-style 24-form (Simplified Tai Chi), canonical order
+  # ============================================================
+  - slug: commencing_form
+    english: "Commencing Form"
+    pinyin: "Qǐshì"
+    section: yang_24_form
+    order: 1
+    priority: high
+    visual: "Stands feet shoulder-width, arms rise slowly to shoulder height then press down to waist — the opening posture of the form."
+    query: null
+
+  - slug: part_wild_horses_mane
+    english: "Part the Wild Horse's Mane"
+    pinyin: "Yěmǎ Fēnzōng"
+    section: yang_24_form
+    order: 2
+    priority: high
+    visual: "Steps forward in a bow stance while the arms separate diagonally, one hand rising to eye level and the other sweeping down past the hip, repeated left and right."
+    query: null
+
+  - slug: white_crane_spreads_wings
+    english: "White Crane Spreads Its Wings"
+    pinyin: "Báihè Liàngchì"
+    section: yang_24_form
+    order: 3
+    priority: high
+    visual: "Stands on the right leg with left toe touching, right hand raised above the forehead and left hand settled by the hip, body upright like a crane."
+    query: null
+
+  - slug: brush_knee_and_push
+    english: "Brush Knee and Push"
+    pinyin: "Lōuxī Àobù"
+    section: yang_24_form
+    order: 4
+    priority: high
+    visual: "Steps into a bow stance while one hand sweeps across the forward knee and the opposite hand pushes forward at shoulder height, alternating sides."
+    query: null
+
+  - slug: playing_the_lute
+    english: "Playing the Lute"
+    pinyin: "Shǒuhuī Pípá"
+    section: yang_24_form
+    order: 5
+    priority: medium
+    visual: "Empty stance with front heel lightly touching the floor, hands held in front of the chest as if cradling a pipa (lute), forward hand higher than the rear."
+    query: null
+
+  - slug: repulse_monkey
+    english: "Repulse Monkey"
+    pinyin: "Dào Juǎn Gōng"
+    section: yang_24_form
+    order: 6
+    priority: medium
+    visual: "Steps backward repeatedly while one hand retracts past the ear and pushes forward as the other withdraws to the hip, body rotating with each step."
+    query: null
+
+  - slug: grasp_sparrows_tail_left
+    english: "Grasp the Sparrow's Tail — Left"
+    pinyin: "Zuǒ Lǎn Què Wěi"
+    section: yang_24_form
+    order: 7
+    priority: high
+    visual: "A four-part sequence on the left side: ward off, rollback, press, and push, executed in a smooth forward-and-back bow stance transition."
+    query: "grasp sparrow tail left tai chi yang"
+
+  - slug: grasp_sparrows_tail_right
+    english: "Grasp the Sparrow's Tail — Right"
+    pinyin: "Yòu Lǎn Què Wěi"
+    section: yang_24_form
+    order: 8
+    priority: high
+    visual: "Mirror of the left-side version — ward off, rollback, press, push — with weight shifting forward and back in a bow stance on the right side."
+    query: "grasp sparrow tail right tai chi yang"
+
+  - slug: single_whip
+    english: "Single Whip"
+    pinyin: "Dān Biān"
+    section: yang_24_form
+    order: 9
+    priority: high
+    visual: "Wide bow stance with arms extended laterally, rear hand forming a hooked 'beak' and front hand pushing outward with palm facing away."
+    query: "single whip tai chi yang style demonstration"
+
+  - slug: wave_hands_like_clouds
+    english: "Wave Hands Like Clouds"
+    pinyin: "Yún Shǒu"
+    section: yang_24_form
+    order: 10
+    priority: high
+    visual: "Side-stepping laterally while the hands trace continuous circles in front of the torso, one rising as the other falls, waist rotating smoothly."
+    query: "cloud hands tai chi yun shou demonstration"
+
+  - slug: single_whip_repeat
+    english: "Single Whip (repeat)"
+    pinyin: "Dān Biān"
+    section: yang_24_form
+    order: 11
+    priority: low
+    visual: "Repeat of move 9 — wide bow stance, hooked rear hand, front palm pushing outward."
+    query: "single whip tai chi yang style demonstration"
+
+  - slug: high_pat_on_horse
+    english: "High Pat on Horse"
+    pinyin: "Gāo Tàn Mǎ"
+    section: yang_24_form
+    order: 12
+    priority: medium
+    visual: "Empty stance with weight on the rear leg, forward hand extends palm-up at chest height while the rear hand withdraws to the hip, as if patting a horse's neck."
+    query: null
+
+  - slug: right_heel_kick
+    english: "Right Heel Kick"
+    pinyin: "Yòu Dēng Jiǎo"
+    section: yang_24_form
+    order: 13
+    priority: medium
+    visual: "Balances on the left leg and extends the right leg forward with the heel leading, arms opening outward in a cross-hands-to-wide-arms motion."
+    query: null
+
+  - slug: strike_ears_with_fists
+    english: "Strike Opponent's Ears with Both Fists"
+    pinyin: "Shuāng Fēng Guàn Ěr"
+    section: yang_24_form
+    order: 14
+    priority: medium
+    visual: "Bow stance with both fists swinging in wide upward arcs to meet at head height, as if striking an opponent's temples."
+    query: null
+
+  - slug: turn_body_left_heel_kick
+    english: "Turn Body and Left Heel Kick"
+    pinyin: "Zhuǎnshēn Zuǒ Dēng Jiǎo"
+    section: yang_24_form
+    order: 15
+    priority: medium
+    visual: "Pivots on the supporting leg, arms cross at the chest, then extends the left leg forward heel-first as the arms open wide."
+    query: null
+
+  - slug: snake_creeps_down_rooster_left
+    english: "Left Snake Creeps Down and Golden Rooster Stands on Left Leg"
+    pinyin: "Zuǒ Xià Shì Dúlì"
+    section: yang_24_form
+    order: 16
+    priority: high
+    visual: "Drops into a low side stance with one leg extended flat along the floor and hand sweeping along the inside of that leg, then rises onto that leg lifting the opposite knee high with hand raised."
+    query: "snake creeps down golden rooster tai chi"
+
+  - slug: snake_creeps_down_rooster_right
+    english: "Right Snake Creeps Down and Golden Rooster Stands on Right Leg"
+    pinyin: "Yòu Xià Shì Dúlì"
+    section: yang_24_form
+    order: 17
+    priority: medium
+    visual: "Mirror of the left-side version — low creeping stance transitioning into a tall one-legged stance with opposite knee and hand raised."
+    query: "snake creeps down golden rooster tai chi"
+
+  - slug: fair_lady_works_shuttles
+    english: "Fair Lady Works the Shuttles"
+    pinyin: "Yùnǚ Chuānsuō"
+    section: yang_24_form
+    order: 18
+    priority: high
+    visual: "Steps diagonally into a bow stance with one hand guarding above the forehead palm-out and the other pushing forward at chest height, repeated to alternating corners."
+    query: null
+
+  - slug: needle_at_sea_bottom
+    english: "Needle at Sea Bottom"
+    pinyin: "Hǎidǐ Zhēn"
+    section: yang_24_form
+    order: 19
+    priority: medium
+    visual: "Empty stance with the body folding forward, front hand spearing downward with fingers pointed at the floor as if retrieving a needle."
+    query: null
+
+  - slug: fan_through_the_back
+    english: "Fan Through the Back"
+    pinyin: "Shǎn Tōng Bì"
+    section: yang_24_form
+    order: 20
+    priority: medium
+    visual: "Rises from the previous posture into a bow stance with one hand raised above the head like a fan and the other pushing forward at shoulder height."
+    query: null
+
+  - slug: turn_deflect_parry_punch
+    english: "Turn, Deflect, Parry, and Punch"
+    pinyin: "Zhuǎnshēn Bān Lán Chuí"
+    section: yang_24_form
+    order: 21
+    priority: medium
+    visual: "Pivots the body, deflects with a backfist, parries with an open hand, then steps into a bow stance delivering a straight fist punch at mid-level."
+    query: null
+
+  - slug: apparent_close_up
+    english: "Apparent Close Up"
+    pinyin: "Rúfēng Sìbì"
+    section: yang_24_form
+    order: 22
+    priority: medium
+    visual: "Pulls both hands back toward the chest palms-up in a withdrawing motion, then pushes both palms forward in a bow stance."
+    query: null
+
+  - slug: cross_hands
+    english: "Cross Hands"
+    pinyin: "Shízì Shǒu"
+    section: yang_24_form
+    order: 23
+    priority: medium
+    visual: "Shoulder-width parallel stance with both arms crossing in front of the chest, wrists stacked, palms facing inward."
+    query: null
+
+  - slug: closing_form
+    english: "Closing Form"
+    pinyin: "Shōushì"
+    section: yang_24_form
+    order: 24
+    priority: high
+    visual: "From cross hands, palms turn down and arms press slowly to the sides as feet bring together, returning to a neutral standing posture."
+    query: null
+
+  # ============================================================
+  # Bonus iconic moves from Yang 108-form and Chen-style
+  # ============================================================
+  - slug: snake_creeps_down
+    english: "Snake Creeps Down"
+    pinyin: "Xià Shì"
+    section: bonus
+    order: 1
+    priority: high
+    visual: "Drops into a very low side stance with one leg fully extended flat along the floor and hand sweeping along the inside of that leg — the creeping portion isolated from the rooster."
+    query: "snake creeps down tai chi xia shi"
+
+  - slug: golden_rooster_stands_one_leg
+    english: "Golden Rooster Stands on One Leg"
+    pinyin: "Jīnjī Dúlì"
+    section: bonus
+    order: 2
+    priority: high
+    visual: "Tall one-legged stance with the raised knee lifted to waist height and the same-side hand raised high with fingers pointing up."
+    query: "golden rooster stands on one leg tai chi"
+
+  - slug: step_back_ride_tiger
+    english: "Step Back to Ride the Tiger"
+    pinyin: "Tuìbù Kuà Hǔ"
+    section: bonus
+    order: 3
+    priority: low
+    visual: "Steps back into an empty stance with one hand raised above the head and the other lowered beside the hip, body turned at an angle."
+    query: null
+
+  - slug: sweep_lotus_leg
+    english: "Sweep Lotus with Leg"
+    pinyin: "Bǎi Lián Tuǐ"
+    section: bonus
+    order: 4
+    priority: low
+    visual: "Balances on one leg and swings the other leg in a wide outward crescent arc, hands slapping the foot as it crosses the body."
+    query: null
+
+  - slug: shoot_tiger_with_bow
+    english: "Shoot Tiger with Bow"
+    pinyin: "Wān Gōng Shè Hǔ"
+    section: bonus
+    order: 5
+    priority: low
+    visual: "Bow stance with both fists raised — one near the temple and one extended forward — as if drawing and releasing a bow."
+    query: null
+
+  - slug: punch_down
+    english: "Punch Down"
+    pinyin: "Zāi Chuí"
+    section: bonus
+    order: 6
+    priority: low
+    visual: "Bow stance with the fist driving downward toward the forward knee, body folding slightly forward over the strike."
+    query: null
+
+  - slug: white_snake_spits_tongue
+    english: "White Snake Spits Tongue"
+    pinyin: "Báishé Tǔ Xìn"
+    section: bonus
+    order: 7
+    priority: low
+    visual: "Bow stance with a sharp forward thrust of an open hand, fingers extended like a spear, as the rear hand withdraws."
+    query: null
+
+  - slug: buddha_warrior_pounds_mortar
+    english: "Buddha's Warrior Attendant Pounds Mortar"
+    pinyin: "Jīngāng Dǎo Duì"
+    section: bonus
+    order: 8
+    priority: low
+    visual: "Raises one knee high as the fist drops vertically into the open palm at waist height, producing an audible clap — the signature opening of Chen-style."
+    query: "buddha warrior pounds mortar chen tai chi jingang"
+
+  - slug: lazy_tying_coat
+    english: "Lazy About Tying the Coat"
+    pinyin: "Lǎn Zhā Yī"
+    section: bonus
+    order: 9
+    priority: low
+    visual: "Wide side-facing bow stance with one arm extended out to the side palm-up and the other hand resting at the waist — Chen-style's signature open posture."
+    query: "lazy about tying coat chen tai chi lan zha yi"
+
+  - slug: hidden_thrust_punch
+    english: "Hidden Thrust Punch"
+    pinyin: "Yǎn Shǒu Gōng Quán"
+    section: bonus
+    order: 10
+    priority: low
+    visual: "Explosive Chen-style fā jìn release: coils back then launches a fast straight punch from a bow stance with the opposite hand pulling sharply to the hip."
+    query: "hidden thrust punch chen tai chi fa jin"
+
+  # ============================================================
+  # Warmup, stance, and foundation moves (not part of a form)
+  # ============================================================
+  - slug: wuji_stance
+    english: "Wuji Stance"
+    pinyin: "Wújí Zhuāng"
+    section: warmups_and_stances
+    order: 1
+    priority: high
+    visual: "Feet parallel shoulder-width apart, arms hanging softly at the sides, body relaxed and upright — the neutral pre-form standing posture."
+    query: "wuji stance tai chi posture"
+
+  - slug: horse_stance
+    english: "Horse Stance"
+    pinyin: "Mǎbù"
+    section: warmups_and_stances
+    order: 2
+    priority: medium
+    visual: "Feet wider than shoulders with toes parallel, knees bent deeply as if astride a horse, back straight and arms often held out in front."
+    query: "horse stance mabu tai chi"
+
+  - slug: bow_stance
+    english: "Bow Stance"
+    pinyin: "Gōngbù"
+    section: warmups_and_stances
+    order: 3
+    priority: medium
+    visual: "Front leg bent with knee over the ankle, rear leg straight with foot angled outward, roughly 70% of weight on the front leg."
+    query: "bow stance gong bu tai chi"
+
+  - slug: empty_stance
+    english: "Empty Stance"
+    pinyin: "Xūbù"
+    section: warmups_and_stances
+    order: 4
+    priority: medium
+    visual: "Nearly all weight on the rear bent leg while the front foot rests lightly with only the toe or heel touching the floor."
+    query: "empty stance xu bu tai chi"
+
+  - slug: basic_weight_shift
+    english: "Basic Weight Shift"
+    pinyin: "Yí Zhòngxīn"
+    section: warmups_and_stances
+    order: 5
+    priority: medium
+    visual: "From a shoulder-width stance, weight transfers slowly side to side between the legs, hips settling into each side without the upper body bobbing."
+    query: "tai chi weight shift basic warmup"
+
+  - slug: silk_reeling_single_hand
+    english: "Silk Reeling — Single Hand"
+    pinyin: "Dān Shǒu Chán Sī Jìn"
+    section: warmups_and_stances
+    order: 6
+    priority: low
+    visual: "In a horse stance, one hand traces a continuous spiraling circle in front of the body driven by the waist, the palm rotating smoothly throughout."
+    query: "silk reeling single hand chan si jin chen tai chi"
+
+  - slug: silk_reeling_double_hand
+    english: "Silk Reeling — Double Hand"
+    pinyin: "Shuāng Shǒu Chán Sī Jìn"
+    section: warmups_and_stances
+    order: 7
+    priority: low
+    visual: "Horse stance with both hands tracing mirrored spiraling circles in front of the torso, driven by continuous waist rotation."
+    query: "silk reeling double hand chan si jin chen tai chi"
