@@ -333,14 +333,48 @@
   background: var(--navy-700);
 }
 
-/* Mobile — tighten card padding, reduce paddingTop, keep email field as the
-   clear focal point (dash-login-6, tier3-8). */
+/* "Ask Yitzy" escape-hatch chip — subtly elevated so it reads as an
+   interactive element without shouting (dashboard-login-4). */
+.tt-login-ask {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--ff-body);
+  font-style: normal;
+  font-weight: 500;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  padding: 8px 14px;
+  min-height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--ink-200);
+  background: var(--linen-50);
+  color: var(--navy-800);
+  text-decoration: none;
+  transition: background var(--trans), border-color var(--trans),
+    color var(--trans), transform var(--trans);
+}
+.tt-login-ask:hover {
+  background: #FFFFFF;
+  border-color: var(--navy-300);
+  color: var(--navy-900);
+  transform: translateY(-1px);
+}
+.tt-login-ask:focus-visible {
+  outline: none;
+  border-color: var(--navy-800);
+  box-shadow: 0 0 0 3px rgba(43, 58, 92, 0.18);
+}
+
+/* Mobile — match internal horizontal padding to the vertical rhythm
+   (dashboard-login-6). Card was 28px / 24px — lopsided; bump both to
+   28px so horizontal and vertical padding read as one rhythm. */
 @media (max-width: 600px) {
   .tt-login-main {
     padding-top: 40px !important;
   }
   .tt-login-card {
-    padding: 28px 24px 28px !important;
+    padding: 28px 28px 28px !important;
   }
 }
 
