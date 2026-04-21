@@ -235,6 +235,20 @@ Public bucket vs signed URL is a one-line check at implementation time — if `v
 3. **Reference video > 15s slipping into the table.** `duration_s` column is enforced ≤15 at sync time via ffprobe; anything longer is skipped with a warning.
 4. **New section in `moves.yaml` without UI update.** Picker shows any unknown section under "Other" so it never crashes; we update the label map when a new section lands.
 
+## Validation notes
+
+**Phase 0 outcome (2026-04-21):** Ran `tools.test_seedance_ref` with `--voiceover "Like the white crane spreading its wings, we rise rooted, grounded in what does not move."` on slug `white_crane_spreads_wings`, 480p, 10s.
+
+Result: **PASS on all four gates on the first iteration.**
+1. Rav Eli spoke the voiceover line audibly.
+2. Mouth was lip-synced to the words.
+3. White-crane motion was recognizable against the reference clip.
+4. Motion resolved cleanly.
+
+Observation: Seedance TTS pronounced "crane" as "crone" — a known Seedance English-word mispronunciation quirk, not caused by the reference-video addition. Out of scope for this feature; addressable per-script by Yonah phonetically spelling problematic English words (e.g., "KRAYN").
+
+The prompt wording in `tools/test_seedance_ref.py`'s voiceover branch is the validated text that Task 5 promotes into `src/video_generator.py`. Output at `work/seedance_ref_tests/ref_test_white_crane_spreads_wings_with_voiceover.mp4`.
+
 ## Success criteria
 
 - Yonah can pick a move from the script card, click Approve, and receive a video where one DOJO clip visibly performs that move with correct form (credible to a tai chi practitioner's eye).
