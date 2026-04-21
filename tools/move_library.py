@@ -78,14 +78,80 @@ def check_dependencies() -> None:
         raise MissingDependencyError("\n".join(msg_parts))
 
 
+@dataclass
+class PipelineResult:
+    move: Move
+    status: str  # "completed" | "needs_review" | "skipped"
+    chosen_quality: Optional[int] = None
+    final_clip_path: Optional[Path] = None
+    notes: str = ""
+
+
 def main(args: argparse.Namespace) -> int:
     try:
         check_dependencies()
     except MissingDependencyError as e:
         print(str(e), file=sys.stderr)
         return 1
-    print(f"Parsed args: {args}")
+
+    yaml_path = Path("references/tai_chi_moves/moves.yaml")
+    library_root = Path("references/tai_chi_moves")
+    moves = load_moves(yaml_path)
+
+    # Apply filters
+    if args.slug:
+        moves = [m for m in moves if m.slug == args.slug]
+    if args.redo:
+        moves = [m for m in moves if m.slug == args.redo]
+    if args.priority:
+        moves = [m for m in moves if m.priority == args.priority]
+
+    # Apply query override
+    if args.query_override:
+        slug, _, override = args.query_override.partition("=")
+        moves = [Move(**{**m.__dict__, "query": override}) if m.slug == slug else m for m in moves]
+
+    # Sort by priority (high first) then section order
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    moves.sort(key=lambda m: (priority_rank[m.priority], m.section, m.order))
+
+    # Skip existing unless --redo
+    if not args.redo:
+        moves = [m for m in moves if not (library_root / f"{m.slug}.mp4").exists()]
+
+    if not moves:
+        print("Nothing to do — all requested moves already have clips.")
+        return 0
+
+    results: list[PipelineResult] = []
+    for i, m in enumerate(moves, start=1):
+        print(f"[{i}/{len(moves)}] {m.slug} ({m.priority}) — searching…")
+        try:
+            r = process_move(m, library_root=library_root,
+                             candidates=args.candidates,
+                             min_quality=args.min_quality,
+                             model=args.model)
+        except Exception as e:
+            r = PipelineResult(m, status="needs_review", notes=f"pipeline error: {e}")
+        print(f"    → {r.status}" + (f" (quality {r.chosen_quality})" if r.chosen_quality else ""))
+        results.append(r)
+
+    print_report(results)
     return 0
+
+
+def print_report(results: list[PipelineResult]) -> None:
+    done = [r for r in results if r.status == "completed"]
+    needs = [r for r in results if r.status == "needs_review"]
+    print(f"\n=== Report ===")
+    print(f"Completed: {len(done)}")
+    print(f"Needs review: {len(needs)}")
+    if needs:
+        print("\nMoves needing manual review:")
+        for r in needs:
+            print(f"  - {r.move.slug}: {r.notes}")
+        print("\nOpen each folder in references/tai_chi_moves/.candidates/<slug>/review.md "
+              "to inspect Gemini's notes on each candidate.")
 
 
 import yt_dlp
@@ -299,3 +365,85 @@ def trim_and_encode(src: Path, dst: Path, start_sec: int, duration_sec: int) -> 
         capture_output=True, check=True,
     )
     return dst
+
+
+def process_move(
+    move: Move,
+    library_root: Path,
+    candidates: int,
+    min_quality: int,
+    model: str,
+) -> PipelineResult:
+    final_clip = library_root / f"{move.slug}.mp4"
+    candidates_dir = library_root / ".candidates" / move.slug
+    candidates_dir.mkdir(parents=True, exist_ok=True)
+
+    urls = search_youtube(move.effective_query, n=candidates)
+    if not urls:
+        return PipelineResult(move, status="needs_review",
+                              notes="No search results.")
+
+    reviews: list[tuple[int, Optional[Path], CandidateReview]] = []
+    for i, url in enumerate(urls, start=1):
+        cand_path = candidates_dir / f"{i}.mp4"
+        try:
+            downloaded = download_candidate(url, cand_path)
+        except Exception as e:
+            reviews.append((i, None, CandidateReview(
+                matches=False, quality=0, best_start_sec=0,
+                best_duration_sec=10, reason=f"download failed: {e}")))
+            continue
+
+        frames_dir = candidates_dir / f"_frames_{i}"
+        frames = extract_frames(downloaded, n=15, out_dir=frames_dir)
+        try:
+            review = review_candidate(move, frames, model=model)
+        except Exception as e:
+            review = CandidateReview(matches=False, quality=0, best_start_sec=0,
+                                     best_duration_sec=10, reason=f"review failed: {e}")
+        reviews.append((i, downloaded, review))
+
+    # Write audit trail
+    review_md_lines = [f"# Review log for {move.english} (`{move.slug}`)\n",
+                       f"Query: `{move.effective_query}`\n"]
+    for i, path, r in reviews:
+        review_md_lines.append(
+            f"## Candidate {i}\n"
+            f"- path: `{path}`\n"
+            f"- matches: {r.matches}\n"
+            f"- quality: {r.quality}\n"
+            f"- best_window: [{r.best_start_sec}, +{r.best_duration_sec}s]\n"
+            f"- reason: {r.reason}\n"
+        )
+
+    acceptable = [(i, p, r) for (i, p, r) in reviews
+                  if p is not None and r.matches and r.quality >= min_quality]
+    if not acceptable:
+        (candidates_dir / "review.md").write_text("\n".join(review_md_lines), encoding="utf-8")
+        return PipelineResult(move, status="needs_review",
+                              notes=f"No candidate scored >= {min_quality}.")
+
+    acceptable.sort(key=lambda t: -t[2].quality)
+    winner_i, winner_path, winner_review = acceptable[0]
+    trim_and_encode(winner_path, final_clip,
+                    start_sec=winner_review.best_start_sec,
+                    duration_sec=winner_review.best_duration_sec)
+
+    # Cleanup all candidate artifacts on success
+    for i, path, _ in reviews:
+        if path and path.exists():
+            path.unlink()
+        frames_dir = candidates_dir / f"_frames_{i}"
+        if frames_dir.exists():
+            for f in frames_dir.iterdir():
+                f.unlink()
+            frames_dir.rmdir()
+    try:
+        candidates_dir.rmdir()
+    except OSError:
+        pass
+
+    return PipelineResult(move, status="completed",
+                          chosen_quality=winner_review.quality,
+                          final_clip_path=final_clip,
+                          notes=f"Candidate {winner_i}: {winner_review.reason}")

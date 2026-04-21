@@ -300,3 +300,70 @@ def test_trim_and_encode_duration_enforced(sample_video, tmp_path):
     from tools.move_library import get_video_duration
     d = get_video_duration(out)
     assert 0.8 <= d <= 1.2
+
+
+from tools.move_library import process_move, PipelineResult
+
+
+def test_process_move_picks_highest_quality_above_threshold(tmp_path, monkeypatch):
+    move = Move(slug="test", english="Test Move", pinyin="T", section="bonus",
+                order=1, priority="high", visual="V")
+
+    lib_root = tmp_path / "tai_chi_moves"
+
+    monkeypatch.setattr("tools.move_library.search_youtube",
+                        lambda q, n, max_duration_sec=120: ["url1", "url2"])
+
+    dl_paths = [lib_root / ".candidates" / "test" / "1.mp4",
+                lib_root / ".candidates" / "test" / "2.mp4"]
+    for p in dl_paths:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"fake")
+
+    monkeypatch.setattr("tools.move_library.download_candidate",
+                        lambda url, out_path: out_path)
+    monkeypatch.setattr("tools.move_library.extract_frames",
+                        lambda v, n, out_dir: [FrameSample(0.5, tmp_path / "f.jpg")])
+
+    reviews = iter([
+        CandidateReview(matches=True, quality=5, best_start_sec=0, best_duration_sec=10, reason="ok"),
+        CandidateReview(matches=True, quality=9, best_start_sec=2, best_duration_sec=12, reason="great"),
+    ])
+    monkeypatch.setattr("tools.move_library.review_candidate",
+                        lambda m, f, model: next(reviews))
+    monkeypatch.setattr("tools.move_library.trim_and_encode",
+                        lambda src, dst, start_sec, duration_sec: dst.write_bytes(b"trimmed") or dst)
+
+    result = process_move(move, library_root=lib_root, candidates=2,
+                          min_quality=7, model="google/gemini-3.1-pro-preview")
+
+    assert result.status == "completed"
+    assert result.chosen_quality == 9
+    assert result.final_clip_path.exists()
+
+
+def test_process_move_leaves_review_md_when_all_fail(tmp_path, monkeypatch):
+    move = Move(slug="test", english="Test", pinyin="T", section="bonus",
+                order=1, priority="low", visual="V")
+    lib_root = tmp_path / "tai_chi_moves"
+
+    monkeypatch.setattr("tools.move_library.search_youtube",
+                        lambda q, n, max_duration_sec=120: ["url1", "url2"])
+    monkeypatch.setattr("tools.move_library.download_candidate",
+                        lambda url, out_path: out_path.parent.mkdir(parents=True, exist_ok=True) or out_path.write_bytes(b"fake") or out_path)
+    monkeypatch.setattr("tools.move_library.extract_frames",
+                        lambda v, n, out_dir: [FrameSample(0.5, tmp_path / "f.jpg")])
+    reviews = iter([
+        CandidateReview(matches=False, quality=2, best_start_sec=0, best_duration_sec=10, reason="wrong"),
+        CandidateReview(matches=False, quality=3, best_start_sec=0, best_duration_sec=10, reason="nope"),
+    ])
+    monkeypatch.setattr("tools.move_library.review_candidate",
+                        lambda m, f, model: next(reviews))
+
+    result = process_move(move, library_root=lib_root, candidates=2,
+                          min_quality=7, model="google/gemini-3.1-pro-preview")
+
+    assert result.status == "needs_review"
+    review_md = lib_root / ".candidates" / "test" / "review.md"
+    assert review_md.exists()
+    assert "quality" in review_md.read_text()
