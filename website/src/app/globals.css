@@ -676,6 +676,71 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
   display:flex;align-items:center;gap:22px;flex-wrap:wrap;
 }
 
+/* ===== NOT FOUND (404) ===== */
+.nf-wrap{
+  max-width:680px;margin:0 auto;
+  padding:72px 48px 48px;
+  text-align:left;
+}
+@media(max-width:700px){.nf-wrap{padding:48px 20px 32px}}
+.nf-mark{margin-bottom:32px}
+.nf-mark svg{width:56px;height:56px;opacity:.8}
+.nf-kicker{
+  font-family:var(--ff-body);font-size:11px;
+  letter-spacing:.2em;text-transform:uppercase;
+  color:var(--cedar-600);margin-bottom:20px;
+  display:flex;align-items:center;gap:10px;
+}
+.nf-kicker .bar{width:28px;height:1px;background:var(--cedar-400)}
+.nf-title{
+  font-family:var(--ff-display);font-weight:400;
+  font-size:clamp(36px,5.4vw,60px);line-height:1.02;
+  letter-spacing:-.03em;margin:0 0 20px 0;
+  color:var(--ink-900);
+  font-variation-settings:"opsz" 144,"SOFT" 25;
+}
+.nf-title em{
+  font-style:italic;color:var(--cedar-600);
+  font-variation-settings:"opsz" 144,"SOFT" 70;
+}
+.nf-deck{
+  font-family:var(--ff-reading);font-size:19px;
+  line-height:1.6;color:var(--ink-700);
+  max-width:52ch;margin:0 0 32px 0;
+  font-variation-settings:"opsz" 18,"SOFT" 40;
+}
+.nf-ctas{display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-bottom:56px}
+.nf-suggest{
+  padding-top:28px;border-top:1px solid var(--ink-100);
+}
+.nf-suggest-title{
+  display:block;margin-bottom:16px;
+  font-family:var(--ff-body);font-size:11px;
+  letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-400);font-weight:500;
+}
+.nf-suggest-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px}
+.nf-suggest-list a{
+  display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  padding:16px 4px;min-height:48px;
+  border-bottom:1px solid var(--ink-100);
+  text-decoration:none;color:var(--ink-800);
+  transition:color var(--trans),padding var(--trans);
+}
+.nf-suggest-list a:hover{color:var(--cedar-700);padding-left:12px}
+.nf-suggest-list li:last-child a{border-bottom:none}
+.nf-suggest-label{
+  font-family:var(--ff-display);font-weight:500;font-size:18px;
+  color:var(--ink-900);
+  font-variation-settings:"opsz" 18,"SOFT" 30;
+  flex-shrink:0;
+}
+.nf-suggest-desc{
+  font-family:var(--ff-reading);font-style:italic;
+  font-size:15px;color:var(--ink-500);
+  font-variation-settings:"opsz" 16,"SOFT" 55;
+}
+
 /* ===== PULSE ANIMATIONS ===== */
 @keyframes pulse-navy{0%,100%{opacity:1}50%{opacity:.6}}
 @keyframes pulse-jade{0%,100%{opacity:1}50%{opacity:.5}}
