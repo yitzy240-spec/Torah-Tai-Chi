@@ -274,8 +274,11 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
   test('slug field is editable on new form (manual edit overrides auto-slugify)', async ({ page }) => {
     await page.goto('/articles/new');
 
-    // Fill title — slugify() runs automatically.
+    // Fill title — slugify() runs automatically. On mobile, `fill` alone
+    // doesn't fire the blur/change event that triggers the derived slug
+    // update; press Tab to move focus.
     await TITLE_INPUT(page).fill('Auto Title Seven');
+    await TITLE_INPUT(page).press('Tab');
     await expect(SLUG_INPUT(page)).toHaveValue('auto-title-seven');
 
     // Now manually edit the slug. Once touched, it should NOT be overwritten
