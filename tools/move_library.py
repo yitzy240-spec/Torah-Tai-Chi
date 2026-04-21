@@ -283,3 +283,19 @@ def review_candidate(move: Move, frames: list[FrameSample], model: str) -> Candi
     resp.raise_for_status()
     content_str = resp.json()["choices"][0]["message"]["content"]
     return parse_review_response(content_str)
+
+
+def trim_and_encode(src: Path, dst: Path, start_sec: int, duration_sec: int) -> Path:
+    """Trim [start, start+duration] from src, re-encode to 720p H.264 + AAC, write to dst."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["ffmpeg", "-y", "-ss", str(start_sec), "-i", str(src),
+         "-t", str(duration_sec),
+         "-vf", "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
+         "-c:v", "libx264", "-preset", "medium", "-crf", "22", "-pix_fmt", "yuv420p",
+         "-c:a", "aac", "-b:a", "128k",
+         "-movflags", "+faststart",
+         str(dst)],
+        capture_output=True, check=True,
+    )
+    return dst

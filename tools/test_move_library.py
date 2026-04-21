@@ -281,3 +281,22 @@ def test_review_candidate_posts_to_openrouter(tmp_path, monkeypatch):
     mock_post.assert_called_once()
     call_kwargs = mock_post.call_args.kwargs
     assert call_kwargs["headers"]["Authorization"] == "Bearer fake-key"
+
+
+from tools.move_library import trim_and_encode
+
+
+def test_trim_and_encode_produces_output(sample_video, tmp_path):
+    out = tmp_path / "trimmed.mp4"
+    trim_and_encode(sample_video, out, start_sec=0, duration_sec=1)
+    assert out.exists()
+    assert out.stat().st_size > 1000
+
+
+def test_trim_and_encode_duration_enforced(sample_video, tmp_path):
+    out = tmp_path / "trimmed.mp4"
+    trim_and_encode(sample_video, out, start_sec=0, duration_sec=1)
+    # Check duration via ffprobe
+    from tools.move_library import get_video_duration
+    d = get_video_duration(out)
+    assert 0.8 <= d <= 1.2
