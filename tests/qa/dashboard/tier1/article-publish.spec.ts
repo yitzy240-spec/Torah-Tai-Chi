@@ -64,11 +64,16 @@ const TIPTAP        = (p: Page) => p.locator('.ProseMirror');
 const EDITOR_WRAP   = (p: Page) => p.locator('.article-editor-content');
 const SAVE_DRAFT    = (p: Page) => p.getByRole('button', { name: /^save draft$|^saving…$/i });
 const PUBLISH_BTN   = (p: Page) => p.getByRole('button', { name: /^publish$|^publishing…$|save & keep published/i });
-const BOLD_BTN      = (p: Page) => p.getByRole('button', { name: 'Bold' });
-const ITALIC_BTN    = (p: Page) => p.getByRole('button', { name: 'Italic' });
-const H2_BTN        = (p: Page) => p.getByRole('button', { name: 'Heading 2' });
-const BLOCKQUOTE    = (p: Page) => p.getByRole('button', { name: 'Blockquote' });
-const LINK_BTN      = (p: Page) => p.getByRole('button', { name: 'Link' });
+// article-editor.tsx toolbar buttons have textual content like "B", "I", "H2"
+// (not accessible-friendly) plus a `title` attribute. Playwright's accessible-
+// name calculation prefers text content over `title`, so selectors like
+// `getByRole('button', { name: 'Bold' })` don't match "B". Address them by
+// their `title` attribute — that's the stable, documented hook in the source.
+const BOLD_BTN      = (p: Page) => p.locator('button[title="Bold"]');
+const ITALIC_BTN    = (p: Page) => p.locator('button[title="Italic"]');
+const H2_BTN        = (p: Page) => p.locator('button[title="Heading 2"]');
+const BLOCKQUOTE    = (p: Page) => p.locator('button[title="Blockquote"]');
+const LINK_BTN      = (p: Page) => p.locator('button[title="Link"]');
 
 async function focusEditor(page: Page): Promise<void> {
   const editor = TIPTAP(page).first();
@@ -171,19 +176,30 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
     await expect(EDITOR_WRAP(page).locator('h2', { hasText: 'my heading' })).toBeVisible();
 
     // 3. Link — set URL via the window.prompt() handler (see article-editor.tsx
-    // handleLink). We have to intercept the dialog.
+    // handleLink). We intercept the native dialog via page.on('dialog') —
+    // monkey-patching window.prompt is fragile because Playwright hooks the
+    // native first and the patch can race the click. Register the listener
+    // ONCE, before the click, and accept() with the URL as prompt text.
     await page.keyboard.press('Enter');
     // Toggle H2 off so we land back in a paragraph.
     await H2_BTN(page).click();
     await page.keyboard.type('linked word');
     // Select the typed text so setLink applies to a range.
     await page.keyboard.press('Shift+Home');
-    // Pre-arm the window.prompt with a deterministic URL.
-    await page.evaluate(() => {
-      window.prompt = () => 'https://example.test/a';
-    });
-    await LINK_BTN(page).click();
-    await expect(EDITOR_WRAP(page).locator('a[href="https://example.test/a"]')).toBeVisible();
+
+    const dialogHandler = (dialog: import('@playwright/test').Dialog) => {
+      // Tiptap's handleLink passes the URL to setLink when prompt resolves
+      // non-empty. Accept with a known URL so the `a[href=...]` assertion
+      // below has a deterministic target.
+      dialog.accept('https://example.test/a').catch(() => undefined);
+    };
+    page.on('dialog', dialogHandler);
+    try {
+      await LINK_BTN(page).click();
+      await expect(EDITOR_WRAP(page).locator('a[href="https://example.test/a"]')).toBeVisible();
+    } finally {
+      page.off('dialog', dialogHandler);
+    }
 
     // 4. Blockquote — stand-in for "code-block", which this editor does not
     // expose via toolbar (see file header #4). Exercises a block-level
