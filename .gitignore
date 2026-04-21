@@ -57,3 +57,8 @@ tests/qa/.env.qa
 tests/qa/test-results/
 tests/qa/*-run.log
 tests/qa/qa-*.log
+
+# Tai chi reference library — clips not committed
+references/tai_chi_moves/*.mp4
+references/tai_chi_moves/.candidates/
+references/tai_chi_moves/.downloads/
