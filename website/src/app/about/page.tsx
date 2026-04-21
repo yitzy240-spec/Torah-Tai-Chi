@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import Brand from "@/components/Brand";
 import { TikTokIcon, YouTubeIcon, InstagramIcon, FacebookIcon } from "@/components/SocialIcons";
 import { getSiteContent } from "@/lib/site-content";
@@ -48,6 +49,22 @@ export default async function AboutPage() {
         </div>
         <h1>{c['about.title']}</h1>
         <p className="about-deck">{c['about.subtitle']}</p>
+
+        {/* TODO: Replace the byline below with the author's real location
+            and credentials once confirmed. Currently using generic
+            placeholder copy. */}
+        <aside className="about-byline" aria-label="About the author">
+          <div className="about-byline-avatar" aria-hidden="true">
+            <Brand size={44} />
+          </div>
+          <div className="about-byline-text">
+            <span className="about-byline-name">Written by Yonah Lloyd</span>
+            <span className="about-byline-meta">
+              Teacher of internal arts and Torah. Writing weekly from a practice
+              begun more than a decade ago.
+            </span>
+          </div>
+        </aside>
 
         <section className="about-section">
           <h2>What Torah Tai Chi is</h2>
@@ -120,6 +137,26 @@ export default async function AboutPage() {
               </a>
             </li>
           </ul>
+        </section>
+
+        {/* Next-step CTAs so readers don't hit a dead end */}
+        <section className="about-next">
+          <h2 className="about-next-title">Keep going</h2>
+          <p className="about-next-deck">
+            The practice lives in the weekly teachings. Start there.
+          </p>
+          <div className="about-next-ctas">
+            <Link href="/videos" className="btn btn-primary">
+              Watch this week&apos;s teaching
+              <span aria-hidden="true" className="btn-arrow">→</span>
+            </Link>
+            <Link href="/articles" className="hero-cta-link">
+              Read the writings
+            </Link>
+            <a href="mailto:hello@torahtaichi.com" className="hero-cta-link">
+              Get in touch
+            </a>
+          </div>
         </section>
       </main>
 
