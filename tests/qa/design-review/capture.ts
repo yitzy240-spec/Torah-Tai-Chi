@@ -64,7 +64,15 @@ async function captureGroup(
         await fs.mkdir(outDir, { recursive: true });
         const slug = p.replace(/^\//, '').replace(/\W+/g, '_') || 'root';
         const outPath = path.join(outDir, `${slug}-${vp.name}.png`);
-        await page.screenshot({ path: outPath, fullPage: true });
+        // Cap height at 7800px to stay under Anthropic's 8000px image-dimension limit.
+        // Also prefer "above-the-fold + reasonable scroll" over absolute fullPage —
+        // design reviewers need to see first impression, not an entire article.
+        const pageHeight = await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight));
+        const clipHeight = Math.min(pageHeight, 7800);
+        await page.screenshot({
+          path: outPath,
+          clip: { x: 0, y: 0, width: vp.width, height: clipHeight },
+        });
         console.log(`[capture] ${group.surface}/${p}@${vp.name} → ${outPath}`);
       } catch (err) {
         console.warn(`[capture] failed ${group.surface}/${p}@${vp.name}:`, err instanceof Error ? err.message : err);
