@@ -21,10 +21,12 @@ test.describe('website: video detail', () => {
     test.skip(!realVideoSlug, 'No video slug discoverable from sitemap.xml');
     await page.goto(`/videos/${realVideoSlug}`);
     // <h1 class="vd-eng"> is the title in videos/[slug]/page.tsx; the player
-    // stand-in is <div class="vd-player"> (no <iframe> embed yet — the real
-    // video player ships with the media pipeline in a later milestone).
+    // stand-in is <div class="vd-player-wrap"><div class="vd-player">…
+    // (no <iframe> embed yet — the real video player ships with the media
+    // pipeline in a later milestone). Pick the outer wrap specifically so
+    // the locator resolves to one element (strict-mode safe).
     await expect(page.locator('h1').first()).toBeVisible();
-    await expect(page.locator('.vd-player, .vd-player-wrap')).toBeVisible();
+    await expect(page.locator('.vd-player-wrap')).toBeVisible();
   });
 
   test('404 for non-existent slug', async ({ page }) => {
