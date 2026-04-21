@@ -134,3 +134,42 @@ def download_candidate(url: str, out_path: Path) -> Path:
     if not candidates:
         raise RuntimeError(f"yt-dlp produced no output for {url}")
     return candidates[0]
+
+
+import subprocess
+import json
+
+
+@dataclass
+class FrameSample:
+    timestamp_sec: float
+    image_path: Path
+
+
+def get_video_duration(video_path: Path) -> float:
+    """Get duration in seconds via ffprobe."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "json", str(video_path)],
+        capture_output=True, text=True, check=True,
+    )
+    return float(json.loads(result.stdout)["format"]["duration"])
+
+
+def extract_frames(video_path: Path, n: int, out_dir: Path) -> list[FrameSample]:
+    """Extract n evenly-spaced frames from the video. Returns FrameSample list."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    duration = get_video_duration(video_path)
+    # Spacing: sample at (i + 0.5) * duration / n for i in 0..n-1 — stays interior
+    timestamps = [(i + 0.5) * duration / n for i in range(n)]
+    samples: list[FrameSample] = []
+    for i, ts in enumerate(timestamps):
+        img_path = out_dir / f"frame_{i:02d}.jpg"
+        subprocess.run(
+            ["ffmpeg", "-y", "-ss", f"{ts:.3f}", "-i", str(video_path),
+             "-vframes", "1", "-q:v", "4", "-vf", "scale=512:-2",
+             str(img_path)],
+            capture_output=True, check=True,
+        )
+        samples.append(FrameSample(timestamp_sec=ts, image_path=img_path))
+    return samples

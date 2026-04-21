@@ -182,3 +182,28 @@ def test_download_candidate_calls_ytdlp_with_correct_options(tmp_path):
     opts = ctor.call_args[0][0]
     assert "format" in opts
     assert "outtmpl" in opts
+
+
+from tools.move_library import extract_frames, FrameSample
+
+
+def test_extract_frames_returns_n_samples(sample_video, tmp_path):
+    samples = extract_frames(sample_video, n=4, out_dir=tmp_path)
+    assert len(samples) == 4
+    assert all(isinstance(s, FrameSample) for s in samples)
+
+
+def test_extract_frames_timestamps_evenly_spaced(sample_video, tmp_path):
+    samples = extract_frames(sample_video, n=4, out_dir=tmp_path)
+    # 2-second video, 4 samples → timestamps roughly at 0.25, 0.75, 1.25, 1.75
+    timestamps = [s.timestamp_sec for s in samples]
+    assert timestamps[0] < 0.5
+    assert timestamps[-1] > 1.0
+    assert all(timestamps[i+1] > timestamps[i] for i in range(len(timestamps) - 1))
+
+
+def test_extract_frames_produces_valid_images(sample_video, tmp_path):
+    samples = extract_frames(sample_video, n=2, out_dir=tmp_path)
+    for s in samples:
+        assert s.image_path.exists()
+        assert s.image_path.stat().st_size > 100  # non-trivial JPEG
