@@ -127,3 +127,41 @@ def test_check_dependencies_raises_when_python_pkg_missing():
         with pytest.raises(MissingDependencyError) as exc:
             check_dependencies()
         assert "pip install" in str(exc.value)
+
+
+from unittest.mock import patch, MagicMock
+from tools.move_library import search_youtube
+
+
+def test_search_youtube_returns_list_of_urls():
+    fake_response = {
+        "entries": [
+            {"webpage_url": "https://www.youtube.com/watch?v=A"},
+            {"webpage_url": "https://www.youtube.com/watch?v=B"},
+            {"webpage_url": "https://www.youtube.com/watch?v=C"},
+        ]
+    }
+    fake_ydl = MagicMock()
+    fake_ydl.__enter__.return_value.extract_info.return_value = fake_response
+    with patch("tools.move_library.yt_dlp.YoutubeDL", return_value=fake_ydl):
+        urls = search_youtube("cloud hands tai chi", n=3)
+    assert urls == [
+        "https://www.youtube.com/watch?v=A",
+        "https://www.youtube.com/watch?v=B",
+        "https://www.youtube.com/watch?v=C",
+    ]
+
+
+def test_search_youtube_skips_entries_without_url():
+    fake_response = {
+        "entries": [
+            {"webpage_url": "https://www.youtube.com/watch?v=A"},
+            {},  # broken entry
+            {"webpage_url": "https://www.youtube.com/watch?v=C"},
+        ]
+    }
+    fake_ydl = MagicMock()
+    fake_ydl.__enter__.return_value.extract_info.return_value = fake_response
+    with patch("tools.move_library.yt_dlp.YoutubeDL", return_value=fake_ydl):
+        urls = search_youtube("query", n=3)
+    assert len(urls) == 2

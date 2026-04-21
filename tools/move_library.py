@@ -86,3 +86,32 @@ def main(args: argparse.Namespace) -> int:
         return 1
     print(f"Parsed args: {args}")
     return 0
+
+
+import yt_dlp
+
+
+def search_youtube(query: str, n: int = 5, max_duration_sec: int = 120) -> list[str]:
+    """Return up to `n` YouTube URLs matching the query. Filters by duration."""
+    def duration_filter(info_dict):
+        duration = info_dict.get("duration")
+        if duration is not None and duration > max_duration_sec:
+            return f"Too long: {duration}s > {max_duration_sec}s"
+        return None
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": "in_playlist",
+        "match_filter": duration_filter,
+        "skip_download": True,
+    }
+    search_query = f"ytsearch{n}:{query}"
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        result = ydl.extract_info(search_query, download=False)
+    entries = result.get("entries", []) if result else []
+    return [
+        e.get("webpage_url") or e.get("url")
+        for e in entries
+        if e and (e.get("webpage_url") or e.get("url"))
+    ]
