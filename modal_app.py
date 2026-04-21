@@ -36,6 +36,38 @@ image = (
 )
 
 
+def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
+    """Fetch the tai_chi_moves row for the given slug. Returns (move_dict, mp4_url).
+
+    Returns (None, None) if slug is None or the row doesn't exist.
+    """
+    if not slug:
+        return None, None
+    row = (
+        sb.table("tai_chi_moves")
+        .select("slug, english, pinyin, visual, motion_description, mp4_storage_path")
+        .eq("slug", slug)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not row:
+        return None, None
+    base = os.environ["SUPABASE_URL"]
+    mp4_url = (
+        f"{base}/storage/v1/object/public/videos/"
+        f"{row['mp4_storage_path'].lstrip('/')}"
+    )
+    move_dict = {
+        "slug": row["slug"],
+        "english": row["english"],
+        "pinyin": row["pinyin"],
+        "visual": row["visual"],
+        "motion_description": row["motion_description"],
+    }
+    return move_dict, mp4_url
+
+
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("torah-tai-chi-env")],  # contains ANTHROPIC_API_KEY, KIE_AI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -107,7 +139,7 @@ def run_pipeline(job_id: str) -> None:
         # picker and determine which Seedance variant runs.
         job = (
             sb.table("jobs")
-            .select("kind, parsha_id, script_id, topic, resolution, model_tier")
+            .select("kind, parsha_id, script_id, topic, resolution, model_tier, motion_ref_slug")
             .eq("id", job_id)
             .single()
             .execute()
@@ -121,6 +153,10 @@ def run_pipeline(job_id: str) -> None:
         model_tier = job.get("model_tier") or "standard"
         seedance_model = (
             "bytedance/seedance-2-fast" if model_tier == "fast" else "bytedance/seedance-2"
+        )
+
+        selected_move, motion_ref_mp4_url = _load_selected_move(
+            sb, job.get("motion_ref_slug")
         )
 
         work_dir = Path(f"/tmp/job-{job_id}")
@@ -181,6 +217,7 @@ def run_pipeline(job_id: str) -> None:
             option=option, style_note=style_note,
             title=title, draft=draft_text,
             api_key=os.environ["ANTHROPIC_API_KEY"],
+            selected_move=selected_move,
         ))
         sb.table("clip_plans").insert({
             "job_id": job_id, "plan_json": plan.model_dump(mode="json"),
@@ -192,7 +229,25 @@ def run_pipeline(job_id: str) -> None:
                 "job_id": job_id, "index": c.index, "voiceover": c.voiceover,
                 "visual_prompt": c.visual_prompt, "setting_id": c.setting_id,
                 "duration_s": c.duration_s,
+                "motion_ref_slug": c.motion_ref_slug,
             }).execute()
+
+        if selected_move is not None:
+            ref_clips = [c for c in plan.clips if c.motion_ref_slug]
+            if len(ref_clips) == 0:
+                log_event(
+                    sb,
+                    actor="modal",
+                    level="warn",
+                    event="pipeline.motion_ref.ignored",
+                    subject_type="job",
+                    subject_id=job_id,
+                    message=(
+                        f"Move '{selected_move['slug']}' was selected but "
+                        f"Claude's plan assigned it to zero clips. "
+                        f"Video will generate without the reference video."
+                    ),
+                )
 
         # --- Upload refs ---
         set_status("uploading_refs", "Uploading character and dojo references")
@@ -210,20 +265,27 @@ def run_pipeline(job_id: str) -> None:
             async def _one(clip):
                 nonlocal completed
                 dest = work_dir / f"clip_{clip.index:02d}.mp4"
+                clip_ref_video_url = (
+                    motion_ref_mp4_url if clip.motion_ref_slug else None
+                )
                 await generate_clip(
                     kie, clip,
                     character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
                     dest=dest, resolution=resolution,
                     model=seedance_model,
+                    reference_video_url=clip_ref_video_url,
                 )
                 async with lock:
                     completed += 1
                     set_status("generating_clips", f"Generating {completed} of {len(plan.clips)} clips")
-                sb.table("clips").update({
+                clip_update = {
                     "mp4_path": f"internal/{dest.name}",
                     "status": "done", "cost_usd": 1.20,
                     "completed_at": "now()",
-                }).eq("job_id", job_id).eq("index", clip.index).execute()
+                }
+                if clip_ref_video_url:
+                    clip_update["motion_ref_url"] = clip_ref_video_url
+                sb.table("clips").update(clip_update).eq("job_id", job_id).eq("index", clip.index).execute()
                 log_cost("clip", "kie", 1.20, f"clip {clip.index}")
                 return dest
 
