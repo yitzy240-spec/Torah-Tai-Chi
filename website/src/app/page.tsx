@@ -67,18 +67,20 @@ export default async function HomePage() {
             {heroTitle.after}
           </h1>
           <p className="hero-body">{content['home.hero.body']}</p>
-          <div className="hero-cta">
+          <div className="hero-cta hero-cta-desktop">
             {thisWeek && (
               <Link href={`/videos/${thisWeek.slug}`} className="btn btn-primary">
-                Watch this week&apos;s teaching
+                Play {thisWeek.name} teaching
+                <span aria-hidden="true" className="btn-arrow">→</span>
               </Link>
             )}
             {!thisWeek && (
               <Link href="/videos" className="btn btn-primary">
-                Watch this week&apos;s teaching
+                Play this week&apos;s teaching
+                <span aria-hidden="true" className="btn-arrow">→</span>
               </Link>
             )}
-            <Link href="/videos" className="btn btn-ghost">
+            <Link href="/videos" className="hero-cta-link">
               Explore all parshiot
             </Link>
           </div>
@@ -99,12 +101,36 @@ export default async function HomePage() {
                 <path d="M8 5v14l11-7z" />
               </svg>
             </div>
-            {thisWeek && (
-              <div className="vlabel">
-                {thisWeek.name} &mdash; {thisWeek.atightTitle ?? "~45s"}
-              </div>
-            )}
           </div>
+          {thisWeek && (
+            <div className="video-caption">
+              <span className="video-caption-name">{thisWeek.name}</span>
+              <span className="video-caption-sep" aria-hidden="true">·</span>
+              <span className="video-caption-title">
+                {thisWeek.atightTitle ?? "~45s teaching"}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Mobile-only CTA — on mobile this appears AFTER the video.
+            On desktop it's hidden and the in-text CTA above is used. */}
+        <div className="hero-cta hero-cta-mobile">
+          {thisWeek && (
+            <Link href={`/videos/${thisWeek.slug}`} className="btn btn-primary">
+              Play {thisWeek.name} teaching
+              <span aria-hidden="true" className="btn-arrow">→</span>
+            </Link>
+          )}
+          {!thisWeek && (
+            <Link href="/videos" className="btn btn-primary">
+              Play this week&apos;s teaching
+              <span aria-hidden="true" className="btn-arrow">→</span>
+            </Link>
+          )}
+          <Link href="/videos" className="hero-cta-link">
+            Explore all parshiot
+          </Link>
         </div>
       </section>
 

@@ -5,6 +5,10 @@ import { getAllArticles } from "@/lib/articles";
 // ISR: revalidate every 60 s
 export const revalidate = 60;
 
+interface ArticlesPageProps {
+  searchParams: Promise<{ category?: string | string[] }>;
+}
+
 export const metadata: Metadata = {
   title: "Writings",
   description:
@@ -30,13 +34,41 @@ export const metadata: Metadata = {
   },
 };
 
+// Include the year so freshness is never ambiguous (resolves web-articles-1)
 function formatDate(ts: string | null | undefined): string {
   if (!ts) return "";
-  return new Date(ts).toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  return new Date(ts).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
-export default async function ArticlesPage() {
+type CategoryKey = "all" | "essay" | "teaching" | "reflection";
+
+const CATEGORIES: { key: CategoryKey; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "essay", label: "Essay" },
+  { key: "teaching", label: "Teaching" },
+  { key: "reflection", label: "Reflection" },
+];
+
+function normaliseCategory(raw: string | string[] | undefined): CategoryKey {
+  if (!raw) return "all";
+  const value = (Array.isArray(raw) ? raw[0] : raw).toLowerCase();
+  if (value === "essay" || value === "teaching" || value === "reflection") return value;
+  return "all";
+}
+
+export default async function ArticlesPage({ searchParams }: ArticlesPageProps) {
   const articles = await getAllArticles();
+  const { category: rawCategory } = await searchParams;
+  const activeCategory = normaliseCategory(rawCategory);
+
+  const visibleArticles =
+    activeCategory === "all"
+      ? articles
+      : articles.filter((a) => (a.category ?? "").toLowerCase() === activeCategory);
 
   return (
     <>
@@ -48,13 +80,32 @@ export default async function ArticlesPage() {
         </p>
       </header>
 
+      <nav className="filter-bar" aria-label="Filter by category">
+        {CATEGORIES.map((c) => {
+          const href = c.key === "all" ? "/articles" : `/articles?category=${c.key}`;
+          const isActive = activeCategory === c.key;
+          return (
+            <Link
+              key={c.key}
+              href={href}
+              className={`filter-pill${isActive ? " active" : ""}`}
+              aria-current={isActive ? "page" : undefined}
+            >
+              {c.label}
+            </Link>
+          );
+        })}
+      </nav>
+
       <section className="articles-section stagger">
-        {articles.length === 0 && (
+        {visibleArticles.length === 0 && (
           <p style={{ fontStyle: "italic", color: "var(--ink-400)", fontFamily: "var(--ff-display)" }}>
-            No articles published yet.
+            {articles.length === 0
+              ? "No articles published yet."
+              : `No articles in "${activeCategory}" yet.`}
           </p>
         )}
-        {articles.map((article) => (
+        {visibleArticles.map((article) => (
           <Link key={article.slug} href={`/articles/${article.slug}`} className="article-entry">
             <span className="ae-tag">{article.category}</span>
             <h2 className="ae-title">{article.title}</h2>
