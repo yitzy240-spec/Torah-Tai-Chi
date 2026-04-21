@@ -68,7 +68,7 @@ def test_parse_args_defaults():
     assert args.redo is None
     assert args.candidates == 5
     assert args.min_quality == 7
-    assert args.model == "google/gemini-2.5-flash"
+    assert args.model == "google/gemini-3.1-pro-preview"
     assert args.query_override is None
 
 
@@ -227,20 +227,22 @@ def test_build_review_prompt_contains_move_info():
         priority="high",
         visual="Wide bow stance with arms extended...",
     )
-    prompt = build_review_prompt(move, timestamps=[0.5, 1.5, 2.5])
+    prompt = build_review_prompt(move)
     assert "Single Whip" in prompt
     assert "Dān Biān" in prompt
     assert "Wide bow stance" in prompt
-    assert "0.5" in prompt
     assert "matches" in prompt
+    assert "fits_in_15s" in prompt
     assert "quality" in prompt
     assert "best_start_sec" in prompt
+    assert "10-15" in prompt  # explicit duration requirement in new prompt
 
 
 def test_parse_review_response_valid_json():
-    raw = '{"matches": true, "quality": 8, "best_start_sec": 3, "best_duration_sec": 12, "reason": "clean"}'
+    raw = '{"matches": true, "fits_in_15s": true, "quality": 8, "best_start_sec": 3, "best_duration_sec": 12, "reason": "clean"}'
     r = parse_review_response(raw)
     assert r.matches is True
+    assert r.fits_in_15s is True
     assert r.quality == 8
     assert r.best_start_sec == 3
     assert r.best_duration_sec == 12
@@ -248,39 +250,54 @@ def test_parse_review_response_valid_json():
 
 
 def test_parse_review_response_with_surrounding_prose():
-    raw = 'Here is my review:\n```json\n{"matches": false, "quality": 3, "best_start_sec": 0, "best_duration_sec": 10, "reason": "wrong move"}\n```\nDone.'
+    raw = 'Here is my review:\n```json\n{"matches": false, "fits_in_15s": false, "quality": 3, "best_start_sec": 0, "best_duration_sec": 10, "reason": "wrong move"}\n```\nDone.'
     r = parse_review_response(raw)
     assert r.matches is False
+    assert r.fits_in_15s is False
     assert r.quality == 3
 
 
 def test_parse_review_response_clamps_duration_to_15():
-    raw = '{"matches": true, "quality": 9, "best_start_sec": 0, "best_duration_sec": 30, "reason": "ok"}'
+    raw = '{"matches": true, "fits_in_15s": true, "quality": 9, "best_start_sec": 0, "best_duration_sec": 30, "reason": "ok"}'
     r = parse_review_response(raw)
     assert r.best_duration_sec == 15  # clamped
 
 
-def test_review_candidate_posts_to_openrouter(tmp_path, monkeypatch):
+def test_parse_review_response_missing_fits_field_defaults_false():
+    # older responses without the new field default to fits_in_15s=False (safe)
+    raw = '{"matches": true, "quality": 7, "best_start_sec": 0, "best_duration_sec": 12, "reason": "old schema"}'
+    r = parse_review_response(raw)
+    assert r.fits_in_15s is False
+
+
+def test_review_candidate_posts_video_to_openrouter(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
     move = Move(
         slug="x", english="X", pinyin="X", section="bonus", order=1,
         priority="low", visual="V",
     )
-    img_path = tmp_path / "f.jpg"
-    img_path.write_bytes(b"\xff\xd8\xff\xd9")  # minimal JPEG
-    samples = [FrameSample(timestamp_sec=0.5, image_path=img_path)]
+    # Minimal "video" file — content is base64-encoded but never actually decoded by test
+    video_path = tmp_path / "candidate.mp4"
+    video_path.write_bytes(b"fake-mp4-bytes")
 
     mock_resp = MagicMock()
     mock_resp.json.return_value = {
-        "choices": [{"message": {"content": '{"matches": true, "quality": 8, "best_start_sec": 0, "best_duration_sec": 10, "reason": "ok"}'}}]
+        "choices": [{"message": {"content": '{"matches": true, "fits_in_15s": true, "quality": 8, "best_start_sec": 0, "best_duration_sec": 12, "reason": "ok"}'}}]
     }
     mock_resp.raise_for_status = MagicMock()
     with patch("tools.move_library.httpx.post", return_value=mock_resp) as mock_post:
-        r = review_candidate(move, samples, model="google/gemini-3.1-pro-preview")
+        r = review_candidate(move, video_path, model="google/gemini-3.1-pro-preview")
     assert r.quality == 8
+    assert r.fits_in_15s is True
     mock_post.assert_called_once()
     call_kwargs = mock_post.call_args.kwargs
     assert call_kwargs["headers"]["Authorization"] == "Bearer fake-key"
+    # Verify the content block uses video_url with the expected data-URL prefix
+    content = call_kwargs["json"]["messages"][0]["content"]
+    video_block = next(c for c in content if c.get("type") == "video_url")
+    assert video_block["video_url"]["url"].startswith("data:video/mp4;base64,")
+    # Verify max_tokens is bumped to 6000
+    assert call_kwargs["json"]["max_tokens"] == 6000
 
 
 from tools.move_library import trim_and_encode
@@ -322,15 +339,13 @@ def test_process_move_picks_highest_quality_above_threshold(tmp_path, monkeypatc
 
     monkeypatch.setattr("tools.move_library.download_candidate",
                         lambda url, out_path: out_path)
-    monkeypatch.setattr("tools.move_library.extract_frames",
-                        lambda v, n, out_dir: [FrameSample(0.5, tmp_path / "f.jpg")])
 
     reviews = iter([
-        CandidateReview(matches=True, quality=5, best_start_sec=0, best_duration_sec=10, reason="ok"),
-        CandidateReview(matches=True, quality=9, best_start_sec=2, best_duration_sec=12, reason="great"),
+        CandidateReview(matches=True, fits_in_15s=True, quality=5, best_start_sec=0, best_duration_sec=10, reason="ok"),
+        CandidateReview(matches=True, fits_in_15s=True, quality=9, best_start_sec=2, best_duration_sec=12, reason="great"),
     ])
     monkeypatch.setattr("tools.move_library.review_candidate",
-                        lambda m, f, model: next(reviews))
+                        lambda m, video_path, model: next(reviews))
     monkeypatch.setattr("tools.move_library.trim_and_encode",
                         lambda src, dst, start_sec, duration_sec: dst.write_bytes(b"trimmed") or dst)
 
@@ -342,6 +357,31 @@ def test_process_move_picks_highest_quality_above_threshold(tmp_path, monkeypatc
     assert result.final_clip_path.exists()
 
 
+def test_process_move_rejects_candidates_that_dont_fit(tmp_path, monkeypatch):
+    """The right move demonstrated too slowly (fits_in_15s=False) must be rejected."""
+    move = Move(slug="slow_move", english="Slow Move", pinyin="S", section="bonus",
+                order=1, priority="high", visual="V")
+    lib_root = tmp_path / "tai_chi_moves"
+
+    monkeypatch.setattr("tools.move_library.search_youtube",
+                        lambda q, n, max_duration_sec=120: ["url1", "url2"])
+    monkeypatch.setattr("tools.move_library.download_candidate",
+                        lambda url, out_path: out_path.parent.mkdir(parents=True, exist_ok=True) or out_path.write_bytes(b"fake") or out_path)
+    reviews = iter([
+        # Right move, demonstrated too slowly — must not win
+        CandidateReview(matches=True, fits_in_15s=False, quality=0, best_start_sec=0, best_duration_sec=10, reason="move always exceeds 15s"),
+        CandidateReview(matches=True, fits_in_15s=False, quality=0, best_start_sec=0, best_duration_sec=10, reason="partial reps only"),
+    ])
+    monkeypatch.setattr("tools.move_library.review_candidate",
+                        lambda m, video_path, model: next(reviews))
+
+    result = process_move(move, library_root=lib_root, candidates=2,
+                          min_quality=7, model="google/gemini-3.1-pro-preview")
+
+    assert result.status == "needs_review"
+    assert "fits" in result.notes.lower() or "window" in result.notes.lower()
+
+
 def test_process_move_leaves_review_md_when_all_fail(tmp_path, monkeypatch):
     move = Move(slug="test", english="Test", pinyin="T", section="bonus",
                 order=1, priority="low", visual="V")
@@ -351,14 +391,12 @@ def test_process_move_leaves_review_md_when_all_fail(tmp_path, monkeypatch):
                         lambda q, n, max_duration_sec=120: ["url1", "url2"])
     monkeypatch.setattr("tools.move_library.download_candidate",
                         lambda url, out_path: out_path.parent.mkdir(parents=True, exist_ok=True) or out_path.write_bytes(b"fake") or out_path)
-    monkeypatch.setattr("tools.move_library.extract_frames",
-                        lambda v, n, out_dir: [FrameSample(0.5, tmp_path / "f.jpg")])
     reviews = iter([
-        CandidateReview(matches=False, quality=2, best_start_sec=0, best_duration_sec=10, reason="wrong"),
-        CandidateReview(matches=False, quality=3, best_start_sec=0, best_duration_sec=10, reason="nope"),
+        CandidateReview(matches=False, fits_in_15s=False, quality=2, best_start_sec=0, best_duration_sec=10, reason="wrong"),
+        CandidateReview(matches=False, fits_in_15s=False, quality=3, best_start_sec=0, best_duration_sec=10, reason="nope"),
     ])
     monkeypatch.setattr("tools.move_library.review_candidate",
-                        lambda m, f, model: next(reviews))
+                        lambda m, video_path, model: next(reviews))
 
     result = process_move(move, library_root=lib_root, candidates=2,
                           min_quality=7, model="google/gemini-3.1-pro-preview")
@@ -366,4 +404,6 @@ def test_process_move_leaves_review_md_when_all_fail(tmp_path, monkeypatch):
     assert result.status == "needs_review"
     review_md = lib_root / ".candidates" / "test" / "review.md"
     assert review_md.exists()
-    assert "quality" in review_md.read_text()
+    text = review_md.read_text()
+    assert "quality" in text
+    assert "fits_in_15s" in text

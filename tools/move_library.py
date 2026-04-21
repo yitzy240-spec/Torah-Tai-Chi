@@ -51,7 +51,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--redo", help="Re-run the pipeline for this slug even if the clip already exists.")
     p.add_argument("--candidates", type=int, default=5, help="How many search candidates per move (default 5).")
     p.add_argument("--min-quality", type=int, default=7, help="Minimum Gemini quality score to accept (1-10, default 7).")
-    p.add_argument("--model", default="google/gemini-2.5-flash", help="OpenRouter model ID for video review.")
+    p.add_argument("--model", default="google/gemini-3.1-pro-preview", help="OpenRouter model ID for video review (must support native video input).")
     p.add_argument("--query-override", help="Per-slug query override in format 'slug=search query'.")
     return p.parse_args(argv)
 
@@ -253,36 +253,42 @@ load_dotenv()  # loads .env once on import
 @dataclass
 class CandidateReview:
     matches: bool
+    fits_in_15s: bool
     quality: int
     best_start_sec: int
     best_duration_sec: int
     reason: str
 
 
-REVIEW_PROMPT_TEMPLATE = """You are evaluating a YouTube clip as a reference for the tai chi move "{english}" ({pinyin}).
+REVIEW_PROMPT_TEMPLATE = """You are evaluating a YouTube video as a potential reference clip for the tai chi move "{english}" ({pinyin}).
 
-Visually the move looks like: "{visual}"
+The move visually looks like: "{visual}"
 
-You are shown {n_frames} frames sampled at these timestamps (seconds): {ts_list}.
+The selected clip will be fed to a video-generation model as a motion reference, so it MUST satisfy ALL of these:
+1. The video contains a COMPLETE execution of this specific tai chi move (clear beginning to clear end), not just a partial rep.
+2. A complete execution fits within a single continuous 10-15 second window. If the instructor performs the move so slowly that it always exceeds 15 seconds, this candidate does NOT fit -- reject it.
+3. The chosen window has NO intro talking, lecture, or title-card setup BEFORE the move begins. The move must start within 2 seconds of the window start.
+4. The chosen window does NOT cut off mid-motion -- the move must complete cleanly before the window ends.
+5. Full body is visible throughout the window (not cropped to hands or face).
 
-Evaluate:
-1. Does this clip clearly demonstrate that specific tai chi move? Answer with `matches` (bool).
-2. Rate demonstration quality 1-10 (`quality`). Factors that raise the score: full body visible, clean background, minimal text/captions, no talking-head cutaways, single clean execution, instructor filmed flat-on not mid-class.
-3. Identify the single cleanest 10-15 second window showing the move. Return `best_start_sec` (int) and `best_duration_sec` (int, 10-15). If the whole clip is the move, start at 0.
-4. One-sentence `reason` summarizing your call.
+Return JSON with these fields:
+- `matches` (bool): is this actually the correct tai chi move, matching the visual description above?
+- `fits_in_15s` (bool): does a complete, clean execution fit in some 10-15 second window in this video? False if the move is performed too slowly, if only partial reps are shown, or if every complete rep exceeds 15 seconds.
+- `quality` (int, 1-10): how clean the best-fitting window is -- full body, no overlay text, no talking-head cutaways, clean background, single uninterrupted execution. 0 if fits_in_15s is false.
+- `best_start_sec` (int): seconds into the source video where the complete move begins. 0 if fits_in_15s is false.
+- `best_duration_sec` (int, 10-15): length of the chosen window. 10 if fits_in_15s is false.
+- `reason` (str): one concise sentence explaining your fits_in_15s and quality decisions.
 
 Return JSON only, no surrounding prose. Shape:
-{{"matches": bool, "quality": int, "best_start_sec": int, "best_duration_sec": int, "reason": str}}
+{{"matches": bool, "fits_in_15s": bool, "quality": int, "best_start_sec": int, "best_duration_sec": int, "reason": str}}
 """
 
 
-def build_review_prompt(move: Move, timestamps: list[float]) -> str:
+def build_review_prompt(move: Move) -> str:
     return REVIEW_PROMPT_TEMPLATE.format(
         english=move.english,
         pinyin=move.pinyin,
         visual=move.visual,
-        n_frames=len(timestamps),
-        ts_list=", ".join(f"{t:.1f}" for t in timestamps),
     )
 
 
@@ -308,6 +314,7 @@ def parse_review_response(raw: str) -> CandidateReview:
     duration = max(duration, 10)
     return CandidateReview(
         matches=bool(data["matches"]),
+        fits_in_15s=bool(data.get("fits_in_15s", False)),
         quality=int(data["quality"]),
         best_start_sec=int(data["best_start_sec"]),
         best_duration_sec=duration,
@@ -315,20 +322,19 @@ def parse_review_response(raw: str) -> CandidateReview:
     )
 
 
-def review_candidate(move: Move, frames: list[FrameSample], model: str) -> CandidateReview:
-    """Call OpenRouter/Gemini with move metadata + frames, return parsed review."""
+def review_candidate(move: Move, video_path: Path, model: str) -> CandidateReview:
+    """Call OpenRouter/Gemini with move metadata + native video, return parsed review."""
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY missing — add it to .env")
+        raise RuntimeError("OPENROUTER_API_KEY missing -- add it to .env")
 
-    prompt = build_review_prompt(move, [f.timestamp_sec for f in frames])
-    content = [{"type": "text", "text": prompt}]
-    for f in frames:
-        img_b64 = base64.b64encode(f.image_path.read_bytes()).decode("ascii")
-        content.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
-        })
+    prompt = build_review_prompt(move)
+    video_b64 = base64.b64encode(video_path.read_bytes()).decode("ascii")
+    content = [
+        {"type": "text", "text": prompt},
+        {"type": "video_url",
+         "video_url": {"url": f"data:video/mp4;base64,{video_b64}"}},
+    ]
 
     resp = httpx.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -342,9 +348,9 @@ def review_candidate(move: Move, frames: list[FrameSample], model: str) -> Candi
             "model": model,
             "messages": [{"role": "user", "content": content}],
             "response_format": {"type": "json_object"},
-            "max_tokens": 400,
+            "max_tokens": 6000,
         },
-        timeout=120,
+        timeout=240,
     )
     resp.raise_for_status()
     content_str = resp.json()["choices"][0]["message"]["content"]
@@ -390,17 +396,16 @@ def process_move(
             downloaded = download_candidate(url, cand_path)
         except Exception as e:
             reviews.append((i, None, CandidateReview(
-                matches=False, quality=0, best_start_sec=0,
+                matches=False, fits_in_15s=False, quality=0, best_start_sec=0,
                 best_duration_sec=10, reason=f"download failed: {e}")))
             continue
 
-        frames_dir = candidates_dir / f"_frames_{i}"
-        frames = extract_frames(downloaded, n=15, out_dir=frames_dir)
         try:
-            review = review_candidate(move, frames, model=model)
+            review = review_candidate(move, downloaded, model=model)
         except Exception as e:
-            review = CandidateReview(matches=False, quality=0, best_start_sec=0,
-                                     best_duration_sec=10, reason=f"review failed: {e}")
+            review = CandidateReview(matches=False, fits_in_15s=False, quality=0,
+                                     best_start_sec=0, best_duration_sec=10,
+                                     reason=f"review failed: {e}")
         reviews.append((i, downloaded, review))
 
     # Write audit trail
@@ -411,17 +416,26 @@ def process_move(
             f"## Candidate {i}\n"
             f"- path: `{path}`\n"
             f"- matches: {r.matches}\n"
+            f"- fits_in_15s: {r.fits_in_15s}\n"
             f"- quality: {r.quality}\n"
             f"- best_window: [{r.best_start_sec}, +{r.best_duration_sec}s]\n"
             f"- reason: {r.reason}\n"
         )
 
     acceptable = [(i, p, r) for (i, p, r) in reviews
-                  if p is not None and r.matches and r.quality >= min_quality]
+                  if p is not None and r.matches and r.fits_in_15s
+                  and r.quality >= min_quality]
     if not acceptable:
         (candidates_dir / "review.md").write_text("\n".join(review_md_lines), encoding="utf-8")
-        return PipelineResult(move, status="needs_review",
-                              notes=f"No candidate scored >= {min_quality}.")
+        any_match = any(r.matches for _, _, r in reviews)
+        any_fit = any(r.matches and r.fits_in_15s for _, _, r in reviews)
+        if any_match and not any_fit:
+            notes = "Right move but no candidate fits a 10-15s complete-execution window."
+        elif any_fit:
+            notes = f"Move fits in window, but no candidate scored >= {min_quality} quality."
+        else:
+            notes = "No candidate matched this move."
+        return PipelineResult(move, status="needs_review", notes=notes)
 
     acceptable.sort(key=lambda t: -t[2].quality)
     winner_i, winner_path, winner_review = acceptable[0]
@@ -433,11 +447,6 @@ def process_move(
     for i, path, _ in reviews:
         if path and path.exists():
             path.unlink()
-        frames_dir = candidates_dir / f"_frames_{i}"
-        if frames_dir.exists():
-            for f in frames_dir.iterdir():
-                f.unlink()
-            frames_dir.rmdir()
     try:
         candidates_dir.rmdir()
     except OSError:
