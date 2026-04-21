@@ -30,8 +30,8 @@ export default async function SiteFooter() {
 
         <div className="footer-connect">
           <span className="footer-nav-title">Connect</span>
-          <a href="mailto:hello@torahtaichi.com" className="footer-contact-link">
-            hello@torahtaichi.com
+          <a href="mailto:info@torahtaichi.com" className="footer-contact-link">
+            info@torahtaichi.com
           </a>
           <div className="footer-socials">
             <a href="https://tiktok.com/@torahtaichi" aria-label="TikTok" target="_blank" rel="noopener noreferrer">
@@ -54,7 +54,7 @@ export default async function SiteFooter() {
         <div className="footer-copyright">{c["footer.copyright"]}</div>
         <div className="footer-legal">
           <Link href="/about">About</Link>
-          <a href="mailto:hello@torahtaichi.com">Contact</a>
+          <a href="mailto:info@torahtaichi.com">Contact</a>
         </div>
       </div>
     </footer>

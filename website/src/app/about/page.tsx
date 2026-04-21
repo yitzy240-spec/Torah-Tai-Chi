@@ -50,9 +50,6 @@ export default async function AboutPage() {
         <h1>{c['about.title']}</h1>
         <p className="about-deck">{c['about.subtitle']}</p>
 
-        {/* TODO: Replace the byline below with the author's real location
-            and credentials once confirmed. Currently using generic
-            placeholder copy. */}
         <aside className="about-byline" aria-label="About the author">
           <div className="about-byline-avatar" aria-hidden="true">
             <Brand size={44} />
@@ -60,8 +57,10 @@ export default async function AboutPage() {
           <div className="about-byline-text">
             <span className="about-byline-name">Written by Yonah Lloyd</span>
             <span className="about-byline-meta">
-              Teacher of internal arts and Torah. Writing weekly from a practice
-              begun more than a decade ago.
+              A student of Torah and longtime practitioner of tai chi. These
+              weekly teachings trace the line where the two disciplines meet —
+              reading each parsha through the body, and reading the body back
+              through the parsha.
             </span>
           </div>
         </aside>
@@ -153,7 +152,7 @@ export default async function AboutPage() {
             <Link href="/articles" className="hero-cta-link">
               Read the writings
             </Link>
-            <a href="mailto:hello@torahtaichi.com" className="hero-cta-link">
+            <a href="mailto:info@torahtaichi.com" className="hero-cta-link">
               Get in touch
             </a>
           </div>

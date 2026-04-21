@@ -134,9 +134,9 @@ export default async function ArticleDetailPage({ params }: Props) {
         <h1>{article.title}</h1>
         {article.subtitle && <p className="ad-deck">{article.subtitle}</p>}
 
-        {/* Byline row — uses "Yonah Lloyd" as a hardcoded default author.
-            TODO: wire to a real Storyblok author field when the schema
-            supports it. */}
+        {/* Author is hardcoded — Yonah is the only writer right now.
+            When that changes, add an `author` field to the Storyblok article
+            schema and thread it through `website/src/lib/articles.ts`. */}
         <div className="ad-byline">
           <span className="ad-byline-author">Yonah Lloyd</span>
           {formattedDate && (
