@@ -395,16 +395,16 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 /* Default (desktop ≥ 901px): hide the mobile-only CTA */
 .hero-cta-mobile{display:none}
 @media(max-width:900px){
-  /* On mobile, reorder so the message reads first:
-     1) hero-text (headline + body + desktop CTA hidden)
-     2) hero-video
-     3) hero-cta-mobile */
+  /* Mobile order: message → CTA → video. Primary action lives inside the
+     first viewport so users never have to scroll past a large video to act.
+     1) hero-text (headline + body; desktop CTA hidden)
+     2) hero-cta-mobile (the primary CTA)
+     3) hero-video (visual, below the fold is fine) */
   .hero-text{order:1}
-  .hero-video{order:2}
-  .hero-cta-mobile{display:flex;order:3;margin-top:4px}
+  .hero-cta-mobile{display:flex;order:2;margin-top:4px}
+  .hero-video{order:3;margin-top:18px}
   .hero-cta-desktop{display:none}
   .video-frame{width:min(260px,70vw)}
-  /* Tighten hero-body margin since CTA no longer lives under it on mobile */
   .hero-body{margin-bottom:12px}
 }
 
