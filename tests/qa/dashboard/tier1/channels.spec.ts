@@ -148,8 +148,12 @@ test.describe('dashboard: channels', () => {
     expect(googleReq.url()).toMatch(/scope=/);
   });
 
-  test.describe('with fake YouTube connection seeded', () => {
-    test.beforeAll(async () => {
+  test.describe.serial('with fake YouTube connection seeded', () => {
+    // Reseed before EACH test. The disconnect-flow test deletes the row, and
+    // parallel viewport workers share the same prod DB — reseeding in
+    // beforeAll would race. .serial + beforeEach gives each test a fresh
+    // guaranteed-seeded state, single-worker ordered within this describe.
+    test.beforeEach(async () => {
       await insertFakeYoutubeConnection();
     });
 
