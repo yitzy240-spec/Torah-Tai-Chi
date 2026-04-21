@@ -158,6 +158,20 @@ def run_pipeline(job_id: str) -> None:
         selected_move, motion_ref_mp4_url = _load_selected_move(
             sb, job.get("motion_ref_slug")
         )
+        if job.get("motion_ref_slug") and selected_move is None:
+            log_event(
+                sb,
+                actor="modal",
+                level="warn",
+                event="pipeline.motion_ref.slug_not_found",
+                subject_type="job",
+                subject_id=job_id,
+                message=(
+                    f"job references tai_chi_moves slug "
+                    f"'{job.get('motion_ref_slug')}' but no such row exists; "
+                    f"video will generate without the reference video"
+                ),
+            )
 
         work_dir = Path(f"/tmp/job-{job_id}")
         work_dir.mkdir(parents=True, exist_ok=True)
