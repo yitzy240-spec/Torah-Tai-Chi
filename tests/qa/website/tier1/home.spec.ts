@@ -16,9 +16,11 @@ test.describe('website: home', () => {
   test('latest content sections have article and video cards', async ({ page }) => {
     await page.goto('/');
     // VideoCard + ArticleCard both wrap in <Link> → <a href="/videos/..."> and
-    // <a href="/articles/...">. Use broad hrefs so this survives layout changes.
-    await expect(page.locator('a[href^="/videos/"]').first()).toBeVisible();
-    await expect(page.locator('a[href^="/articles/"]').first()).toBeVisible();
+    // <a href="/articles/...">. Use broad hrefs — but filter for visible,
+    // because the hero CTA is a <a href="/videos/<slug>"> that is
+    // display:none on the opposing viewport (desktop vs mobile variants).
+    await expect(page.locator('a[href^="/videos/"]:visible').first()).toBeVisible();
+    await expect(page.locator('a[href^="/articles/"]:visible').first()).toBeVisible();
   });
 
   test('no qa_seed-tagged rows leak to the page', async ({ page }) => {
@@ -60,7 +62,12 @@ test.describe('website: home', () => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
     page.on('requestfailed', (req) => {
-      requestFailures.push(`${req.method()} ${req.url()} — ${req.failure()?.errorText}`);
+      // Ignore ERR_ABORTED on Next RSC prefetches (`?_rsc=...`) — those are
+      // user-navigation aborts, not real failures.
+      const err = req.failure()?.errorText ?? '';
+      const url = req.url();
+      if (err === 'net::ERR_ABORTED' && /_rsc=/.test(url)) return;
+      requestFailures.push(`${req.method()} ${url} — ${err}`);
     });
     await page.goto('/');
     await page.waitForLoadState('networkidle');

@@ -1,0 +1,7 @@
+[review] running 5 review groups in parallel
+[review] dashboard-tier3 → 8 findings → results/design-review-dashboard-tier3.json
+[review] dashboard-tier1 → 7 findings → results/design-review-dashboard-tier1.json
+[review] dashboard-tier2 → 9 findings → results/design-review-dashboard-tier2.json
+[review] website-tier2 → 16 findings → results/design-review-website-tier2.json
+[review] website-tier1 → 16 findings → results/design-review-website-tier1.json
+[review] complete
