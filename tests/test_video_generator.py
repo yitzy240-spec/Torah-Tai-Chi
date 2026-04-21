@@ -91,3 +91,34 @@ def test_build_seedance_input_resolution_normalized_lowercase():
         first_frame_url=None, audio_url=None, resolution="720P",
     )
     assert payload["resolution"] == "720p"
+
+
+def test_build_seedance_input_with_reference_video_url():
+    clip = _dojo_clip()
+    payload = build_seedance_input(
+        clip,
+        character_ref_urls=["https://x/c0.png"],
+        dojo_ref_urls=["https://x/d0.png"],
+        first_frame_url=None, audio_url=None, resolution="720p",
+        reference_video_url="https://supabase/videos/tai_chi_moves/x.mp4",
+    )
+    assert payload["reference_video_urls"] == [
+        "https://supabase/videos/tai_chi_moves/x.mp4"
+    ]
+    assert "motion study" in payload["prompt"].lower()
+    assert "silent" in payload["prompt"].lower()
+    assert "do not mute" in payload["prompt"].lower() or "do not freeze" in payload["prompt"].lower()
+    # Voiceover must still be in the prompt — the ref does not replace speech.
+    assert '"Hello."' in payload["prompt"]
+
+
+def test_build_seedance_input_without_reference_video_url_omits_field():
+    clip = _dojo_clip()
+    payload = build_seedance_input(
+        clip,
+        character_ref_urls=["https://x/c0.png"],
+        dojo_ref_urls=[],
+        first_frame_url=None, audio_url=None, resolution="720p",
+    )
+    assert "reference_video_urls" not in payload
+    assert "motion study" not in payload["prompt"].lower()

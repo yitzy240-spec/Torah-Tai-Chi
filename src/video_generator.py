@@ -28,13 +28,25 @@ def build_seedance_input(
     first_frame_url: Optional[str],
     audio_url: Optional[str],
     resolution: str = "720p",
+    reference_video_url: Optional[str] = None,
 ) -> dict:
     voice_clause = "Voice matches @Audio1 in timbre and delivery. " if audio_url else ""
+    motion_addendum = (
+        "\n\nUse the reference video as a motion study — mirror the tempo, "
+        "trajectory, and stance of the core tai chi motion precisely, adapted "
+        "to Rav Eli's body. The reference is silent; Rav Eli continues to "
+        "speak the voiceover line naturally throughout — do not mute him or "
+        "freeze his face. If the reference video cuts before the move "
+        "resolves, continue past that cutoff and settle the body back to "
+        "center.\n"
+        if reference_video_url else ""
+    )
     prompt = (
         f"{clip.visual_prompt}\n\n"
         f'Character speaks: "{clip.voiceover}"\n'
         f"{voice_clause}"
         f"{STYLE_LOCK}"
+        f"{motion_addendum}"
     )
     payload: dict = {
         "prompt": prompt,
@@ -48,6 +60,8 @@ def build_seedance_input(
         payload["first_frame_url"] = first_frame_url
     if audio_url:
         payload["reference_audio_urls"] = [audio_url]
+    if reference_video_url:
+        payload["reference_video_urls"] = [reference_video_url]
     return payload
 
 
@@ -59,10 +73,12 @@ async def generate_clip(
     audio_url: Optional[str] = None,
     resolution: str = "720p",
     model: str = SEEDANCE_MODEL,
+    reference_video_url: Optional[str] = None,
 ) -> Path:
     payload = build_seedance_input(
         clip, character_ref_urls, dojo_ref_urls,
         first_frame_url, audio_url, resolution,
+        reference_video_url=reference_video_url,
     )
     task_id = await client.create_task(model, payload)
     urls = await client.poll_task(task_id)
