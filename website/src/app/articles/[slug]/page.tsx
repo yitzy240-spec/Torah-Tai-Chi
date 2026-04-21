@@ -134,22 +134,16 @@ export default async function ArticleDetailPage({ params }: Props) {
         <h1>{article.title}</h1>
         {article.subtitle && <p className="ad-deck">{article.subtitle}</p>}
 
-        {/* Author is hardcoded — Yonah is the only writer right now.
-            When that changes, add an `author` field to the Storyblok article
-            schema and thread it through `website/src/lib/articles.ts`. */}
+        {/* Essays run under the organizational voice — no individual byline. */}
         <div className="ad-byline">
-          <span className="ad-byline-author">Yonah Lloyd</span>
           {formattedDate && (
-            <>
-              <span className="ad-byline-sep" aria-hidden="true">·</span>
-              <time dateTime={article.published_at ?? undefined}>{formattedDate}</time>
-            </>
+            <time dateTime={article.published_at ?? undefined}>{formattedDate}</time>
           )}
+          {formattedDate && article.read_minutes ? (
+            <span className="ad-byline-sep" aria-hidden="true">·</span>
+          ) : null}
           {article.read_minutes ? (
-            <>
-              <span className="ad-byline-sep" aria-hidden="true">·</span>
-              <span>{article.read_minutes} min read</span>
-            </>
+            <span>{article.read_minutes} min read</span>
           ) : null}
         </div>
       </header>

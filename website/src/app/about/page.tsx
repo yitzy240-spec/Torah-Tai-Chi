@@ -50,17 +50,16 @@ export default async function AboutPage() {
         <h1>{c['about.title']}</h1>
         <p className="about-deck">{c['about.subtitle']}</p>
 
-        <aside className="about-byline" aria-label="About the author">
+        <aside className="about-byline" aria-label="About this practice">
           <div className="about-byline-avatar" aria-hidden="true">
             <Brand size={44} />
           </div>
           <div className="about-byline-text">
-            <span className="about-byline-name">Written by Yonah Lloyd</span>
+            <span className="about-byline-name">A weekly teaching practice</span>
             <span className="about-byline-meta">
-              A student of Torah and longtime practitioner of tai chi. These
-              weekly teachings trace the line where the two disciplines meet —
-              reading each parsha through the body, and reading the body back
-              through the parsha.
+              Each week we take a parsha, pair it with a movement from tai chi,
+              and let the two read each other. No lecture. No performance. Just
+              a body, a text, and a few minutes of attention.
             </span>
           </div>
         </aside>
