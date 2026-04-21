@@ -252,10 +252,64 @@ def extract_frames(video_path: Path, n: int, out_dir: Path) -> list[FrameSample]
 import base64
 import os
 import re
+import time
 import httpx
 from dotenv import load_dotenv
 
 load_dotenv()  # loads .env once on import
+
+
+def _call_openrouter(model: str, content: list,
+                     max_tokens: int = 6000,
+                     attempts: int = 3,
+                     initial_backoff_sec: float = 2.0) -> str:
+    """POST to OpenRouter chat/completions. Retry on 5xx, missing 'choices',
+    or httpx transport errors. Return the content string from the first choice.
+
+    OpenRouter / Gemini 3.1 Pro Preview has transient 500/502 and occasional
+    responses without a 'choices' key. Retry with exponential backoff recovers
+    most of these. Real content failures still surface as normal Exceptions.
+    """
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY missing -- add it to .env")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/anthropics/torah-tai-chi",
+        "X-Title": "Torah Tai Chi reference library",
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "response_format": {"type": "json_object"},
+        "max_tokens": max_tokens,
+    }
+    last_err: Optional[Exception] = None
+    for attempt in range(attempts):
+        if attempt > 0:
+            time.sleep(initial_backoff_sec * (2 ** (attempt - 1)))
+        try:
+            resp = httpx.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers, json=payload, timeout=240,
+            )
+            if resp.status_code >= 500:
+                last_err = RuntimeError(
+                    f"HTTP {resp.status_code}: {resp.text[:200]}")
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            if "choices" not in data or not data["choices"]:
+                last_err = RuntimeError(
+                    f"Response missing 'choices': {str(data)[:200]}")
+                continue
+            return data["choices"][0]["message"]["content"]
+        except httpx.HTTPError as e:
+            last_err = e
+            continue
+    raise RuntimeError(
+        f"OpenRouter call failed after {attempts} attempts: {last_err}")
 
 
 @dataclass
@@ -332,10 +386,6 @@ def parse_review_response(raw: str) -> CandidateReview:
 
 def review_candidate(move: Move, video_path: Path, model: str) -> CandidateReview:
     """Call OpenRouter/Gemini with move metadata + native video, return parsed review."""
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY missing -- add it to .env")
-
     prompt = build_review_prompt(move)
     video_b64 = base64.b64encode(video_path.read_bytes()).decode("ascii")
     content = [
@@ -343,25 +393,7 @@ def review_candidate(move: Move, video_path: Path, model: str) -> CandidateRevie
         {"type": "video_url",
          "video_url": {"url": f"data:video/mp4;base64,{video_b64}"}},
     ]
-
-    resp = httpx.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/anthropics/torah-tai-chi",
-            "X-Title": "Torah Tai Chi reference library",
-        },
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": content}],
-            "response_format": {"type": "json_object"},
-            "max_tokens": 6000,
-        },
-        timeout=240,
-    )
-    resp.raise_for_status()
-    content_str = resp.json()["choices"][0]["message"]["content"]
+    content_str = _call_openrouter(model=model, content=content)
     return parse_review_response(content_str)
 
 
@@ -387,10 +419,6 @@ Return JSON only, no surrounding prose. Shape:
 
 def describe_clip(move: Move, video_path: Path, model: str) -> str:
     """Call OpenRouter/Gemini with a video and return a concrete motion description."""
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY missing -- add it to .env")
-
     prompt = DESCRIBE_PROMPT_TEMPLATE.format(
         english=move.english, pinyin=move.pinyin, visual=move.visual,
     )
@@ -400,24 +428,7 @@ def describe_clip(move: Move, video_path: Path, model: str) -> str:
         {"type": "video_url",
          "video_url": {"url": f"data:video/mp4;base64,{video_b64}"}},
     ]
-    resp = httpx.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/anthropics/torah-tai-chi",
-            "X-Title": "Torah Tai Chi reference library",
-        },
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": content}],
-            "response_format": {"type": "json_object"},
-            "max_tokens": 6000,
-        },
-        timeout=240,
-    )
-    resp.raise_for_status()
-    raw = resp.json()["choices"][0]["message"]["content"]
+    raw = _call_openrouter(model=model, content=content)
     m = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", raw, re.DOTALL)
     if not m:
         raise ValueError(f"No JSON object in describe response: {raw[:200]}")

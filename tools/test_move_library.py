@@ -281,6 +281,7 @@ def test_review_candidate_posts_video_to_openrouter(tmp_path, monkeypatch):
     video_path.write_bytes(b"fake-mp4-bytes")
 
     mock_resp = MagicMock()
+    mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "choices": [{"message": {"content": '{"matches": true, "fits_in_15s": true, "quality": 8, "best_start_sec": 0, "best_duration_sec": 12, "reason": "ok"}'}}]
     }
@@ -422,6 +423,7 @@ def test_describe_clip_posts_video_and_returns_description(tmp_path, monkeypatch
     video.write_bytes(b"fake-mp4")
 
     mock_resp = MagicMock()
+    mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "choices": [{"message": {"content": '{"motion_description": "Right hand rises past the face, extends left as the body rotates 45 degrees."}'}}]
     }
@@ -464,6 +466,76 @@ def test_write_sidecar_preserves_existing_fields(tmp_path):
     assert data["motion_description"] == "new description"
     assert data["source_url"] == "https://youtu.be/abc"
     assert data["quality_score"] == 9
+
+
+def test_call_openrouter_retries_on_5xx(tmp_path, monkeypatch):
+    """Two 502s then a 200 -> helper retries transparently and returns the content."""
+    from tools.move_library import _call_openrouter
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+    monkeypatch.setattr("tools.move_library.time.sleep", lambda s: None)  # skip backoff in tests
+
+    # Response sequence: 502, 502, 200-with-choices
+    bad_resp = MagicMock()
+    bad_resp.status_code = 502
+    bad_resp.text = "Bad Gateway"
+
+    good_resp = MagicMock()
+    good_resp.status_code = 200
+    good_resp.raise_for_status = MagicMock()
+    good_resp.json.return_value = {
+        "choices": [{"message": {"content": '{"ok": true}'}}]
+    }
+
+    with patch("tools.move_library.httpx.post",
+               side_effect=[bad_resp, bad_resp, good_resp]) as mock_post:
+        result = _call_openrouter(model="google/gemini-3.1-pro-preview",
+                                   content=[{"type": "text", "text": "hi"}])
+    assert result == '{"ok": true}'
+    assert mock_post.call_count == 3
+
+
+def test_call_openrouter_retries_on_missing_choices(tmp_path, monkeypatch):
+    """200 OK but no 'choices' key -> retry."""
+    from tools.move_library import _call_openrouter
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+    monkeypatch.setattr("tools.move_library.time.sleep", lambda s: None)
+
+    no_choices = MagicMock()
+    no_choices.status_code = 200
+    no_choices.raise_for_status = MagicMock()
+    no_choices.json.return_value = {"error": "filtered"}  # no 'choices' key
+
+    good_resp = MagicMock()
+    good_resp.status_code = 200
+    good_resp.raise_for_status = MagicMock()
+    good_resp.json.return_value = {
+        "choices": [{"message": {"content": "recovered"}}]
+    }
+
+    with patch("tools.move_library.httpx.post",
+               side_effect=[no_choices, good_resp]) as mock_post:
+        result = _call_openrouter(model="google/gemini-3.1-pro-preview",
+                                   content=[{"type": "text", "text": "hi"}])
+    assert result == "recovered"
+    assert mock_post.call_count == 2
+
+
+def test_call_openrouter_raises_after_attempts_exhausted(tmp_path, monkeypatch):
+    """All attempts return 500 -> helper raises RuntimeError, attempts times."""
+    from tools.move_library import _call_openrouter
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key")
+    monkeypatch.setattr("tools.move_library.time.sleep", lambda s: None)
+
+    bad = MagicMock()
+    bad.status_code = 500
+    bad.text = "Internal Server Error"
+
+    with patch("tools.move_library.httpx.post",
+               return_value=bad) as mock_post:
+        with pytest.raises(RuntimeError, match="failed after 3 attempts"):
+            _call_openrouter(model="google/gemini-3.1-pro-preview",
+                              content=[{"type": "text", "text": "hi"}])
+    assert mock_post.call_count == 3
 
 
 def test_run_describe_pass_skips_moves_without_clip(tmp_path, monkeypatch):
