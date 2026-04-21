@@ -63,9 +63,21 @@ async function wipeFakeYoutubeConnection(): Promise<void> {
  * Facebook, X, Youtube, Website).
  */
 function cardFor(page: Page, platformName: string) {
-  // Word-boundary match is needed so `X` doesn't match inside other words.
-  const pattern = new RegExp(`\\b${platformName}\\b`, 'i');
-  return page.locator('.ch-card').filter({ hasText: pattern });
+  // The card's text content runs together with no whitespace between the
+  // platform label and the status row (the rendered HTML has each span
+  // back-to-back), so word-boundary regex fails for most platforms. Each
+  // platform label is unique within the set of cards, so a simple
+  // case-insensitive substring via `hasText` is both safe and reliable.
+  // For the single-letter platform "X" (Twitter's rebrand), anchor to the
+  // label-only card header by combining with a starts-with guard via the
+  // first text node — a scoped `first()` is enough because there's only one
+  // X card per page.
+  if (platformName === 'X') {
+    // X appears first inside its card (the label). Find the card whose
+    // first child text is exactly "X".
+    return page.locator('.ch-card').filter({ has: page.getByText(/^X$/, { exact: false }) });
+  }
+  return page.locator('.ch-card').filter({ hasText: new RegExp(platformName, 'i') });
 }
 
 test.describe('dashboard: channels', () => {
@@ -206,8 +218,11 @@ test.describe('dashboard: channels', () => {
       await disconnectBtn.click();
 
       // After redirect back to /channels the YouTube card should flip to
-      // the Not-connected state.
+      // the Not-connected state. Next 16's client router cache can serve the
+      // pre-disconnect HTML from the first goto — force a hard reload so the
+      // server component re-runs and reflects the wiped seed row.
       await expect(page).toHaveURL(/\/channels/);
+      await page.reload({ waitUntil: 'networkidle' });
       const youtubeCardAfter = cardFor(page, 'Youtube');
       await expect(youtubeCardAfter.getByText(/^Not connected$/)).toBeVisible();
       await expect(youtubeCardAfter.getByRole('link', { name: /connect youtube/i })).toBeVisible();
