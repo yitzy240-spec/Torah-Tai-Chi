@@ -33,3 +33,18 @@ alter table jobs
 -- video — provides an audit trail of which clip got the demo.
 alter table clips
   add column if not exists motion_ref_url text;
+
+-- RLS: match the pattern used in 0001_slice1_schema.sql. Reference-data
+-- table, authenticated-read-only. tools/sync_moves_to_supabase.py runs
+-- with the service-role key, which bypasses RLS.
+alter table tai_chi_moves enable row level security;
+
+create policy "authed read tai_chi_moves" on tai_chi_moves
+  for select using (auth.role() = 'authenticated');
+
+-- FK-side indexes so ON DELETE SET NULL and reverse lookups don't seq-scan
+-- scripts/jobs. Partial on NOT NULL because the column is null for most rows.
+create index if not exists scripts_motion_ref_slug_idx
+  on scripts(motion_ref_slug) where motion_ref_slug is not null;
+create index if not exists jobs_motion_ref_slug_idx
+  on jobs(motion_ref_slug) where motion_ref_slug is not null;
