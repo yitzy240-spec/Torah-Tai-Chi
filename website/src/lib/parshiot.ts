@@ -46,6 +46,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
     client
       .from("videos")
       .select("thumb_path, jobs!inner(parsha_id)")
+      .eq("qa_seed", false)
       .in("jobs.parsha_id", parshaIds),
   ]);
 
@@ -105,6 +106,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     client
       .from("videos")
       .select("thumb_path")
+      .eq("qa_seed", false)
       .eq("parsha_id", parshaData.id)
       .maybeSingle(),
   ]);

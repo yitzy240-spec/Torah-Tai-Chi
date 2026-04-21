@@ -77,6 +77,8 @@ tests/qa/
 
 ### Task 0.1: Add `qa_seed` column migration
 
+**⚠️ Scope correction (discovered at execution time):** Articles live in Storyblok, not Supabase — the Supabase articles table was dropped in the April migration to Storyblok. This task only adds `qa_seed` to `videos` and `posts`. Article QA uses HTTP-layer Storyblok mocks (see updated strategy below) — no tagging needed in Storyblok, no test-written articles, read-only against real published stories on the website.
+
 **Files:**
 - Create: `dashboard/supabase/migrations/20260420_qa_seed.sql`
 
@@ -120,13 +122,15 @@ git commit -m "feat(db): qa_seed column + indexes for QA isolation"
 
 ### Task 0.2: Filter `qa_seed` out of public website queries
 
+**⚠️ Scope:** Only `videos` and `posts` Supabase queries need filtering. `articles` come from Storyblok (see `website/src/lib/articles.ts` pulling from `api.storyblok.com`), so there's nothing to filter at the Supabase layer for articles.
+
 **Files:**
 - Modify: website Supabase query sites (exact file determined in Step 1)
 
-- [ ] **Step 1: Find every website query that reads articles/videos/posts**
+- [ ] **Step 1: Find every website query that reads videos/posts from Supabase**
 
-Run: `grep -rn "from('articles'\|from('videos'\|from('posts')" website/src/`
-Record every file:line. Typical candidates: `website/src/lib/content.ts`, `website/src/lib/articles.ts`, `website/src/app/articles/page.tsx`, `website/src/app/videos/page.tsx`, etc.
+Run: `grep -rn "from('videos'\|from('posts')" website/src/`
+Record every file:line. Do NOT add a filter to any Storyblok-backed query (articles).
 
 - [ ] **Step 2: Add the filter to each query**
 
@@ -469,32 +473,22 @@ Read the columns used in inserts in those API routes. Record required NOT NULL c
 
 - [ ] **Step 2: Write seed helper**
 
+**⚠️ Scope:** Only seeds `videos` and `posts` in Supabase. Articles are Storyblok — QA for those uses HTTP-layer mocks (see `mocks.ts`) and read-only real published content, no seeding. The Storyblok Management API is never called from the QA harness for writes.
+
 ```ts
 import { serviceClient } from './auth';
 
 const SEED_PREFIX = 'qa-test-';
 
 export interface SeedHandles {
-  articleDraftId: string;
-  articlePublishedId: string;
-  articleScheduledId: string;
   videoCompletedId: string;
   videoProcessingId: string;
   postScheduledId: string;
 }
 
-// Fill in with the actual column names from Step 1 inspection.
-// The required fields below are placeholders wrapped with the fields every
-// schema tends to have — adjust when you read the real migrations.
+// Required column names discovered in Step 1 inspection.
 export async function seedAll(): Promise<SeedHandles> {
   const sb = serviceClient();
-
-  const { data: articles, error: aErr } = await sb.from('articles').insert([
-    { slug: `${SEED_PREFIX}draft`,     title: 'QA TEST — Draft',     status: 'draft',     qa_seed: true, body_md: '# qa' },
-    { slug: `${SEED_PREFIX}published`, title: 'QA TEST — Published', status: 'published', qa_seed: true, body_md: '# qa', published_at: new Date().toISOString() },
-    { slug: `${SEED_PREFIX}scheduled`, title: 'QA TEST — Scheduled', status: 'scheduled', qa_seed: true, body_md: '# qa' },
-  ]).select('id');
-  if (aErr) throw aErr;
 
   const { data: videos, error: vErr } = await sb.from('videos').insert([
     { slug: `${SEED_PREFIX}completed`,  title: 'QA TEST — Completed',  status: 'completed',  qa_seed: true },
@@ -508,9 +502,6 @@ export async function seedAll(): Promise<SeedHandles> {
   if (pErr) throw pErr;
 
   return {
-    articleDraftId:      articles![0].id,
-    articlePublishedId:  articles![1].id,
-    articleScheduledId:  articles![2].id,
     videoCompletedId:    videos![0].id,
     videoProcessingId:   videos![1].id,
     postScheduledId:     posts![0].id,
@@ -521,7 +512,6 @@ export async function wipeSeed(): Promise<void> {
   const sb = serviceClient();
   await sb.from('posts').delete().eq('qa_seed', true);
   await sb.from('videos').delete().eq('qa_seed', true);
-  await sb.from('articles').delete().eq('qa_seed', true);
 }
 ```
 
@@ -597,6 +587,20 @@ const ONE_PX_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
 
 export async function installApiMocks(page: Page): Promise<void> {
+  // Storyblok Management API (dashboard writes) and CDN (website reads via ISR
+  // — but CDN calls happen server-side in website Next.js, not from the browser,
+  // so page.route() doesn't intercept them. That's fine for CMS write flows
+  // tested from the dashboard side.)
+  await page.route('**/api.storyblok.com/v1/spaces/**', async (route) => {
+    const method = route.request().method();
+    if (method === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ stories: [] }) });
+    }
+    return route.fulfill({ status: 201, contentType: 'application/json',
+      body: JSON.stringify({ story: { id: 999999, slug: 'qa-mock', published: false } }) });
+  });
+
   // Anthropic (image gen + text) — return a canned image block
   await page.route('**/api.anthropic.com/**', async (route) => {
     await route.fulfill({
@@ -796,18 +800,21 @@ Test cases:
 
 ### Task B.5: `dashboard/tier1/article-publish.spec.ts`
 
+**⚠️ Scope:** Articles are Storyblok-backed. This test MOCKS the Storyblok Management API at the HTTP layer (`api.storyblok.com/v1/spaces/**`) — no real Storyblok writes, no real articles created. The "appears on website" assertion is dropped because we can't safely publish a test article to real Storyblok; instead we assert the dashboard's write request has the correct payload and the user sees a success UI state.
+
 **Files:**
 - Create: `tests/qa/dashboard/tier1/article-publish.spec.ts`
 
-Test cases — end-to-end article-create-to-live, with cleanup registered BEFORE publish:
-1. `new article form requires title and body`
+Test cases — dashboard CMS flow against mocked Storyblok:
+1. `new article form requires title and body` (pure UI validation, no API hit)
 2. `Tiptap editor accepts bold, link, heading, code-block input`
-3. `save draft persists and appears in /articles list`
-4. `publish triggers /api/revalidate and article appears on website` — mock the website fetch to confirm the revalidate POST, then hit the website URL directly and look for the slug. Cleanup in `afterEach`: set status back to draft + delete.
-5. `slug is editable before publish, locked after`
-6. `publishing with missing required SEO fields shows inline errors`
+3. `save draft POSTs to Storyblok Management API with correct payload` — mock returns 201, assert request body via `page.on('request')` capture.
+4. `publish flips `published` flag in the payload and sends it to Storyblok` — assert payload.published === true.
+5. `slug field is editable before submit`
+6. `publishing with missing required SEO fields shows inline errors` (client-side validation)
+7. `Storyblok 500 response surfaces user-visible error toast, no crash`
 
-Critical: `test.afterEach(async () => { /* delete test article, re-revalidate */ })` registered before the publish call.
+No `afterEach` cleanup needed — nothing was actually created in Storyblok.
 
 ---
 

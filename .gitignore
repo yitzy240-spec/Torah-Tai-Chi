@@ -45,3 +45,12 @@ website/.env.local
 
 # Worktrees
 .worktrees/
+
+# QA suite outputs
+docs/qa/findings.md
+docs/qa/shots/
+tests/qa/results/
+tests/qa/shots/
+tests/qa/storageState.json
+tests/qa/.env.qa
+!tests/qa/.env.qa.example

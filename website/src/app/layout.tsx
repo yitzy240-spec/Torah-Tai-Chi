@@ -15,6 +15,7 @@ export const metadata: Metadata = {
     "Weekly teachings fusing Torah wisdom with tai chi philosophy. Where Jewish wisdom and the body's intelligence say the same thing.",
   openGraph: {
     siteName: "Torah Tai Chi",
+    url: "https://torahtaichi.com",
     images: [{ url: "/og/default.png", width: 1200, height: 630 }],
   },
   twitter: {
