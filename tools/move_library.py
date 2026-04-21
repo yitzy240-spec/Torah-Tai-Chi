@@ -3,6 +3,9 @@
 Entry point: tools/download_moves.py.
 Spec: docs/superpowers/specs/2026-04-21-tai-chi-reference-library-design.md
 """
+import importlib.util
+import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -53,7 +56,33 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+class MissingDependencyError(RuntimeError):
+    pass
+
+
+REQUIRED_PYTHON_PKGS = ["yt_dlp", "yaml", "httpx", "dotenv"]
+REQUIRED_BINARIES = ["ffmpeg", "ffprobe"]
+
+
+def check_dependencies() -> None:
+    missing_bins = [b for b in REQUIRED_BINARIES if shutil.which(b) is None]
+    missing_pkgs = [p for p in REQUIRED_PYTHON_PKGS if importlib.util.find_spec(p) is None]
+    if missing_bins or missing_pkgs:
+        msg_parts = []
+        if missing_bins:
+            msg_parts.append(f"Missing binaries on PATH: {', '.join(missing_bins)}")
+        if missing_pkgs:
+            pip_names = {"yt_dlp": "yt-dlp", "yaml": "pyyaml", "dotenv": "python-dotenv"}
+            pip_list = " ".join(pip_names.get(p, p) for p in missing_pkgs)
+            msg_parts.append(f"Missing Python packages. Install with: pip install {pip_list}")
+        raise MissingDependencyError("\n".join(msg_parts))
+
+
 def main(args: argparse.Namespace) -> int:
-    """Entry point. Returns exit code. Fully wired in Task 11."""
+    try:
+        check_dependencies()
+    except MissingDependencyError as e:
+        print(str(e), file=sys.stderr)
+        return 1
     print(f"Parsed args: {args}")
     return 0

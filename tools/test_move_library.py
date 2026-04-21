@@ -101,3 +101,29 @@ def test_parse_args_model():
 def test_parse_args_query_override():
     args = parse_args(["--query-override", "single_whip=single whip fast tai chi"])
     assert args.query_override == "single_whip=single whip fast tai chi"
+
+
+from unittest.mock import patch
+from tools.move_library import check_dependencies, MissingDependencyError
+
+
+def test_check_dependencies_all_present_returns_none():
+    with patch("tools.move_library.shutil.which", return_value="/usr/bin/ffmpeg"), \
+         patch("tools.move_library.importlib.util.find_spec", return_value=object()):
+        check_dependencies()  # should not raise
+
+
+def test_check_dependencies_raises_when_ffmpeg_missing():
+    with patch("tools.move_library.shutil.which", return_value=None), \
+         patch("tools.move_library.importlib.util.find_spec", return_value=object()):
+        with pytest.raises(MissingDependencyError) as exc:
+            check_dependencies()
+        assert "ffmpeg" in str(exc.value)
+
+
+def test_check_dependencies_raises_when_python_pkg_missing():
+    with patch("tools.move_library.shutil.which", return_value="/usr/bin/ffmpeg"), \
+         patch("tools.move_library.importlib.util.find_spec", return_value=None):
+        with pytest.raises(MissingDependencyError) as exc:
+            check_dependencies()
+        assert "pip install" in str(exc.value)
