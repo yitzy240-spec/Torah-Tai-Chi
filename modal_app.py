@@ -103,15 +103,25 @@ def run_pipeline(job_id: str) -> None:
         # `kind` defaults to 'parsha' for legacy rows (see migration
         # 20260420_topic_jobs.sql). Topic jobs have parsha_id/script_id
         # nullable and carry the user-supplied `topic` text instead.
+        # resolution + model_tier come from the dashboard's quality-tier
+        # picker and determine which Seedance variant runs.
         job = (
             sb.table("jobs")
-            .select("kind, parsha_id, script_id, topic")
+            .select("kind, parsha_id, script_id, topic, resolution, model_tier")
             .eq("id", job_id)
             .single()
             .execute()
             .data
         )
         kind = (job.get("kind") or "parsha").lower()
+
+        # Quality tier: default to 720p standard if null. seedance-2-fast is
+        # cheaper/faster; seedance-2 is higher quality.
+        resolution = (job.get("resolution") or "720p").lower()
+        model_tier = job.get("model_tier") or "standard"
+        seedance_model = (
+            "bytedance/seedance-2-fast" if model_tier == "fast" else "bytedance/seedance-2"
+        )
 
         work_dir = Path(f"/tmp/job-{job_id}")
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -203,7 +213,8 @@ def run_pipeline(job_id: str) -> None:
                 await generate_clip(
                     kie, clip,
                     character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
-                    dest=dest, resolution="720p",
+                    dest=dest, resolution=resolution,
+                    model=seedance_model,
                 )
                 async with lock:
                     completed += 1
