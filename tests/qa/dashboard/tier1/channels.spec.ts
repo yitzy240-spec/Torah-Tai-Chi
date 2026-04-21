@@ -161,10 +161,17 @@ test.describe('dashboard: channels', () => {
   });
 
   test.describe.serial('with fake YouTube connection seeded', () => {
-    // Reseed before EACH test. The disconnect-flow test deletes the row, and
-    // parallel viewport workers share the same prod DB — reseeding in
-    // beforeAll would race. .serial + beforeEach gives each test a fresh
-    // guaranteed-seeded state, single-worker ordered within this describe.
+    // Desktop-only: these tests mutate the shared prod oauth_tokens.service='youtube'
+    // row (primary-key unique). Running across dashboard-desktop/tablet/mobile
+    // projects in parallel races on that single row. The seed + connection UI
+    // is not viewport-dependent, so skipping on non-desktop is defensible.
+    test.skip(
+      ({ viewport }) => (viewport?.width ?? 0) < 1200,
+      'Skipping on non-desktop — fake-seed race on shared prod DB.',
+    );
+
+    // Reseed before EACH test: the disconnect-flow test deletes the row,
+    // so beforeAll-only seeding would leak state to subsequent tests.
     test.beforeEach(async () => {
       await insertFakeYoutubeConnection();
     });
