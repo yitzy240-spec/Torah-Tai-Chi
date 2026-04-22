@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
+import { TaiChiMovePicker, type TaiChiMove } from '@/components/tai-chi-move-picker';
 import type { Platform } from '@/lib/platforms';
 
 interface Props {
@@ -29,6 +30,23 @@ export function AiVideoPanel({ bufferConfigured }: Props) {
   const [topic, setTopic] = useState('');
   const [state, setState] = useState<State>({ kind: 'idle' });
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [moveSlug, setMoveSlug] = useState<string | null>(null);
+  const [moveCache, setMoveCache] = useState<Record<string, TaiChiMove>>({});
+  const currentMove = moveSlug ? moveCache[moveSlug] : null;
+
+  useEffect(() => {
+    // Pre-fetch the library so the card can display the picked move's name.
+    fetch('/api/tai-chi-moves', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data) => {
+        const map: Record<string, TaiChiMove> = {};
+        for (const m of (data.moves ?? []) as TaiChiMove[]) map[m.slug] = m;
+        setMoveCache(map);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(
     () => () => {
@@ -85,7 +103,7 @@ export function AiVideoPanel({ bufferConfigured }: Props) {
       const res = await fetch('/api/compose/generate-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic }),
+        body: JSON.stringify({ topic, moveSlug }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Start failed (${res.status})`);
@@ -175,6 +193,27 @@ export function AiVideoPanel({ bufferConfigured }: Props) {
             />
             <div style={HELP_STYLE}>{topic.length} characters</div>
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 0' }}>
+            {moveSlug ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '13px', color: 'var(--ink-700)' }}>
+                Move: <strong style={{ fontStyle: 'normal', fontWeight: 500 }}>{currentMove?.english ?? moveSlug}</strong>
+                <button type="button" onClick={() => setPickerOpen(true)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--ink-500)', fontSize: '12.5px', textDecoration: 'underline', cursor: 'pointer' }}>change</button>
+                <span style={{ color: 'var(--ink-300)' }}>·</span>
+                <button type="button" onClick={() => setMoveSlug(null)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--ink-500)', fontSize: '12.5px', textDecoration: 'underline', cursor: 'pointer' }}>remove</button>
+              </span>
+            ) : (
+              <button type="button" onClick={() => setPickerOpen(true)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--ink-500)', fontSize: '13px', textDecoration: 'underline', cursor: 'pointer' }}>
+                Add tai chi move (optional)
+              </button>
+            )}
+          </div>
+          <TaiChiMovePicker
+            open={pickerOpen}
+            currentSlug={moveSlug}
+            onSelect={(slug) => setMoveSlug(slug)}
+            onClose={() => setPickerOpen(false)}
+          />
 
           <div>
             <button
