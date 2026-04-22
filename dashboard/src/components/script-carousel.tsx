@@ -319,17 +319,25 @@ function ScriptCard({
   const save = async () => {
     setSaveError(null);
     setSaving(true);
-    const res = await saveScriptDraft({
-      scriptId: script.id,
-      draftText: draft,
-      parshaSlug,
-    });
-    setSaving(false);
-    if (!res.ok) { setSaveError(res.error ?? 'Save failed'); return; }
-    setEditing(false);
-    setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 2500);
-    router.refresh();
+    try {
+      const res = await saveScriptDraft({
+        scriptId: script.id,
+        draftText: draft,
+        parshaSlug,
+      });
+      if (!res.ok) {
+        setSaveError(res.error ?? 'Save failed');
+        return;
+      }
+      setEditing(false);
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2500);
+      router.refresh();
+    } catch (e) {
+      setSaveError(`Save threw: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const cancel = () => {
@@ -451,7 +459,7 @@ function ScriptCard({
             <button
               type="button"
               onClick={save}
-              disabled={saving || !draft.trim() || draft === (script.draft_text ?? '')}
+              disabled={saving || !draft.trim()}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -516,16 +524,27 @@ function ScriptCard({
                 }}>view progress →</a>
               </span>
             ) : job && job.status === 'done' && job.videoId ? (
-              <a href={parshaSlug ? `/videos/${parshaSlug}` : `/jobs/${job.id}`} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px',
-                padding: '11px 22px', minHeight: '44px', borderRadius: '999px',
-                border: '1px solid var(--jade)',
-                background: 'var(--jade)', color: 'var(--linen-50)',
-                textDecoration: 'none',
-              }}>
-                Video ready · watch →
-              </a>
+              <>
+                <a href={parshaSlug ? `/videos/${parshaSlug}` : `/jobs/${job.id}`} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px',
+                  padding: '11px 22px', minHeight: '44px', borderRadius: '999px',
+                  border: '1px solid var(--jade)',
+                  background: 'var(--jade)', color: 'var(--linen-50)',
+                  textDecoration: 'none',
+                }}>
+                  Video ready · watch →
+                </a>
+                <GenerateDialog
+                  parshaId={parshaId}
+                  scriptId={script.id}
+                  parshaName={parshaName}
+                  defaultTierKey={defaultTierKey}
+                  onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
+                  triggerLabel="Regenerate"
+                  triggerVariant="secondary"
+                />
+              </>
             ) : job && job.status === 'failed' ? (
               <>
                 <span style={{

@@ -18,6 +18,10 @@ interface GenerateDialogProps {
   /** Pre-selected tier key from settings.default_tier (e.g. "720p standard") */
   defaultTierKey?: string;
   onJobCreated?: (jobId: string) => void;
+  /** Label on the trigger button. Defaults to "Approve · generate video". */
+  triggerLabel?: string;
+  /** "primary" (solid navy) or "secondary" (outline). Defaults to primary. */
+  triggerVariant?: 'primary' | 'secondary';
 }
 
 function tierKey(tier: ModelTier, resolution: Resolution) {
@@ -31,6 +35,8 @@ export function GenerateDialog({
   expectedDurationS = 60,
   defaultTierKey = '720p fast',
   onJobCreated,
+  triggerLabel = 'Approve · generate video',
+  triggerVariant = 'primary',
 }: GenerateDialogProps) {
   const defaultOption =
     TIER_OPTIONS.find((o) => tierKey(o.tier, o.resolution) === defaultTierKey) ?? TIER_OPTIONS[2];
@@ -116,15 +122,17 @@ export function GenerateDialog({
           padding: '11px 22px',
           minHeight: '44px',
           borderRadius: '999px',
-          border: '1px solid var(--navy-800)',
-          background: 'var(--navy-800)',
-          color: 'var(--linen-50)',
+          border: `1px solid ${triggerVariant === 'secondary' ? 'var(--ink-200)' : 'var(--navy-800)'}`,
+          background: triggerVariant === 'secondary' ? 'transparent' : 'var(--navy-800)',
+          color: triggerVariant === 'secondary' ? 'var(--ink-700)' : 'var(--linen-50)',
           cursor: 'pointer',
           transition: 'all var(--trans)',
-          boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
+          boxShadow: triggerVariant === 'secondary'
+            ? 'none'
+            : '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
         }}
       >
-        Approve · generate video
+        {triggerLabel}
       </button>
 
       {typeof document !== 'undefined' && createPortal(
