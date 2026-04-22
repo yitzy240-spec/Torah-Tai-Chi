@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface TaiChiMove {
   slug: string;
@@ -104,9 +105,9 @@ export function TaiChiMovePicker({ open, currentSlug, onSelect, onClose }: Props
     onClose();
   };
 
-  if (!open) return null;
+  if (!open || typeof document === 'undefined') return null;
 
-  return (
+  const sheet = (
     <>
       {/* Scrim */}
       <div
@@ -127,6 +128,7 @@ export function TaiChiMovePicker({ open, currentSlug, onSelect, onClose }: Props
         style={{
           position: 'fixed', zIndex: 31,
           top: 0, right: 0, bottom: 0,
+          height: '100vh',
           width: 'min(520px, 100vw)',
           background: 'var(--linen-50)',
           borderLeft: '1px solid var(--ink-200)',
@@ -157,7 +159,7 @@ export function TaiChiMovePicker({ open, currentSlug, onSelect, onClose }: Props
           />
         </header>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 28px 24px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 28px 24px' }}>
           {moves === null && (
             <p style={{ fontFamily: 'var(--ff-body)', fontSize: '13px', color: 'var(--ink-500)' }}>
               Loading library…
@@ -265,4 +267,9 @@ export function TaiChiMovePicker({ open, currentSlug, onSelect, onClose }: Props
       </aside>
     </>
   );
+
+  // Portal to document.body to escape any ancestor with `transform` etc.
+  // (`.stagger > *` applies transform: translateY(10px), which would
+  // otherwise trap our position:fixed sheet inside the carousel card.)
+  return createPortal(sheet, document.body);
 }
