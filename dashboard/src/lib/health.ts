@@ -105,7 +105,14 @@ async function checkModal(): Promise<ServiceHealth | null> {
     const result = await timedFetch(url, { method: 'GET' }, MODAL_TIMEOUT_MS);
     return { ok: true, latencyMs: result.latencyMs };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    // AbortError just means the cold-start exceeded our health-check
+    // timeout — Modal will warm up on the next real request. Don't
+    // surface this as 'unavailable' since generation still works.
+    const msg = e instanceof Error ? e.message : String(e);
+    if (e instanceof Error && (e.name === 'AbortError' || /aborted/i.test(msg))) {
+      return { ok: true, error: 'cold start (warming up)' };
+    }
+    return { ok: false, error: msg };
   }
 }
 

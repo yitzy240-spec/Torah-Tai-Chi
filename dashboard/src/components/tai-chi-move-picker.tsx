@@ -120,7 +120,10 @@ export function TaiChiMovePicker({ open, currentSlug, onSelect, onClose }: Props
           WebkitBackdropFilter: 'blur(4px)',
         }}
       />
-      {/* Sheet */}
+      {/* Sheet — uses dvh + bottom:0 because mobile Safari's 100vh
+          includes the URL-bar area, pushing the footer (with Cancel /
+          Select) off-screen below the visible viewport. dvh excludes
+          browser chrome so the footer is always reachable. */}
       <aside
         role="dialog"
         aria-modal="true"
@@ -128,7 +131,8 @@ export function TaiChiMovePicker({ open, currentSlug, onSelect, onClose }: Props
         style={{
           position: 'fixed', zIndex: 31,
           top: 0, right: 0, bottom: 0,
-          height: '100vh',
+          height: '100dvh',
+          maxHeight: '100dvh',
           width: 'min(520px, 100vw)',
           background: 'var(--linen-50)',
           borderLeft: '1px solid var(--ink-200)',
