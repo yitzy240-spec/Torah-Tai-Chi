@@ -185,7 +185,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
             marginBottom: '8px',
           }}
         >
-          {parsha.book} · order {parsha.order}
+          {parsha.book}
         </div>
         <h1
           style={{

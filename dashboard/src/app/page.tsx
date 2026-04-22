@@ -171,7 +171,7 @@ export default async function TodayPage() {
                   textAlign: 'left',
                 }}
               >
-                This week · {parsha?.book ?? 'Vayikra'} · order {parsha?.order ?? 30}
+                This week · {parsha?.book ?? 'Vayikra'}
               </div>
 
               <h1
