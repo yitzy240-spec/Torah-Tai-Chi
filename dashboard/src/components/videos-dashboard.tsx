@@ -141,6 +141,17 @@ function VideoCardTile({ card }: { card: VideoCard }) {
   // overlay state, since that gets visually noisy. Only the done state
   // shows a real thumbnail; in-flight and failed get purpose-built
   // placeholders that match the state's intent.
+  const stateColor =
+    card.state === 'in_flight' ? 'var(--navy-700)'
+    : card.state === 'done' ? 'var(--jade)'
+    : card.state === 'failed' ? 'var(--tassel)'
+    : 'var(--ink-300)';
+  const stateBg =
+    card.state === 'in_flight' ? 'var(--navy-wash)'
+    : card.state === 'done' ? 'rgba(46,125,94,.12)'
+    : card.state === 'failed' ? 'rgba(192,57,43,.08)'
+    : 'var(--ink-100)';
+
   return (
     <a
       href={card.href}
@@ -157,6 +168,20 @@ function VideoCardTile({ card }: { card: VideoCard }) {
       }}
       className="video-card"
     >
+      {/* Title above the thumb so the reader sees what they're looking at first. */}
+      <div
+        style={{
+          fontFamily: 'var(--ff-display)',
+          fontSize: '17px',
+          fontWeight: 500,
+          color: 'var(--ink-900)',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {card.title}
+      </div>
       <div
         style={{
           aspectRatio: '9 / 16',
@@ -177,30 +202,38 @@ function VideoCardTile({ card }: { card: VideoCard }) {
         {card.state === 'failed' && <FailedState />}
         {card.state === 'done' && card.thumbUrl && <PlayBadge />}
       </div>
-      <div
+      {/* Status pill below the thumb — duplicates the visual state but
+          gives a clean text label that scans fast in the grid. */}
+      <span
         style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 8,
-          minWidth: 0,
+          alignSelf: 'flex-start',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 10px',
+          borderRadius: '999px',
+          border: `1px solid ${stateColor}`,
+          background: stateBg,
+          color: stateColor,
+          fontFamily: 'var(--ff-body)',
+          fontSize: '11px',
+          fontWeight: 600,
+          letterSpacing: '0.02em',
         }}
       >
-        <div
-          style={{
-            fontFamily: 'var(--ff-display)',
-            fontSize: '16px',
-            fontWeight: 500,
-            color: 'var(--ink-900)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            minWidth: 0,
-            flex: 1,
-          }}
-        >
-          {card.title}
-        </div>
-      </div>
+        {card.state === 'in_flight' && (
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: stateColor,
+              animation: 'pulse-navy 1.8s ease-in-out infinite',
+            }}
+          />
+        )}
+        {STATE_LABELS[card.state]}
+      </span>
     </a>
   );
 }

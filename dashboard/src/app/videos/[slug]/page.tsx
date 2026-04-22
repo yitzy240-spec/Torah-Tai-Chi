@@ -81,8 +81,11 @@ export default async function VideoDetailPage({ params }: PageProps) {
     .maybeSingle();
   const isGenerating = !!activeJob;
 
-  // Pull real captions from the clip_plan saved by Modal after generation.
+  // Pull real captions + clip-level voiceover from the clip_plan saved by
+  // Modal after generation. The captions feed the per-platform preview;
+  // the clip voiceovers + durations feed the in-player WebVTT track.
   let captions: Partial<Record<Platform, string>> = {};
+  let captionsVttDataUrl: string | null = null;
   if (latestJob?.id) {
     const { data: planRow } = await supabase
       .from('clip_plans')
@@ -100,7 +103,33 @@ export default async function VideoDetailPage({ params }: PageProps) {
         facebook?: string;
         twitter?: string;
       };
+      clips?: Array<{ voiceover?: string; duration_s?: number; index?: number }>;
     };
+    // Build a WebVTT data URL from the per-clip voiceovers so the <video>
+    // can render closed captions. Cumulative time offsets from duration_s.
+    if (Array.isArray(planJson.clips) && planJson.clips.length > 0) {
+      const orderedClips = [...planJson.clips].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+      const fmt = (s: number): string => {
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s - h * 3600 - m * 60;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${sec.toFixed(3).padStart(6, '0')}`;
+      };
+      let cur = 0;
+      const cues: string[] = [];
+      for (const c of orderedClips) {
+        const dur = c.duration_s ?? 0;
+        const text = (c.voiceover ?? '').trim();
+        if (dur > 0 && text) {
+          cues.push(`${fmt(cur)} --> ${fmt(cur + dur)}\n${text}`);
+        }
+        cur += dur;
+      }
+      if (cues.length > 0) {
+        const vtt = 'WEBVTT\n\n' + cues.join('\n\n') + '\n';
+        captionsVttDataUrl = `data:text/vtt;charset=utf-8;base64,${Buffer.from(vtt, 'utf-8').toString('base64')}`;
+      }
+    }
     const src = planJson.captions ?? {};
     if (src.tiktok) captions.tiktok = src.tiktok;
     if (src.instagram) captions.instagram = src.instagram;
@@ -279,13 +308,27 @@ export default async function VideoDetailPage({ params }: PageProps) {
               controls
               playsInline
               preload="metadata"
+              // crossOrigin needed so the browser will load a <track>
+              // alongside a cross-origin (Supabase Storage) video src.
+              // Supabase public buckets serve Access-Control-Allow-Origin: *.
+              crossOrigin={captionsVttDataUrl ? 'anonymous' : undefined}
               style={{
                 width: '100%',
                 aspectRatio: '9 / 16',
                 display: 'block',
                 background: 'var(--ink-900)',
               }}
-            />
+            >
+              {captionsVttDataUrl && (
+                <track
+                  kind="captions"
+                  srcLang="en"
+                  label="English"
+                  default
+                  src={captionsVttDataUrl}
+                />
+              )}
+            </video>
           ) : (
             <div
               style={{
