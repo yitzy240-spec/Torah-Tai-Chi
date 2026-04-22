@@ -39,6 +39,7 @@ interface Script {
   option: string;
   title: string | null;
   draft_text: string | null;
+  motion_ref_slug: string | null;
 }
 
 interface Parsha {
@@ -54,7 +55,7 @@ async function getNextParsha(): Promise<Parsha | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('parshiot')
-    .select('id, order, name, book, slug, scripts(id, option, title, draft_text)')
+    .select('id, order, name, book, slug, scripts(id, option, title, draft_text, motion_ref_slug)')
     .order('order')
     .limit(1)
     .single();
@@ -67,7 +68,7 @@ async function getParshaBySlug(slug: string): Promise<Parsha | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('parshiot')
-    .select('id, order, name, book, slug, scripts(id, option, title, draft_text)')
+    .select('id, order, name, book, slug, scripts(id, option, title, draft_text, motion_ref_slug)')
     .eq('slug', slug)
     .single();
 

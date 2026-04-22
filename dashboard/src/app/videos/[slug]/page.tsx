@@ -12,6 +12,7 @@ interface Script {
   title: string | null;
   tldr: string | null;
   draft_text: string | null;
+  motion_ref_slug: string | null;
 }
 
 interface Parsha {
@@ -28,7 +29,7 @@ async function getParsha(slug: string): Promise<Parsha | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('parshiot')
-    .select('id, order, name, book, slug, hebrew_name, scripts(id, option, title, tldr, draft_text)')
+    .select('id, order, name, book, slug, hebrew_name, scripts(id, option, title, tldr, draft_text, motion_ref_slug)')
     .eq('slug', slug)
     .single();
 

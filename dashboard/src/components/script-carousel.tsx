@@ -1,10 +1,12 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { generateCustomScript } from '@/app/actions/generate-custom-script';
 import { saveScriptDraft } from '@/app/actions/save-script-draft';
 import { GenerateDialog } from '@/components/generate-dialog';
+import { TaiChiMovePicker, type TaiChiMove } from '@/components/tai-chi-move-picker';
+import { addMoveToScript } from '@/app/actions/add-move-to-script';
 
 export interface CarouselScript {
   id: string;
@@ -12,6 +14,7 @@ export interface CarouselScript {
   title: string | null;
   tldr: string | null;
   draft_text: string | null;
+  motion_ref_slug: string | null;
 }
 
 interface ScriptCarouselProps {
@@ -231,6 +234,35 @@ function ScriptCard({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [moveCache, setMoveCache] = useState<Record<string, TaiChiMove>>({});
+  const currentSlug = script.motion_ref_slug ?? null;
+  const currentMove = currentSlug ? moveCache[currentSlug] : null;
+
+  useEffect(() => {
+    if (!currentSlug || moveCache[currentSlug]) return;
+    fetch('/api/tai-chi-moves', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data) => {
+        const map: Record<string, TaiChiMove> = {};
+        for (const m of (data.moves ?? []) as TaiChiMove[]) map[m.slug] = m;
+        setMoveCache(map);
+      })
+      .catch(() => {});
+  }, [currentSlug, moveCache]);
+
+  const handlePick = async (slug: string | null) => {
+    const res = await addMoveToScript({
+      scriptId: script.id,
+      slug,
+      parshaSlug,
+    });
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    router.refresh();
+  };
 
   // Reset local draft whenever the script actually changes (carousel navigation).
   useMemo(() => {
@@ -447,6 +479,45 @@ function ScriptCard({
             >
               Edit script
             </button>
+            {currentSlug ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{
+                  fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '13px',
+                  color: 'var(--ink-700)',
+                }}>
+                  Move: <strong style={{ fontStyle: 'normal', fontWeight: 500 }}>
+                    {currentMove?.english ?? currentSlug}
+                  </strong>
+                </span>
+                <button type="button" onClick={() => setPickerOpen(true)} style={{
+                  fontFamily: 'var(--ff-body)', fontSize: '12.5px', color: 'var(--ink-500)',
+                  background: 'none', border: 'none', padding: 0,
+                  textDecoration: 'underline', textDecorationColor: 'var(--ink-200)',
+                  cursor: 'pointer',
+                }}>change</button>
+                <span style={{ color: 'var(--ink-300)' }}>·</span>
+                <button type="button" onClick={() => handlePick(null)} style={{
+                  fontFamily: 'var(--ff-body)', fontSize: '12.5px', color: 'var(--ink-500)',
+                  background: 'none', border: 'none', padding: 0,
+                  textDecoration: 'underline', textDecorationColor: 'var(--ink-200)',
+                  cursor: 'pointer',
+                }}>remove</button>
+              </span>
+            ) : (
+              <button type="button" onClick={() => setPickerOpen(true)} style={{
+                fontFamily: 'var(--ff-body)', fontSize: '13px', color: 'var(--ink-500)',
+                textDecoration: 'underline', textDecorationColor: 'var(--ink-200)',
+                textUnderlineOffset: 4, cursor: 'pointer',
+                background: 'none', border: 'none', padding: 0, minHeight: 44,
+                display: 'inline-flex', alignItems: 'center',
+              }}>Add tai chi move</button>
+            )}
+            <TaiChiMovePicker
+              open={pickerOpen}
+              currentSlug={currentSlug}
+              onSelect={(slug) => handlePick(slug)}
+              onClose={() => setPickerOpen(false)}
+            />
           </>
         )}
       </div>
