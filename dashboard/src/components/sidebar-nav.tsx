@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { KieBalance } from './kie-balance';
 
 const NAV_ITEMS = [
   { href: '/',              label: 'Today',        meta: 'now' },
@@ -153,19 +154,21 @@ export function SidebarNav() {
         </nav>
 
         {/* Footer wisdom */}
-        <div
-          style={{
-            marginTop: 'auto',
-            fontFamily: 'var(--ff-display)',
-            fontSize: '11.5px',
-            fontStyle: 'italic',
-            color: 'var(--ink-500)',
-            lineHeight: 1.5,
-            fontVariationSettings: '"opsz" 14, "SOFT" 70',
-          }}
-        >
-          <div style={{ width: '24px', height: '1px', background: 'var(--cedar-300)', marginBottom: '12px' }} />
-          <div>Root before you rise.<br />The craft compounds.</div>
+        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div style={{ width: '24px', height: '1px', background: 'var(--cedar-300)' }} />
+          <KieBalance />
+          <div
+            style={{
+              fontFamily: 'var(--ff-display)',
+              fontSize: '11.5px',
+              fontStyle: 'italic',
+              color: 'var(--ink-500)',
+              lineHeight: 1.5,
+              fontVariationSettings: '"opsz" 14, "SOFT" 70',
+            }}
+          >
+            <div>Root before you rise.<br />The craft compounds.</div>
+          </div>
         </div>
       </aside>
 
