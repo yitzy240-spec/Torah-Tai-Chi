@@ -1,74 +1,93 @@
 import { createClient } from '@/lib/supabase/server';
-import { VideosFilter } from '@/components/videos-filter';
+import { VideosDashboard, type VideoCard } from '@/components/videos-dashboard';
 import { publicVideoUrl } from '@/lib/storage-url';
 
-interface Script {
-  option: string;
-  draft_text: string | null;
-}
+const IN_FLIGHT_STATUSES = new Set([
+  'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
+  'generating_clips', 'stitching',
+]);
 
-interface VideoWithJob {
-  thumb_path: string | null;
-  jobs: { parsha_id: string } | { parsha_id: string }[] | null;
-}
-
-interface Parsha {
+interface JobRow {
   id: string;
-  order: number;
-  name: string;
-  book: string;
-  slug: string;
-  hebrew_name: string | null;
-  scripts: Script[];
-  thumbUrl?: string | null;
+  kind: string | null;
+  status: string;
+  status_message: string | null;
+  topic: string | null;
+  triggered_at: string;
+  parsha_id: string | null;
+  parshiot: { name: string; slug: string } | { name: string; slug: string }[] | null;
+  videos: { id: string; thumb_path: string | null }[] | { id: string; thumb_path: string | null } | null;
 }
 
-async function getParshiot(): Promise<Parsha[]> {
+async function getVideoCards(): Promise<VideoCard[]> {
   const supabase = await createClient();
-  const [parshaResult, videoResult] = await Promise.all([
-    supabase
-      .from('parshiot')
-      .select('id, order, name, book, slug, hebrew_name, scripts(option, draft_text)')
-      .order('order'),
-    supabase
-      .from('videos')
-      .select('thumb_path, jobs(parsha_id)'),
-  ]);
 
-  if (parshaResult.error || !parshaResult.data) return [];
+  // Pull every job (parsha + topic). We'll collapse to at most one card
+  // per parsha (latest job wins) and one card per topic job.
+  const { data, error } = await supabase
+    .from('jobs')
+    .select(
+      'id, kind, status, status_message, topic, triggered_at, parsha_id, ' +
+      'parshiot(name, slug), videos(id, thumb_path)'
+    )
+    .order('triggered_at', { ascending: false })
+    .limit(200);
 
-  const thumbMap = new Map<string, string | null>();
-  for (const v of (videoResult.data ?? []) as VideoWithJob[]) {
-    if (!v.thumb_path || !v.jobs) continue;
-    const parshaId = Array.isArray(v.jobs) ? v.jobs[0]?.parsha_id : v.jobs.parsha_id;
-    if (parshaId) thumbMap.set(parshaId, v.thumb_path);
+  if (error || !data) return [];
+
+  const cards: VideoCard[] = [];
+  const seenParshaIds = new Set<string>();
+
+  for (const row of data as unknown as JobRow[]) {
+    const kind = (row.kind ?? 'parsha').toLowerCase();
+    const videoRel = row.videos;
+    const video = Array.isArray(videoRel) ? videoRel[0] : videoRel;
+    const parshaRel = row.parshiot;
+    const parsha = Array.isArray(parshaRel) ? parshaRel[0] : parshaRel;
+
+    const state: VideoCard['state'] =
+      row.status === 'done' ? 'done'
+      : row.status === 'failed' ? 'failed'
+      : IN_FLIGHT_STATUSES.has(row.status) ? 'in_flight'
+      : 'other';
+
+    if (kind === 'parsha' && row.parsha_id) {
+      if (seenParshaIds.has(row.parsha_id)) continue; // latest-per-parsha only
+      seenParshaIds.add(row.parsha_id);
+      cards.push({
+        key: `parsha:${row.parsha_id}`,
+        kind: 'parsha',
+        title: parsha?.name ?? 'Parsha',
+        href: parsha?.slug ? `/videos/${parsha.slug}` : `/jobs/${row.id}`,
+        jobId: row.id,
+        state,
+        statusMessage: row.status_message ?? row.status,
+        triggeredAt: row.triggered_at,
+        thumbUrl: video?.thumb_path ? publicVideoUrl(video.thumb_path) : null,
+      });
+    } else if (kind === 'topic') {
+      cards.push({
+        key: `job:${row.id}`,
+        kind: 'topic',
+        title: (row.topic ?? 'Ad-hoc video').slice(0, 80),
+        href: `/jobs/${row.id}`,
+        jobId: row.id,
+        state,
+        statusMessage: row.status_message ?? row.status,
+        triggeredAt: row.triggered_at,
+        thumbUrl: video?.thumb_path ? publicVideoUrl(video.thumb_path) : null,
+      });
+    }
   }
 
-  return (parshaResult.data as Parsha[]).map((p) => {
-    const tp = thumbMap.get(p.id) ?? null;
-    return {
-      ...p,
-      thumbUrl: tp ? publicVideoUrl(tp) : null,
-    };
-  });
+  return cards;
 }
 
 export default async function VideosPage() {
-  const parshiot = await getParshiot();
-
-  const withScript = parshiot.filter((p) =>
-    p.scripts?.some((s) => s.option === 'A-tight'),
-  );
-
-  // Pass thumbUrl into each parsha for Feature B
-  const withThumbs = withScript.map((p) => ({
-    ...p,
-    thumbUrl: p.thumbUrl ?? null,
-  }));
+  const cards = await getVideoCards();
 
   return (
     <div className="stagger">
-      {/* Page header */}
       <div>
         <h1
           style={{
@@ -82,7 +101,7 @@ export default async function VideosPage() {
             fontVariationSettings: '"opsz" 110, "SOFT" 30',
           }}
         >
-          All <em style={{ fontStyle: 'italic', color: 'var(--ink-500)', fontVariationSettings: '"opsz" 110, "SOFT" 60' }}>54</em> parshiot.
+          Videos<em style={{ fontStyle: 'italic', color: 'var(--ink-500)', fontVariationSettings: '"opsz" 110, "SOFT" 60' }}>.</em>
         </h1>
         <p
           style={{
@@ -94,12 +113,13 @@ export default async function VideosPage() {
             fontVariationSettings: '"opsz" 16, "SOFT" 50',
           }}
         >
-          Every weekly portion, from Bereishit to V&apos;Zot HaBerachah.
+          What&apos;s generating, ready to post, and already out. Start a new one from{' '}
+          <a href="/parshiot" style={{ color: 'var(--navy-700)' }}>Parshiot</a> or{' '}
+          <a href="/compose" style={{ color: 'var(--navy-700)' }}>Compose</a>.
         </p>
       </div>
 
-      {/* Filter + Grid — client component */}
-      <VideosFilter parshiot={withThumbs} />
+      <VideosDashboard cards={cards} />
     </div>
   );
 }
