@@ -121,6 +121,8 @@ export function AiVideoPanel({ bufferConfigured }: Props) {
   const regenerate = () => {
     stopPolling();
     setState({ kind: 'idle' });
+    setTopic('');
+    setMoveSlug(null);
   };
 
   const humanStatus = (raw: string): string => {
