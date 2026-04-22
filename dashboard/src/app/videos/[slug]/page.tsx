@@ -5,6 +5,7 @@ import { PlatformIcon } from '@/components/platform-icon';
 import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
 import { ScriptCarousel } from '@/components/script-carousel';
 import { PLATFORMS, type Platform } from '@/lib/platforms';
+import { publicVideoUrl } from '@/lib/storage-url';
 
 interface Script {
   id: string;
@@ -51,19 +52,66 @@ export default async function VideoDetailPage({ params }: PageProps) {
 
   const aTight = parsha.scripts?.find((s) => s.option === 'A-tight') ?? null;
 
-  // Fetch most recent video for this parsha (via jobs)
+  // Fetch most recent DONE job for this parsha, including the video + cost.
   const { data: latestJob } = await supabase
     .from('jobs')
-    .select('id, resolution, model_tier, videos(id)')
+    .select('id, resolution, model_tier, total_cost_usd, videos(id, mp4_path, thumb_path)')
     .eq('parsha_id', parsha.id)
     .eq('status', 'done')
     .order('triggered_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const videosRel = latestJob?.videos as any;
-  const videoId: string | null = (Array.isArray(videosRel) ? videosRel[0]?.id : videosRel?.id) ?? null;
+  const video = (Array.isArray(videosRel) ? videosRel[0] : videosRel) ?? null;
+  const videoId: string | null = video?.id ?? null;
+  const videoUrl: string | null = video?.mp4_path ? publicVideoUrl(video.mp4_path) : null;
+  const thumbUrl: string | null = video?.thumb_path ? publicVideoUrl(video.thumb_path) : null;
+  const videoCostUsd = (latestJob?.total_cost_usd as number | null) ?? null;
+
+  // Also check for an in-flight job so the production arc reflects real state.
+  const { data: activeJob } = await supabase
+    .from('jobs')
+    .select('id, status')
+    .eq('parsha_id', parsha.id)
+    .in('status', ['queued', 'loading_parsha', 'generating_plan', 'uploading_refs', 'generating_clips', 'stitching'])
+    .order('triggered_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const isGenerating = !!activeJob;
+
+  // Pull real captions from the clip_plan saved by Modal after generation.
+  let captions: Partial<Record<Platform, string>> = {};
+  if (latestJob?.id) {
+    const { data: planRow } = await supabase
+      .from('clip_plans')
+      .select('plan_json')
+      .eq('job_id', latestJob.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const planJson = (planRow?.plan_json ?? {}) as {
+      captions?: {
+        tiktok?: string;
+        instagram?: string;
+        youtube_title?: string;
+        youtube_description?: string;
+        facebook?: string;
+        twitter?: string;
+      };
+    };
+    const src = planJson.captions ?? {};
+    if (src.tiktok) captions.tiktok = src.tiktok;
+    if (src.instagram) captions.instagram = src.instagram;
+    if (src.facebook) captions.facebook = src.facebook;
+    if (src.twitter) captions.twitter = src.twitter;
+    if (src.youtube_title || src.youtube_description) {
+      const title = (src.youtube_title ?? '').trim();
+      const desc = (src.youtube_description ?? '').trim();
+      captions.youtube = title && desc ? `${title}\n${desc}` : (title || desc);
+    }
+  }
 
   // Fetch post statuses for last 7 days
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -82,13 +130,14 @@ export default async function VideoDetailPage({ params }: PageProps) {
   // Buffer token presence
   const bufferConfigured = !!process.env.BUFFER_ACCESS_TOKEN;
 
-  // Static captions for each platform (normally from DB; using inline for now)
-  const captions: Partial<Record<Platform, string>> = {
-    tiktok: `Everyone quotes "love your neighbor" — but nobody reads the verse before it. #torah #taichi #${parsha.slug}`,
-    instagram: `Kedusha isn't a feeling. It's restraint. This week's parsha, ${parsha.name}, meets tai chi's song...`,
-    youtube: `Parshat ${parsha.name}: the discipline of non-reactivity that makes "love your neighbor" even possible.`,
-    facebook: `One breath before you respond. That breath is the practice. ${parsha.name} teaches us what holiness...`,
-  };
+  // Production arc state — derived from real job + post state.
+  const anyPublished = PLATFORMS.some((p) => postsByPlatform[p]?.status === 'published');
+  const anyScheduled = PLATFORMS.some((p) => postsByPlatform[p]?.status === 'scheduled');
+  const anyPostsRow = !!recentPosts && recentPosts.length > 0;
+  const arcScript = aTight ? 'done' : 'idle';
+  const arcVideo = videoId ? 'done' : isGenerating ? 'running' : 'idle';
+  const arcCaptions = (captions.tiktok || captions.instagram || captions.youtube) ? 'done' : 'idle';
+  const arcSchedule = anyPublished ? 'done' : (anyScheduled || anyPostsRow) ? 'running' : 'idle';
 
   function wordCount(text: string | null | undefined): number {
     if (!text) return 0;
@@ -186,13 +235,17 @@ export default async function VideoDetailPage({ params }: PageProps) {
           flexWrap: 'wrap',
         }}
       >
-        <ArcStage done label="Script · approved" />
+        <ArcStage done={arcScript === 'done'} label="Script · approved" />
         <ArcSep />
-        <ArcStage done label="Video · generated" />
+        <ArcStage
+          done={arcVideo === 'done'}
+          running={arcVideo === 'running'}
+          label={arcVideo === 'running' ? 'Video · generating' : 'Video · generated'}
+        />
         <ArcSep />
-        <ArcStage running label="Captions · reviewing" />
+        <ArcStage done={arcCaptions === 'done'} label="Captions" />
         <ArcSep />
-        <ArcStage label="Schedule" />
+        <ArcStage done={arcSchedule === 'done'} running={arcSchedule === 'running'} label={anyPublished ? 'Published' : anyScheduled ? 'Scheduled' : 'Schedule'} />
       </div>
 
       {/* ROW 1: Video player + Script panel */}
@@ -206,7 +259,9 @@ export default async function VideoDetailPage({ params }: PageProps) {
         }}
         className="row-video-script"
       >
-        {/* Phone-frame video player */}
+        {/* Phone-frame video player — real <video> when we have mp4,
+            generating-state placeholder while a job is in flight, empty
+            state otherwise. */}
         <div
           style={{
             position: 'relative',
@@ -217,60 +272,83 @@ export default async function VideoDetailPage({ params }: PageProps) {
             background: 'var(--ink-900)',
           }}
         >
-          {/* 9:16 aspect ratio */}
-          <div
-            style={{
-              aspectRatio: '9 / 16',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-            }}
-          >
-            <div
+          {videoUrl ? (
+            <video
+              src={videoUrl}
+              poster={thumbUrl ?? undefined}
+              controls
+              playsInline
+              preload="metadata"
               style={{
-                width: '56px',
-                height: '56px',
-                borderRadius: '50%',
-                background: 'rgba(250,244,232,.15)',
-                backdropFilter: 'blur(6px)',
-                display: 'grid',
-                placeItems: 'center',
-                cursor: 'pointer',
+                width: '100%',
+                aspectRatio: '9 / 16',
+                display: 'block',
+                background: 'var(--ink-900)',
               }}
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: '24px', height: '24px', color: 'var(--linen-50)', marginLeft: '3px' }}>
-                <path d="M8 5v14l11-7z"/>
-              </svg>
-            </div>
+            />
+          ) : (
             <div
               style={{
-                position: 'absolute',
-                bottom: '14px',
-                left: '14px',
-                right: '14px',
+                aspectRatio: '9 / 16',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                background: isGenerating ? 'var(--navy-800)' : 'var(--ink-800)',
+                color: 'var(--linen-50)',
                 fontFamily: 'var(--ff-display)',
                 fontStyle: 'italic',
-                fontSize: '12px',
-                color: 'rgba(250,244,232,.65)',
-                fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                fontSize: '13px',
+                textAlign: 'center',
+                padding: '24px',
+                fontVariationSettings: '"opsz" 16, "SOFT" 50',
               }}
             >
-              {parsha.name} — placeholder
+              {isGenerating ? (
+                <span>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      width: 10,
+                      height: 10,
+                      borderRadius: '50%',
+                      background: 'var(--linen-50)',
+                      marginRight: 8,
+                      animation: 'pulse-navy 1.8s ease-in-out infinite',
+                    }}
+                  />
+                  Generating…
+                  <br />
+                  <a
+                    href={`/jobs/${activeJob?.id}`}
+                    style={{
+                      color: 'var(--linen-50)',
+                      textDecoration: 'underline',
+                      textDecorationColor: 'rgba(250,244,232,.4)',
+                      fontSize: '11.5px',
+                      opacity: 0.8,
+                    }}
+                  >
+                    view progress →
+                  </a>
+                </span>
+              ) : (
+                <span style={{ opacity: 0.6 }}>No video yet.<br />Approve a script to start.</span>
+              )}
             </div>
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              gap: '6px',
-              padding: '10px 12px',
-              background: 'var(--ink-800)',
-            }}
-          >
-            {['Download', 'Share'].map((label) => (
-              <button
-                key={label}
-                type="button"
+          )}
+          {videoUrl && (
+            <div
+              style={{
+                display: 'flex',
+                gap: '6px',
+                padding: '10px 12px',
+                background: 'var(--ink-800)',
+              }}
+            >
+              <a
+                href={videoUrl}
+                download
                 style={{
                   flex: 1,
                   minHeight: '38px',
@@ -281,15 +359,18 @@ export default async function VideoDetailPage({ params }: PageProps) {
                   background: 'rgba(250,244,232,.08)',
                   border: '1px solid rgba(250,244,232,.12)',
                   borderRadius: '999px',
-                  cursor: 'pointer',
                   letterSpacing: '0.02em',
                   transition: 'all var(--trans)',
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                {label}
-              </button>
-            ))}
-          </div>
+                Download
+              </a>
+            </div>
+          )}
         </div>
 
         {/* Script carousel — arrow through A / B / C / A-tight / custom variants */}
@@ -447,15 +528,10 @@ export default async function VideoDetailPage({ params }: PageProps) {
           >
             Per-platform preview
           </p>
-          {(
-            [
-              { platform: 'tiktok' as const, caption: `Everyone quotes "love your neighbor" — but nobody reads the verse before it. #torah #taichi #${parsha.slug}` },
-              { platform: 'instagram' as const, caption: `Kedusha isn't a feeling. It's restraint. This week's parsha, ${parsha.name}, meets tai chi's release.` },
-              { platform: 'youtube' as const, caption: `Parshat ${parsha.name}: the discipline of non-reactivity that makes "love your neighbor" even possible.` },
-              { platform: 'facebook' as const, caption: `One breath before you respond. That breath is the practice. ${parsha.name} teaches us what holiness demands.` },
-              { platform: 'twitter' as const, caption: `${parsha.name}: kedusha = the breath before the reaction. A ~45s teaching on the tai chi of non-reactivity. #torah #taichi` },
-            ]
-          ).map(({ platform, caption }) => (
+          {PLATFORMS.map((platform) => ({
+            platform,
+            caption: captions[platform] ?? null,
+          })).filter(({ caption }) => caption).map(({ platform, caption }) => (
             <div
               key={platform}
               style={{
@@ -616,7 +692,8 @@ export default async function VideoDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Cost whisper */}
+      {/* Cost whisper — real job cost when available */}
+      {videoCostUsd !== null && (
       <p
         style={{
           fontFamily: 'var(--ff-display)',
@@ -627,8 +704,9 @@ export default async function VideoDetailPage({ params }: PageProps) {
           fontVariationSettings: '"opsz" 14, "SOFT" 50',
         }}
       >
-        This video cost $4.72 to produce · 6 clips × $0.79 avg
+        This video cost ${videoCostUsd.toFixed(2)} to produce.
       </p>
+      )}
 
       {/* Footer */}
       <div
