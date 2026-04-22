@@ -1,6 +1,5 @@
 'use server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { createClient } from '@/lib/supabase/server';
 
 export async function requestLoginLink(
   email: string,
@@ -18,10 +17,17 @@ export async function requestLoginLink(
     return { error: "This email isn't authorized. Ask an admin to add you in Settings." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithOtp({
+  // Use admin.generateLink (implicit flow — tokens in URL fragment) instead
+  // of signInWithOtp (PKCE — requires the verifier in the SAME browser's
+  // cookies). PKCE silently fails when the user requests the link in one
+  // browser (e.g. Chrome on phone) and opens it in another (e.g. Gmail app's
+  // in-app webview), bouncing them back to /login. Implicit flow has no
+  // per-browser state so it works across any browser/email-app context.
+  // The /auth/callback route has a JS shim that handles the fragment.
+  const { error } = await admin.auth.admin.generateLink({
+    type: 'magiclink',
     email: trimmed,
-    options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
+    options: { redirectTo },
   });
   if (error) return { error: error.message };
   return { ok: true };
