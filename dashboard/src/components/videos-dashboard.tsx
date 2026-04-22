@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { PLACEHOLDER_THUMB_URL } from '@/lib/storage-url';
 
 export interface VideoCard {
   key: string;
@@ -138,26 +137,22 @@ export function VideosDashboard({ cards }: Props) {
 }
 
 function VideoCardTile({ card }: { card: VideoCard }) {
-  const stateColor =
-    card.state === 'in_flight' ? 'var(--navy-700)'
-    : card.state === 'done' ? 'var(--jade)'
-    : card.state === 'failed' ? 'var(--tassel)'
-    : 'var(--ink-300)';
-  const stateBg =
-    card.state === 'in_flight' ? 'var(--navy-wash)'
-    : card.state === 'done' ? 'rgba(46,125,94,.12)'
-    : card.state === 'failed' ? 'rgba(192,57,43,.08)'
-    : 'var(--ink-100)';
-
+  // Thumb area is one of three things — never both a real thumb AND an
+  // overlay state, since that gets visually noisy. Only the done state
+  // shows a real thumbnail; in-flight and failed get purpose-built
+  // placeholders that match the state's intent.
   return (
     <a
       href={card.href}
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 8,
+        gap: 10,
         textDecoration: 'none',
         color: 'inherit',
+        maxWidth: '360px',  // keep 9:16 cards from going phone-screen-tall on mobile
+        width: '100%',
+        margin: '0 auto',
         transition: 'all var(--trans)',
       }}
       className="video-card"
@@ -165,45 +160,35 @@ function VideoCardTile({ card }: { card: VideoCard }) {
       <div
         style={{
           aspectRatio: '9 / 16',
-          maxHeight: '480px',
           borderRadius: 'var(--r-md)',
           overflow: 'hidden',
-          background: `var(--linen-100) url(${card.thumbUrl ?? PLACEHOLDER_THUMB_URL}) center/cover no-repeat`,
           position: 'relative',
+          background:
+            card.state === 'done' && card.thumbUrl
+              ? `var(--ink-900) url(${card.thumbUrl}) center/cover no-repeat`
+              : card.state === 'failed'
+                ? 'linear-gradient(180deg, rgba(192,57,43,.08) 0%, rgba(192,57,43,.18) 100%)'
+                : card.state === 'in_flight'
+                  ? 'linear-gradient(180deg, var(--navy-wash) 0%, var(--navy-100) 100%)'
+                  : 'var(--linen-100)',
         }}
       >
-        {card.state === 'in_flight' && (
-          <span
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'rgba(35,27,16,.18)',
-              display: 'grid',
-              placeItems: 'center',
-              color: 'var(--linen-50)',
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: '13px',
-            }}
-          >
-            <span
-              style={{
-                padding: '6px 14px',
-                borderRadius: '999px',
-                background: 'rgba(19,30,56,.7)',
-                animation: 'pulse-navy 1.8s ease-in-out infinite',
-              }}
-            >
-              Generating…
-            </span>
-          </span>
-        )}
+        {card.state === 'in_flight' && <InFlightState message={card.statusMessage} />}
+        {card.state === 'failed' && <FailedState />}
+        {card.state === 'done' && card.thumbUrl && <PlayBadge />}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 8,
+          minWidth: 0,
+        }}
+      >
         <div
           style={{
             fontFamily: 'var(--ff-display)',
-            fontSize: '15px',
+            fontSize: '16px',
             fontWeight: 500,
             color: 'var(--ink-900)',
             whiteSpace: 'nowrap',
@@ -215,37 +200,110 @@ function VideoCardTile({ card }: { card: VideoCard }) {
         >
           {card.title}
         </div>
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 5,
-            padding: '2px 8px',
-            borderRadius: '999px',
-            border: `1px solid ${stateColor}`,
-            background: stateBg,
-            color: stateColor,
-            fontFamily: 'var(--ff-body)',
-            fontSize: '10.5px',
-            fontWeight: 600,
-            letterSpacing: '0.02em',
-            flexShrink: 0,
-          }}
-        >
-          {card.state === 'in_flight' && (
-            <span
-              style={{
-                width: 5,
-                height: 5,
-                borderRadius: '50%',
-                background: stateColor,
-                animation: 'pulse-navy 1.8s ease-in-out infinite',
-              }}
-            />
-          )}
-          {STATE_LABELS[card.state]}
-        </span>
       </div>
     </a>
+  );
+}
+
+function InFlightState({ message }: { message: string }) {
+  return (
+    <span
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 12,
+        padding: 24,
+        textAlign: 'center',
+        color: 'var(--navy-800)',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: '50%',
+          background: 'var(--navy-700)',
+          animation: 'pulse-navy 1.8s ease-in-out infinite',
+        }}
+      />
+      <span
+        style={{
+          fontFamily: 'var(--ff-display)',
+          fontStyle: 'italic',
+          fontSize: '15px',
+          fontWeight: 500,
+          fontVariationSettings: '"opsz" 16, "SOFT" 50',
+        }}
+      >
+        Generating
+      </span>
+      <span
+        style={{
+          fontFamily: 'var(--ff-display)',
+          fontStyle: 'italic',
+          fontSize: '12.5px',
+          color: 'var(--ink-500)',
+          fontVariationSettings: '"opsz" 14, "SOFT" 60',
+          maxWidth: '14em',
+          lineHeight: 1.4,
+        }}
+      >
+        {message}
+      </span>
+    </span>
+  );
+}
+
+function FailedState() {
+  return (
+    <span
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        padding: 24,
+        color: 'var(--tassel)',
+      }}
+    >
+      <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '15px', fontWeight: 500 }}>
+        Generation failed
+      </span>
+      <span style={{ fontFamily: 'var(--ff-body)', fontSize: '12px' }}>tap to view details</span>
+    </span>
+  );
+}
+
+function PlayBadge() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        bottom: 12,
+        right: 12,
+        width: 36,
+        height: 36,
+        borderRadius: '50%',
+        background: 'rgba(35,27,16,.55)',
+        backdropFilter: 'blur(6px)',
+        WebkitBackdropFilter: 'blur(6px)',
+        display: 'grid',
+        placeItems: 'center',
+        color: 'var(--linen-50)',
+      }}
+    >
+      <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14, marginLeft: 2 }}>
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    </span>
   );
 }
