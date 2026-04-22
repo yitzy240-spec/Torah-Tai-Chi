@@ -270,7 +270,11 @@ function ScriptCard({
       return;
     }
     setLocalSlug(slug);  // optimistic — update UI immediately
-    router.refresh();     // resync with server; harmless if it no-ops
+    // Intentionally NOT calling router.refresh(): it re-renders the whole
+    // parsha tree, which resets the carousel's local `index` state and
+    // jumps the user back to slot 0 (Script A) even if they were on
+    // A-tight. The DB is already updated; the next full page load will
+    // rehydrate correctly.
   };
 
   // Reset local draft whenever the script actually changes (carousel navigation).
