@@ -124,9 +124,10 @@ export function VideosDashboard({ cards }: Props) {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          gap: '14px',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+          gap: '18px',
         }}
+        className="video-grid"
       >
         {filtered.map((c) => (
           <VideoCardTile key={c.key} card={c} />
@@ -154,10 +155,7 @@ function VideoCardTile({ card }: { card: VideoCard }) {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        borderRadius: 'var(--r-md)',
-        border: '1px solid var(--ink-100)',
-        overflow: 'hidden',
-        background: 'var(--linen-50)',
+        gap: 8,
         textDecoration: 'none',
         color: 'inherit',
         transition: 'all var(--trans)',
@@ -167,7 +165,9 @@ function VideoCardTile({ card }: { card: VideoCard }) {
       <div
         style={{
           aspectRatio: '9 / 16',
-          maxHeight: '420px',
+          maxHeight: '480px',
+          borderRadius: 'var(--r-md)',
+          overflow: 'hidden',
           background: `var(--linen-100) url(${card.thumbUrl ?? PLACEHOLDER_THUMB_URL}) center/cover no-repeat`,
           position: 'relative',
         }}
@@ -199,69 +199,52 @@ function VideoCardTile({ card }: { card: VideoCard }) {
           </span>
         )}
       </div>
-      <div style={{ padding: '14px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
         <div
           style={{
             fontFamily: 'var(--ff-display)',
-            fontSize: '16px',
+            fontSize: '15px',
             fontWeight: 500,
             color: 'var(--ink-900)',
-            marginBottom: '6px',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
+            minWidth: 0,
+            flex: 1,
           }}
         >
           {card.title}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '3px 10px',
-              borderRadius: '999px',
-              border: `1px solid ${stateColor}`,
-              background: stateBg,
-              color: stateColor,
-              fontFamily: 'var(--ff-body)',
-              fontSize: '11px',
-              fontWeight: 600,
-              letterSpacing: '0.02em',
-            }}
-          >
-            {card.state === 'in_flight' && (
-              <span
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: stateColor,
-                  animation: 'pulse-navy 1.8s ease-in-out infinite',
-                }}
-              />
-            )}
-            {STATE_LABELS[card.state]}
-          </span>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '2px 8px',
+            borderRadius: '999px',
+            border: `1px solid ${stateColor}`,
+            background: stateBg,
+            color: stateColor,
+            fontFamily: 'var(--ff-body)',
+            fontSize: '10.5px',
+            fontWeight: 600,
+            letterSpacing: '0.02em',
+            flexShrink: 0,
+          }}
+        >
           {card.state === 'in_flight' && (
             <span
               style={{
-                fontFamily: 'var(--ff-display)',
-                fontStyle: 'italic',
-                fontSize: '11.5px',
-                color: 'var(--ink-500)',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                minWidth: 0,
-                flex: 1,
+                width: 5,
+                height: 5,
+                borderRadius: '50%',
+                background: stateColor,
+                animation: 'pulse-navy 1.8s ease-in-out infinite',
               }}
-            >
-              {card.statusMessage}
-            </span>
+            />
           )}
-        </div>
+          {STATE_LABELS[card.state]}
+        </span>
       </div>
     </a>
   );
