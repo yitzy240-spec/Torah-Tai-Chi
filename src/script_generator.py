@@ -325,34 +325,62 @@ async def transform_draft_to_clip_plan(
     api_key: str, model: str = "claude-opus-4-6",
     timeout_s: float = 180.0,
     selected_move: dict | None = None,
+    max_retries: int = 3,
 ) -> ClipPlan:
+    """Transform Yonah's draft into a ClipPlan via Claude.
+
+    Retries on transient network errors (ConnectError / ReadError) and
+    5xx responses with exponential backoff. 4xx errors (auth, bad
+    request) bubble up immediately — no point retrying those.
+    """
+    import asyncio
     import httpx
     prompt = build_prompt(
         parsha_name, book, option, style_note, title, draft,
         selected_move=selected_move,
     )
-    async with httpx.AsyncClient(timeout=timeout_s) as http:
-        r = await http.post(
-            ANTHROPIC_URL,
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": model,
-                "max_tokens": 8000,
-                "system": SYSTEM_TEMPLATE,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        r.raise_for_status()
-        data = r.json()
-    raw = data["content"][0]["text"].strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    parsed = json.loads(raw)
-    return ClipPlan(**parsed)
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=timeout_s) as http:
+                r = await http.post(
+                    ANTHROPIC_URL,
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "max_tokens": 8000,
+                        "system": SYSTEM_TEMPLATE,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
+                if r.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"Anthropic 5xx: {r.status_code} {r.text[:200]}",
+                        request=r.request, response=r,
+                    )
+                r.raise_for_status()
+                data = r.json()
+            raw = data["content"][0]["text"].strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+            parsed = json.loads(raw)
+            return ClipPlan(**parsed)
+        except (httpx.ConnectError, httpx.ReadError, httpx.ReadTimeout,
+                httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
+            last_exc = e
+            if attempt == max_retries - 1:
+                break
+            backoff = 2 ** attempt  # 1s, 2s, 4s
+            print(f"[script_generator] transient error on attempt {attempt + 1}/{max_retries}: "
+                  f"{type(e).__name__}: {e}; retrying in {backoff}s")
+            await asyncio.sleep(backoff)
+    # All retries exhausted
+    assert last_exc is not None
+    raise last_exc
