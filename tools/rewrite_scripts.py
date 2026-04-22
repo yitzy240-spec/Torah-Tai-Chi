@@ -42,8 +42,26 @@ PRESERVE:
   psukim, tractates, rabbis named).
 - Yonah's voice: sage, calm, patient teacher. Not copywriter, not clever,
   not preachy.
-- Hebrew/Aramaic terms that carry the teaching (transliterated as Yonah
-  writes them).
+
+HEBREW VOCABULARY — AVOID UNLESS THE TEACHING REQUIRES IT:
+The downstream pipeline runs the script through a TTS that mispronounces
+Hebrew names (Eden becomes 'Aden', etc.). Default to English equivalents:
+  Eden / Gan Eden -> "Eden" or "the Garden" (NO phonetic)
+  Bereishit -> "Genesis"
+  Vayikra -> "Leviticus"
+  Shemot -> "Exodus"
+  Bamidbar -> "Numbers"
+  Devarim -> "Deuteronomy"
+  Moshe -> "Moses"
+  Aharon -> "Aaron"
+  Yosef -> "Joseph"
+  Yaakov -> "Jacob"
+  Yitzchak -> "Isaac"
+  Avraham -> "Abraham"
+  Adam, Israel, etc. — already English, leave as-is
+ONLY keep Hebrew when the teaching is specifically ABOUT a Hebrew word's
+meaning (e.g., a teaching on the letters of "vayikra"). Otherwise use the
+English form.
 
 FREEDOM:
 - You MAY pick a different angle on the parsha's theme if it fits 90-110

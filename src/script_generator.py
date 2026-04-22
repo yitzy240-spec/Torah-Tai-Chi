@@ -74,6 +74,29 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
   draft. Don't drop attributions (if he cites Baal HaTurim, keep that
   citation). Don't invent Hebrew terms or Torah claims. The shape
   changes; the substance doesn't.
+- **Hebrew vocabulary policy — avoid unless necessary.** Seedance's TTS
+  mispronounces phoneticized Hebrew names even when the phonetic is spelled
+  out (e.g., "Eh-den" reads as "Ay-den" or "Aden"). Default to English
+  equivalents wherever the teaching's substance allows:
+    Eden / Garden of Eden -> "Eden" (LEAVE AS-IS — English word, no
+       phoneticization. NEVER write "Eh-den" — it mis-renders.)
+    Adam -> "Adam" (English already; no phoneticization)
+    Israel -> "Israel" (English already)
+    Bereishit -> "Genesis" (English book name)
+    Vayikra -> "Leviticus" (English book name)
+    Shemot -> "Exodus"
+    Bamidbar -> "Numbers"
+    Devarim -> "Deuteronomy"
+    Moshe -> "Moses"
+    Aharon -> "Aaron"
+    Yosef -> "Joseph"
+    Yaakov -> "Jacob"
+    Yitzchak -> "Isaac"
+    Avraham -> "Abraham"
+  Use Hebrew ONLY when the teaching's substance requires it (the lesson
+  is ABOUT a specific Hebrew word's meaning, e.g., a Baal HaTurim teaching
+  on the letters of "vayikra"). When you DO use Hebrew, only the safe
+  list below has been tested to render reliably in Seedance TTS:
 - Hebrew names/terms in the voiceover field must be written as English-
   phonetic breakdowns with CAPS on the stressed syllable.
   CRITICAL RULE — Hebrew guttural "ch" (the sounds ח and sometimes כ) must
@@ -89,8 +112,7 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
     korbanot -> "kor-bah-NOTE"
     karov -> "kah-ROV"
     Shabbat -> "shah-BAHT"
-    Eden -> "Eh-den" (short E as in "effort", NOT "Ay-den" NOT "Ah-den")
-    Adam -> "AH-dahm" (only if draft uses Hebrew form; Yonah often writes "Adam" in English)
+    # Eden / Adam: see avoid-Hebrew policy above — keep as English, no phonetic.
     Elohim -> "Eh-loh-HEEM"
     tzedakah -> "tzeh-dah-KAH"
     mitzvah -> "mits-VAH"
