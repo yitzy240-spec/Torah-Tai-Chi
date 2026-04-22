@@ -1,9 +1,13 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { TIER_OPTIONS, estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 import { triggerGeneration } from '@/app/actions/trigger-generation';
+
+// Rough Claude clip-plan cost per generation. Now billed through Kie too
+// since the Anthropic migration, so it counts against the same balance.
+const CLAUDE_PLAN_COST_USD = 0.06;
 
 interface GenerateDialogProps {
   parshaId: string;
@@ -36,8 +40,33 @@ export function GenerateDialog({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
+  const [balanceUsd, setBalanceUsd] = useState<number | null>(null);
+  const [balanceErr, setBalanceErr] = useState<string | null>(null);
 
-  const cost = estimateSeedanceCost(expectedDurationS, selected.resolution, selected.tier);
+  const seedanceCost = estimateSeedanceCost(expectedDurationS, selected.resolution, selected.tier);
+  const totalCost = seedanceCost === null ? null : seedanceCost + CLAUDE_PLAN_COST_USD;
+  const insufficient =
+    balanceUsd !== null && totalCost !== null && balanceUsd < totalCost;
+
+  // Fetch Kie balance whenever the dialog opens — avoids stale figures
+  // if the user left the dialog mounted for a while.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setBalanceErr(null);
+    fetch('/api/kie-balance', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (typeof data?.usdBalance === 'number') {
+          setBalanceUsd(data.usdBalance);
+        } else {
+          setBalanceErr('balance unavailable');
+        }
+      })
+      .catch(() => { if (!cancelled) setBalanceErr('balance unavailable'); });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const openDialog = () => {
     setSelected(defaultOption);
@@ -275,34 +304,104 @@ export function GenerateDialog({
             background: 'var(--ink-100)',
             borderRadius: 'var(--r-md)',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '24px',
+            flexDirection: 'column',
+            gap: 8,
+            marginBottom: insufficient ? '14px' : '24px',
           }}
         >
-          <span
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+                fontSize: '14px',
+                color: 'var(--ink-700)',
+                fontVariationSettings: '"opsz" 14, "SOFT" 40',
+              }}
+            >
+              Estimated total ({expectedDurationS}s video)
+            </span>
+            <span
+              style={{
+                fontFamily: '"Courier New", Courier, monospace',
+                fontSize: '20px',
+                fontWeight: 700,
+                fontVariantNumeric: 'tabular-nums',
+                color: 'var(--ink-900)',
+              }}
+            >
+              {totalCost !== null ? `$${totalCost.toFixed(2)}` : 'N/A'}
+            </span>
+          </div>
+          <div
             style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               fontFamily: 'var(--ff-display)',
               fontStyle: 'italic',
-              fontSize: '14px',
-              color: 'var(--ink-700)',
-              fontVariationSettings: '"opsz" 14, "SOFT" 40',
+              fontSize: '12.5px',
+              color: insufficient ? 'var(--tassel)' : 'var(--ink-500)',
+              fontVariationSettings: '"opsz" 14, "SOFT" 50',
             }}
           >
-            Estimated total ({expectedDurationS}s video)
-          </span>
-          <span
-            style={{
-              fontFamily: '"Courier New", Courier, monospace',
-              fontSize: '20px',
-              fontWeight: 700,
-              fontVariantNumeric: 'tabular-nums',
-              color: 'var(--ink-900)',
-            }}
-          >
-            {cost !== null ? `$${cost.toFixed(2)}` : 'N/A'}
-          </span>
+            <span>
+              Kie balance{' '}
+              {balanceUsd !== null ? (
+                <strong
+                  style={{
+                    fontFamily: '"Courier New", Courier, monospace',
+                    fontStyle: 'normal',
+                    fontVariantNumeric: 'tabular-nums',
+                    color: insufficient ? 'var(--tassel)' : 'var(--ink-700)',
+                  }}
+                >
+                  ${balanceUsd.toFixed(2)}
+                </strong>
+              ) : balanceErr ? (
+                <span style={{ opacity: 0.7 }}>unavailable</span>
+              ) : (
+                <span style={{ opacity: 0.5 }}>loading…</span>
+              )}
+            </span>
+            {insufficient && (
+              <a
+                href="https://kie.ai/billing"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontFamily: 'var(--ff-body)',
+                  fontStyle: 'normal',
+                  fontSize: '12px',
+                  color: 'var(--tassel)',
+                  textDecoration: 'underline',
+                  textUnderlineOffset: 3,
+                }}
+              >
+                Top up →
+              </a>
+            )}
+          </div>
         </div>
+        {insufficient && (
+          <div
+            style={{
+              padding: '10px 14px',
+              marginBottom: '16px',
+              borderRadius: 'var(--r-sm)',
+              background: 'rgba(192,57,43,.08)',
+              border: '1px solid rgba(192,57,43,.2)',
+              color: '#8b2d1c',
+              fontFamily: 'var(--ff-body)',
+              fontSize: '12.5px',
+              lineHeight: 1.5,
+            }}
+          >
+            Not enough Kie credits for this run. Top up at{' '}
+            <a href="https://kie.ai/billing" target="_blank" rel="noopener noreferrer" style={{ color: '#8b2d1c' }}>kie.ai/billing</a>{' '}
+            — your auto-top-off may also refill within a few minutes.
+          </div>
+        )}
 
         {/* Error */}
         {error && (
@@ -340,7 +439,7 @@ export function GenerateDialog({
           <button
             type="button"
             onClick={generate}
-            disabled={isPending}
+            disabled={isPending || insufficient}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -351,16 +450,17 @@ export function GenerateDialog({
               padding: '11px 22px',
               minHeight: '44px',
               borderRadius: '999px',
-              border: '1px solid var(--navy-800)',
-              background: 'var(--navy-800)',
+              border: `1px solid ${insufficient ? 'var(--ink-200)' : 'var(--navy-800)'}`,
+              background: insufficient ? 'var(--ink-300)' : 'var(--navy-800)',
               color: 'var(--linen-50)',
-              cursor: isPending ? 'wait' : 'pointer',
+              cursor: isPending || insufficient ? 'not-allowed' : 'pointer',
               transition: 'all var(--trans)',
-              boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
+              boxShadow: insufficient ? 'none' : '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
               opacity: isPending ? 0.7 : 1,
             }}
+            title={insufficient ? 'Top up Kie credits first' : undefined}
           >
-            {isPending ? 'Queuing…' : 'Generate'}
+            {isPending ? 'Queuing…' : insufficient ? 'Insufficient balance' : 'Generate'}
           </button>
         </div>
       </div>

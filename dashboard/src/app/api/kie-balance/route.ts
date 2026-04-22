@@ -38,7 +38,11 @@ export async function GET() {
       (data?.credits as number | undefined) ??
       (data?.balance as number | undefined) ??
       null;
-    return NextResponse.json({ credits, raw: data });
+    // Kie credits convert to USD at $0.005 per credit (published pricing,
+    // Apr 2026). Surfaced here so the GenerateDialog can compare estimated
+    // spend against balance without duplicating the conversion.
+    const usdBalance = typeof credits === 'number' ? credits * 0.005 : null;
+    return NextResponse.json({ credits, usdBalance, raw: data });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 502 });
   }
