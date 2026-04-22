@@ -38,6 +38,16 @@ export async function triggerGeneration(
     return { error: 'A video is already being generated for this parsha and script. Wait for it to finish.' };
   }
 
+  // Read the script's optional motion reference so we can copy it onto
+  // the job — Modal reads jobs.motion_ref_slug as the single source of
+  // truth regardless of parsha vs topic origin.
+  const { data: scriptRow } = await supabase
+    .from('scripts')
+    .select('motion_ref_slug')
+    .eq('id', scriptId)
+    .maybeSingle();
+  const motionRefSlug = (scriptRow?.motion_ref_slug ?? null) as string | null;
+
   // Monthly cost cap — block if adding this run would blow the budget.
   const startOfMonth = new Date();
   startOfMonth.setDate(1);
@@ -63,6 +73,7 @@ export async function triggerGeneration(
       triggered_by: user.id,
       resolution,
       model_tier: modelTier,
+      motion_ref_slug: motionRefSlug,
     })
     .select('id').single();
 

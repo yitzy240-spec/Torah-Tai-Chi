@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-  let body: { topic?: string };
+  let body: { topic?: string; moveSlug?: string | null };
   try {
     body = await request.json();
   } catch {
@@ -58,6 +58,20 @@ export async function POST(request: Request) {
   const topic = body.topic?.trim();
   if (!topic) return NextResponse.json({ error: 'topic is required' }, { status: 400 });
   if (topic.length > 2000) return NextResponse.json({ error: 'topic too long (max 2000 chars)' }, { status: 400 });
+
+  const moveSlugInput = body.moveSlug ?? null;
+  let validatedMoveSlug: string | null = null;
+  if (moveSlugInput !== null) {
+    const { data: move } = await supabase
+      .from('tai_chi_moves')
+      .select('slug')
+      .eq('slug', moveSlugInput)
+      .maybeSingle();
+    if (!move) {
+      return NextResponse.json({ error: `Unknown move: ${moveSlugInput}` }, { status: 400 });
+    }
+    validatedMoveSlug = moveSlugInput;
+  }
 
   // Read the site-wide default quality tier so topic videos match the
   // parsha pipeline's current quality setting.
@@ -78,6 +92,7 @@ export async function POST(request: Request) {
       triggered_by: user.id,
       resolution,
       model_tier: modelTier,
+      motion_ref_slug: validatedMoveSlug,
     })
     .select('id').single();
 
