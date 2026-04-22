@@ -407,7 +407,7 @@ export function GenerateDialog({
             <path d="M2.5 6.2l2.4 2.3 4.6-4.8"/>
           </svg>
         </span>
-        <span>Video generation queued — check Jobs for progress.</span>
+        <span>Video generation queued — progress shows on the script card.</span>
       </div>
       </>,
       document.body

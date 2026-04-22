@@ -85,6 +85,7 @@ export function SidebarNav() {
           position: 'sticky',
           top: 0,
           height: '100vh',
+          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
           gap: '32px',

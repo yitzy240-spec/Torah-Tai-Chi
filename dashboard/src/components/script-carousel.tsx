@@ -236,6 +236,35 @@ function ScriptCard({
   const [justSaved, setJustSaved] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [moveCache, setMoveCache] = useState<Record<string, TaiChiMove>>({});
+
+  // Latest job for this script: drives the in-progress / video-ready UI
+  // replacing the Generate button after the user submits a generation.
+  type JobState = { id: string; status: string; statusMessage: string | null; videoId: string | null };
+  const [job, setJob] = useState<JobState | null>(null);
+  const IN_FLIGHT = useMemo(() => new Set([
+    'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
+    'generating_clips', 'stitching',
+  ]), []);
+  const fetchJob = async () => {
+    try {
+      const r = await fetch(`/api/jobs/for-script?scriptId=${encodeURIComponent(script.id)}`, { cache: 'no-store' });
+      const data = await r.json();
+      setJob(data.job ?? null);
+    } catch {
+      // Non-fatal: keep current state.
+    }
+  };
+  useEffect(() => {
+    void fetchJob();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [script.id]);
+  // Poll every 5s while in-flight.
+  useEffect(() => {
+    if (!job || !IN_FLIGHT.has(job.status)) return;
+    const t = setInterval(() => { void fetchJob(); }, 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, job?.status, IN_FLIGHT]);
   // Optimistic local state — initialized from the prop, updated immediately on
   // a successful pick so the UI reflects the selection even if Next's server
   // re-fetch hasn't landed yet. The `useEffect` below re-syncs if the prop
@@ -464,12 +493,72 @@ function ScriptCard({
           </>
         ) : (
           <>
-            <GenerateDialog
-              parshaId={parshaId}
-              scriptId={script.id}
-              parshaName={parshaName}
-              defaultTierKey={defaultTierKey}
-            />
+            {job && IN_FLIGHT.has(job.status) ? (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                padding: '11px 18px', minHeight: '44px',
+                borderRadius: '999px',
+                border: '1px solid var(--navy-500)',
+                background: 'var(--navy-wash)',
+                color: 'var(--navy-800)',
+                fontFamily: 'var(--ff-body)', fontSize: '13.5px', fontWeight: 500,
+              }}>
+                <span style={{
+                  width: 9, height: 9, borderRadius: '50%',
+                  background: 'var(--navy-700)',
+                  animation: 'pulse-navy 1.8s ease-in-out infinite',
+                }} />
+                Generating · {job.statusMessage ?? job.status}
+                <a href={`/jobs/${job.id}`} style={{
+                  fontSize: '12.5px', color: 'var(--navy-800)',
+                  textDecoration: 'underline', textDecorationColor: 'var(--navy-300)',
+                  textUnderlineOffset: 3,
+                }}>view progress →</a>
+              </span>
+            ) : job && job.status === 'done' && job.videoId ? (
+              <a href={parshaSlug ? `/videos/${parshaSlug}` : `/jobs/${job.id}`} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px',
+                padding: '11px 22px', minHeight: '44px', borderRadius: '999px',
+                border: '1px solid var(--jade)',
+                background: 'var(--jade)', color: 'var(--linen-50)',
+                textDecoration: 'none',
+              }}>
+                Video ready · watch →
+              </a>
+            ) : job && job.status === 'failed' ? (
+              <>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  padding: '11px 18px', minHeight: '44px', borderRadius: '999px',
+                  border: '1px solid var(--tassel)',
+                  background: 'rgba(192,57,43,.08)',
+                  color: 'var(--tassel)',
+                  fontFamily: 'var(--ff-body)', fontSize: '13.5px', fontWeight: 500,
+                }}>
+                  Generation failed
+                  <a href={`/jobs/${job.id}`} style={{
+                    fontSize: '12.5px', color: 'var(--tassel)',
+                    textDecoration: 'underline', textUnderlineOffset: 3,
+                  }}>details →</a>
+                </span>
+                <GenerateDialog
+                  parshaId={parshaId}
+                  scriptId={script.id}
+                  parshaName={parshaName}
+                  defaultTierKey={defaultTierKey}
+                  onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
+                />
+              </>
+            ) : (
+              <GenerateDialog
+                parshaId={parshaId}
+                scriptId={script.id}
+                parshaName={parshaName}
+                defaultTierKey={defaultTierKey}
+                onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
+              />
+            )}
             <button
               type="button"
               onClick={() => setEditing(true)}
