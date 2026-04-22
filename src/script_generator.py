@@ -34,6 +34,12 @@ VIDEO STRUCTURE:
 - 3 to 8 clips total, 28-90 seconds combined (emergent from script length).
 - Dojo block FIRST, outdoor block SECOND. At least 1 clip of each. Clip count
   per block flexes based on where the script's natural beats fall.
+- **Prefer fewer, longer clips.** Target 4-5 clips for typical 120-180 word
+  scripts. Each Seedance clip costs ~$1.20 and each added clip compounds
+  character-consistency drift (Rav Eli's kippah, face, outfit can shift
+  slightly between clips). Only exceed 6 clips when the script has many
+  distinct beats that can't naturally fuse, or when multiple Hebrew-dense
+  sections force splitting (see SOFT CAP below). Going to 8 should be rare.
 - Each clip: 4-15 seconds (Seedance hard limit). SOFT CAP: 12 seconds per
   clip when the voiceover contains Hebrew terms or dense phonetics. Seedance
   rushes speech on long dense clips, producing garbled Hebrew. Split long
