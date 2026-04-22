@@ -213,8 +213,9 @@ async def main(args: argparse.Namespace) -> int:
                     errors.append(f"{slug} {option}: update returned no data")
 
     print("=" * 74)
+    # Ascii-only so Windows default cp1252 doesn't choke.
     print(f"Totals: {total_before}w -> {total_after}w  "
-          f"(Δ {total_after - total_before:+d})")
+          f"(delta {total_after - total_before:+d})")
     if errors:
         print(f"\n{len(errors)} error(s):")
         for e in errors:
