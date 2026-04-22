@@ -44,8 +44,10 @@ export async function addMoveToScript({
     .eq('id', scriptId);
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath('/');
-  if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`);
+  // Use layout-scope revalidation so Next's Full Route Cache is busted
+  // cascadingly — page-scope alone wasn't reliably propagating in N16.
+  revalidatePath('/', 'layout');
+  if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`, 'layout');
 
   return { ok: true };
 }

@@ -236,7 +236,15 @@ function ScriptCard({
   const [justSaved, setJustSaved] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [moveCache, setMoveCache] = useState<Record<string, TaiChiMove>>({});
-  const currentSlug = script.motion_ref_slug ?? null;
+  // Optimistic local state — initialized from the prop, updated immediately on
+  // a successful pick so the UI reflects the selection even if Next's server
+  // re-fetch hasn't landed yet. The `useEffect` below re-syncs if the prop
+  // changes (e.g., after router.refresh() or when navigating carousel slots).
+  const [localSlug, setLocalSlug] = useState<string | null>(script.motion_ref_slug ?? null);
+  useEffect(() => {
+    setLocalSlug(script.motion_ref_slug ?? null);
+  }, [script.id, script.motion_ref_slug]);
+  const currentSlug = localSlug;
   const currentMove = currentSlug ? moveCache[currentSlug] : null;
 
   useEffect(() => {
@@ -261,7 +269,8 @@ function ScriptCard({
       alert(res.error);
       return;
     }
-    router.refresh();
+    setLocalSlug(slug);  // optimistic — update UI immediately
+    router.refresh();     // resync with server; harmless if it no-ops
   };
 
   // Reset local draft whenever the script actually changes (carousel navigation).
