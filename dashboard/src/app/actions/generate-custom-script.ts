@@ -1,11 +1,19 @@
 'use server';
 
-import Anthropic from '@anthropic-ai/sdk';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 
+// Claude is now routed through Kie.ai's Anthropic-compatible endpoint
+// (https://api.kie.ai/claude/v1/messages) so all AI billing consolidates
+// to a single vendor account for the end user. Same request/response shape
+// as api.anthropic.com; auth is Bearer instead of x-api-key.
+const KIE_CLAUDE_URL = 'https://api.kie.ai/claude/v1/messages';
 const MODEL = 'claude-opus-4-6';
+
+interface KieClaudeResponse {
+  content?: Array<{ type: string; text?: string }>;
+}
 
 // Aligned with src/topic_pipeline.py's SYSTEM — same voice, same length
 // rules, same named-principle requirement — plus a tail asking for a
@@ -90,8 +98,8 @@ export async function generateCustomScript(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated' };
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return { error: 'ANTHROPIC_API_KEY not set' };
+  const apiKey = process.env.KIE_AI_API_KEY;
+  if (!apiKey) return { error: 'KIE_AI_API_KEY not set' };
 
   // Look up parsha name/slug for the prompt + for revalidation.
   const { data: parsha, error: parshaErr } = await supabase
@@ -103,29 +111,38 @@ export async function generateCustomScript(
     return { error: parshaErr?.message ?? 'Parsha not found.' };
   }
 
-  // Generate the draft + metadata
-  const client = new Anthropic({ apiKey });
+  // Generate the draft + metadata via Kie's Anthropic-compatible endpoint.
   let title: string;
   let tldr: string;
   let draft: string;
   try {
-    const resp = await client.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      system: SYSTEM,
-      messages: [
-        {
-          role: 'user',
-          content:
-            `Parsha: ${parsha.name}\n\n` +
-            `Yonah's idea for this week:\n${idea}\n\n` +
-            `Write the script and return JSON with title, tldr, draft_text.`,
-        },
-      ],
+    const httpRes = await fetch(KIE_CLAUDE_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 1024,
+        system: SYSTEM,
+        messages: [
+          {
+            role: 'user',
+            content:
+              `Parsha: ${parsha.name}\n\n` +
+              `Yonah's idea for this week:\n${idea}\n\n` +
+              `Write the script and return JSON with title, tldr, draft_text.`,
+          },
+        ],
+      }),
     });
-
-    const first = resp.content[0];
-    const raw = first && first.type === 'text' ? first.text.trim() : '';
+    if (!httpRes.ok) {
+      return { error: `Claude (via Kie): ${httpRes.status} ${await httpRes.text()}` };
+    }
+    const resp = (await httpRes.json()) as KieClaudeResponse;
+    const first = resp.content?.[0];
+    const raw = first && first.type === 'text' && first.text ? first.text.trim() : '';
     if (!raw) return { error: 'Claude returned no content.' };
 
     // Forgive accidental code fences.

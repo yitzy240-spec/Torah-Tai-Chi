@@ -23,7 +23,9 @@ image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg")
     .pip_install(
-        "anthropic>=0.40.0",
+        # Note: no more `anthropic` SDK — all Claude calls now go through
+        # Kie.ai's Anthropic-compatible endpoint via raw httpx. Single AI
+        # billing account (Kie) for the end user.
         "httpx>=0.27.0",
         "pydantic>=2.8.0",
         "python-dotenv>=1.0.0",
@@ -70,7 +72,7 @@ def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
 
 @app.function(
     image=image,
-    secrets=[modal.Secret.from_name("torah-tai-chi-env")],  # contains ANTHROPIC_API_KEY, KIE_AI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+    secrets=[modal.Secret.from_name("torah-tai-chi-env")],  # contains KIE_AI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (ANTHROPIC_API_KEY still in secret but no longer read — Claude now goes through Kie)
     timeout=60 * 60,  # 1 hour max
 )
 @modal.fastapi_endpoint(method="POST")
@@ -187,7 +189,7 @@ def run_pipeline(job_id: str) -> None:
             draft_text = asyncio.run(
                 generate_draft_from_topic(
                     topic=topic_text,
-                    api_key=os.environ["ANTHROPIC_API_KEY"],
+                    api_key=os.environ["KIE_AI_API_KEY"],
                 )
             )
 
@@ -230,14 +232,16 @@ def run_pipeline(job_id: str) -> None:
             parsha_name=parsha_name, book=book,
             option=option, style_note=style_note,
             title=title, draft=draft_text,
-            api_key=os.environ["ANTHROPIC_API_KEY"],
+            api_key=os.environ["KIE_AI_API_KEY"],
             selected_move=selected_move,
         ))
         sb.table("clip_plans").insert({
             "job_id": job_id, "plan_json": plan.model_dump(mode="json"),
             "claude_cost_usd": 0.10,
         }).execute()
-        log_cost("clipplan", "anthropic", 0.10, "ClipPlan generation")
+        # Claude is now billed through Kie (single-vendor consolidation);
+        # vendor tag updated so the dashboard cost rollup attributes correctly.
+        log_cost("clipplan", "kie", 0.10, "ClipPlan generation (Claude via Kie)")
         for c in plan.clips:
             sb.table("clips").insert({
                 "job_id": job_id, "index": c.index, "voiceover": c.voiceover,

@@ -25,9 +25,14 @@ be translated in the clip-plan step.
 """
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+# Kie.ai proxies Claude through an Anthropic-native /v1/messages endpoint.
+# Routing through Kie consolidates AI billing to a single vendor account.
+# Auth is Bearer (not x-api-key); no anthropic-version header required.
+KIE_CLAUDE_URL = "https://api.kie.ai/claude/v1/messages"
 MODEL = "claude-opus-4-6"
 
 
@@ -93,15 +98,21 @@ async def generate_draft_from_topic(
     *,
     model: str = MODEL,
     timeout_s: float = 120.0,
+    max_retries: int = 3,
 ) -> str:
     """Generate a ~45s Rav-Eli-voiced script draft from a freeform topic.
+
+    Calls Claude through Kie.ai's Anthropic-compatible endpoint. Retries on
+    transient network errors / 5xx with exponential backoff (1s, 2s, 4s);
+    4xx errors bubble up immediately.
 
     Args:
         topic: The user-supplied topic prompt (e.g. "slowing down before
             you speak", "the kabbalistic idea of tzimtzum as yielding").
-        api_key: Anthropic API key.
+        api_key: Kie API key (KIE_AI_API_KEY); used as Bearer token.
         model: Override for the Claude model (defaults to Opus 4.6).
         timeout_s: HTTP timeout.
+        max_retries: Transient-failure retry budget.
 
     Returns:
         The draft text — a single string of ~95-110 words. Call
@@ -124,16 +135,35 @@ async def generate_draft_from_topic(
         "messages": [{"role": "user", "content": user_msg}],
     }
 
-    async with httpx.AsyncClient(timeout=timeout_s) as http:
-        r = await http.post(
-            ANTHROPIC_URL,
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json=payload,
-        )
-        r.raise_for_status()
-        data = r.json()
-    return data["content"][0]["text"].strip()
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=timeout_s) as http:
+                r = await http.post(
+                    KIE_CLAUDE_URL,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                if r.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"Kie Claude 5xx: {r.status_code} {r.text[:200]}",
+                        request=r.request, response=r,
+                    )
+                r.raise_for_status()
+                data = r.json()
+            return data["content"][0]["text"].strip()
+        except (httpx.ConnectError, httpx.ReadError, httpx.ReadTimeout,
+                httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
+            last_exc = e
+            if attempt == max_retries - 1:
+                break
+            backoff = 2 ** attempt  # 1s, 2s, 4s
+            print(f"[topic_pipeline] transient error on attempt "
+                  f"{attempt + 1}/{max_retries}: {type(e).__name__}: {e}; "
+                  f"retrying in {backoff}s")
+            await asyncio.sleep(backoff)
+    assert last_exc is not None
+    raise last_exc

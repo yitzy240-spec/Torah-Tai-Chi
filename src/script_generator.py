@@ -322,7 +322,12 @@ def build_prompt(parsha_name: str, book: str, option: str,
     return base + featured + tail
 
 
-ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+# Kie.ai proxies Claude through an Anthropic-native /v1/messages endpoint.
+# Same request/response shape as api.anthropic.com; auth is Bearer instead of
+# x-api-key and no anthropic-version header is required. Model IDs are the
+# standard Anthropic family names (claude-opus-4-6, claude-sonnet-4-6, etc.).
+# Routing Claude through Kie consolidates billing to a single vendor account.
+KIE_CLAUDE_URL = "https://api.kie.ai/claude/v1/messages"
 
 
 async def transform_draft_to_clip_plan(
@@ -333,11 +338,14 @@ async def transform_draft_to_clip_plan(
     selected_move: dict | None = None,
     max_retries: int = 3,
 ) -> ClipPlan:
-    """Transform Yonah's draft into a ClipPlan via Claude.
+    """Transform Yonah's draft into a ClipPlan via Claude (routed through Kie).
 
     Retries on transient network errors (ConnectError / ReadError) and
     5xx responses with exponential backoff. 4xx errors (auth, bad
     request) bubble up immediately — no point retrying those.
+
+    Args:
+        api_key: Kie API key (KIE_AI_API_KEY). Used as Bearer auth.
     """
     import asyncio
     import httpx
@@ -350,11 +358,10 @@ async def transform_draft_to_clip_plan(
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as http:
                 r = await http.post(
-                    ANTHROPIC_URL,
+                    KIE_CLAUDE_URL,
                     headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
                     },
                     json={
                         "model": model,
@@ -365,7 +372,7 @@ async def transform_draft_to_clip_plan(
                 )
                 if r.status_code >= 500:
                     raise httpx.HTTPStatusError(
-                        f"Anthropic 5xx: {r.status_code} {r.text[:200]}",
+                        f"Kie Claude 5xx: {r.status_code} {r.text[:200]}",
                         request=r.request, response=r,
                     )
                 r.raise_for_status()

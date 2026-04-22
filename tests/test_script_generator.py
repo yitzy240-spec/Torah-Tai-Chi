@@ -3,7 +3,7 @@ import json
 import respx
 from httpx import Response
 from src.script_generator import (
-    transform_draft_to_clip_plan, build_prompt, ANTHROPIC_URL,
+    transform_draft_to_clip_plan, build_prompt, KIE_CLAUDE_URL,
 )
 from src.models import ClipPlan
 
@@ -21,7 +21,11 @@ def test_build_prompt_includes_archetypes_and_guardrails():
     assert "outdoor_archetype_id" in prompt or "DOJO" in prompt or "captions" in prompt
 
 
-def _anthropic_response_body(plan_dict: dict) -> dict:
+def _kie_claude_response_body(plan_dict: dict) -> dict:
+    """Kie.ai proxies Claude with the Anthropic-native /v1/messages response
+    shape, plus a `credits_consumed` field we don't depend on. Fixture matches
+    what we saw live from https://api.kie.ai/claude/v1/messages.
+    """
     return {
         "id": "msg_test",
         "type": "message",
@@ -30,6 +34,7 @@ def _anthropic_response_body(plan_dict: dict) -> dict:
         "model": "claude-opus-4-6",
         "stop_reason": "end_turn",
         "usage": {"input_tokens": 10, "output_tokens": 10},
+        "credits_consumed": 0.01,
     }
 
 
@@ -62,8 +67,8 @@ def _fake_plan_with_captions(outdoor_archetype_id: str = "GARDEN_PATH") -> dict:
 @pytest.mark.asyncio
 async def test_transform_draft_returns_valid_v2_plan():
     async with respx.mock(assert_all_called=True) as mock:
-        mock.post(ANTHROPIC_URL).mock(
-            return_value=Response(200, json=_anthropic_response_body(_fake_plan_with_captions())),
+        mock.post(KIE_CLAUDE_URL).mock(
+            return_value=Response(200, json=_kie_claude_response_body(_fake_plan_with_captions())),
         )
         plan = await transform_draft_to_clip_plan(
             parsha_name="Vayikra", book="Leviticus", option="A",
@@ -86,8 +91,8 @@ async def test_transform_draft_propagates_validation_error_on_bad_block():
     fake["clips"][0]["setting_id"] = "GARDEN_PATH"  # breaks dojo-first
     from pydantic import ValidationError
     async with respx.mock() as mock:
-        mock.post(ANTHROPIC_URL).mock(
-            return_value=Response(200, json=_anthropic_response_body(fake)),
+        mock.post(KIE_CLAUDE_URL).mock(
+            return_value=Response(200, json=_kie_claude_response_body(fake)),
         )
         with pytest.raises(ValidationError):
             await transform_draft_to_clip_plan(
@@ -102,12 +107,13 @@ async def test_transform_draft_strips_json_fence_wrapper():
     fake = _fake_plan_with_captions("MOUNTAIN_RIDGE")
     fenced = "```json\n" + json.dumps(fake) + "\n```"
     async with respx.mock() as mock:
-        mock.post(ANTHROPIC_URL).mock(
+        mock.post(KIE_CLAUDE_URL).mock(
             return_value=Response(200, json={
                 "id": "msg", "type": "message", "role": "assistant",
                 "content": [{"type": "text", "text": fenced}],
                 "model": "claude-opus-4-6", "stop_reason": "end_turn",
                 "usage": {"input_tokens": 10, "output_tokens": 10},
+                "credits_consumed": 0.01,
             }),
         )
         plan = await transform_draft_to_clip_plan(

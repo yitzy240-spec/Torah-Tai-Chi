@@ -1,15 +1,22 @@
 /**
- * AI image generation helpers — Claude expands a user brief into a
- * full image prompt, Kie.ai nano-banana-2 renders it, the result lands
- * in Supabase Storage keyed by the Kie task id (so polls are idempotent).
+ * AI image generation helpers — Claude (via Kie) expands a user brief into
+ * a full image prompt, Kie.ai nano-banana-2 renders it, the result lands in
+ * Supabase Storage keyed by the Kie task id (so polls are idempotent).
+ *
+ * All Claude calls go through Kie's Anthropic-compatible /v1/messages
+ * endpoint so AI billing consolidates to a single vendor account.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { createServiceClient } from '@/lib/supabase/service';
 
 const KIE_BASE = 'https://api.kie.ai/api/v1';
+const KIE_CLAUDE_URL = 'https://api.kie.ai/claude/v1/messages';
 const BUCKET = 'videos';
 const COMPOSE_PREFIX = 'compose/ai-images';
+
+interface KieClaudeResponse {
+  content?: Array<{ type: string; text?: string }>;
+}
 
 const SUPABASE_PUBLIC = (key: string) =>
   `https://jswdfthmegjbhnwbgeca.supabase.co/storage/v1/object/public/${BUCKET}/${key}`;
@@ -40,9 +47,8 @@ export async function expandPrompt(args: {
   feedback?: string;
   previousPrompt?: string;
 }): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
-  const anthropic = new Anthropic({ apiKey });
+  const apiKey = process.env.KIE_AI_API_KEY;
+  if (!apiKey) throw new Error('KIE_AI_API_KEY not set');
 
   const system = `You're the brand art director for Torah Tai Chi. Expand a short user brief into a single, detailed image prompt for the nano-banana-2 model. Return ONLY the prompt text — no preamble, no markdown headings, no "Here is", no bullet points. Length: 150–300 words.
 
@@ -55,16 +61,28 @@ ${BRAND_GUIDANCE}`;
     ? `\n\nYour previous prompt was:\n"""\n${args.previousPrompt}\n"""\n\nThe user's feedback on the result: ${args.feedback}\n\nRevise the prompt to address that feedback while keeping what worked.`
     : '';
 
-  const msg = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1000,
-    system,
-    messages: [{ role: 'user', content: `User brief: ${args.userPrompt}${refLine}${feedbackLine}` }],
+  // Kie's Anthropic-compatible endpoint. Model id is the short family name;
+  // Kie resolves it to the current dated variant (e.g. claude-haiku-4-5-20251001).
+  const httpRes = await fetch(KIE_CLAUDE_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 1000,
+      system,
+      messages: [{ role: 'user', content: `User brief: ${args.userPrompt}${refLine}${feedbackLine}` }],
+    }),
   });
-
-  const text = msg.content
-    .filter((b) => b.type === 'text')
-    .map((b) => (b as { type: 'text'; text: string }).text)
+  if (!httpRes.ok) {
+    throw new Error(`Kie Claude expandPrompt: ${httpRes.status} ${await httpRes.text()}`);
+  }
+  const msg = (await httpRes.json()) as KieClaudeResponse;
+  const text = (msg.content ?? [])
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text as string)
     .join('')
     .trim();
   if (!text) throw new Error('Prompt expansion returned empty');
