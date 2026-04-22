@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { createPortal } from 'react-dom';
 import { TIER_OPTIONS, estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 import { triggerGeneration } from '@/app/actions/trigger-generation';
 
@@ -97,6 +98,8 @@ export function GenerateDialog({
         Approve · generate video
       </button>
 
+      {typeof document !== 'undefined' && createPortal(
+      <>
       {/* Scrim */}
       {open && (
         <div
@@ -406,6 +409,9 @@ export function GenerateDialog({
         </span>
         <span>Video generation queued — check Jobs for progress.</span>
       </div>
+      </>,
+      document.body
+      )}
     </>
   );
 }
