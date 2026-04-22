@@ -1,44 +1,59 @@
 'use client';
-import { useActionState } from 'react';
-import { requestLoginLink } from '@/app/actions/request-login-link';
+import { useActionState, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { signInWithPassword, requestPasswordReset } from '@/app/actions/request-login-link';
 
 // ---------------------------------------------------------------------------
-// State shape for useActionState.
-// Server action `requestLoginLink(email, redirectTo)` is kept untouched; we
-// adapt the (prevState, formData) signature here on the client so the magic-
-// link flow itself is unchanged.
+// State shapes for useActionState.
 // ---------------------------------------------------------------------------
 type LoginState =
   | { status: 'idle' }
-  | { status: 'sent'; email: string }
+  | { status: 'reset_sent'; email: string }
   | { status: 'error'; message: string; email: string };
 
 const initialState: LoginState = { status: 'idle' };
 
-async function submitLogin(
-  _prev: LoginState,
-  formData: FormData,
-): Promise<LoginState> {
-  const email = String(formData.get('email') ?? '').trim();
-  if (!email) {
-    return { status: 'error', message: 'Please enter your email.', email };
-  }
-  // window is available — useActionState in a client component posts via JS,
-  // so the server action runs and the callback computed here is fine.
-  const redirectTo = `${window.location.origin}/auth/callback`;
-  const result = await requestLoginLink(email, redirectTo);
-  if (result.error) {
-    return { status: 'error', message: result.error, email };
-  }
-  return { status: 'sent', email };
-}
-
 export default function LoginPage() {
-  const [state, formAction, pending] = useActionState(submitLogin, initialState);
+  const router = useRouter();
+  const [mode, setMode] = useState<'signin' | 'reset'>('signin');
 
-  const sent = state.status === 'sent';
+  async function submitSignIn(
+    _prev: LoginState,
+    formData: FormData,
+  ): Promise<LoginState> {
+    const email = String(formData.get('email') ?? '').trim();
+    const password = String(formData.get('password') ?? '');
+    if (!email) return { status: 'error', message: 'Please enter your email.', email };
+    if (!password) return { status: 'error', message: 'Please enter your password.', email };
+    const result = await signInWithPassword(email, password);
+    if (result.error) return { status: 'error', message: result.error, email };
+    // Success — push to home; server-side layout will see the session.
+    router.replace('/');
+    router.refresh();
+    return { status: 'idle' };
+  }
+
+  async function submitReset(
+    _prev: LoginState,
+    formData: FormData,
+  ): Promise<LoginState> {
+    const email = String(formData.get('email') ?? '').trim();
+    if (!email) return { status: 'error', message: 'Please enter your email.', email };
+    const redirectTo = `${window.location.origin}/auth/callback?next=/settings`;
+    const result = await requestPasswordReset(email, redirectTo);
+    if (result.error) return { status: 'error', message: result.error, email };
+    return { status: 'reset_sent', email };
+  }
+
+  const [state, formAction, pending] = useActionState(
+    mode === 'signin' ? submitSignIn : submitReset,
+    initialState,
+  );
+
+  const resetSent = state.status === 'reset_sent';
   const errorMessage = state.status === 'error' ? state.message : null;
-  const lastEmail = state.status === 'sent' ? state.email : undefined;
+  const lastEmail = state.status === 'reset_sent' ? state.email : undefined;
+  const sent = resetSent;
 
   return (
     <main
@@ -140,16 +155,14 @@ export default function LoginPage() {
           style={{
             fontFamily: 'var(--ff-body)',
             fontSize: '14px',
-            // Bump to --ink-900 for strong AA body-text contrast on cream
-            // (dashboard-login-1). Warm sepia ink-700 on warm linen reads
-            // as fading at small sizes; --ink-900 is the canonical body ink.
             color: 'var(--ink-900)',
             margin: '0 0 28px 0',
             lineHeight: 1.55,
           }}
         >
-          Sign in to the studio. We&apos;ll email you a single-use link — no
-          password to remember.
+          {mode === 'signin'
+            ? 'Sign in to the studio with your email and password.'
+            : 'Reset your password — we\u2019ll email you a link to set a new one.'}
         </p>
 
         {/* aria-live region for status announcements — announces the success
@@ -209,11 +222,11 @@ export default function LoginPage() {
                 Check your email
               </div>
               <div>
-                Magic link sent to{' '}
+                Password-reset link sent to{' '}
                 <strong style={{ fontWeight: 500, color: 'var(--ink-900)' }}>
                   {lastEmail}
                 </strong>
-                . It expires in an hour.
+                . Click it to choose a new password.
               </div>
             </div>
           )}
@@ -259,6 +272,37 @@ export default function LoginPage() {
               />
             </div>
 
+            {mode === 'signin' && (
+              <div>
+                <label
+                  htmlFor="password"
+                  style={{
+                    display: 'block',
+                    fontFamily: 'var(--ff-body)',
+                    fontWeight: 500,
+                    fontSize: '11px',
+                    letterSpacing: '0.16em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-700)',
+                    marginBottom: '8px',
+                  }}
+                >
+                  Password
+                </label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                  disabled={pending}
+                  aria-invalid={errorMessage ? true : undefined}
+                  className="tt-login-input"
+                />
+              </div>
+            )}
+
             {errorMessage && (
               <p
                 id="login-error"
@@ -284,10 +328,10 @@ export default function LoginPage() {
               {pending ? (
                 <>
                   <Spinner />
-                  <span>Sending…</span>
+                  <span>{mode === 'signin' ? 'Signing in…' : 'Sending…'}</span>
                 </>
               ) : (
-                <span>Send sign-in link</span>
+                <span>{mode === 'signin' ? 'Sign in' : 'Send reset link'}</span>
               )}
             </button>
 
@@ -296,17 +340,28 @@ export default function LoginPage() {
               style={{
                 fontFamily: 'var(--ff-body)',
                 fontSize: '12.5px',
-                // Bump helper text to --ink-700 — --ink-500 on linen sits
-                // right at the WCAG AA 4.5:1 knife-edge for body text
-                // (dashboard-login-2). ink-700 is the nearest darker
-                // neutral and still reads as subordinate to the label.
                 color: 'var(--ink-700)',
                 margin: '2px 0 0 0',
                 lineHeight: 1.5,
                 textAlign: 'center',
               }}
             >
-              We&apos;ll only email you the sign-in link. Nothing else.
+              <button
+                type="button"
+                onClick={() => setMode(mode === 'signin' ? 'reset' : 'signin')}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  fontFamily: 'inherit',
+                  fontSize: 'inherit',
+                  color: 'var(--navy-700)',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                }}
+              >
+                {mode === 'signin' ? 'Forgot password?' : 'Back to sign in'}
+              </button>
             </p>
           </form>
         )}

@@ -1,6 +1,7 @@
 import { StanceToggle } from '@/components/stance-toggle';
 import { DefaultQualitySection } from '@/components/default-quality-section';
 import { UsersSection } from '@/components/users-section';
+import { ChangePassword } from '@/components/change-password';
 import { createClient } from '@/lib/supabase/server';
 import { listUsers } from '@/app/actions/manage-users';
 import { getStance, type Stance } from '@/lib/stance';
@@ -282,8 +283,15 @@ export default async function SettingsPage() {
       {/* USERS */}
       <section style={SECTION_STYLE}>
         <h2 style={H2_STYLE}>Users</h2>
-        <p style={DESC_STYLE}>Who can sign in to the studio. Anyone added here can log in via magic link.</p>
+        <p style={DESC_STYLE}>Who can sign in to the studio. New users get the default password — they can change it from this page after first sign-in.</p>
         <UsersSection initialUsers={users} />
+      </section>
+
+      {/* PASSWORD */}
+      <section style={SECTION_STYLE}>
+        <h2 style={H2_STYLE}>Password</h2>
+        <p style={DESC_STYLE}>Change your sign-in password. At least 8 characters.</p>
+        <ChangePassword />
       </section>
 
       {/* CONNECTED ACCOUNTS */}
