@@ -47,6 +47,13 @@ VIDEO STRUCTURE:
 - Decide clip count and per-clip duration by reading the script at natural
   sage-teacher pace (~2.3 words per second average). Do not force short
   durations on text-dense beats; do not pad sparse beats. Let it breathe.
+- **HARD WPS CAP: 2.8 words/sec per clip.** After you've assigned voiceover
+  to a clip, count the words and divide by duration_s. If the result
+  exceeds 2.8, the clip is over budget — Seedance will rush the speech
+  and swallow syllables, especially on Hebrew-dense beats. You MUST
+  either (a) extend duration_s up to the 15s cap, or (b) split the clip
+  at a natural pause. Never accept >2.8 wps. This is the single most
+  common failure mode in production videos.
 
 VOICEOVER — YONAH'S WORDS, PRESERVED:
 - Split his draft into clips at natural phrase boundaries (comma, period,
@@ -303,14 +310,30 @@ def build_prompt(parsha_name: str, book: str, option: str,
             f"- Name: {selected_move['english']} ({selected_move['pinyin']})\n"
             f"- Posture: {selected_move['visual']}\n"
             f"- Motion: {selected_move['motion_description']}\n\n"
-            "Pick exactly ONE dojo clip whose voiceover best pairs thematically "
-            "with this move. In that clip's visual_prompt, write Rav Eli performing "
-            "this move as the primary physical action, weaving the motion "
-            "description into your scene direction naturally (don't paste it "
-            "verbatim — direct the scene with it). Keep the voiceover as Yonah's "
-            "words, unchanged. On that clip only, emit an extra field: "
-            f'"motion_ref_slug": "{selected_move["slug"]}". All other dojo clips '
-            "continue as you'd direct them without a featured move.\n\n"
+            "This move is a DELIBERATE, NARRATED teaching moment — not background\n"
+            "motion. Rav Eli announces the move by name and briefly says why\n"
+            "it's relevant to the beat, then performs it while continuing the\n"
+            "teaching. Three rules:\n\n"
+            "1. Pick exactly ONE dojo clip (which MUST have setting_id='DOJO')\n"
+            "   whose voiceover beat pairs thematically with this move. On\n"
+            "   that clip, emit an extra field: "
+            f'"motion_ref_slug": "{selected_move["slug"]}".\n\n'
+            "2. On the featured clip ONLY, you MAY (and should) prepend a\n"
+            "   short move-announcement sentence to the voiceover — the\n"
+            "   English name plus a ≤10-word tie-in to the adjacent beat.\n"
+            f'   Example: "This is {selected_move["english"]} — the yielding\n'
+            '   moment before you rise." Then Yonah\'s original beat, UNCHANGED.\n'
+            "   This is the one explicit exception to the verbatim rule, and\n"
+            "   it is ONLY additive (no paraphrasing of Yonah's prose, no\n"
+            "   dropping any of his content). Budget duration_s accordingly.\n\n"
+            "3. In the featured clip's visual_prompt, write Rav Eli performing\n"
+            "   this move as the primary physical action, weaving the motion\n"
+            "   description into scene direction (don't paste verbatim — direct\n"
+            "   the scene with it). The other dojo clips show Rav Eli "
+            "teaching,\n"
+            "   speaking, sitting, gesturing naturally — NOT doing tai chi\n"
+            "   motions. The featured move is the single dedicated tai-chi\n"
+            "   moment of the video; other dojo beats are Rav Eli as teacher.\n\n"
         )
     tail = (
         "Produce the ClipPlan JSON now. Remember: 3-8 clips, dojo first then "
