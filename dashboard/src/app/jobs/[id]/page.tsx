@@ -7,7 +7,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const supabase = await createClient();
   const { data: job } = await supabase
     .from('jobs')
-    .select('id, status, status_message, parsha_id, script_id, triggered_at, total_cost_usd, parshiot(name, book)')
+    .select('id, status, status_message, parsha_id, script_id, triggered_at, total_cost_usd, parshiot!jobs_parsha_id_fkey(name, book)')
     .eq('id', id).single();
 
   if (!job) return notFound();

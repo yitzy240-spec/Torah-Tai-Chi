@@ -28,7 +28,7 @@ async function getVideoCards(): Promise<VideoCard[]> {
     .from('jobs')
     .select(
       'id, kind, status, status_message, topic, triggered_at, parsha_id, ' +
-      'parshiot(name, slug), videos(id, thumb_path)'
+      'parshiot!jobs_parsha_id_fkey(name, slug), videos(id, thumb_path)'
     )
     .order('triggered_at', { ascending: false })
     .limit(200);

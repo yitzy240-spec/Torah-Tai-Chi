@@ -47,7 +47,7 @@ export default async function EventsPage() {
   if (videoIds.length > 0) {
     const { data: vids } = await svc
       .from('videos')
-      .select('id, jobs(parsha_id, parshiot(slug))')
+      .select('id, jobs(parsha_id, parshiot!jobs_parsha_id_fkey(slug))')
       .in('id', videoIds);
     type VideoJoin = {
       id: string;
