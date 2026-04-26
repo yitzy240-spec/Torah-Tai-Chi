@@ -54,6 +54,7 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
             <Link href="/book" className={isActive("/book") ? "active" : ""}>Book</Link>
           )}
           <Link href="/about" className={isActive("/about") ? "active" : ""}>About</Link>
+          <Link href="/contact" className={isActive("/contact") ? "active" : ""}>Contact</Link>
         </div>
         <div className="nav-socials">
           <a href="https://tiktok.com/@torahtaichi" title="TikTok" target="_blank" rel="noopener noreferrer">
@@ -118,6 +119,7 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
             <Link href="/book" className={isActive("/book") ? "active" : ""}>Book</Link>
           )}
           <Link href="/about" className={isActive("/about") ? "active" : ""}>About</Link>
+          <Link href="/contact" className={isActive("/contact") ? "active" : ""}>Contact</Link>
         </div>
         <div className="nav-drawer-socials">
           <a href="https://tiktok.com/@torahtaichi" aria-label="TikTok" target="_blank" rel="noopener noreferrer">

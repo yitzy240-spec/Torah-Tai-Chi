@@ -26,10 +26,14 @@ export default async function SiteFooter() {
           <Link href="/articles">Articles</Link>
           {showBook && <Link href="/book">Book</Link>}
           <Link href="/about">About</Link>
+          <Link href="/contact">Contact</Link>
         </nav>
 
         <div className="footer-connect">
           <span className="footer-nav-title">Connect</span>
+          <Link href="/contact" className="footer-contact-link">
+            Contact us
+          </Link>
           <a href="mailto:info@torahtaichi.com" className="footer-contact-link">
             info@torahtaichi.com
           </a>
@@ -54,7 +58,7 @@ export default async function SiteFooter() {
         <div className="footer-copyright">{c["footer.copyright"]}</div>
         <div className="footer-legal">
           <Link href="/about">About</Link>
-          <a href="mailto:info@torahtaichi.com">Contact</a>
+          <Link href="/contact">Contact</Link>
         </div>
       </div>
     </footer>
