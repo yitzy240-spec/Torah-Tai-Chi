@@ -6,6 +6,21 @@ import Link from 'next/link';
 
 const BUFFER_CHANNELS_URL = 'https://publish.buffer.com/channels';
 
+// Build the public profile URL for a connected channel. We have to handle
+// each platform separately because their URL shapes differ (some prefix
+// "@" in the path, others don't), and Buffer's service_username already
+// strips the "@".
+function channelUrl(platform: 'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'twitter', username: string): string {
+  const u = username.replace(/^@/, '');
+  switch (platform) {
+    case 'tiktok':    return `https://www.tiktok.com/@${u}`;
+    case 'instagram': return `https://www.instagram.com/${u}/`;
+    case 'youtube':   return `https://www.youtube.com/@${u}`;
+    case 'facebook':  return `https://www.facebook.com/${u}`;
+    case 'twitter':   return `https://x.com/${u}`;
+  }
+}
+
 // YouTube is handled direct via the Data API, not Buffer.
 const BUFFER_PLATFORMS = ['tiktok', 'instagram', 'facebook', 'twitter'] as const;
 type BufferPlatform = typeof BUFFER_PLATFORMS[number];
@@ -180,17 +195,23 @@ export default async function ChannelsPage() {
                   {ch.name}
                 </div>
                 {ch.username && (
-                  <div
+                  <a
+                    href={channelUrl(ch.platform, ch.username)}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     style={{
                       fontFamily: 'var(--ff-display)',
                       fontStyle: 'italic',
                       fontSize: '12px',
                       color: 'var(--ink-400)',
                       fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                      textDecoration: 'underline',
+                      textDecorationColor: 'var(--ink-200)',
+                      textUnderlineOffset: '3px',
                     }}
                   >
-                    @{ch.username}
-                  </div>
+                    @{ch.username} ↗
+                  </a>
                 )}
               </div>
             </div>

@@ -210,39 +210,11 @@ function CalendarRows({ rows }: { rows: CalendarRow[] }) {
 
         return (
           <div key={`p-${week.slug}`}>
-            {/* Holiday banner: show if this week has a holiday */}
-            {week.holiday && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  padding: '10px 24px',
-                  marginBottom: '10px',
-                  fontFamily: 'var(--ff-display)',
-                  fontStyle: 'italic',
-                  fontSize: '13px',
-                  color: 'var(--cedar-600)',
-                  fontVariationSettings: '"opsz" 14, "SOFT" 60',
-                }}
-              >
-                <div
-                  style={{
-                    width: '18px',
-                    height: '18px',
-                    borderRadius: '50%',
-                    background: 'var(--cedar-100)',
-                    display: 'grid',
-                    placeItems: 'center',
-                    fontSize: '10px',
-                    flexShrink: 0,
-                  }}
-                >
-                  ✨
-                </div>
-                {week.holiday} · {dateLabel}
-              </div>
-            )}
+            {/* Inline holiday banner removed — proper standalone holiday
+                rows now interleave by date and link to the parshiot row.
+                The old banner labeled the holiday with the SHABBAT date
+                ("Erev Shavuot · May 16" when Shabbat was May 16 and Erev
+                Shavuot was June 4) which created confusion. */}
 
             <Link
               href={`/videos/${week.slug}`}

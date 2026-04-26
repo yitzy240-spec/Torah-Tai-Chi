@@ -316,6 +316,10 @@ function FailedState() {
 }
 
 function PlayBadge() {
+  // The card navigates to the detail page (where you can preview, edit
+  // captions, schedule, etc) — it doesn't play inline. A play-triangle
+  // icon falsely signaled "click to play" so we use a textual
+  // "Open detail" pill instead.
   return (
     <span
       aria-hidden="true"
@@ -323,20 +327,22 @@ function PlayBadge() {
         position: 'absolute',
         bottom: 12,
         right: 12,
-        width: 36,
-        height: 36,
-        borderRadius: '50%',
+        padding: '5px 12px 5px 14px',
+        borderRadius: '999px',
         background: 'rgba(35,27,16,.55)',
         backdropFilter: 'blur(6px)',
         WebkitBackdropFilter: 'blur(6px)',
-        display: 'grid',
-        placeItems: 'center',
         color: 'var(--linen-50)',
+        fontFamily: 'var(--ff-body)',
+        fontSize: '11px',
+        fontWeight: 500,
+        letterSpacing: '0.04em',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
       }}
     >
-      <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14, marginLeft: 2 }}>
-        <path d="M8 5v14l11-7z" />
-      </svg>
+      Open detail →
     </span>
   );
 }

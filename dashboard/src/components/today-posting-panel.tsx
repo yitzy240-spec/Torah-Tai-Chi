@@ -192,17 +192,79 @@ export function TodayPostingPanel(props: Props) {
         </Link>
 
         <div>
-          <div
-            style={{
-              fontFamily: 'var(--ff-body)',
-              fontSize: '11px',
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: 'var(--jade)',
-              marginBottom: '6px',
-            }}
-          >
-            Video ready
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontFamily: 'var(--ff-body)',
+                fontWeight: 500,
+                fontSize: '11.5px',
+                padding: '4px 12px 4px 8px',
+                borderRadius: '999px',
+                background: 'rgba(46,125,94,.12)',
+                color: 'var(--jade)',
+              }}
+            >
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--jade)', flexShrink: 0 }} />
+              Video ready
+            </span>
+            {anyPublished ? (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontFamily: 'var(--ff-body)',
+                  fontWeight: 500,
+                  fontSize: '11.5px',
+                  padding: '4px 12px 4px 8px',
+                  borderRadius: '999px',
+                  background: 'rgba(46,125,94,.12)',
+                  color: 'var(--jade)',
+                }}
+              >
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--jade)', flexShrink: 0 }} />
+                Posted
+              </span>
+            ) : anyScheduled ? (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontFamily: 'var(--ff-body)',
+                  fontWeight: 500,
+                  fontSize: '11.5px',
+                  padding: '4px 12px 4px 8px',
+                  borderRadius: '999px',
+                  background: 'var(--navy-wash)',
+                  color: 'var(--navy-700)',
+                }}
+              >
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--navy-700)', flexShrink: 0 }} />
+                Scheduled
+              </span>
+            ) : (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontFamily: 'var(--ff-body)',
+                  fontWeight: 500,
+                  fontSize: '11.5px',
+                  padding: '4px 12px 4px 8px',
+                  borderRadius: '999px',
+                  background: 'rgba(140,125,100,.08)',
+                  color: 'var(--ink-500)',
+                }}
+              >
+                <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--ink-300)', flexShrink: 0 }} />
+                Not posted
+              </span>
+            )}
           </div>
           <h2
             style={{

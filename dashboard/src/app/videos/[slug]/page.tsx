@@ -243,6 +243,10 @@ export default async function VideoDetailPage({ params }: PageProps) {
         <div
           style={{
             marginTop: '12px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '10px',
             fontFamily: 'var(--ff-display)',
             fontStyle: 'italic',
             fontSize: '14px',
@@ -250,7 +254,12 @@ export default async function VideoDetailPage({ params }: PageProps) {
             fontVariationSettings: '"opsz" 16, "SOFT" 50',
           }}
         >
-          {aTight ? `Script A-tight · ${words} words` : 'No script yet'}
+          <span>{aTight ? `Script A-tight · ${words} words` : 'No script yet'}</span>
+          {videoId && (
+            <span style={{ color: 'var(--ink-300)' }}>·</span>
+          )}
+          {videoId && <VideoReadyPill />}
+          {videoId && <PostedStatusPill anyPublished={anyPublished} anyScheduled={anyScheduled} />}
         </div>
       </header>
 
@@ -808,6 +817,60 @@ function ArcSep() {
   return (
     <span style={{ fontFamily: 'var(--ff-display)', color: 'var(--ink-200)', fontStyle: 'normal', fontSize: '13px' }}>
       —
+    </span>
+  );
+}
+
+function pillStyle(bg: string, color: string, dot: string): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontFamily: 'var(--ff-body)',
+    fontStyle: 'normal',
+    fontWeight: 500,
+    fontSize: '11.5px',
+    padding: '4px 12px 4px 8px',
+    borderRadius: '999px',
+    letterSpacing: '0.01em',
+    background: bg,
+    color,
+    // Inline so the pill can sit alongside the italic script-line text without
+    // inheriting its font style.
+    '--pill-dot': dot,
+  } as React.CSSProperties;
+}
+
+function VideoReadyPill() {
+  return (
+    <span style={pillStyle('rgba(46,125,94,.12)', 'var(--jade)', 'var(--jade)')}>
+      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--jade)', flexShrink: 0 }} />
+      Video ready
+    </span>
+  );
+}
+
+function PostedStatusPill({ anyPublished, anyScheduled }: { anyPublished: boolean; anyScheduled: boolean }) {
+  if (anyPublished) {
+    return (
+      <span style={pillStyle('rgba(46,125,94,.12)', 'var(--jade)', 'var(--jade)')}>
+        <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--jade)', flexShrink: 0 }} />
+        Posted
+      </span>
+    );
+  }
+  if (anyScheduled) {
+    return (
+      <span style={pillStyle('var(--navy-wash)', 'var(--navy-700)', 'var(--navy-700)')}>
+        <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--navy-700)', flexShrink: 0 }} />
+        Scheduled
+      </span>
+    );
+  }
+  return (
+    <span style={pillStyle('rgba(140,125,100,.08)', 'var(--ink-500)', 'var(--ink-300)')}>
+      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--ink-300)', flexShrink: 0 }} />
+      Not posted
     </span>
   );
 }

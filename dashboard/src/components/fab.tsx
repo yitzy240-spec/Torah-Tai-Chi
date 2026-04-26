@@ -4,7 +4,6 @@ import { useState } from 'react';
 
 export function Fab() {
   const [createOpen, setCreateOpen] = useState(false);
-  const [mode, setMode] = useState<'voice' | 'text'>('voice');
   const [toastVisible, setToastVisible] = useState(false);
 
   const openCreate = () => {
@@ -15,7 +14,6 @@ export function Fab() {
   const closeCreate = () => {
     setCreateOpen(false);
     document.body.style.overflow = '';
-    setMode('voice');
   };
 
   const submit = () => {
@@ -140,126 +138,30 @@ export function Fab() {
           Speak or type an idea. Claude will draft a script in the Torah Tai Chi voice.
         </p>
 
-        {/* Mode toggle */}
-        <div
-          role="tablist"
-          style={{
-            display: 'inline-flex',
-            border: '1px solid var(--ink-200)',
-            borderRadius: '999px',
-            overflow: 'hidden',
-            marginBottom: '20px',
-            background: 'var(--linen-100)',
-          }}
-        >
-          <button
-            role="tab"
-            type="button"
-            aria-selected={mode === 'voice'}
-            onClick={() => setMode('voice')}
+        {/* Text input. Voice capture is on the roadmap but not yet wired
+            (see HANDOFF.md long-tail) — hiding the toggle until then to
+            avoid the dead 'Tap to record' button. */}
+        <div style={{ padding: '4px 0 8px' }}>
+          <textarea
+            placeholder="A teaching, a response to something in the news, a holiday thought..."
             style={{
-              fontFamily: 'var(--ff-body)',
-              fontSize: '13px',
-              fontWeight: 500,
-              padding: '8px 20px',
-              minHeight: '36px',
-              border: 'none',
-              background: mode === 'voice' ? 'var(--navy-800)' : 'transparent',
-              color: mode === 'voice' ? 'var(--linen-50)' : 'var(--ink-500)',
-              cursor: 'pointer',
-              transition: 'all var(--trans)',
-              borderRadius: mode === 'voice' ? '999px' : 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
+              width: '100%',
+              minHeight: '120px',
+              padding: '16px',
+              fontFamily: 'var(--ff-reading)',
+              fontSize: '15px',
+              lineHeight: 1.6,
+              color: 'var(--ink-800)',
+              background: 'var(--linen-100)',
+              border: '1px solid var(--cedar-100)',
+              borderRadius: 'var(--r-md)',
+              resize: 'vertical',
+              fontVariationSettings: '"opsz" 16, "SOFT" 30',
+              outline: 'none',
+              boxSizing: 'border-box',
             }}
-          >
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" style={{ width: '14px', height: '14px' }}>
-              <rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0 0 12 0"/><path d="M10 16v2"/>
-            </svg>
-            Voice
-          </button>
-          <button
-            role="tab"
-            type="button"
-            aria-selected={mode === 'text'}
-            onClick={() => setMode('text')}
-            style={{
-              fontFamily: 'var(--ff-body)',
-              fontSize: '13px',
-              fontWeight: 500,
-              padding: '8px 20px',
-              minHeight: '36px',
-              border: 'none',
-              background: mode === 'text' ? 'var(--navy-800)' : 'transparent',
-              color: mode === 'text' ? 'var(--linen-50)' : 'var(--ink-500)',
-              cursor: 'pointer',
-              transition: 'all var(--trans)',
-              borderRadius: mode === 'text' ? '999px' : 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" style={{ width: '14px', height: '14px' }}>
-              <rect x="3" y="3" width="14" height="14" rx="2"/><path d="M6 7h8M6 10h8M6 13h4"/>
-            </svg>
-            Text
-          </button>
+          />
         </div>
-
-        {/* Voice mode */}
-        {mode === 'voice' && (
-          <div style={{ textAlign: 'center', padding: '16px 0 8px' }}>
-            <button
-              type="button"
-              aria-label="Record"
-              style={{
-                width: '64px',
-                height: '64px',
-                borderRadius: '50%',
-                background: 'var(--navy-800)',
-                color: 'var(--linen-50)',
-                border: 'none',
-                cursor: 'pointer',
-                display: 'inline-grid',
-                placeItems: 'center',
-                transition: 'all var(--trans)',
-              }}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ width: '28px', height: '28px' }}>
-                <rect x="8" y="2" width="8" height="12" rx="4"/><path d="M4 12a8 8 0 0 0 16 0"/><path d="M12 20v2"/>
-              </svg>
-            </button>
-            <div style={{ fontFamily: 'var(--ff-body)', fontSize: '13px', color: 'var(--ink-500)', marginTop: '12px' }}>
-              Tap to record
-            </div>
-          </div>
-        )}
-
-        {/* Text mode */}
-        {mode === 'text' && (
-          <div style={{ padding: '8px 0' }}>
-            <textarea
-              placeholder="A teaching, a response to something in the news, a holiday thought..."
-              style={{
-                width: '100%',
-                minHeight: '120px',
-                padding: '16px',
-                fontFamily: 'var(--ff-reading)',
-                fontSize: '15px',
-                lineHeight: 1.6,
-                color: 'var(--ink-800)',
-                background: 'var(--linen-100)',
-                border: '1px solid var(--cedar-100)',
-                borderRadius: 'var(--r-md)',
-                resize: 'vertical',
-                fontVariationSettings: '"opsz" 16, "SOFT" 30',
-                outline: 'none',
-              }}
-            />
-          </div>
-        )}
 
         {/* Category pills */}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '16px 0 24px' }}>
