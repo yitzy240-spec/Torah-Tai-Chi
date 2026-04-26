@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { StanceToggle } from '@/components/stance-toggle';
 import { Fab } from '@/components/fab';
-import { getThisWeekParsha } from '@/lib/hebcal';
+import { getThisWeekParsha, HEBCAL_TO_SLUG } from '@/lib/hebcal';
 import { GenerateDialog } from '@/components/generate-dialog';
 import { checkHealth } from '@/lib/health';
 import { SystemHealthStrip } from '@/components/system-health';
@@ -180,6 +180,17 @@ export default async function TodayPage() {
     getStance(),
   ]);
 
+  // Combined-parsha pair: when Hebcal says this Shabbat is e.g.
+  // "Achrei Mot-Kedoshim", fetch the partner's scripts too so Yonah
+  // can pick a script from EITHER parsha (or merge concepts) before
+  // generating one combined video.
+  const partnerSlug = hebcalParsha?.combined
+    ? HEBCAL_TO_SLUG[hebcalParsha.combined] ?? null
+    : null;
+  const partnerParsha: Parsha | null = partnerSlug
+    ? await getParshaBySlug(partnerSlug)
+    : null;
+
   const parsha = hebcalParsha
     ? ((await getParshaBySlug(hebcalParsha.slug)) ?? fallbackParsha)
     : fallbackParsha;
@@ -329,7 +340,21 @@ export default async function TodayPage() {
                   parshaId={parsha.id}
                   parshaName={parsha.name}
                   parshaSlug={parsha.slug}
-                  scripts={parsha.scripts as CarouselScript[]}
+                  scripts={
+                    // Merge partner parsha's scripts after the host's, each
+                    // tagged so ScriptCard knows where it came from.
+                    partnerParsha
+                      ? [
+                          ...(parsha.scripts as CarouselScript[]),
+                          ...((partnerParsha.scripts ?? []) as CarouselScript[]).map((s) => ({
+                            ...s,
+                            parsha_id: partnerParsha.id,
+                            parsha_name: partnerParsha.name,
+                            parsha_slug: partnerParsha.slug,
+                          })),
+                        ]
+                      : (parsha.scripts as CarouselScript[])
+                  }
                 />
               </div>
             ) : (

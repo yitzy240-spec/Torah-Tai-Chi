@@ -15,6 +15,13 @@ export interface CarouselScript {
   tldr: string | null;
   draft_text: string | null;
   motion_ref_slug: string | null;
+  // Set when scripts are merged across a combined-parsha pair so the
+  // card can label "From Kedoshim" and routes Approve / Add-move actions
+  // to the correct parsha. When unset, the carousel-level parshaId/Slug
+  // props are used.
+  parsha_id?: string | null;
+  parsha_name?: string | null;
+  parsha_slug?: string | null;
 }
 
 interface ScriptCarouselProps {
@@ -217,9 +224,9 @@ export function ScriptCarousel({
 
 function ScriptCard({
   script,
-  parshaId,
-  parshaName,
-  parshaSlug,
+  parshaId: hostParshaId,
+  parshaName: hostParshaName,
+  parshaSlug: hostParshaSlug,
   defaultTierKey,
 }: {
   script: CarouselScript;
@@ -228,6 +235,15 @@ function ScriptCard({
   parshaSlug?: string;
   defaultTierKey?: string;
 }) {
+  // When this script comes from a combined-parsha partner (e.g., Kedoshim
+  // shown alongside Acharei Mot's scripts on Today), route Approve / Add
+  // move / Edit actions to ITS parsha — not the host carousel's parsha.
+  // Falls back to the carousel's host parsha when the script doesn't
+  // declare its own (the normal single-parsha case).
+  const parshaId = script.parsha_id ?? hostParshaId;
+  const parshaName = script.parsha_name ?? hostParshaName;
+  const parshaSlug = script.parsha_slug ?? hostParshaSlug;
+  const isPartnerScript = !!script.parsha_id && script.parsha_id !== hostParshaId;
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(script.draft_text ?? '');
@@ -348,6 +364,22 @@ function ScriptCard({
 
   return (
     <div>
+      {/* Combined-parsha partner label — only when this script is from
+          the paired parsha (e.g. Kedoshim shown alongside Acharei Mot). */}
+      {isPartnerScript && (
+        <div
+          style={{
+            fontFamily: 'var(--ff-body)',
+            fontSize: '10.5px',
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
+            color: 'var(--cedar-600)',
+            marginBottom: '6px',
+          }}
+        >
+          From {script.parsha_name}
+        </div>
+      )}
       {/* Title */}
       <h3
         style={{
