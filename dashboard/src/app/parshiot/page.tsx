@@ -9,7 +9,10 @@ interface Script {
 
 interface VideoWithJob {
   thumb_path: string | null;
-  jobs: { parsha_id: string } | { parsha_id: string }[] | null;
+  jobs:
+    | { parsha_id: string | null; partner_parsha_id: string | null }
+    | { parsha_id: string | null; partner_parsha_id: string | null }[]
+    | null;
 }
 
 interface Parsha {
@@ -32,16 +35,20 @@ async function getParshiot(): Promise<Parsha[]> {
       .order('order'),
     supabase
       .from('videos')
-      .select('thumb_path, jobs(parsha_id)'),
+      .select('thumb_path, jobs(parsha_id, partner_parsha_id)'),
   ]);
 
   if (parshaResult.error || !parshaResult.data) return [];
 
+  // Combined-parsha weeks: a single job carries both `parsha_id` (primary)
+  // and `partner_parsha_id`. Map the same thumb to BOTH rows of the 54-grid
+  // so neither parsha is left looking unconvered.
   const thumbMap = new Map<string, string | null>();
   for (const v of (videoResult.data ?? []) as VideoWithJob[]) {
     if (!v.thumb_path || !v.jobs) continue;
-    const parshaId = Array.isArray(v.jobs) ? v.jobs[0]?.parsha_id : v.jobs.parsha_id;
-    if (parshaId) thumbMap.set(parshaId, v.thumb_path);
+    const job = Array.isArray(v.jobs) ? v.jobs[0] : v.jobs;
+    if (job?.parsha_id) thumbMap.set(job.parsha_id, v.thumb_path);
+    if (job?.partner_parsha_id) thumbMap.set(job.partner_parsha_id, v.thumb_path);
   }
 
   return (parshaResult.data as Parsha[]).map((p) => {

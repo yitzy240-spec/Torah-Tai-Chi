@@ -199,6 +199,15 @@ export default async function TodayPage() {
 
   const aTightScript = parsha?.scripts?.find((s) => s.option === 'A-tight') ?? parsha?.scripts?.[0] ?? null;
 
+  // In a combined-parsha week, both parshiot get tagged on the resulting
+  // job so /parshiot's 54-grid shows the same thumbnail on BOTH rows.
+  // Undefined when there's just the host parsha (regular weeks).
+  const combinedParshaIds = parsha && partnerParsha
+    ? [parsha.id, partnerParsha.id]
+    : parsha
+      ? [parsha.id]
+      : undefined;
+
   // Real production-arc state: query the latest job + posts for THIS parsha
   // so the dots reflect actual state (was hardcoded 'awaiting your go' even
   // when the video was already done). Suspense-friendly: if these fail or
@@ -340,6 +349,7 @@ export default async function TodayPage() {
                   parshaId={parsha.id}
                   parshaName={parsha.name}
                   parshaSlug={parsha.slug}
+                  combinedParshaIds={combinedParshaIds}
                   scripts={
                     // Merge partner parsha's scripts after the host's, each
                     // tagged so ScriptCard knows where it came from.

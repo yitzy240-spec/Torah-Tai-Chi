@@ -13,6 +13,10 @@ interface GenerateDialogProps {
   parshaId: string;
   scriptId: string;
   parshaName: string;
+  /** When the script's parsha is half of a combined-parsha pair this week,
+   *  the OTHER parsha id in the pair — recorded on the job so /parshiot
+   *  can credit both rows of the 54-grid with the resulting video. */
+  partnerParshaId?: string;
   /** Expected total video duration in seconds; falls back to 60 */
   expectedDurationS?: number;
   /** Pre-selected tier key from settings.default_tier (e.g. "720p standard") */
@@ -32,6 +36,7 @@ export function GenerateDialog({
   parshaId,
   scriptId,
   parshaName,
+  partnerParshaId,
   expectedDurationS = 60,
   defaultTierKey = '720p fast',
   onJobCreated,
@@ -92,6 +97,7 @@ export function GenerateDialog({
       const result = await triggerGeneration({
         parshaId,
         scriptId,
+        partnerParshaId,
         resolution: selected.resolution,
         modelTier: selected.tier,
       });

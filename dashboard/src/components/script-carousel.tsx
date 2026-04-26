@@ -31,6 +31,10 @@ interface ScriptCarouselProps {
   scripts: CarouselScript[];
   /** Optional default tier key pre-selected in the generate dialog. */
   defaultTierKey?: string;
+  /** When this Shabbat is a combined-parsha week, the parsha ids that
+   *  should both be tagged on any resulting job (primary + partner). When
+   *  unset, jobs are recorded against the single host parsha as usual. */
+  combinedParshaIds?: string[];
 }
 
 // Preferred display order so A lives left, then B, C, A-tight, then any
@@ -78,6 +82,7 @@ export function ScriptCarousel({
   parshaSlug,
   scripts,
   defaultTierKey,
+  combinedParshaIds,
 }: ScriptCarouselProps) {
   const router = useRouter();
   const ordered = useMemo(() => sortScripts(scripts), [scripts]);
@@ -214,6 +219,7 @@ export function ScriptCarousel({
           parshaName={parshaName}
           parshaSlug={parshaSlug}
           defaultTierKey={defaultTierKey}
+          combinedParshaIds={combinedParshaIds}
         />
       )}
     </div>
@@ -228,12 +234,14 @@ function ScriptCard({
   parshaName: hostParshaName,
   parshaSlug: hostParshaSlug,
   defaultTierKey,
+  combinedParshaIds,
 }: {
   script: CarouselScript;
   parshaId: string;
   parshaName: string;
   parshaSlug?: string;
   defaultTierKey?: string;
+  combinedParshaIds?: string[];
 }) {
   // When this script comes from a combined-parsha partner (e.g., Kedoshim
   // shown alongside Acharei Mot's scripts on Today), route Approve / Add
@@ -244,6 +252,12 @@ function ScriptCard({
   const parshaName = script.parsha_name ?? hostParshaName;
   const parshaSlug = script.parsha_slug ?? hostParshaSlug;
   const isPartnerScript = !!script.parsha_id && script.parsha_id !== hostParshaId;
+  // In a combined-parsha week, the OTHER parsha id in the pair — passed
+  // through to the generate dialog so the resulting job tags both rows
+  // of /parshiot's 54-grid as covered. Undefined for single-parsha weeks.
+  const partnerParshaId = combinedParshaIds && combinedParshaIds.length > 1
+    ? combinedParshaIds.find((id) => id !== parshaId)
+    : undefined;
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(script.draft_text ?? '');
@@ -571,6 +585,7 @@ function ScriptCard({
                   parshaId={parshaId}
                   scriptId={script.id}
                   parshaName={parshaName}
+                  partnerParshaId={partnerParshaId}
                   defaultTierKey={defaultTierKey}
                   onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
                   triggerLabel="Regenerate"
@@ -597,6 +612,7 @@ function ScriptCard({
                   parshaId={parshaId}
                   scriptId={script.id}
                   parshaName={parshaName}
+                  partnerParshaId={partnerParshaId}
                   defaultTierKey={defaultTierKey}
                   onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
                 />
@@ -606,6 +622,7 @@ function ScriptCard({
                 parshaId={parshaId}
                 scriptId={script.id}
                 parshaName={parshaName}
+                partnerParshaId={partnerParshaId}
                 defaultTierKey={defaultTierKey}
                 onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
               />

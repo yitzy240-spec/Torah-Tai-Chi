@@ -13,11 +13,13 @@ export async function triggerGeneration(
   {
     parshaId,
     scriptId,
+    partnerParshaId,
     resolution = '720p',
     modelTier = 'standard',
   }: {
     parshaId: string;
     scriptId: string;
+    partnerParshaId?: string;
     resolution?: Resolution;
     modelTier?: ModelTier;
   },
@@ -69,6 +71,7 @@ export async function triggerGeneration(
     .insert({
       parsha_id: parshaId,
       script_id: scriptId,
+      partner_parsha_id: partnerParshaId ?? null,
       status: 'queued',
       triggered_by: user.id,
       resolution,
