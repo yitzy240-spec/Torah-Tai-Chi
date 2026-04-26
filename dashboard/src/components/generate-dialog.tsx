@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { TIER_OPTIONS, estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 import { triggerGeneration } from '@/app/actions/trigger-generation';
 import { saveDefaultQuality } from '@/app/actions/save-default-quality';
+import { Tooltip } from './tooltip';
 
 // Rough Claude clip-plan cost per generation. Now billed through Kie too
 // since the Anthropic migration, so it counts against the same balance.
@@ -323,9 +324,17 @@ export function GenerateDialog({
                           background: 'var(--navy-wash)',
                           padding: '2px 8px',
                           borderRadius: '999px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
                         }}
                       >
                         Default
+                        <Tooltip
+                          size={12}
+                          color="var(--navy-700)"
+                          text="Pre-selected for every new generation. You can change this in Settings, or pick a different tier just for this run and use 'Set as default' below."
+                          helpHref="/help/generate-video"
+                        />
                       </span>
                     )}
                   </div>

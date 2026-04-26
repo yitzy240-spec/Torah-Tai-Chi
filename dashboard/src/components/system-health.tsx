@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { SystemHealth, ServiceHealth } from '@/lib/health';
+import { Tooltip } from './tooltip';
 
 interface Props {
   health: SystemHealth;
@@ -57,6 +58,11 @@ export function SystemHealthStrip({ health }: Props) {
         <span style={{ display: 'inline-flex', alignItems: 'center' }}>
           <span style={{ ...DOT_BASE, background: 'var(--jade, #3c8c5e)' }} />
           All systems green
+          <Tooltip
+            text="Pings Supabase (data), Storyblok (CMS), Buffer (posting), Modal (video pipeline), and YouTube. Red dots show what needs attention."
+            helpHref="/help/troubleshooting"
+            color="var(--ink-300)"
+          />
         </span>
       ) : (
         red.map((svc) => (

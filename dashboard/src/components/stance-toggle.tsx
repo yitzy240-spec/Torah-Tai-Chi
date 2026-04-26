@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { saveStance as persistStance } from '@/app/actions/save-stance';
+import { Tooltip } from './tooltip';
 
 type Stance = 'handson' | 'reviewer' | 'batch' | 'auto';
 
@@ -192,6 +193,10 @@ export function StanceToggle({ initialStance = 'reviewer' }: StanceToggleProps) 
             live setting
           </span>
         </button>
+        <Tooltip
+          text="Stance controls how much you stay in the loop on weekly production: Hands-on, Reviewer, Batch, or Autopilot."
+          helpHref="/help/stance"
+        />
       </div>
 
       {/* Stance sheet scrim */}
