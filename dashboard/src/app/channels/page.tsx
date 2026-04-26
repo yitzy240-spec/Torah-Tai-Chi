@@ -9,7 +9,7 @@ const BUFFER_CHANNELS_URL = 'https://publish.buffer.com/channels';
 // YouTube is handled direct via the Data API, not Buffer.
 const BUFFER_PLATFORMS = ['tiktok', 'instagram', 'facebook', 'twitter'] as const;
 type BufferPlatform = typeof BUFFER_PLATFORMS[number];
-type Platform = BufferPlatform | 'youtube' | 'website';
+type Platform = BufferPlatform | 'youtube';
 
 interface ChannelData {
   platform: Platform;
@@ -17,8 +17,8 @@ interface ChannelData {
   connected: boolean;
   username: string | null;
   recentPosts: number;
-  /** 'buffer' | 'youtube' | 'website' — drives which CTAs render. */
-  integration: 'buffer' | 'youtube' | 'website';
+  /** 'buffer' | 'youtube' — drives which CTAs render. */
+  integration: 'buffer' | 'youtube';
 }
 
 async function getChannelData(): Promise<ChannelData[]> {
@@ -70,18 +70,13 @@ async function getChannelData(): Promise<ChannelData[]> {
     integration: 'youtube',
   };
 
-  return [
-    ...bufferChannels,
-    ytChannel,
-    { platform: 'website', name: 'Website', connected: false, username: null, recentPosts: 0, integration: 'website' },
-  ];
+  return [...bufferChannels, ytChannel];
 }
 
 export default async function ChannelsPage() {
   const channels = await getChannelData();
-  const socialChannels = channels.filter((c) => c.integration !== 'website');
-  const connectedCount = socialChannels.filter((c) => c.connected).length;
-  const totalSocial = socialChannels.length;
+  const connectedCount = channels.filter((c) => c.connected).length;
+  const totalSocial = channels.length;
   const bufferConfigured = !!process.env.BUFFER_ACCESS_TOKEN;
 
   return (
@@ -125,7 +120,22 @@ export default async function ChannelsPage() {
         }}
         className="channel-grid"
       >
-        {channels.map((ch) => (
+        {channels.map((ch) => {
+          // The status label needs to tell Yonah what's actually wrong, not
+          // just "not connected". Buffer-platform channels can fail two
+          // distinct ways (Buffer itself unconfigured, or this channel
+          // not added inside Buffer); YouTube is a single OAuth flow.
+          let statusLabel: string;
+          if (ch.connected) {
+            statusLabel = 'Connected';
+          } else if (ch.integration === 'youtube') {
+            statusLabel = 'Not connected';
+          } else if (!bufferConfigured) {
+            statusLabel = 'Buffer not set up';
+          } else {
+            statusLabel = 'Not added in Buffer';
+          }
+          return (
           <div
             key={ch.platform}
             style={{
@@ -197,55 +207,43 @@ export default async function ChannelsPage() {
                 }}
               />
               <span style={{ color: ch.connected ? 'var(--ink-700)' : 'var(--ink-400)' }}>
-                {ch.connected ? 'Connected' : 'Not connected'}
+                {statusLabel}
               </span>
             </div>
 
-            {/* Stats */}
-            {ch.integration !== 'website' && (
-              <div
-                style={{
-                  fontFamily: 'var(--ff-display)',
-                  fontStyle: 'italic',
-                  fontSize: '14px',
-                  color: 'var(--ink-500)',
-                  fontVariationSettings: '"opsz" 14, "SOFT" 50',
-                  lineHeight: 1.6,
-                }}
-              >
-                {ch.connected ? (
-                  <>
-                    <strong
-                      style={{
-                        fontWeight: 500,
-                        fontStyle: 'normal',
-                        color: 'var(--ink-900)',
-                        fontVariationSettings: '"opsz" 14, "SOFT" 20',
-                      }}
-                    >
-                      {ch.recentPosts}
-                    </strong>{' '}
-                    post{ch.recentPosts !== 1 ? 's' : ''} in last 7 days
-                  </>
-                ) : (
-                  'Not yet connected.'
-                )}
-              </div>
-            )}
-
-            {ch.integration === 'website' && (
-              <div
-                style={{
-                  fontFamily: 'var(--ff-display)',
-                  fontStyle: 'italic',
-                  fontSize: '14px',
-                  color: 'var(--ink-400)',
-                  fontVariationSettings: '"opsz" 14, "SOFT" 50',
-                }}
-              >
-                Published directly via Supabase.
-              </div>
-            )}
+            {/* Stats / hint */}
+            <div
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+                fontSize: '14px',
+                color: 'var(--ink-500)',
+                fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                lineHeight: 1.6,
+              }}
+            >
+              {ch.connected ? (
+                <>
+                  <strong
+                    style={{
+                      fontWeight: 500,
+                      fontStyle: 'normal',
+                      color: 'var(--ink-900)',
+                      fontVariationSettings: '"opsz" 14, "SOFT" 20',
+                    }}
+                  >
+                    {ch.recentPosts}
+                  </strong>{' '}
+                  post{ch.recentPosts !== 1 ? 's' : ''} in last 7 days
+                </>
+              ) : ch.integration === 'youtube' ? (
+                'Connect to publish videos directly.'
+              ) : !bufferConfigured ? (
+                'Add your Buffer access token in Settings.'
+              ) : (
+                'Add this channel inside Buffer, then refresh.'
+              )}
+            </div>
 
             {/* Action */}
             <div
@@ -255,25 +253,7 @@ export default async function ChannelsPage() {
                 borderTop: '1px dotted var(--ink-100)',
               }}
             >
-              {ch.integration === 'website' ? (
-                <Link
-                  href="/site-content"
-                  style={{
-                    fontFamily: 'var(--ff-body)',
-                    fontSize: '13px',
-                    color: 'var(--ink-500)',
-                    textDecoration: 'underline',
-                    textDecorationColor: 'var(--ink-200)',
-                    textUnderlineOffset: '4px',
-                    minHeight: '44px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    transition: 'all var(--trans)',
-                  }}
-                >
-                  Configure
-                </Link>
-              ) : ch.integration === 'youtube' ? (
+              {ch.integration === 'youtube' ? (
                 ch.connected ? (
                   <form action="/api/auth/youtube/disconnect" method="post">
                     <button
@@ -393,7 +373,8 @@ export default async function ChannelsPage() {
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
