@@ -127,11 +127,14 @@ export function TodayPostingPanel(props: Props) {
 
   return (
     <div style={{ maxWidth: '780px', margin: '0 auto' }}>
-      {/* Top: video preview + headline */}
+      {/* Top: video preview + headline.
+          Videos are 9:16 portrait (Seedance generates short-form vertical),
+          so we cap the preview to ~200px wide and let the headline take
+          the rest of the row. */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+          gridTemplateColumns: '200px minmax(0, 1fr)',
           gap: '24px',
           alignItems: 'center',
           marginBottom: '28px',
@@ -143,7 +146,8 @@ export function TodayPostingPanel(props: Props) {
           style={{
             position: 'relative',
             display: 'block',
-            aspectRatio: '16 / 9',
+            width: '200px',
+            aspectRatio: '9 / 16',
             borderRadius: 'var(--r-md)',
             overflow: 'hidden',
             background: 'var(--ink-100)',
