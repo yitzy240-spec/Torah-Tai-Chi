@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { getUpcomingWeeks, ShabbatParsha } from '@/lib/hebcal';
+import { getUpcomingWeeks, getUpcomingHolidays, ShabbatParsha, UpcomingHoliday } from '@/lib/hebcal';
+import { createClient } from '@/lib/supabase/server';
 
 // Hardcoded production status per parsha slug (wired to real Supabase later).
 const HARDCODED_STATUS: Record<string, { status: string; dotColor: string; dotClass: string }> = {
@@ -23,9 +24,41 @@ function formatWhen(shabbatDate: string, index: number): { dateLabel: string; wh
   return { dateLabel, when };
 }
 
+type CalendarRow =
+  | { kind: 'parsha'; date: string; data: ShabbatParsha; weekIndex: number }
+  | { kind: 'holiday'; date: string; data: UpcomingHoliday; hasRow: boolean };
+
 export default async function CalendarPage() {
   // Feature A: live Hebcal data
   const weeks = await getUpcomingWeeks(6);
+  const holidays = await getUpcomingHolidays(180);
+
+  // Cap holidays to those falling before our last upcoming Shabbat row,
+  // otherwise the rolling 6-week view would balloon to half the year.
+  const lastWeek = weeks[weeks.length - 1]?.shabbatDate;
+  const visibleHolidays = lastWeek
+    ? holidays.filter((h) => h.date <= lastWeek)
+    : holidays;
+
+  // Look up which holidays already have a parshiot row (so we know they're
+  // generatable). Slugs not in the DB still show but go to the calendar
+  // hint only.
+  const supabase = await createClient();
+  const slugs = visibleHolidays.map((h) => h.slug);
+  const generatable = new Set<string>();
+  if (slugs.length > 0) {
+    const { data } = await supabase.from('parshiot').select('slug').in('slug', slugs);
+    for (const r of data ?? []) generatable.add(r.slug);
+  }
+
+  const rows: CalendarRow[] = [
+    ...weeks.map<CalendarRow>((w, i) => ({
+      kind: 'parsha', date: w.shabbatDate, data: w, weekIndex: i,
+    })),
+    ...visibleHolidays.map<CalendarRow>((h) => ({
+      kind: 'holiday', date: h.date, data: h, hasRow: generatable.has(h.slug),
+    })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
 
   return (
     <div className="stagger">
@@ -60,25 +93,123 @@ export default async function CalendarPage() {
       </div>
 
       {/* Calendar rows — live from Hebcal */}
-      {weeks.length === 0 ? (
+      {rows.length === 0 ? (
         <CalendarFallback />
       ) : (
-        <CalendarRows weeks={weeks} />
+        <CalendarRows rows={rows} />
       )}
     </div>
   );
 }
 
-function CalendarRows({ weeks }: { weeks: ShabbatParsha[] }) {
+function HolidayRow({ row }: { row: Extract<CalendarRow, { kind: 'holiday' }> }) {
+  const { data, hasRow } = row;
+  const d = new Date(data.date + 'T12:00:00');
+  const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const today = new Date().toISOString().slice(0, 10);
+  const days = Math.round((d.getTime() - new Date(today + 'T12:00:00').getTime()) / 86400000);
+  const when = days <= 0 ? 'Today' : days === 1 ? 'Tomorrow' : `In ${days} days`;
+
+  const Inner = (
+    <>
+      <div style={{ fontFamily: 'var(--ff-body)', fontSize: '13px', color: 'var(--ink-500)' }}>
+        <strong style={{ fontWeight: 500, color: 'var(--cedar-700)', display: 'block', fontSize: '14px' }}>
+          {dateLabel}
+        </strong>
+        {when}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', flexWrap: 'wrap' }}>
+        <span
+          style={{
+            fontFamily: 'var(--ff-display)',
+            fontWeight: 500,
+            fontSize: '20px',
+            color: 'var(--ink-900)',
+            letterSpacing: '-0.015em',
+            fontVariationSettings: '"opsz" 36, "SOFT" 30',
+          }}
+        >
+          {data.name}
+        </span>
+        <span
+          lang="he"
+          dir="rtl"
+          style={{ fontFamily: 'var(--ff-hebrew)', fontSize: '16px', color: 'var(--ink-500)' }}
+        >
+          {data.hebrew}
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--ff-body)',
+            fontSize: '10.5px',
+            letterSpacing: '0.15em',
+            textTransform: 'uppercase',
+            color: 'var(--cedar-700)',
+            background: 'var(--cedar-100)',
+            padding: '3px 10px',
+            borderRadius: '999px',
+          }}
+        >
+          Holiday
+        </span>
+      </div>
+      <div
+        style={{
+          fontFamily: 'var(--ff-display)',
+          fontStyle: 'italic',
+          fontSize: '13.5px',
+          color: hasRow ? 'var(--cedar-700)' : 'var(--ink-400)',
+          textAlign: 'right',
+          fontVariationSettings: '"opsz" 14, "SOFT" 50',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {hasRow ? 'Open →' : 'Coming soon'}
+      </div>
+    </>
+  );
+
+  const baseStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: '120px 1fr auto',
+    gap: '20px',
+    alignItems: 'center',
+    padding: '20px 24px',
+    border: '1px dashed var(--cedar-300)',
+    borderRadius: 'var(--r-lg)',
+    background: 'linear-gradient(180deg, rgba(168,114,47,.04) 0%, var(--linen-50) 80%)',
+    marginBottom: '10px',
+    textDecoration: 'none',
+    color: 'inherit',
+    transition: 'all var(--trans)',
+    minHeight: '44px',
+  };
+
+  return hasRow ? (
+    <Link href={`/videos/${data.slug}`} style={{ ...baseStyle, cursor: 'pointer' }} className="cal-week">
+      {Inner}
+    </Link>
+  ) : (
+    <div style={baseStyle}>{Inner}</div>
+  );
+}
+
+function CalendarRows({ rows }: { rows: CalendarRow[] }) {
+  let weekCounter = 0;
   return (
     <div>
-      {weeks.map((week, i) => {
+      {rows.map((row) => {
+        if (row.kind === 'holiday') {
+          return <HolidayRow key={`h-${row.data.slug}-${row.date}`} row={row} />;
+        }
+        const week = row.data;
+        const i = weekCounter++;
         const { dateLabel, when } = formatWhen(week.shabbatDate, i);
         const isCurrent = i === 0;
         const statusCfg = HARDCODED_STATUS[week.slug] ?? DEFAULT_STATUS;
 
         return (
-          <div key={week.slug}>
+          <div key={`p-${week.slug}`}>
             {/* Holiday banner: show if this week has a holiday */}
             {week.holiday && (
               <div

@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { TIER_OPTIONS, estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 import { triggerGeneration } from '@/app/actions/trigger-generation';
+import { saveDefaultQuality } from '@/app/actions/save-default-quality';
 
 // Rough Claude clip-plan cost per generation. Now billed through Kie too
 // since the Anthropic migration, so it counts against the same balance.
@@ -38,13 +39,18 @@ export function GenerateDialog({
   parshaName,
   partnerParshaId,
   expectedDurationS = 60,
-  defaultTierKey = '720p fast',
+  defaultTierKey = '720p standard',
   onJobCreated,
   triggerLabel = 'Approve · generate video',
   triggerVariant = 'primary',
 }: GenerateDialogProps) {
+  // Track the current saved default locally so "Set as default" can flip
+  // it without a server round-trip + page refresh.
+  const [currentDefaultKey, setCurrentDefaultKey] = useState(defaultTierKey);
   const defaultOption =
-    TIER_OPTIONS.find((o) => tierKey(o.tier, o.resolution) === defaultTierKey) ?? TIER_OPTIONS[2];
+    TIER_OPTIONS.find((o) => tierKey(o.tier, o.resolution) === currentDefaultKey)
+      ?? TIER_OPTIONS.find((o) => tierKey(o.tier, o.resolution) === '720p standard')
+      ?? TIER_OPTIONS[3];
 
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(defaultOption);
@@ -53,6 +59,11 @@ export function GenerateDialog({
   const [toastVisible, setToastVisible] = useState(false);
   const [balanceUsd, setBalanceUsd] = useState<number | null>(null);
   const [balanceErr, setBalanceErr] = useState<string | null>(null);
+  const [savingDefault, setSavingDefault] = useState(false);
+  const [defaultSavedAt, setDefaultSavedAt] = useState<number | null>(null);
+
+  const selectedKey = tierKey(selected.tier, selected.resolution);
+  const selectionIsDefault = selectedKey === currentDefaultKey;
 
   const seedanceCost = estimateSeedanceCost(expectedDurationS, selected.resolution, selected.tier);
   const totalCost = seedanceCost === null ? null : seedanceCost + CLAUDE_PLAN_COST_USD;
@@ -89,6 +100,22 @@ export function GenerateDialog({
   const closeDialog = () => {
     setOpen(false);
     document.body.style.overflow = '';
+  };
+
+  const setAsDefault = () => {
+    if (selectionIsDefault || savingDefault) return;
+    setSavingDefault(true);
+    saveDefaultQuality(selected.resolution, selected.tier)
+      .then((res) => {
+        if (res.error) {
+          setError(res.error);
+          return;
+        }
+        setCurrentDefaultKey(selectedKey);
+        setDefaultSavedAt(Date.now());
+      })
+      .catch(() => setError('Could not save default'))
+      .finally(() => setSavingDefault(false));
   };
 
   const generate = () => {
@@ -212,7 +239,7 @@ export function GenerateDialog({
             fontVariationSettings: '"opsz" 14, "SOFT" 50',
           }}
         >
-          You can change the default in Settings.
+          Pick a different tier just for this run, or set it as your new default below.
         </p>
 
         {/* Radio cards */}
@@ -220,6 +247,7 @@ export function GenerateDialog({
           {TIER_OPTIONS.map((option) => {
             const optCost = estimateSeedanceCost(expectedDurationS, option.resolution, option.tier);
             const isSelected = selected === option;
+            const isDefault = tierKey(option.tier, option.resolution) === currentDefaultKey;
             return (
               <label
                 key={tierKey(option.tier, option.resolution)}
@@ -275,9 +303,31 @@ export function GenerateDialog({
                       color: 'var(--ink-900)',
                       letterSpacing: '-0.005em',
                       fontVariationSettings: '"opsz" 18, "SOFT" 20',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      flexWrap: 'wrap',
                     }}
                   >
                     {option.label}
+                    {isDefault && (
+                      <span
+                        style={{
+                          fontFamily: 'var(--ff-body)',
+                          fontStyle: 'normal',
+                          fontWeight: 500,
+                          fontSize: '10px',
+                          letterSpacing: '0.12em',
+                          textTransform: 'uppercase',
+                          color: 'var(--navy-700)',
+                          background: 'var(--navy-wash)',
+                          padding: '2px 8px',
+                          borderRadius: '999px',
+                        }}
+                      >
+                        Default
+                      </span>
+                    )}
                   </div>
                   <div
                     style={{
@@ -310,6 +360,58 @@ export function GenerateDialog({
             );
           })}
         </div>
+
+        {/* Set as default — visible only when selection differs from saved default. */}
+        {!selectionIsDefault && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              marginTop: '-10px',
+              marginBottom: '20px',
+            }}
+          >
+            <button
+              type="button"
+              onClick={setAsDefault}
+              disabled={savingDefault}
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: '12.5px',
+                fontWeight: 500,
+                color: 'var(--navy-700)',
+                background: 'transparent',
+                border: 'none',
+                padding: '6px 4px',
+                cursor: savingDefault ? 'wait' : 'pointer',
+                textDecoration: 'underline',
+                textUnderlineOffset: 3,
+                opacity: savingDefault ? 0.6 : 1,
+              }}
+            >
+              {savingDefault ? 'Saving…' : `Set ${selected.label} as default`}
+            </button>
+          </div>
+        )}
+        {selectionIsDefault && defaultSavedAt && Date.now() - defaultSavedAt < 6000 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              marginTop: '-10px',
+              marginBottom: '20px',
+              fontFamily: 'var(--ff-display)',
+              fontStyle: 'italic',
+              fontSize: '12.5px',
+              color: 'var(--jade)',
+              fontVariationSettings: '"opsz" 14, "SOFT" 50',
+            }}
+          >
+            New default saved
+          </div>
+        )}
 
         {/* Total */}
         <div

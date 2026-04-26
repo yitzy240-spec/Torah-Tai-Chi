@@ -20,7 +20,7 @@ export function estimateSeedanceCost(
 export const TIER_OPTIONS = [
   { tier: 'fast' as const,     resolution: '480p' as const, label: '480p Fast',     note: 'Cheapest — great for drafts' },
   { tier: 'standard' as const, resolution: '480p' as const, label: '480p Standard', note: 'Low-res baseline' },
-  { tier: 'fast' as const,     resolution: '720p' as const, label: '720p Fast',     note: 'Default — ~20% cheaper than Standard' },
-  { tier: 'standard' as const, resolution: '720p' as const, label: '720p Standard', note: 'Full quality' },
+  { tier: 'fast' as const,     resolution: '720p' as const, label: '720p Fast',     note: '~20% cheaper, but lip-sync gets shaky' },
+  { tier: 'standard' as const, resolution: '720p' as const, label: '720p Standard', note: 'Recommended — full quality' },
   { tier: 'standard' as const, resolution: '1080p' as const, label: '1080p Standard', note: 'Hero / flagship — 2.5× cost' },
 ];

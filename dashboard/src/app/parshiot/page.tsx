@@ -17,11 +17,12 @@ interface VideoWithJob {
 
 interface Parsha {
   id: string;
-  order: number;
+  order: number | null;
   name: string;
   book: string;
   slug: string;
   hebrew_name: string | null;
+  kind: 'parsha' | 'holiday';
   scripts: Script[];
   thumbUrl?: string | null;
 }
@@ -31,8 +32,10 @@ async function getParshiot(): Promise<Parsha[]> {
   const [parshaResult, videoResult] = await Promise.all([
     supabase
       .from('parshiot')
-      .select('id, order, name, book, slug, hebrew_name, scripts(option, draft_text)')
-      .order('order'),
+      .select('id, order, name, book, slug, hebrew_name, kind, scripts(option, draft_text)')
+      .order('kind')
+      .order('order', { nullsFirst: false })
+      .order('name'),
     supabase
       .from('videos')
       .select('thumb_path, jobs(parsha_id, partner_parsha_id)'),
@@ -84,7 +87,7 @@ export default async function ParshiotPage() {
             fontVariationSettings: '"opsz" 110, "SOFT" 30',
           }}
         >
-          All <em style={{ fontStyle: 'italic', color: 'var(--ink-500)', fontVariationSettings: '"opsz" 110, "SOFT" 60' }}>54</em> parshiot.
+          The full <em style={{ fontStyle: 'italic', color: 'var(--ink-500)', fontVariationSettings: '"opsz" 110, "SOFT" 60' }}>library</em>.
         </h1>
         <p
           style={{
@@ -96,7 +99,7 @@ export default async function ParshiotPage() {
             fontVariationSettings: '"opsz" 16, "SOFT" 50',
           }}
         >
-          Every weekly portion, from Bereishit to V&apos;Zot HaBerachah. Click into one to review or start a video.
+          Every weekly portion plus the major holidays. Click into one to review or start a video.
         </p>
       </div>
 

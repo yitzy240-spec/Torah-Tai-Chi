@@ -2,7 +2,8 @@ import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
 import { StanceToggle } from '@/components/stance-toggle';
 import { Fab } from '@/components/fab';
-import { getThisWeekParsha, HEBCAL_TO_SLUG } from '@/lib/hebcal';
+import { getThisWeekParsha, getUpcomingHolidays, HEBCAL_TO_SLUG } from '@/lib/hebcal';
+import Link from 'next/link';
 import { GenerateDialog } from '@/components/generate-dialog';
 import { checkHealth } from '@/lib/health';
 import { SystemHealthStrip } from '@/components/system-health';
@@ -174,11 +175,32 @@ export default async function TodayPage() {
   // checkHealth is intentionally NOT awaited here — it pings 5 external
   // services and would hold the whole page back. We render it inside a
   // Suspense boundary below so the rest of the page appears immediately.
-  const [hebcalParsha, fallbackParsha, stance] = await Promise.all([
+  const [hebcalParsha, fallbackParsha, stance, upcomingHolidays] = await Promise.all([
     getThisWeekParsha(),
     getNextParsha(),
     getStance(),
+    getUpcomingHolidays(21),
   ]);
+
+  // Surface the next holiday within 21 days only if a matching parshiot row
+  // exists (otherwise there's nothing to click into).
+  let upcomingHoliday: { slug: string; name: string; hebrew: string; date: string; days: number } | null = null;
+  if (upcomingHolidays.length > 0) {
+    const supabase = await createClient();
+    const slugs = upcomingHolidays.map((h) => h.slug);
+    const { data: rows } = await supabase.from('parshiot').select('slug').in('slug', slugs);
+    const seeded = new Set((rows ?? []).map((r) => r.slug));
+    const today = new Date().toISOString().slice(0, 10);
+    for (const h of upcomingHolidays) {
+      if (!seeded.has(h.slug)) continue;
+      const days = Math.round(
+        (new Date(h.date + 'T12:00:00').getTime() -
+          new Date(today + 'T12:00:00').getTime()) / 86400000
+      );
+      upcomingHoliday = { ...h, days };
+      break;
+    }
+  }
 
   // Combined-parsha pair: when Hebcal says this Shabbat is e.g.
   // "Achrei Mot-Kedoshim", fetch the partner's scripts too so Yonah
@@ -190,6 +212,16 @@ export default async function TodayPage() {
   const partnerParsha: Parsha | null = partnerSlug
     ? await getParshaBySlug(partnerSlug)
     : null;
+
+  // Pre-load Yonah's saved default quality tier so the generate dialog opens
+  // with his preference selected (he can change per-run or save a new one).
+  const supabaseForSettings = await createClient();
+  const { data: defaultTierRow } = await supabaseForSettings
+    .from('site_content')
+    .select('value')
+    .eq('key', 'settings.default_tier')
+    .maybeSingle();
+  const defaultTierKey: string = defaultTierRow?.value ?? '720p standard';
 
   const parsha = hebcalParsha
     ? ((await getParshaBySlug(hebcalParsha.slug)) ?? fallbackParsha)
@@ -224,6 +256,95 @@ export default async function TodayPage() {
         <Suspense fallback={<SystemHealthSkeleton />}>
           <SystemHealthAsync />
         </Suspense>
+
+        {/* Upcoming holiday card — shown only when a holiday with a matching
+            parshiot row falls within 21 days. */}
+        {upcomingHoliday && (
+          <Link
+            href={`/videos/${upcomingHoliday.slug}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '14px',
+              padding: '14px 20px',
+              marginBottom: '24px',
+              border: '1px dashed var(--cedar-300)',
+              borderRadius: 'var(--r-lg)',
+              background: 'linear-gradient(180deg, rgba(168,114,47,.05) 0%, var(--linen-50) 80%)',
+              textDecoration: 'none',
+              color: 'inherit',
+              transition: 'all var(--trans)',
+              minHeight: '44px',
+            }}
+            className="cal-week"
+          >
+            <div
+              aria-hidden="true"
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: 'var(--cedar-100)',
+                display: 'grid',
+                placeItems: 'center',
+                fontSize: '15px',
+                flexShrink: 0,
+              }}
+            >
+              ✨
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  fontFamily: 'var(--ff-body)',
+                  fontSize: '11px',
+                  letterSpacing: '0.15em',
+                  textTransform: 'uppercase',
+                  color: 'var(--cedar-700)',
+                  marginBottom: '2px',
+                }}
+              >
+                Coming up
+              </div>
+              <div
+                style={{
+                  fontFamily: 'var(--ff-display)',
+                  fontWeight: 500,
+                  fontSize: '17px',
+                  color: 'var(--ink-900)',
+                  letterSpacing: '-0.01em',
+                  fontVariationSettings: '"opsz" 24, "SOFT" 30',
+                }}
+              >
+                {upcomingHoliday.name}
+                <span
+                  style={{
+                    fontFamily: 'var(--ff-display)',
+                    fontStyle: 'italic',
+                    fontWeight: 400,
+                    fontSize: '14px',
+                    color: 'var(--ink-500)',
+                    marginLeft: '10px',
+                  }}
+                >
+                  {upcomingHoliday.days <= 0 ? 'today' : upcomingHoliday.days === 1 ? 'tomorrow' : `in ${upcomingHoliday.days} days`}
+                </span>
+              </div>
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+                fontSize: '13px',
+                color: 'var(--cedar-700)',
+                whiteSpace: 'nowrap',
+                fontVariationSettings: '"opsz" 14, "SOFT" 50',
+              }}
+            >
+              Open →
+            </div>
+          </Link>
+        )}
 
         {/* REVIEWER VIEW */}
         <div>
@@ -349,6 +470,7 @@ export default async function TodayPage() {
                   parshaId={parsha.id}
                   parshaName={parsha.name}
                   parshaSlug={parsha.slug}
+                  defaultTierKey={defaultTierKey}
                   combinedParshaIds={combinedParshaIds}
                   scripts={
                     // Merge partner parsha's scripts after the host's, each

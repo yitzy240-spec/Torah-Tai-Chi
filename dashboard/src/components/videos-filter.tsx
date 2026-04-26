@@ -20,11 +20,12 @@ function normaliseBook(book: string): string {
 
 interface Parsha {
   id: string;
-  order: number;
+  order: number | null;
   name: string;
   book: string;
   slug: string;
   hebrew_name?: string | null;
+  kind?: 'parsha' | 'holiday';
   scripts: { option: string; draft_text: string | null }[];
   thumbUrl?: string | null;
 }
@@ -32,6 +33,8 @@ interface Parsha {
 interface VideosFilterProps {
   parshiot: Parsha[];
 }
+
+type Kind = 'parsha' | 'holiday';
 
 function wordCount(text: string | null | undefined): number {
   if (!text) return 0;
@@ -54,16 +57,54 @@ const STATUS_LABELS: Record<StatusType, string> = {
 };
 
 export function VideosFilter({ parshiot }: VideosFilterProps) {
+  const [activeKind, setActiveKind] = useState<Kind>('parsha');
   const [activeBook, setActiveBook] = useState('All');
 
-  const filtered = activeBook === 'All'
-    ? parshiot
-    : parshiot.filter((p) => normaliseBook(p.book) === activeBook);
+  const inKind = parshiot.filter((p) => (p.kind ?? 'parsha') === activeKind);
+  const filtered = activeKind === 'parsha' && activeBook !== 'All'
+    ? inKind.filter((p) => normaliseBook(p.book) === activeBook)
+    : inKind;
+
+  const parshaCount = parshiot.filter((p) => (p.kind ?? 'parsha') === 'parsha').length;
+  const holidayCount = parshiot.filter((p) => p.kind === 'holiday').length;
 
   return (
     <>
-      {/* Filter bar */}
-      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '28px' }}>
+      {/* Kind tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', borderBottom: '1px solid var(--ink-100)' }}>
+        {([
+          ['parsha', 'Parshiot', parshaCount],
+          ['holiday', 'Holidays', holidayCount],
+        ] as const).map(([kind, label, count]) => {
+          const active = activeKind === kind;
+          return (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => setActiveKind(kind)}
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: '14px',
+                fontWeight: 500,
+                padding: '10px 4px',
+                marginBottom: '-1px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: active ? '2px solid var(--navy-800)' : '2px solid transparent',
+                color: active ? 'var(--navy-800)' : 'var(--ink-500)',
+                cursor: 'pointer',
+                marginRight: '20px',
+                minHeight: '44px',
+              }}
+            >
+              {label} <span style={{ color: 'var(--ink-400)', fontSize: '12px' }}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Book filter — parshiot only */}
+      <div style={{ display: activeKind === 'parsha' ? 'flex' : 'none', gap: '6px', flexWrap: 'wrap', marginBottom: '28px' }}>
         {BOOKS.map((book) => {
           const active = activeBook === book;
           return (
@@ -181,7 +222,7 @@ export function VideosFilter({ parshiot }: VideosFilterProps) {
                     color: 'var(--ink-400)',
                   }}
                 >
-                  {parsha.book}
+                  {parsha.kind === 'holiday' ? 'Holiday' : parsha.book}
                 </div>
               </div>
 
@@ -246,7 +287,9 @@ export function VideosFilter({ parshiot }: VideosFilterProps) {
               color: 'var(--ink-400)',
             }}
           >
-            No parshiot in {activeBook} yet.
+            {activeKind === 'holiday'
+              ? 'No holidays yet.'
+              : `No parshiot in ${activeBook} yet.`}
           </div>
         )}
       </div>

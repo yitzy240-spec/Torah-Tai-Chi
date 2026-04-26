@@ -52,6 +52,14 @@ export default async function VideoDetailPage({ params }: PageProps) {
 
   const aTight = parsha.scripts?.find((s) => s.option === 'A-tight') ?? null;
 
+  // Yonah's saved default quality tier (falls back to 720p standard).
+  const { data: defaultTierRow } = await supabase
+    .from('site_content')
+    .select('value')
+    .eq('key', 'settings.default_tier')
+    .maybeSingle();
+  const defaultTierKey: string = defaultTierRow?.value ?? '720p standard';
+
   // Fetch most recent DONE job for this parsha, including the video + cost.
   const { data: latestJob } = await supabase
     .from('jobs')
@@ -420,6 +428,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
         <ScriptCarousel
           parshaId={parsha.id}
           parshaName={parsha.name}
+          defaultTierKey={defaultTierKey}
           scripts={parsha.scripts ?? []}
         />
       </div>

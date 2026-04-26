@@ -92,7 +92,7 @@ export default async function SettingsPage() {
     .select('value')
     .eq('key', 'settings.default_tier')
     .single();
-  const defaultTierKey: string = defaultTierRow?.value ?? '720p fast';
+  const defaultTierKey: string = defaultTierRow?.value ?? '720p standard';
 
   const { users = [] } = await listUsers();
   const stance = await getStance();

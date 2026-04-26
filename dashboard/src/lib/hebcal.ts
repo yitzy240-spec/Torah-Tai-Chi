@@ -15,6 +15,40 @@ export type ShabbatParsha = {
   holiday?: string;    // closest holiday name this week, if any
 };
 
+export type UpcomingHoliday = {
+  slug: string;        // our parshiot slug, e.g. "rosh-hashana"
+  name: string;        // display name, e.g. "Rosh Hashana"
+  hebrew: string;      // Hebrew name from Hebcal
+  date: string;        // ISO date of first day, e.g. "2026-09-12"
+};
+
+// Hebcal calls each holiday by a specific title. We match by regex so
+// "Sukkot I" / "Pesach I" / etc. fold to one slug per holiday.
+const HEBCAL_HOLIDAY_PATTERNS: Array<[RegExp, string]> = [
+  [/^Rosh Hashana( I)?$/,        'rosh-hashana'],
+  [/^Yom Kippur$/,                'yom-kippur'],
+  [/^Sukkot I$/,                  'sukkot'],
+  [/^Shmini Atzeret$/,            'shemini-atzeret'],
+  [/^Simchat Torah$/,             'simchat-torah'],
+  [/^Chanukah: 1 Candle$/,        'chanukah'],
+  [/^Tu BiShvat$/,                'tu-bishvat'],
+  [/^Purim$/,                     'purim'],
+  [/^Pesach I$/,                  'pesach'],
+  [/^Yom HaShoah$/,               'yom-hashoah'],
+  [/^Yom HaZikaron$/,             'yom-hazikaron'],
+  [/^Yom HaAtzma'?ut$/,           'yom-haatzmaut'],
+  [/^Lag BaOmer$/,                'lag-baomer'],
+  [/^Shavuot I$/,                 'shavuot'],
+  [/^Tish'?a B'?Av$/,             'tisha-bav'],
+];
+
+function holidaySlugFor(title: string): string | null {
+  for (const [re, slug] of HEBCAL_HOLIDAY_PATTERNS) {
+    if (re.test(title)) return slug;
+  }
+  return null;
+}
+
 export const HEBCAL_TO_SLUG: Record<string, string> = {
   "Bereshit":           "bereishit",
   "Noach":              "noach",
@@ -186,5 +220,48 @@ export const getThisWeekParsha = unstable_cache(
 export const getUpcomingWeeks = unstable_cache(
   async (n = 6): Promise<ShabbatParsha[]> => _fetchUpcomingWeeks(n),
   ["hebcal-upcoming-weeks-v3-sedrot"],
+  { revalidate: 3600 }
+);
+
+async function _fetchUpcomingHolidays(daysAhead: number): Promise<UpcomingHoliday[]> {
+  try {
+    const res = await fetch(
+      "https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=off&nx=on&year=now&month=x&ss=on&mf=on&c=on&s=on&geo=none&geonameid=5128581",
+      { cache: "no-store" }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items: HebcalItem[] = data.items ?? [];
+
+    const today = new Date().toISOString().slice(0, 10);
+    const cutoff = new Date(Date.now() + daysAhead * 86400000)
+      .toISOString().slice(0, 10);
+
+    const seen = new Set<string>();
+    const out: UpcomingHoliday[] = [];
+    for (const item of items) {
+      if (item.category !== "holiday") continue;
+      if (item.date < today || item.date > cutoff) continue;
+      const slug = holidaySlugFor(item.title);
+      if (!slug || seen.has(slug)) continue;
+      seen.add(slug);
+      out.push({
+        slug,
+        name: item.title.replace(/^Erev\s+/, ""),
+        hebrew: item.hebrew ?? "",
+        date: item.date,
+      });
+    }
+    out.sort((a, b) => a.date.localeCompare(b.date));
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch upcoming holidays within the next N days. Cached 1 hour. */
+export const getUpcomingHolidays = unstable_cache(
+  async (daysAhead = 180): Promise<UpcomingHoliday[]> => _fetchUpcomingHolidays(daysAhead),
+  ["hebcal-upcoming-holidays-v1"],
   { revalidate: 3600 }
 );
