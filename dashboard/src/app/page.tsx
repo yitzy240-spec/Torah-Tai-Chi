@@ -289,6 +289,20 @@ export default async function TodayPage() {
                 {parsha?.name ?? 'Kedoshim'}
                 <em style={{ fontStyle: 'italic', color: 'var(--cedar-600)', fontVariationSettings: '"opsz" 144, "SOFT" 70' }}>.</em>
               </h1>
+              {hebcalParsha?.combined && (
+                <div
+                  style={{
+                    marginTop: '8px',
+                    fontFamily: 'var(--ff-display)',
+                    fontStyle: 'italic',
+                    fontSize: '15px',
+                    color: 'var(--cedar-600)',
+                    fontVariationSettings: '"opsz" 18, "SOFT" 60',
+                  }}
+                >
+                  paired with {hebcalParsha.combined} this Shabbat
+                </div>
+              )}
 
               <div
                 style={{
