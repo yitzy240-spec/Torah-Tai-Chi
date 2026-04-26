@@ -9,6 +9,11 @@ interface ScheduleAllSheetProps {
   videoId: string;
   captions: Partial<Record<Platform, string>>;
   bufferConfigured: boolean;
+  /** 'now' renders a "Post now" trigger that opens the sheet pre-toggled
+   *  to immediate posting. 'schedule' (default) is the original behavior. */
+  mode?: 'now' | 'schedule';
+  /** Visual variant for the trigger: solid navy ('primary') or outline. */
+  variant?: 'primary' | 'secondary';
 }
 
 /** Returns the next Friday at 18:00 local time */
@@ -35,11 +40,11 @@ function formatFriendly(d: Date): string {
   return `${dayNames[d.getDay()]} ${monthNames[d.getMonth()]} ${d.getDate()} at ${h12}:${String(d.getMinutes()).padStart(2,'0')}${ampm}`;
 }
 
-export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: ScheduleAllSheetProps) {
+export function ScheduleAllSheet({ videoId, captions, bufferConfigured, mode = 'schedule', variant = 'primary' }: ScheduleAllSheetProps) {
   const defaultDate = nextFriday6pm();
   const [open, setOpen] = useState(false);
   const [notConfiguredOpen, setNotConfiguredOpen] = useState(false);
-  const [shareNow, setShareNow] = useState(false);
+  const [shareNow, setShareNow] = useState(mode === 'now');
   const [scheduledAt, setScheduledAt] = useState(formatDatetimeLocal(defaultDate));
   const [isPending, startTransition] = useTransition();
   const [toastMsg, setToastMsg] = useState('');
@@ -59,6 +64,10 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
       return;
     }
     setError(null);
+    // Re-sync timing toggle to the trigger's mode so reopening from the
+    // "Post now" button doesn't inherit a previous "Schedule for later"
+    // selection.
+    setShareNow(mode === 'now');
     setOpen(true);
   };
 
@@ -110,15 +119,17 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
           padding: '11px 22px',
           minHeight: '44px',
           borderRadius: '999px',
-          border: '1px solid var(--navy-800)',
-          background: 'var(--navy-800)',
-          color: 'var(--linen-50)',
+          border: `1px solid ${variant === 'secondary' ? 'var(--ink-200)' : 'var(--navy-800)'}`,
+          background: variant === 'secondary' ? 'transparent' : 'var(--navy-800)',
+          color: variant === 'secondary' ? 'var(--ink-700)' : 'var(--linen-50)',
           cursor: 'pointer',
           transition: 'all var(--trans)',
-          boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
+          boxShadow: variant === 'secondary'
+            ? 'none'
+            : '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
         }}
       >
-        Schedule all
+        {mode === 'now' ? 'Post now' : 'Schedule all'}
       </button>
 
       {typeof document !== 'undefined' && createPortal(

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PlatformIcon } from '@/components/platform-icon';
 import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
+import { CaptionsList } from '@/components/captions-list';
 import { ScriptCarousel } from '@/components/script-carousel';
 import { PLATFORMS, type Platform } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
@@ -580,59 +581,11 @@ export default async function VideoDetailPage({ params }: PageProps) {
           >
             Per-platform preview
           </p>
-          {PLATFORMS.map((platform) => ({
-            platform,
-            caption: captions[platform] ?? null,
-          })).filter(({ caption }) => caption).map(({ platform, caption }) => (
-            <div
-              key={platform}
-              style={{
-                padding: '12px 14px',
-                border: '1px solid var(--ink-100)',
-                borderRadius: 'var(--r-md)',
-                marginBottom: '8px',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '12px',
-              }}
-            >
-              <span style={{ width: '22px', height: '22px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-500)' }}>
-                <PlatformIcon name={platform} size={18} />
-              </span>
-              <span
-                style={{
-                  fontSize: '13px',
-                  color: 'var(--ink-700)',
-                  flex: 1,
-                  minWidth: 0,
-                  lineHeight: 1.45,
-                  overflowWrap: 'anywhere',
-                }}
-              >
-                {caption}
-              </span>
-              <button
-                type="button"
-                style={{
-                  fontSize: '12px',
-                  color: 'var(--ink-400)',
-                  textDecoration: 'underline',
-                  textDecorationColor: 'var(--ink-200)',
-                  textUnderlineOffset: '3px',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  minHeight: '44px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                }}
-              >
-                Edit
-              </button>
-            </div>
-          ))}
+          <CaptionsList
+            jobId={latestJob?.id ?? null}
+            captions={captions}
+            parshaSlug={parsha.slug}
+          />
         </div>
 
         {/* Distribution panel */}
@@ -718,13 +671,23 @@ export default async function VideoDetailPage({ params }: PageProps) {
               </span>
             </div>
           ))}
-          <div style={{ marginTop: '16px' }}>
+          <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
             {videoId ? (
-              <ScheduleAllSheet
-                videoId={videoId}
-                captions={captions}
-                bufferConfigured={bufferConfigured}
-              />
+              <>
+                <ScheduleAllSheet
+                  videoId={videoId}
+                  captions={captions}
+                  bufferConfigured={bufferConfigured}
+                  mode="now"
+                />
+                <ScheduleAllSheet
+                  videoId={videoId}
+                  captions={captions}
+                  bufferConfigured={bufferConfigured}
+                  mode="schedule"
+                  variant="secondary"
+                />
+              </>
             ) : (
               <button
                 type="button"
