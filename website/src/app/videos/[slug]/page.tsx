@@ -175,6 +175,10 @@ export default async function VideoDetailPage({ params }: Props) {
             </div>
           </div>
 
+          {parsha.websiteCaption && (
+            <p className="vd-deck stagger">{parsha.websiteCaption}</p>
+          )}
+
           <article className="vd-script stagger">
             <div className="vd-script-kicker">
               <span className="bar"></span>

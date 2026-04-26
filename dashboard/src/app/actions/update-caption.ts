@@ -62,6 +62,16 @@ export async function updateCaption(
 
   if (updateErr) return { error: updateErr.message };
 
+  // Mirror Instagram caption -> videos.website_caption so the public
+  // website always reads the latest copy without needing access to
+  // clip_plans (which holds internal prompt/structure data).
+  if (args.platform === 'instagram') {
+    await sb
+      .from('videos')
+      .update({ website_caption: args.text })
+      .eq('job_id', args.jobId);
+  }
+
   if (args.parshaSlug) revalidatePath(`/videos/${args.parshaSlug}`);
 
   return {};

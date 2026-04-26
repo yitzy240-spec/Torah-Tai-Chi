@@ -506,6 +506,13 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 .vd-player .play svg{width:32px;height:32px;color:var(--linen-50);margin-left:3px}
 .vd-player .vlabel{position:absolute;bottom:16px;left:16px;right:16px;font-family:var(--ff-display);font-style:italic;font-size:13px;color:rgba(250,244,232,.6);font-variation-settings:"opsz" 14,"SOFT" 50;text-align:center;}
 .vd-video-el{width:100%;height:100%;display:block;background:var(--ink-900);object-fit:cover;}
+.vd-deck{
+  max-width:62ch;margin:36px auto 0;padding:0 48px;
+  font-family:var(--ff-display);font-style:italic;
+  font-size:18px;line-height:1.55;color:var(--ink-700);
+  font-variation-settings:"opsz" 18,"SOFT" 55;
+}
+@media(max-width:700px){.vd-deck{padding:0 20px;font-size:16px;margin-top:28px}}
 .vd-script{max-width:62ch;margin:64px auto 0;padding:0 48px;}
 @media(max-width:700px){.vd-script{padding:0 20px;margin-top:48px}}
 .vd-script-kicker{font-family:var(--ff-body);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cedar-600);margin-bottom:20px;text-align:center;display:flex;align-items:center;justify-content:center;gap:10px;}

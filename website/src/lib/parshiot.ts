@@ -16,6 +16,11 @@ export interface Parsha {
   /** Public URL for the rendered mp4 — present iff the video has been
    *  published to the site (anon RLS filters unpublished rows out). */
   videoUrl?: string | null;
+  /** Marketing-voice description denormalized onto videos.website_caption
+   *  (defaults to the auto-generated Instagram caption, kept in sync by
+   *  the dashboard caption editor). Falls back to atightScript when
+   *  unset. */
+  websiteCaption?: string | null;
 }
 
 // All known slugs for generateStaticParams fallback
@@ -56,7 +61,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       .eq("option", "A-tight"),
     client
       .from("videos")
-      .select("parsha_id, thumb_path, mp4_path")
+      .select("parsha_id, thumb_path, mp4_path, website_caption")
       .in("parsha_id", parshaIds),
   ]);
 
@@ -67,14 +72,17 @@ export async function getAllParshiot(): Promise<Parsha[]> {
 
   const thumbMap = new Map<string, string | null>();
   const videoMap = new Map<string, string | null>();
+  const captionMap = new Map<string, string | null>();
   for (const v of (videosResult.data ?? []) as Array<{
     parsha_id: string | null;
     thumb_path: string | null;
     mp4_path: string | null;
+    website_caption: string | null;
   }>) {
     if (!v.parsha_id) continue;
     if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
     if (v.mp4_path) videoMap.set(v.parsha_id, v.mp4_path);
+    if (v.website_caption) captionMap.set(v.parsha_id, v.website_caption);
   }
 
   return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string }) => {
@@ -92,6 +100,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       atightTitle: script?.title,
       thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
       videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
+      websiteCaption: captionMap.get(row.id) ?? null,
     };
   });
 }
@@ -122,7 +131,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     // public-readable anyway.
     client
       .from("videos")
-      .select("thumb_path, mp4_path")
+      .select("thumb_path, mp4_path, website_caption")
       .eq("parsha_id", parshaData.id)
       .maybeSingle(),
   ]);
@@ -141,6 +150,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     atightTitle: scriptResult.data?.title,
     thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
     videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
+    websiteCaption: videoResult.data?.website_caption ?? null,
   };
 }
 

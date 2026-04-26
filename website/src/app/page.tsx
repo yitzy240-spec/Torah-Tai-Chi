@@ -47,10 +47,11 @@ export default async function HomePage() {
     .filter((p) => !!p.thumbUrl)
     .slice(0, 8)
     .map((p) => {
-      // Trim the script to ~28 words / ~180 chars for the flip preview.
-      // Stop at the end of the first sentence past 90 chars so we don't
-      // chop mid-sentence on short scripts.
-      const text = (p.atightScript ?? '').trim();
+      // Prefer the marketing-voice website caption (mirrored from the
+      // Instagram caption). Fall back to the spoken script when no
+      // caption is set yet. Trim either source to the end of the first
+      // sentence past 90 chars so previews don't chop mid-word.
+      const text = (p.websiteCaption ?? p.atightScript ?? '').trim();
       let preview = text;
       if (preview.length > 200) {
         const minCut = preview.slice(0, 90);
