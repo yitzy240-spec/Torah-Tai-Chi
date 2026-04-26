@@ -3,7 +3,7 @@ import { getAllParshiot } from "@/lib/parshiot";
 import { getAllArticles } from "@/lib/articles";
 import { getSiteContent, splitEm } from "@/lib/site-content";
 import { getThisWeekParsha } from "@/lib/hebcal";
-import VideoCard from "@/components/VideoCard";
+import RecentTeachingsCarousel, { type CarouselCard } from "@/components/RecentTeachingsCarousel";
 import ArticleCard from "@/components/ArticleCard";
 import Brand from "@/components/Brand";
 
@@ -39,12 +39,35 @@ export default async function HomePage() {
     : null;
   const thisWeek = hebcalMatch ?? withScript[0] ?? parshiot[0];
 
-  // Only surface parshiot that ALREADY have a rendered video on the
-  // homepage, capped at 3. Showing every parsha-with-script (the previous
-  // four) made most cards render the placeholder thumb, which read as
-  // "everything's empty" rather than "here's what's just dropped." The
-  // full grid still lives on /videos for browsing.
-  const recentThree = withScript.filter((p) => !!p.thumbUrl).slice(0, 3);
+  // Carousel data: only parshiot that have a rendered video. Empty
+  // placeholder cards looked like "everything's coming soon" — better
+  // to show fewer real cards swipeable as a row than to fill the grid
+  // with placeholder thumbs. Full library is still /videos.
+  const carouselCards: CarouselCard[] = withScript
+    .filter((p) => !!p.thumbUrl)
+    .slice(0, 8)
+    .map((p) => {
+      // Trim the script to ~28 words / ~180 chars for the flip preview.
+      // Stop at the end of the first sentence past 90 chars so we don't
+      // chop mid-sentence on short scripts.
+      const text = (p.atightScript ?? '').trim();
+      let preview = text;
+      if (preview.length > 200) {
+        const minCut = preview.slice(0, 90);
+        const restMatch = preview.slice(90).match(/^[^.!?]*[.!?]/);
+        preview = (minCut + (restMatch?.[0] ?? '')).trim();
+        if (preview.length > 200) preview = preview.slice(0, 200).replace(/\s+\S*$/, '') + '…';
+      }
+      return {
+        name: p.name,
+        slug: p.slug,
+        hebrewName: p.hebrewName,
+        bookShortName: BOOK_SHORT[p.book] ?? p.book,
+        thumbUrl: p.thumbUrl ?? null,
+        isCurrentWeek: p.slug === thisWeek?.slug,
+        preview: preview || `${p.name} — a ~45-second teaching.`,
+      };
+    });
   const allArticles = await getAllArticles();
   const recentArticles = allArticles.slice(0, 3);
   const content = await getSiteContent();
@@ -152,41 +175,25 @@ export default async function HomePage() {
             All 54 parshiot →
           </Link>
         </div>
-        <div className="video-grid">
-          {recentThree.length > 0 ? (
-            recentThree.map((p) => (
-              <VideoCard
-                key={p.slug}
-                parsha={{
-                  name: p.name,
-                  slug: p.slug,
-                  bookShortName: BOOK_SHORT[p.book] ?? p.book,
-                  hebrewName: p.hebrewName,
-                  date: "",
-                }}
-                thumbUrl={p.thumbUrl}
-                isCurrentWeek={p.slug === thisWeek?.slug}
-              />
-            ))
-          ) : (
-            <p
-              style={{
-                gridColumn: "1 / -1",
-                fontFamily: "var(--ff-display)",
-                fontStyle: "italic",
-                fontSize: "15px",
-                color: "var(--ink-400)",
-                textAlign: "center",
-                padding: "32px 16px",
-              }}
-            >
-              The first teaching drops this week.{" "}
-              <Link href="/videos" style={{ color: "var(--cedar-600)" }}>
-                Browse all 54 parshiot →
-              </Link>
-            </p>
-          )}
-        </div>
+        {carouselCards.length > 0 ? (
+          <RecentTeachingsCarousel cards={carouselCards} />
+        ) : (
+          <p
+            style={{
+              fontFamily: "var(--ff-display)",
+              fontStyle: "italic",
+              fontSize: "15px",
+              color: "var(--ink-400)",
+              textAlign: "center",
+              padding: "32px 16px",
+            }}
+          >
+            The first teaching drops this week.{" "}
+            <Link href="/videos" style={{ color: "var(--cedar-600)" }}>
+              Browse all 54 parshiot →
+            </Link>
+          </p>
+        )}
       </section>
 
       {/* RECENT ARTICLES */}
