@@ -8,7 +8,11 @@ import { GenerateDialog } from '@/components/generate-dialog';
 import { checkHealth } from '@/lib/health';
 import { SystemHealthStrip } from '@/components/system-health';
 import { ScriptCarousel, type CarouselScript } from '@/components/script-carousel';
+import { TodayPostingPanel, type PostState } from '@/components/today-posting-panel';
 import { getStance } from '@/lib/stance';
+import { publicVideoUrl } from '@/lib/storage-url';
+import type { Platform } from '@/lib/platforms';
+import { PLATFORMS } from '@/lib/platforms';
 
 async function SystemHealthAsync() {
   const health = await checkHealth();
@@ -158,6 +162,108 @@ async function computeProductionArc(parshaId: string | undefined): Promise<Produ
   return arc;
 }
 
+interface PostingData {
+  jobId: string;
+  videoId: string;
+  videoUrl: string | null;
+  thumbUrl: string | null;
+  videoCostUsd: number | null;
+  chosenScriptOption: string | null;
+  captions: Partial<Record<Platform, string>>;
+  postsByPlatform: Partial<Record<Platform, PostState | null>>;
+}
+
+/**
+ * Fetch everything <TodayPostingPanel> needs when a parsha has a done video.
+ * Returns null when there's no done job yet — caller falls back to the
+ * regular ScriptCarousel UX.
+ */
+async function loadPostingData(parshaId: string): Promise<PostingData | null> {
+  const supabase = await createClient();
+
+  const { data: rawJob } = await supabase
+    .from('jobs')
+    .select(
+      'id, status, script_id, total_cost_usd, ' +
+      'videos(id, mp4_path, thumb_path), ' +
+      'scripts(option)',
+    )
+    .eq('parsha_id', parshaId)
+    .eq('status', 'done')
+    .order('triggered_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const latestJob = rawJob as any;
+  if (!latestJob) return null;
+
+  const videoRel = latestJob.videos;
+  const video = (Array.isArray(videoRel) ? videoRel[0] : videoRel) ?? null;
+  const videoId: string | null = video?.id ?? null;
+  if (!videoId) return null;
+
+  const scriptRel = latestJob.scripts;
+  const scriptRow = (Array.isArray(scriptRel) ? scriptRel[0] : scriptRel) ?? null;
+  const chosenScriptOption: string | null = scriptRow?.option ?? null;
+
+  // Captions live in the latest clip_plan's plan_json. Same shape /videos/[slug]
+  // already parses — keep this in sync if that ever moves.
+  const { data: planRow } = await supabase
+    .from('clip_plans')
+    .select('plan_json')
+    .eq('job_id', latestJob.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const planJson = (planRow?.plan_json ?? {}) as {
+    captions?: {
+      tiktok?: string;
+      instagram?: string;
+      youtube_title?: string;
+      youtube_description?: string;
+      facebook?: string;
+      twitter?: string;
+    };
+  };
+  const src = planJson.captions ?? {};
+  const captions: Partial<Record<Platform, string>> = {};
+  if (src.tiktok) captions.tiktok = src.tiktok;
+  if (src.instagram) captions.instagram = src.instagram;
+  if (src.facebook) captions.facebook = src.facebook;
+  if (src.twitter) captions.twitter = src.twitter;
+  if (src.youtube_title || src.youtube_description) {
+    const title = (src.youtube_title ?? '').trim();
+    const desc = (src.youtube_description ?? '').trim();
+    captions.youtube = title && desc ? `${title}\n${desc}` : (title || desc);
+  }
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: recentPosts } = await supabase
+    .from('posts')
+    .select('platform, status, scheduled_at, published_at')
+    .eq('video_id', videoId)
+    .gte('created_at', sevenDaysAgo);
+  const postsByPlatform: Partial<Record<Platform, PostState | null>> = {};
+  for (const p of PLATFORMS) {
+    const row = (recentPosts ?? []).find((r) => r.platform === p);
+    postsByPlatform[p] = row
+      ? { status: row.status, scheduled_at: row.scheduled_at, published_at: row.published_at }
+      : null;
+  }
+
+  return {
+    jobId: String(latestJob.id),
+    videoId,
+    videoUrl: video?.mp4_path ? publicVideoUrl(video.mp4_path) : null,
+    thumbUrl: video?.thumb_path ? publicVideoUrl(video.thumb_path) : null,
+    videoCostUsd: latestJob.total_cost_usd != null ? Number(latestJob.total_cost_usd) : null,
+    chosenScriptOption,
+    captions,
+    postsByPlatform,
+  };
+}
+
 async function getParshaBySlug(slug: string): Promise<Parsha | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -245,6 +351,12 @@ export default async function TodayPage() {
   // when the video was already done). Suspense-friendly: if these fail or
   // are slow, the page still renders.
   const arc = await computeProductionArc(parsha?.id);
+
+  // Posting-pivot data: when this week's parsha has a done video, swap the
+  // script carousel for a posting-focused panel. We fetch latest done job +
+  // its captions + posts, then pass it all into <TodayPostingPanel>.
+  const posting = parsha?.id ? await loadPostingData(parsha.id) : null;
+  const bufferConfigured = !!process.env.BUFFER_ACCESS_TOKEN;
 
   return (
     <>
@@ -466,28 +578,66 @@ export default async function TodayPage() {
             {/* Script carousel — flip between variants or generate a new one from an idea */}
             {parsha && parsha.scripts && parsha.scripts.length > 0 ? (
               <div style={{ position: 'relative', maxWidth: '62ch', margin: '0 auto' }}>
-                <ScriptCarousel
-                  parshaId={parsha.id}
-                  parshaName={parsha.name}
-                  parshaSlug={parsha.slug}
-                  defaultTierKey={defaultTierKey}
-                  combinedParshaIds={combinedParshaIds}
-                  scripts={
-                    // Merge partner parsha's scripts after the host's, each
-                    // tagged so ScriptCard knows where it came from.
-                    partnerParsha
-                      ? [
-                          ...(parsha.scripts as CarouselScript[]),
-                          ...((partnerParsha.scripts ?? []) as CarouselScript[]).map((s) => ({
-                            ...s,
-                            parsha_id: partnerParsha.id,
-                            parsha_name: partnerParsha.name,
-                            parsha_slug: partnerParsha.slug,
-                          })),
-                        ]
-                      : (parsha.scripts as CarouselScript[])
-                  }
-                />
+                {posting ? (
+                  <TodayPostingPanel
+                    parshaSlug={parsha.slug}
+                    parshaName={parsha.name}
+                    jobId={posting.jobId}
+                    videoId={posting.videoId}
+                    videoUrl={posting.videoUrl}
+                    thumbUrl={posting.thumbUrl}
+                    videoCostUsd={posting.videoCostUsd}
+                    chosenScriptOption={posting.chosenScriptOption}
+                    captions={posting.captions}
+                    postsByPlatform={posting.postsByPlatform}
+                    bufferConfigured={bufferConfigured}
+                    carousel={
+                      <ScriptCarousel
+                        parshaId={parsha.id}
+                        parshaName={parsha.name}
+                        parshaSlug={parsha.slug}
+                        defaultTierKey={defaultTierKey}
+                        combinedParshaIds={combinedParshaIds}
+                        scripts={
+                          partnerParsha
+                            ? [
+                                ...(parsha.scripts as CarouselScript[]),
+                                ...((partnerParsha.scripts ?? []) as CarouselScript[]).map((s) => ({
+                                  ...s,
+                                  parsha_id: partnerParsha.id,
+                                  parsha_name: partnerParsha.name,
+                                  parsha_slug: partnerParsha.slug,
+                                })),
+                              ]
+                            : (parsha.scripts as CarouselScript[])
+                        }
+                      />
+                    }
+                  />
+                ) : (
+                  <ScriptCarousel
+                    parshaId={parsha.id}
+                    parshaName={parsha.name}
+                    parshaSlug={parsha.slug}
+                    defaultTierKey={defaultTierKey}
+                    combinedParshaIds={combinedParshaIds}
+                    scripts={
+                      // Merge partner parsha's scripts after the host's, each
+                      // tagged so ScriptCard knows where it came from.
+                      partnerParsha
+                        ? [
+                            ...(parsha.scripts as CarouselScript[]),
+                            ...((partnerParsha.scripts ?? []) as CarouselScript[]).map((s) => ({
+                              ...s,
+                              parsha_id: partnerParsha.id,
+                              parsha_name: partnerParsha.name,
+                              parsha_slug: partnerParsha.slug,
+                            })),
+                          ]
+                        : (parsha.scripts as CarouselScript[])
+                    }
+                  />
+                )}
               </div>
             ) : (
               /* Fallback: no parsha in DB yet — show a teaser preview */
