@@ -12,7 +12,11 @@ interface SiteContentRow {
 
 interface FieldState {
   value: string;
-  saved: boolean;
+  /** Last value successfully published to Storyblok. Drives the dirty
+   *  comparison — comparing against the prop's row.value would freeze on
+   *  the initial server-fetched string and ignore subsequent saves, so
+   *  a revert to the original after a save couldn't trigger another save. */
+  savedValue: string;
   saving: boolean;
   error: string | null;
 }
@@ -37,7 +41,8 @@ export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow
   const [fields, setFields] = useState<Record<string, FieldState>>(() => {
     const m: Record<string, FieldState> = {};
     for (const row of initialRows) {
-      m[row.key] = { value: row.value ?? '', saved: true, saving: false, error: null };
+      const v = row.value ?? '';
+      m[row.key] = { value: v, savedValue: v, saving: false, error: null };
     }
     return m;
   });
@@ -52,10 +57,10 @@ export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow
     toastTimer.current = setTimeout(() => setToast(null), 2400);
   }
 
-  const handleChange = useCallback((key: string, value: string, original: string) => {
+  const handleChange = useCallback((key: string, value: string) => {
     setFields((prev) => ({
       ...prev,
-      [key]: { ...prev[key], value, saved: value === original, error: null },
+      [key]: { ...prev[key], value, error: null },
     }));
   }, []);
 
@@ -88,9 +93,9 @@ export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow
 
         setFields((prev) => ({
           ...prev,
-          [key]: { ...prev[key], saving: false, saved: true },
+          [key]: { ...prev[key], saving: false, savedValue: prev[key].value },
         }));
-        showToast(key, 'Saved.');
+        showToast(key, 'Published.');
         return;
       } catch (e) {
         lastError = e;
@@ -158,8 +163,9 @@ export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {rows.map((row) => {
-                const field = fields[row.key] ?? { value: row.value ?? '', saved: true, saving: false, error: null };
-                const isDirty = !field.saved && !field.saving;
+                const initial = row.value ?? '';
+                const field = fields[row.key] ?? { value: initial, savedValue: initial, saving: false, error: null };
+                const isDirty = field.value !== field.savedValue && !field.saving;
 
                 return (
                   <FieldCard
@@ -167,7 +173,7 @@ export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow
                     row={row}
                     field={field}
                     isDirty={isDirty}
-                    onChange={(v) => handleChange(row.key, v, row.value ?? '')}
+                    onChange={(v) => handleChange(row.key, v)}
                     onSave={() => handleSave(row.key)}
                   />
                 );
@@ -220,7 +226,7 @@ function FieldCard({ row, field, isDirty, onChange, onSave }: FieldCardProps) {
           fontVariationSettings: '"opsz" 12, "SOFT" 50',
         }}
       >
-        {field.saving ? 'Saving\u2026' : isDirty ? 'Unsaved' : 'Saved'}
+        {field.saving ? 'Publishing\u2026' : isDirty ? 'Unpublished change' : 'Live'}
       </div>
 
       {/* Key label */}
@@ -324,7 +330,7 @@ function FieldCard({ row, field, isDirty, onChange, onSave }: FieldCardProps) {
             transition: 'all var(--trans)',
           }}
         >
-          {field.saving ? 'Saving\u2026' : 'Save'}
+          {field.saving ? 'Publishing\u2026' : 'Save & publish'}
         </button>
       </div>
     </div>

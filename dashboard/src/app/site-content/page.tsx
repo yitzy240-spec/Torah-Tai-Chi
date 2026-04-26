@@ -61,7 +61,7 @@ export default async function SiteContentPage() {
             fontVariationSettings: '"opsz" 14, "SOFT" 50',
           }}
         >
-          The text Yonah can edit on the public site.
+          The text on the public site. <strong style={{ fontStyle: 'normal', color: 'var(--ink-700)' }}>Save & publish</strong> sends each change straight to torahtaichi.com — no separate publish step.
         </p>
       </div>
 
