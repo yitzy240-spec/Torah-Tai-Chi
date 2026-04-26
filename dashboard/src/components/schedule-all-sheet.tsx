@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
+import { createPortal } from 'react-dom';
 import { scheduleAll } from '@/app/actions/schedule-all';
 import type { Platform } from '@/lib/platforms';
 
@@ -120,6 +121,8 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
         Schedule all
       </button>
 
+      {typeof document !== 'undefined' && createPortal(
+      <>
       {/* "Buffer not configured" modal */}
       {notConfiguredOpen && (
         <>
@@ -403,6 +406,9 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured }: Schedu
         </span>
         <span>{toastMsg}</span>
       </div>
+      </>,
+      document.body
+      )}
     </>
   );
 }
