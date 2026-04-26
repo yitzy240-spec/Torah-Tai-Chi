@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { PlatformIcon } from '@/components/platform-icon';
 import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
 import { CaptionsList } from '@/components/captions-list';
+import { PublishToSiteToggle } from '@/components/publish-to-site-toggle';
 import { ScriptCarousel } from '@/components/script-carousel';
 import { PLATFORMS, type Platform } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
@@ -64,7 +65,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
   // Fetch most recent DONE job for this parsha, including the video + cost.
   const { data: latestJob } = await supabase
     .from('jobs')
-    .select('id, resolution, model_tier, total_cost_usd, videos(id, mp4_path, thumb_path)')
+    .select('id, resolution, model_tier, total_cost_usd, videos(id, mp4_path, thumb_path, published_to_website)')
     .eq('parsha_id', parsha.id)
     .eq('status', 'done')
     .order('triggered_at', { ascending: false })
@@ -77,6 +78,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
   const videoId: string | null = video?.id ?? null;
   const videoUrl: string | null = video?.mp4_path ? publicVideoUrl(video.mp4_path) : null;
   const thumbUrl: string | null = video?.thumb_path ? publicVideoUrl(video.thumb_path) : null;
+  const videoPublishedToSite: boolean = !!video?.published_to_website;
   const videoCostUsd = (latestJob?.total_cost_usd as number | null) ?? null;
 
   // Also check for an in-flight job so the production arc reflects real state.
@@ -260,6 +262,14 @@ export default async function VideoDetailPage({ params }: PageProps) {
           )}
           {videoId && <VideoReadyPill />}
           {videoId && <PostedStatusPill anyPublished={anyPublished} anyScheduled={anyScheduled} />}
+          {videoId && (
+            <PublishToSiteToggle
+              videoId={videoId}
+              initialPublished={videoPublishedToSite}
+              parshaSlug={parsha.slug}
+              variant="pill"
+            />
+          )}
         </div>
       </header>
 
@@ -680,22 +690,29 @@ export default async function VideoDetailPage({ params }: PageProps) {
               </span>
             </div>
           ))}
-          <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
+          <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'stretch' }}>
             {videoId ? (
               <>
-                <ScheduleAllSheet
+                <PublishToSiteToggle
                   videoId={videoId}
-                  captions={captions}
-                  bufferConfigured={bufferConfigured}
-                  mode="now"
+                  initialPublished={videoPublishedToSite}
+                  parshaSlug={parsha.slug}
                 />
-                <ScheduleAllSheet
-                  videoId={videoId}
-                  captions={captions}
-                  bufferConfigured={bufferConfigured}
-                  mode="schedule"
-                  variant="secondary"
-                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
+                  <ScheduleAllSheet
+                    videoId={videoId}
+                    captions={captions}
+                    bufferConfigured={bufferConfigured}
+                    mode="now"
+                  />
+                  <ScheduleAllSheet
+                    videoId={videoId}
+                    captions={captions}
+                    bufferConfigured={bufferConfigured}
+                    mode="schedule"
+                    variant="secondary"
+                  />
+                </div>
               </>
             ) : (
               <button

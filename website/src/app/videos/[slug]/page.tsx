@@ -150,14 +150,28 @@ export default async function VideoDetailPage({ params }: Props) {
 
           <div className="vd-player-wrap stagger">
             <div className="vd-player">
-              <div className="play">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-              </div>
-              <div className="vlabel">
-                {parsha.name} &middot; {parsha.atightTitle ?? "~45s"}
-              </div>
+              {parsha.videoUrl ? (
+                // eslint-disable-next-line jsx-a11y/media-has-caption
+                <video
+                  src={parsha.videoUrl}
+                  poster={parsha.thumbUrl ?? undefined}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="vd-video-el"
+                />
+              ) : (
+                <>
+                  <div className="play">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </div>
+                  <div className="vlabel">
+                    {parsha.name} &middot; coming soon
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

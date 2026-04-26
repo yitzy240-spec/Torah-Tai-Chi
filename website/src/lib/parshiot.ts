@@ -13,6 +13,9 @@ export interface Parsha {
   atightTitle?: string;
   /** Feature B: full public URL for the video thumbnail, or null if none yet */
   thumbUrl?: string | null;
+  /** Public URL for the rendered mp4 — present iff the video has been
+   *  published to the site (anon RLS filters unpublished rows out). */
+  videoUrl?: string | null;
 }
 
 // All known slugs for generateStaticParams fallback
@@ -36,7 +39,15 @@ export async function getAllParshiot(): Promise<Parsha[]> {
 
   const parshaIds = parshiotData.map((p: { id: string }) => p.id);
 
-  // Fetch A-tight scripts and videos in parallel
+  // Fetch A-tight scripts and videos in parallel.
+  //
+  // The videos query no longer joins through jobs. Two reasons:
+  //  - jobs has internal data (cost, triggered_by) we don't want exposed
+  //    via anon RLS,
+  //  - videos.parsha_id was denormalized in 20260426_videos_publish_gate
+  //    so the website can query it directly.
+  // Anon RLS on videos already filters to published_to_website = true,
+  // which is the publish gate Yonah controls per-video on the dashboard.
   const [scriptsResult, videosResult] = await Promise.all([
     client
       .from("scripts")
@@ -45,9 +56,8 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       .eq("option", "A-tight"),
     client
       .from("videos")
-      .select("thumb_path, jobs!inner(parsha_id)")
-      .eq("qa_seed", false)
-      .in("jobs.parsha_id", parshaIds),
+      .select("parsha_id, thumb_path, mp4_path")
+      .in("parsha_id", parshaIds),
   ]);
 
   const scriptMap = new Map<string, { title: string; draft_text: string }>();
@@ -56,18 +66,21 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   }
 
   const thumbMap = new Map<string, string | null>();
+  const videoMap = new Map<string, string | null>();
   for (const v of (videosResult.data ?? []) as Array<{
+    parsha_id: string | null;
     thumb_path: string | null;
-    jobs: { parsha_id: string } | { parsha_id: string }[] | null;
+    mp4_path: string | null;
   }>) {
-    if (!v.thumb_path || !v.jobs) continue;
-    const parshaId = Array.isArray(v.jobs) ? v.jobs[0]?.parsha_id : v.jobs.parsha_id;
-    if (parshaId) thumbMap.set(parshaId, v.thumb_path);
+    if (!v.parsha_id) continue;
+    if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
+    if (v.mp4_path) videoMap.set(v.parsha_id, v.mp4_path);
   }
 
   return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string }) => {
     const script = scriptMap.get(row.id);
     const thumbPath = thumbMap.get(row.id) ?? null;
+    const mp4Path = videoMap.get(row.id) ?? null;
     return {
       id: row.id,
       order: row.order,
@@ -78,6 +91,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       atightScript: script?.draft_text,
       atightTitle: script?.title,
       thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
+      videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
     };
   });
 }
@@ -103,15 +117,18 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
       .eq("parsha_id", parshaData.id)
       .eq("option", "A-tight")
       .single(),
+    // Anon RLS already filters to published_to_website=true. No qa_seed
+    // filter needed — that column was for the old seed flow and isn't
+    // public-readable anyway.
     client
       .from("videos")
-      .select("thumb_path")
-      .eq("qa_seed", false)
+      .select("thumb_path, mp4_path")
       .eq("parsha_id", parshaData.id)
       .maybeSingle(),
   ]);
 
   const thumbPath = videoResult.data?.thumb_path ?? null;
+  const mp4Path = videoResult.data?.mp4_path ?? null;
 
   return {
     id: parshaData.id,
@@ -123,6 +140,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     atightScript: scriptResult.data?.draft_text,
     atightTitle: scriptResult.data?.title,
     thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
+    videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
   };
 }
 

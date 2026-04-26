@@ -169,6 +169,7 @@ interface PostingData {
   thumbUrl: string | null;
   videoCostUsd: number | null;
   chosenScriptOption: string | null;
+  publishedToSite: boolean;
   captions: Partial<Record<Platform, string>>;
   postsByPlatform: Partial<Record<Platform, PostState | null>>;
 }
@@ -185,7 +186,7 @@ async function loadPostingData(parshaId: string): Promise<PostingData | null> {
     .from('jobs')
     .select(
       'id, status, script_id, total_cost_usd, ' +
-      'videos(id, mp4_path, thumb_path), ' +
+      'videos(id, mp4_path, thumb_path, published_to_website), ' +
       'scripts(option)',
     )
     .eq('parsha_id', parshaId)
@@ -259,6 +260,7 @@ async function loadPostingData(parshaId: string): Promise<PostingData | null> {
     thumbUrl: video?.thumb_path ? publicVideoUrl(video.thumb_path) : null,
     videoCostUsd: latestJob.total_cost_usd != null ? Number(latestJob.total_cost_usd) : null,
     chosenScriptOption,
+    publishedToSite: !!video?.published_to_website,
     captions,
     postsByPlatform,
   };
@@ -588,6 +590,7 @@ export default async function TodayPage() {
                     thumbUrl={posting.thumbUrl}
                     videoCostUsd={posting.videoCostUsd}
                     chosenScriptOption={posting.chosenScriptOption}
+                    publishedToSite={posting.publishedToSite}
                     captions={posting.captions}
                     postsByPlatform={posting.postsByPlatform}
                     bufferConfigured={bufferConfigured}

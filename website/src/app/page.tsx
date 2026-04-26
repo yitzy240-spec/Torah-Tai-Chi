@@ -117,11 +117,23 @@ export default async function HomePage() {
             </div>
           )}
           <div className="video-frame">
-            <div className="play">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
-              </svg>
-            </div>
+            {thisWeek?.videoUrl ? (
+              // eslint-disable-next-line jsx-a11y/media-has-caption
+              <video
+                src={thisWeek.videoUrl}
+                poster={thisWeek.thumbUrl ?? undefined}
+                controls
+                playsInline
+                preload="metadata"
+                style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}
+              />
+            ) : (
+              <div className="play">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </div>
+            )}
           </div>
           {thisWeek && (
             <div className="video-caption">

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { PlatformIcon } from './platform-icon';
 import { CaptionsList } from './captions-list';
 import { ScheduleAllSheet } from './schedule-all-sheet';
+import { PublishToSiteToggle } from './publish-to-site-toggle';
 import { PLATFORMS, type Platform } from '@/lib/platforms';
 
 export type PostState = {
@@ -22,6 +23,7 @@ interface Props {
   thumbUrl: string | null;
   videoCostUsd: number | null;
   chosenScriptOption: string | null;
+  publishedToSite: boolean;
   captions: Partial<Record<Platform, string>>;
   postsByPlatform: Partial<Record<Platform, PostState | null>>;
   bufferConfigured: boolean;
@@ -55,7 +57,8 @@ function statusLabel(post: PostState | null | undefined): { label: string; live:
 export function TodayPostingPanel(props: Props) {
   const {
     parshaSlug, parshaName, jobId, videoId, videoUrl, thumbUrl, videoCostUsd,
-    chosenScriptOption, captions, postsByPlatform, bufferConfigured, carousel,
+    chosenScriptOption, publishedToSite, captions, postsByPlatform,
+    bufferConfigured, carousel,
   } = props;
 
   // When user clicks "Pick a different script", we hand the floor back to
@@ -265,6 +268,12 @@ export function TodayPostingPanel(props: Props) {
                 Not posted
               </span>
             )}
+            <PublishToSiteToggle
+              videoId={videoId}
+              initialPublished={publishedToSite}
+              parshaSlug={parshaSlug}
+              variant="pill"
+            />
           </div>
           <h2
             style={{
