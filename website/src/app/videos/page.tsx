@@ -47,7 +47,6 @@ export default async function VideosPage() {
     slug: p.slug,
     book: p.book,
     hebrewName: p.hebrewName,
-    durationLabel: "0:45",
     thumbUrl: p.thumbUrl ?? null,
     isCurrentWeek: p.slug === currentWeekSlug,
   }));

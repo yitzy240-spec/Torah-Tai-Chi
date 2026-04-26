@@ -5,11 +5,11 @@ import { ContactForm } from "./contact-form";
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Get in touch with Torah Tai Chi — questions, classes, collaborations, or just to say hello.",
+    "Get in touch with Torah Tai Chi — questions, collaborations, or just to say hello.",
   openGraph: {
     title: "Contact · Torah Tai Chi",
     description:
-      "Get in touch with Torah Tai Chi — questions, classes, collaborations, or just to say hello.",
+      "Get in touch with Torah Tai Chi — questions, collaborations, or just to say hello.",
     type: "website",
     url: "https://torahtaichi.com/contact",
     siteName: "Torah Tai Chi",
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Contact · Torah Tai Chi",
     description:
-      "Get in touch with Torah Tai Chi — questions, classes, collaborations, or just to say hello.",
+      "Get in touch with Torah Tai Chi — questions, collaborations, or just to say hello.",
   },
 };
 
@@ -35,7 +35,7 @@ export default function ContactPage() {
           Say <em>hello</em>
         </h1>
         <p className="about-deck">
-          Questions, classes, collaborations, or just to say hi — we read
+          Questions, collaborations, or just to say hi — we read
           everything that lands here.
         </p>
 

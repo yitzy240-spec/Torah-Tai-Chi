@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllParshiot, getParshaBySlug, getNearbyParshiot, ALL_PARSHA_SLUGS } from "@/lib/parshiot";
 import VideoCard from "@/components/VideoCard";
+import ShareRow from "@/components/ShareRow";
 import { videoSchema, breadcrumbSchema } from "@/lib/jsonld";
 
 // ISR: revalidate every 300 s (5 min); new slugs served on demand
@@ -176,6 +177,11 @@ export default async function VideoDetailPage({ params }: Props) {
               </p>
             )}
           </article>
+
+          <ShareRow
+            url={`https://torahtaichi.com/videos/${slug}`}
+            title={parsha.atightTitle ?? `${parsha.name} — Torah Tai Chi`}
+          />
         </>
       ) : (
         <div style={{ maxWidth: "900px", margin: "0 auto", padding: "48px 48px 0" }}>
@@ -208,7 +214,6 @@ export default async function VideoDetailPage({ params }: Props) {
                   bookShortName: BOOK_SHORT[p.book] ?? p.book,
                   hebrewName: p.hebrewName,
                   date: "",
-                  durationLabel: "0:45",
                 }}
               />
             ))}

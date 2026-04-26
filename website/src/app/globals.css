@@ -384,7 +384,8 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
   color:rgba(250,244,232,.6);font-variation-settings:"opsz" 14,"SOFT" 50;
 }
 .video-parsha-tag{
-  position:absolute;top:-12px;left:50%;transform:translateX(-50%);
+  position:absolute;top:-14px;left:50%;transform:translateX(-50%);
+  z-index:2;
   background:var(--linen-50);border:1px solid var(--ink-200);
   padding:6px 18px;border-radius:999px;white-space:nowrap;
   font-family:var(--ff-display);font-size:12px;font-weight:500;
@@ -510,6 +511,16 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 .vd-script-kicker .bar{width:28px;height:1px;background:var(--cedar-400)}
 .vd-script p{font-family:var(--ff-reading);font-size:20px;line-height:1.7;color:var(--ink-800);margin:0 0 22px 0;font-variation-settings:"opsz" 20,"SOFT" 40;}
 .vd-script p:first-of-type{font-size:22px;font-style:italic;color:var(--ink-700);font-variation-settings:"opsz" 22,"SOFT" 55;}
+.share-row{max-width:62ch;margin:48px auto 0;padding:0 48px;text-align:center;}
+@media(max-width:700px){.share-row{padding:0 20px;margin-top:36px}}
+.share-label{font-family:var(--ff-body);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cedar-600);margin-bottom:14px;}
+.share-buttons{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;}
+.share-btn{display:inline-flex;align-items:center;gap:8px;font-family:var(--ff-body);font-size:13px;font-weight:500;color:var(--ink-700);background:var(--linen-50);border:1px solid var(--ink-200);border-radius:999px;padding:9px 16px;min-height:40px;text-decoration:none;cursor:pointer;transition:all var(--trans);line-height:1;}
+.share-btn:hover{border-color:var(--ink-700);color:var(--ink-900)}
+.share-btn svg{width:14px;height:14px;flex-shrink:0;}
+.share-btn-primary{background:var(--navy-800);color:var(--linen-50);border-color:var(--navy-800);}
+.share-btn-primary:hover{background:var(--ink-900);color:var(--linen-50);border-color:var(--ink-900)}
+
 .more-section{max-width:1100px;margin:96px auto 0;padding:0 48px;}
 @media(max-width:700px){.more-section{padding:0 20px;margin-top:64px}}
 .more-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:24px;}

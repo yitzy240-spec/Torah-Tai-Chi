@@ -7,7 +7,10 @@ interface ParshaCardData {
   bookShortName: string;
   hebrewName: string;
   date: string;
-  durationLabel: string;
+  /** Optional duration label. Hidden by default — uniform "~45s" across
+   *  every parsha was confusing readers (looked like a real timestamp on
+   *  the placeholder card). Pass when the duration is genuinely useful. */
+  durationLabel?: string;
 }
 
 interface VideoCardProps {
@@ -59,7 +62,9 @@ export default function VideoCard({ parsha, thumbUrl, isCurrentWeek }: VideoCard
             borderRadius: "inherit",
           }}
         />
-        <span className="dur" style={{ position: "relative", zIndex: 1 }}>{parsha.durationLabel}</span>
+        {parsha.durationLabel && (
+          <span className="dur" style={{ position: "relative", zIndex: 1 }}>{parsha.durationLabel}</span>
+        )}
       </div>
       <div className="v-heb" lang="he" dir="rtl">{parsha.hebrewName}</div>
       <div className="v-name">{parsha.name}</div>

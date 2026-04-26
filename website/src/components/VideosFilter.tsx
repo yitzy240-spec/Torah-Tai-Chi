@@ -9,7 +9,6 @@ interface ParshaItem {
   slug: string;
   book: string;
   hebrewName: string;
-  durationLabel: string;
   thumbUrl?: string | null;
   isCurrentWeek?: boolean;
 }
@@ -112,7 +111,9 @@ export default function VideosFilter({ parshiot }: VideosFilterProps) {
                     (e.currentTarget as HTMLImageElement).src = PLACEHOLDER_THUMB;
                   }}
                 />
-                <span className="dur" style={{ position: "relative", zIndex: 1 }}>{p.durationLabel}</span>
+                {/* Duration intentionally hidden on the website grid —
+                    every card showed the same "~45s" stamp which looked
+                    like a fake timestamp on top of the placeholder thumb. */}
               </div>
               <div className="v-heb" lang="he" dir="rtl">
                 {p.hebrewName}

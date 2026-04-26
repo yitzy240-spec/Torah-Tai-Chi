@@ -23,13 +23,6 @@ const BOOK_SHORT: Record<string, string> = {
   Devarim: "Deuteronomy",
 };
 
-const FALLBACK_PARSHIOT = [
-  { name: "Kedoshim", slug: "kedoshim", heb: "קדושים", book: "Leviticus", dur: "0:48" },
-  { name: "Acharei Mot", slug: "acharei-mot", heb: "אחרי מות", book: "Leviticus", dur: "0:45" },
-  { name: "Shemot", slug: "shemot", heb: "שמות", book: "Exodus", dur: "0:52" },
-  { name: "Bo", slug: "bo", heb: "בא", book: "Exodus", dur: "0:47" },
-];
-
 export default async function HomePage() {
   let parshiot: Awaited<ReturnType<typeof getAllParshiot>> = [];
   try {
@@ -46,7 +39,12 @@ export default async function HomePage() {
     : null;
   const thisWeek = hebcalMatch ?? withScript[0] ?? parshiot[0];
 
-  const recentFour = withScript.slice(0, 4);
+  // Only surface parshiot that ALREADY have a rendered video on the
+  // homepage, capped at 3. Showing every parsha-with-script (the previous
+  // four) made most cards render the placeholder thumb, which read as
+  // "everything's empty" rather than "here's what's just dropped." The
+  // full grid still lives on /videos for browsing.
+  const recentThree = withScript.filter((p) => !!p.thumbUrl).slice(0, 3);
   const allArticles = await getAllArticles();
   const recentArticles = allArticles.slice(0, 3);
   const content = await getSiteContent();
@@ -155,32 +153,39 @@ export default async function HomePage() {
           </Link>
         </div>
         <div className="video-grid">
-          {recentFour.length > 0
-            ? recentFour.map((p) => (
-                <VideoCard
-                  key={p.slug}
-                  parsha={{
-                    name: p.name,
-                    slug: p.slug,
-                    bookShortName: BOOK_SHORT[p.book] ?? p.book,
-                    hebrewName: p.hebrewName,
-                    date: "",
-                    durationLabel: "0:45",
-                  }}
-                  thumbUrl={p.thumbUrl}
-                  isCurrentWeek={p.slug === thisWeek?.slug}
-                />
-              ))
-            : FALLBACK_PARSHIOT.map((p) => (
-                <Link key={p.slug} href={`/videos/${p.slug}`} className="v-card">
-                  <div className="thumb">
-                    <span className="dur">{p.dur}</span>
-                  </div>
-                  <div className="v-heb" lang="he" dir="rtl">{p.heb}</div>
-                  <div className="v-name">{p.name}</div>
-                  <div className="v-book">{p.book}</div>
-                </Link>
-              ))}
+          {recentThree.length > 0 ? (
+            recentThree.map((p) => (
+              <VideoCard
+                key={p.slug}
+                parsha={{
+                  name: p.name,
+                  slug: p.slug,
+                  bookShortName: BOOK_SHORT[p.book] ?? p.book,
+                  hebrewName: p.hebrewName,
+                  date: "",
+                }}
+                thumbUrl={p.thumbUrl}
+                isCurrentWeek={p.slug === thisWeek?.slug}
+              />
+            ))
+          ) : (
+            <p
+              style={{
+                gridColumn: "1 / -1",
+                fontFamily: "var(--ff-display)",
+                fontStyle: "italic",
+                fontSize: "15px",
+                color: "var(--ink-400)",
+                textAlign: "center",
+                padding: "32px 16px",
+              }}
+            >
+              The first teaching drops this week.{" "}
+              <Link href="/videos" style={{ color: "var(--cedar-600)" }}>
+                Browse all 54 parshiot →
+              </Link>
+            </p>
+          )}
         </div>
       </section>
 
