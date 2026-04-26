@@ -64,6 +64,99 @@ async function getNextParsha(): Promise<Parsha | null> {
   return data as Parsha;
 }
 
+type ArcStageState = 'idle' | 'running' | 'done';
+interface ProductionArc {
+  script: ArcStageState;
+  video: ArcStageState;
+  captions: ArcStageState;
+  schedule: ArcStageState;
+  videoLabel: string;
+  scheduleLabel: string;
+}
+
+const IN_FLIGHT_STATUSES = new Set([
+  'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
+  'generating_clips', 'stitching',
+]);
+
+async function computeProductionArc(parshaId: string | undefined): Promise<ProductionArc> {
+  const fallback: ProductionArc = {
+    script: 'idle', video: 'idle', captions: 'idle', schedule: 'idle',
+    videoLabel: 'Video', scheduleLabel: 'Schedule',
+  };
+  if (!parshaId) return fallback;
+  const supabase = await createClient();
+
+  // Latest job for this parsha (any status)
+  const { data: latestJob } = await supabase
+    .from('jobs')
+    .select('id, status, videos(id)')
+    .eq('parsha_id', parshaId)
+    .order('triggered_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const videoRel = latestJob?.videos as any;
+  const video = (Array.isArray(videoRel) ? videoRel[0] : videoRel) ?? null;
+  const videoId: string | null = video?.id ?? null;
+
+  // Captions presence — pulled from the latest clip_plan
+  let captionsPresent = false;
+  if (latestJob?.id) {
+    const { data: planRow } = await supabase
+      .from('clip_plans')
+      .select('plan_json')
+      .eq('job_id', latestJob.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const planJson = (planRow?.plan_json ?? {}) as { captions?: Record<string, string> };
+    captionsPresent = !!(planJson.captions && Object.keys(planJson.captions).length > 0);
+  }
+
+  // Posts state for this video
+  let anyPublished = false;
+  let anyScheduled = false;
+  if (videoId) {
+    const { data: posts } = await supabase
+      .from('posts')
+      .select('status')
+      .eq('video_id', videoId);
+    anyPublished = (posts ?? []).some((p) => p.status === 'published');
+    anyScheduled = (posts ?? []).some((p) => p.status === 'scheduled');
+  }
+
+  const arc: ProductionArc = { ...fallback };
+  // Script — script ready iff parsha has any script (we know we're rendering one)
+  arc.script = 'done';
+  // Video
+  if (latestJob && IN_FLIGHT_STATUSES.has(latestJob.status as string)) {
+    arc.video = 'running';
+    arc.videoLabel = 'Video · generating';
+  } else if (videoId) {
+    arc.video = 'done';
+    arc.videoLabel = 'Video · ready';
+  } else {
+    arc.video = 'idle';
+    arc.videoLabel = 'Video · awaiting your go';
+  }
+  // Captions
+  arc.captions = captionsPresent ? 'done' : 'idle';
+  // Schedule
+  if (anyPublished) {
+    arc.schedule = 'done';
+    arc.scheduleLabel = 'Published';
+  } else if (anyScheduled) {
+    arc.schedule = 'running';
+    arc.scheduleLabel = 'Scheduled';
+  } else {
+    arc.schedule = 'idle';
+    arc.scheduleLabel = 'Schedule';
+  }
+  return arc;
+}
+
 async function getParshaBySlug(slug: string): Promise<Parsha | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -94,6 +187,12 @@ export default async function TodayPage() {
   const hebcalHebrew = hebcalParsha?.hebrew ?? null;
 
   const aTightScript = parsha?.scripts?.find((s) => s.option === 'A-tight') ?? parsha?.scripts?.[0] ?? null;
+
+  // Real production-arc state: query the latest job + posts for THIS parsha
+  // so the dots reflect actual state (was hardcoded 'awaiting your go' even
+  // when the video was already done). Suspense-friendly: if these fail or
+  // are slow, the page still renders.
+  const arc = await computeProductionArc(parsha?.id);
 
   return (
     <>
@@ -260,111 +359,20 @@ export default async function TodayPage() {
               flexWrap: 'wrap',
             }}
           >
-            <ArcStage done label="Script · approved Tue" />
+            <ArcStage done={arc.script === 'done'} running={arc.script === 'running'} label="Script" />
             <ArcSep />
-            <ArcStage running label="Video · awaiting your go" />
+            <ArcStage done={arc.video === 'done'} running={arc.video === 'running'} label={arc.videoLabel} />
             <ArcSep />
-            <ArcStage label="Captions" />
+            <ArcStage done={arc.captions === 'done'} running={arc.captions === 'running'} label="Captions" />
             <ArcSep />
-            <ArcStage label="Schedule" />
-            <a
-              href="#"
-              style={{
-                fontFamily: 'var(--ff-body)',
-                fontSize: '12px',
-                fontStyle: 'normal',
-                color: 'var(--ink-400)',
-                marginLeft: 'auto',
-                textDecoration: 'none',
-                letterSpacing: '0.02em',
-              }}
-            >
-              See under the hood →
-            </a>
+            <ArcStage done={arc.schedule === 'done'} running={arc.schedule === 'running'} label={arc.scheduleLabel} />
           </div>
 
-          {/* WHISPER LINE — last week performance */}
-          <p
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: '15px',
-              color: 'var(--ink-500)',
-              marginBottom: '40px',
-              lineHeight: 1.55,
-              fontVariationSettings: '"opsz" 18, "SOFT" 50',
-            }}
-          >
-            <strong
-              style={{
-                fontWeight: 500,
-                fontStyle: 'normal',
-                color: 'var(--ink-900)',
-                fontVariationSettings: '"opsz" 18, "SOFT" 20',
-              }}
-            >
-              Shemot
-            </strong>{' '}
-            is out in the world. 3,412 have seen it; 3 questions await your eye on TikTok.
-            <a
-              href="#"
-              style={{
-                fontFamily: 'var(--ff-body)',
-                fontSize: '12px',
-                fontStyle: 'normal',
-                color: 'var(--ink-400)',
-                textDecoration: 'none',
-                letterSpacing: '0.03em',
-                marginLeft: '10px',
-                paddingLeft: '12px',
-                borderLeft: '1px solid var(--ink-200)',
-              }}
-            >
-              Open Shemot →
-            </a>
-          </p>
-
-          {/* WHISPER LINE — quiet variant */}
-          <p
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: '14px',
-              color: 'var(--ink-400)',
-              marginBottom: '40px',
-              lineHeight: 1.55,
-              fontVariationSettings: '"opsz" 16, "SOFT" 50',
-            }}
-          >
-            You also have{' '}
-            <strong
-              style={{
-                fontWeight: 500,
-                fontStyle: 'normal',
-                color: 'var(--ink-700)',
-                fontVariationSettings: '"opsz" 16, "SOFT" 20',
-              }}
-            >
-              1 ad-hoc draft
-            </strong>{' '}
-            from yesterday awaiting your eye.
-            <a
-              href="#"
-              style={{
-                fontFamily: 'var(--ff-body)',
-                fontSize: '12px',
-                fontStyle: 'normal',
-                color: 'var(--ink-400)',
-                textDecoration: 'none',
-                letterSpacing: '0.03em',
-                marginLeft: '10px',
-                paddingLeft: '12px',
-                borderLeft: '1px solid var(--ink-200)',
-              }}
-            >
-              Review it →
-            </a>
-          </p>
+          {/* Whisper lines (last-week perf, ad-hoc drafts) removed —
+              they were design-mock copy ('Shemot is out in the world.
+              3,412 have seen it…') that read as fake to a real user.
+              Real analytics + drafts surfaces will replace them when
+              the Buffer + Compose data wires through. */}
 
         </div>
       </div>

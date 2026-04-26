@@ -387,7 +387,7 @@ export default function LoginPage() {
           gap: '10px',
         }}
       >
-        <span>Need access, or the email never arrived?</span>
+        <span>Need access?</span>
         <a
           href="mailto:yitzy@torahtaichi.com?subject=Torah%20Tai%20Chi%20dashboard%20access"
           className="tt-login-ask"
