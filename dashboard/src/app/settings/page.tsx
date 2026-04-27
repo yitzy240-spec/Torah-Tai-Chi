@@ -283,7 +283,7 @@ export default async function SettingsPage() {
       {/* USERS */}
       <section style={SECTION_STYLE}>
         <h2 style={H2_STYLE}>Users</h2>
-        <p style={DESC_STYLE}>Who can sign in to the studio. New users get the default password — they can change it from this page after first sign-in.</p>
+        <p style={DESC_STYLE}>Who can sign in to the studio. Set a starting password when you add someone — they can change it from this page after first sign-in.</p>
         <UsersSection initialUsers={users} />
       </section>
 

@@ -40,7 +40,8 @@ export async function listUsers(): Promise<{ users?: ProvisionedUser[]; error?: 
 
 export async function addUser(
   email: string,
-  name?: string,
+  name: string | undefined,
+  password: string,
 ): Promise<{ ok?: true; error?: string }> {
   const session = await requireSession();
   if ('error' in session) return { error: session.error };
@@ -49,10 +50,14 @@ export async function addUser(
   if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
     return { error: 'Enter a valid email' };
   }
+  if (typeof password !== 'string' || password.length < 8) {
+    return { error: 'Password must be at least 8 characters' };
+  }
 
   const admin = createServiceClient();
   const { error } = await admin.auth.admin.createUser({
     email: trimmed,
+    password,
     email_confirm: true,
     user_metadata: name ? { name: name.trim() } : undefined,
   });

@@ -12,10 +12,13 @@ function formatJoined(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+const DEFAULT_NEW_PASSWORD = 'TorahTC1';
+
 export function UsersSection({ initialUsers }: UsersSectionProps) {
   const [users, setUsers] = useState(initialUsers);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [password, setPassword] = useState(DEFAULT_NEW_PASSWORD);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -24,7 +27,7 @@ export function UsersSection({ initialUsers }: UsersSectionProps) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const result = await addUser(email, name || undefined);
+      const result = await addUser(email, name || undefined, password);
       if (result.error) { setError(result.error); return; }
       // Optimistic add; revalidatePath() in the action will sync on next nav
       setUsers((prev) => [
@@ -39,6 +42,7 @@ export function UsersSection({ initialUsers }: UsersSectionProps) {
       ]);
       setEmail('');
       setName('');
+      setPassword(DEFAULT_NEW_PASSWORD);
     });
   }
 
@@ -196,7 +200,7 @@ export function UsersSection({ initialUsers }: UsersSectionProps) {
         >
           Add user
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr auto', gap: '10px', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '10px', alignItems: 'start' }}>
           <input
             type="email"
             required
@@ -240,9 +244,33 @@ export function UsersSection({ initialUsers }: UsersSectionProps) {
             onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--navy-800)')}
             onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--ink-200)')}
           />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '10px', alignItems: 'start' }}>
+          <input
+            type="text"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Starting password (min 8 chars)"
+            autoComplete="off"
+            spellCheck={false}
+            style={{
+              padding: '10px 14px',
+              minHeight: '44px',
+              fontFamily: 'var(--ff-body)',
+              fontSize: '14px',
+              color: 'var(--ink-900)',
+              background: 'var(--linen-50)',
+              border: '1px solid var(--ink-200)',
+              borderRadius: 'var(--r-md)',
+              outline: 'none',
+              transition: 'border-color var(--trans)',
+            }}
+            onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--navy-800)')}
+            onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--ink-200)')}
+          />
           <button
             type="submit"
-            disabled={isPending || !email}
+            disabled={isPending || !email || password.length < 8}
             style={{
               fontFamily: 'var(--ff-body)',
               fontWeight: 500,
@@ -251,9 +279,9 @@ export function UsersSection({ initialUsers }: UsersSectionProps) {
               minHeight: '44px',
               borderRadius: '999px',
               border: '1px solid var(--navy-800)',
-              background: isPending || !email ? 'var(--ink-300)' : 'var(--navy-800)',
+              background: isPending || !email || password.length < 8 ? 'var(--ink-300)' : 'var(--navy-800)',
               color: 'var(--linen-50)',
-              cursor: isPending || !email ? 'not-allowed' : 'pointer',
+              cursor: isPending || !email || password.length < 8 ? 'not-allowed' : 'pointer',
               transition: 'all var(--trans)',
               boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
               whiteSpace: 'nowrap',

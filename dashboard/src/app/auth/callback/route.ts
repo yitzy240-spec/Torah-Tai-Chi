@@ -2,25 +2,36 @@ import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 /**
- * Magic-link callback handler. Supports both Supabase flows:
+ * Magic-link / password-reset callback. Supports both Supabase flows:
  *
  *   1. PKCE flow (?code=<pkce>): default for client-side signInWithOtp.
- *      Exchange the code for a session server-side and redirect to `/`.
+ *      Exchange the code for a session server-side, then redirect to `next`.
  *
  *   2. Implicit flow (#access_token=...&refresh_token=...): Supabase admin-
- *      generated links land here. Tokens live in the URL fragment, which the
- *      server can't read. Return a tiny HTML shim that reads the fragment
- *      client-side, calls setSession to write cookies, then redirects to `/`.
+ *      generated links and recovery emails land here. Tokens live in the URL
+ *      fragment, which the server can't read. Return a tiny HTML shim that
+ *      reads the fragment client-side, calls setSession to write cookies, then
+ *      redirects to `next`.
+ *
+ * `next` is honored from the query string and falls back to `/`. Only same-
+ * origin paths are accepted (must start with `/` and not `//`).
  */
+function safeNext(raw: string | null): string {
+  if (!raw) return '/';
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/';
+  return raw;
+}
+
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
+  const next = safeNext(searchParams.get('next'));
 
   // Path 1 — PKCE
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(`${origin}/`);
+    if (!error) return NextResponse.redirect(`${origin}${next}`);
     return NextResponse.redirect(`${origin}/login?error=auth`);
   }
 
@@ -31,6 +42,7 @@ import { createBrowserClient } from 'https://esm.sh/@supabase/ssr@latest';
 const hash = new URLSearchParams(location.hash.slice(1));
 const access_token = hash.get('access_token');
 const refresh_token = hash.get('refresh_token');
+const next = ${JSON.stringify(next)};
 if (!access_token || !refresh_token) {
   location.replace('/login?error=auth');
 } else {
@@ -41,7 +53,7 @@ if (!access_token || !refresh_token) {
   sb.auth.setSession({ access_token, refresh_token })
     .then(({ error }) => {
       if (error) { location.replace('/login?error=auth'); return; }
-      location.replace('/');
+      location.replace(next);
     })
     .catch(() => location.replace('/login?error=auth'));
 }

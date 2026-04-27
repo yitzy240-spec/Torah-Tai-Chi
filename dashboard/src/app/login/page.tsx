@@ -39,7 +39,7 @@ export default function LoginPage() {
   ): Promise<LoginState> {
     const email = String(formData.get('email') ?? '').trim();
     if (!email) return { status: 'error', message: 'Please enter your email.', email };
-    const redirectTo = `${window.location.origin}/auth/callback?next=/settings`;
+    const redirectTo = `${window.location.origin}/auth/callback?next=/set-password`;
     const result = await requestPasswordReset(email, redirectTo);
     if (result.error) return { status: 'error', message: result.error, email };
     return { status: 'reset_sent', email };
