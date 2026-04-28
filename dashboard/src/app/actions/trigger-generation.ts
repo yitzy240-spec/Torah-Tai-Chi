@@ -118,10 +118,19 @@ export async function triggerGeneration(
   if (!workerUrl) {
     return { error: 'MODAL_WORKER_URL not set' };
   }
+  // Shared secret — Modal trigger() rejects requests without this header
+  // to prevent unauthenticated callers from spawning paid Seedance runs.
+  const triggerSecret = process.env.PIPELINE_TRIGGER_SECRET;
+  if (!triggerSecret) {
+    return { error: 'PIPELINE_TRIGGER_SECRET not set' };
+  }
   try {
     await fetch(workerUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        'x-pipeline-secret': triggerSecret,
+      },
       body: JSON.stringify({ job_id: job.id }),
       // Don't await the response body; the worker takes 15-30 min.
       signal: AbortSignal.timeout(5000),
