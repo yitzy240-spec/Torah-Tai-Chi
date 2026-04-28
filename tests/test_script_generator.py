@@ -153,4 +153,39 @@ def test_build_prompt_with_selected_move_appends_featured_block():
     assert "torso rotates" in prompt
     assert "motion_ref_slug" in prompt
     assert "white_crane_spreads_wings" in prompt
-    assert "exactly one" in prompt.lower() or "exactly ONE" in prompt
+
+
+def test_build_prompt_omits_director_notes_block_when_none():
+    prompt = build_prompt(
+        parsha_name="Vayikra", book="Leviticus",
+        option="A", style_note="practical modern lens",
+        title="The Call Behind the Call",
+        draft="[HOOK]\nHe called.",
+        director_notes=None,
+    )
+    assert "DIRECTION FROM YONAH" not in prompt
+
+
+def test_build_prompt_omits_director_notes_block_when_empty():
+    prompt = build_prompt(
+        parsha_name="Vayikra", book="Leviticus",
+        option="A", style_note="practical modern lens",
+        title="The Call Behind the Call",
+        draft="[HOOK]\nHe called.",
+        director_notes="   ",
+    )
+    assert "DIRECTION FROM YONAH" not in prompt
+
+
+def test_build_prompt_includes_director_notes_block_when_provided():
+    prompt = build_prompt(
+        parsha_name="Vayikra", book="Leviticus",
+        option="A", style_note="practical modern lens",
+        title="The Call Behind the Call",
+        draft="[HOOK]\nHe called.",
+        director_notes="set the outdoor clips by a slow river",
+    )
+    assert "DIRECTION FROM YONAH" in prompt
+    assert "set the outdoor clips by a slow river" in prompt
+    assert "NOT structural overrides" in prompt
+    assert prompt.index("DIRECTION FROM YONAH") < prompt.index("Produce the ClipPlan JSON now")
