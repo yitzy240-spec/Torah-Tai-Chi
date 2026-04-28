@@ -23,6 +23,8 @@ interface GenerateDialogProps {
   expectedDurationS?: number;
   /** Pre-selected tier key from settings.default_tier (e.g. "720p standard") */
   defaultTierKey?: string;
+  /** Pre-filled director notes for this script, if any. Empty string ok. */
+  directorNotes?: string | null;
   onJobCreated?: (jobId: string) => void;
   /** Label on the trigger button. Defaults to "Approve · generate video". */
   triggerLabel?: string;
@@ -41,6 +43,7 @@ export function GenerateDialog({
   partnerParshaId,
   expectedDurationS = 60,
   defaultTierKey = '720p standard',
+  directorNotes: initialDirectorNotes = null,
   onJobCreated,
   triggerLabel = 'Approve · generate video',
   triggerVariant = 'primary',
@@ -62,6 +65,10 @@ export function GenerateDialog({
   const [balanceErr, setBalanceErr] = useState<string | null>(null);
   const [savingDefault, setSavingDefault] = useState(false);
   const [defaultSavedAt, setDefaultSavedAt] = useState<number | null>(null);
+  const [notes, setNotes] = useState<string>(initialDirectorNotes ?? '');
+  const [notesExpanded, setNotesExpanded] = useState<boolean>(
+    Boolean(initialDirectorNotes && initialDirectorNotes.trim()),
+  );
 
   const selectedKey = tierKey(selected.tier, selected.resolution);
   const selectionIsDefault = selectedKey === currentDefaultKey;
@@ -94,6 +101,8 @@ export function GenerateDialog({
   const openDialog = () => {
     setSelected(defaultOption);
     setError(null);
+    setNotes(initialDirectorNotes ?? '');
+    setNotesExpanded(Boolean(initialDirectorNotes && initialDirectorNotes.trim()));
     setOpen(true);
     document.body.style.overflow = 'hidden';
   };
@@ -128,6 +137,7 @@ export function GenerateDialog({
         partnerParshaId,
         resolution: selected.resolution,
         modelTier: selected.tier,
+        directorNotes: notes,
       });
       if (result.error) {
         setError(result.error);
@@ -242,6 +252,87 @@ export function GenerateDialog({
         >
           Pick a different tier just for this run, or set it as your new default below.
         </p>
+
+        <div style={{ marginBottom: '20px' }}>
+          <button
+            type="button"
+            onClick={() => setNotesExpanded(!notesExpanded)}
+            aria-expanded={notesExpanded}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontFamily: 'var(--ff-body)',
+              fontSize: '12.5px',
+              fontWeight: 500,
+              color: 'var(--ink-700)',
+              background: 'transparent',
+              border: 'none',
+              padding: '4px 0',
+              cursor: 'pointer',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            <span style={{ fontSize: '10px' }}>{notesExpanded ? '▾' : '▸'}</span>
+            Director notes (optional)
+            {!notesExpanded && notes.trim() && (
+              <span
+                style={{
+                  fontFamily: 'var(--ff-body)',
+                  fontStyle: 'italic',
+                  fontWeight: 400,
+                  fontSize: '11.5px',
+                  color: 'var(--ink-500)',
+                  textTransform: 'none',
+                  letterSpacing: 0,
+                }}
+              >
+                — attached
+              </span>
+            )}
+          </button>
+          {notesExpanded && (
+            <div style={{ marginTop: '8px' }}>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder='e.g. "set the outdoor clips by a slow river" or "make sure he meditates in the dojo clip"'
+                maxLength={1000}
+                rows={3}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  padding: '10px 12px',
+                  border: '1px solid var(--ink-200)',
+                  borderRadius: 'var(--r-sm)',
+                  fontFamily: 'var(--ff-body)',
+                  fontSize: '13.5px',
+                  lineHeight: 1.5,
+                  color: 'var(--ink-900)',
+                  background: 'var(--linen-50)',
+                  resize: 'vertical',
+                  outline: 'none',
+                }}
+              />
+              <div
+                style={{
+                  fontFamily: 'var(--ff-body)',
+                  fontSize: '11px',
+                  color: 'var(--ink-500)',
+                  marginTop: '4px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <span style={{ fontStyle: 'italic' }}>
+                  Saved with the script · used for this run.
+                </span>
+                <span>{notes.length}/1000</span>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Radio cards */}
         <div role="radiogroup" aria-label="Quality tier" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>

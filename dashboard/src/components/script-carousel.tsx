@@ -660,6 +660,7 @@ function ScriptCard({
                   parshaName={parshaName}
                   partnerParshaId={partnerParshaId}
                   defaultTierKey={defaultTierKey}
+                  directorNotes={script.director_notes}
                   onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
                   triggerLabel="Regenerate"
                   triggerVariant="secondary"
@@ -687,6 +688,7 @@ function ScriptCard({
                   parshaName={parshaName}
                   partnerParshaId={partnerParshaId}
                   defaultTierKey={defaultTierKey}
+                  directorNotes={script.director_notes}
                   onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
                 />
               </>
@@ -697,6 +699,7 @@ function ScriptCard({
                 parshaName={parshaName}
                 partnerParshaId={partnerParshaId}
                 defaultTierKey={defaultTierKey}
+                directorNotes={script.director_notes}
                 onJobCreated={(jobId) => setJob({ id: jobId, status: 'queued', statusMessage: null, videoId: null })}
               />
             )}
