@@ -233,7 +233,7 @@ def run_pipeline(job_id: str) -> dict | None:
         # picker and determine which Seedance variant runs.
         job = (
             sb.table("jobs")
-            .select("kind, parsha_id, script_id, topic, resolution, model_tier, motion_ref_slug")
+            .select("kind, parsha_id, script_id, topic, resolution, model_tier, motion_ref_slug, director_notes")
             .eq("id", job_id)
             .single()
             .execute()
@@ -326,6 +326,7 @@ def run_pipeline(job_id: str) -> dict | None:
             title=title, draft=draft_text,
             api_key=os.environ["KIE_AI_API_KEY"],
             selected_move=selected_move,
+            director_notes=job.get("director_notes"),
         ))
         sb.table("clip_plans").insert({
             "job_id": job_id, "plan_json": plan.model_dump(mode="json"),
