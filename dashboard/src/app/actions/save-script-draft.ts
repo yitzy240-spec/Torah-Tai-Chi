@@ -5,15 +5,23 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { logEvent } from '@/lib/events';
 import { revalidatePath } from 'next/cache';
 
+const DIRECTOR_NOTES_MAX_CHARS = 1000;
+
 /**
- * Save edits to a script's draft_text (and optionally title/tldr).
+ * Save edits to a script's draft_text (and optionally title/tldr/director_notes).
  * Auth-checks the session cookie; writes via service-role to bypass RLS.
+ *
+ * directorNotes semantics:
+ *  - undefined  → don't touch the column
+ *  - ""         → explicit clear, persists as null
+ *  - non-empty  → trimmed, max 1000 chars
  */
 export async function saveScriptDraft(args: {
   scriptId: string;
   draftText: string;
   title?: string;
   tldr?: string;
+  directorNotes?: string;
   parshaSlug?: string; // for path revalidation
 }): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient();
@@ -24,9 +32,16 @@ export async function saveScriptDraft(args: {
   if (!draft) return { ok: false, error: 'Draft text cannot be empty' };
 
   const svc = createServiceClient();
-  const patch: Record<string, string> = { draft_text: draft };
+  const patch: Record<string, string | null> = { draft_text: draft };
   if (args.title !== undefined) patch.title = args.title.trim();
   if (args.tldr !== undefined) patch.tldr = args.tldr.trim();
+  if (args.directorNotes !== undefined) {
+    const trimmed = args.directorNotes.trim();
+    if (trimmed.length > DIRECTOR_NOTES_MAX_CHARS) {
+      return { ok: false, error: `Director notes too long (max ${DIRECTOR_NOTES_MAX_CHARS} chars)` };
+    }
+    patch.director_notes = trimmed === '' ? null : trimmed;
+  }
 
   const { error } = await svc.from('scripts').update(patch).eq('id', args.scriptId);
   if (error) {
@@ -54,6 +69,7 @@ export async function saveScriptDraft(args: {
       draftLength: draft.length,
       titleChanged: args.title !== undefined,
       tldrChanged: args.tldr !== undefined,
+      directorNotesChanged: args.directorNotes !== undefined,
       actorUserId: user.id,
     },
   });
