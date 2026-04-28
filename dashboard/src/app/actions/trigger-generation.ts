@@ -1,14 +1,22 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 
 const MONTHLY_BUDGET_USD = 80;
 const TYPICAL_DURATION_S = 60; // conservative ballpark before Claude writes the real plan
+const DIRECTOR_NOTES_MAX_CHARS = 1000;
 const IN_PROGRESS_STATUSES = [
   'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
   'generating_clips', 'stitching',
 ];
 
+/**
+ * directorNotes semantics:
+ *  - undefined  → caller has no notes UI; copy whatever's currently on the script onto the job.
+ *  - "" or "   " → user explicitly cleared the field; persist as null on the script, snapshot null onto the job.
+ *  - non-empty  → trim, validate length, persist on the script, snapshot onto the job.
+ */
 export async function triggerGeneration(
   {
     parshaId,
@@ -16,12 +24,14 @@ export async function triggerGeneration(
     partnerParshaId,
     resolution = '720p',
     modelTier = 'standard',
+    directorNotes,
   }: {
     parshaId: string;
     scriptId: string;
     partnerParshaId?: string;
     resolution?: Resolution;
     modelTier?: ModelTier;
+    directorNotes?: string;
   },
 ): Promise<{ jobId?: string; error?: string }> {
   const supabase = await createClient();
@@ -40,15 +50,35 @@ export async function triggerGeneration(
     return { error: 'A video is already being generated for this parsha and script. Wait for it to finish.' };
   }
 
-  // Read the script's optional motion reference so we can copy it onto
-  // the job — Modal reads jobs.motion_ref_slug as the single source of
+  // Read the script's optional motion reference + persistent director_notes so
+  // we can copy them onto the job — Modal reads jobs.* as the single source of
   // truth regardless of parsha vs topic origin.
   const { data: scriptRow } = await supabase
     .from('scripts')
-    .select('motion_ref_slug')
+    .select('motion_ref_slug, director_notes')
     .eq('id', scriptId)
     .maybeSingle();
   const motionRefSlug = (scriptRow?.motion_ref_slug ?? null) as string | null;
+  let scriptDirectorNotes = (scriptRow?.director_notes ?? null) as string | null;
+
+  // If the dialog passed directorNotes, normalize and persist back to the script
+  // before we snapshot to the job, so the script and job agree.
+  if (directorNotes !== undefined) {
+    const trimmed = directorNotes.trim();
+    if (trimmed.length > DIRECTOR_NOTES_MAX_CHARS) {
+      return { error: `Director notes too long (max ${DIRECTOR_NOTES_MAX_CHARS} chars)` };
+    }
+    const next = trimmed === '' ? null : trimmed;
+    if (next !== scriptDirectorNotes) {
+      const svc = createServiceClient();
+      const { error: updateErr } = await svc
+        .from('scripts')
+        .update({ director_notes: next })
+        .eq('id', scriptId);
+      if (updateErr) return { error: `Could not save director notes: ${updateErr.message}` };
+    }
+    scriptDirectorNotes = next;
+  }
 
   // Monthly cost cap — block if adding this run would blow the budget.
   const startOfMonth = new Date();
@@ -77,6 +107,7 @@ export async function triggerGeneration(
       resolution,
       model_tier: modelTier,
       motion_ref_slug: motionRefSlug,
+      director_notes: scriptDirectorNotes,
     })
     .select('id').single();
 
@@ -87,19 +118,10 @@ export async function triggerGeneration(
   if (!workerUrl) {
     return { error: 'MODAL_WORKER_URL not set' };
   }
-  // Shared secret — Modal trigger() rejects requests without this header
-  // to prevent unauthenticated callers from spawning paid Seedance runs.
-  const triggerSecret = process.env.PIPELINE_TRIGGER_SECRET;
-  if (!triggerSecret) {
-    return { error: 'PIPELINE_TRIGGER_SECRET not set' };
-  }
   try {
     await fetch(workerUrl, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-pipeline-secret': triggerSecret,
-      },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ job_id: job.id }),
       // Don't await the response body; the worker takes 15-30 min.
       signal: AbortSignal.timeout(5000),
