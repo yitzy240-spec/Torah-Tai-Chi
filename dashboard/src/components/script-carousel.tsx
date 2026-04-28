@@ -14,6 +14,7 @@ export interface CarouselScript {
   title: string | null;
   tldr: string | null;
   draft_text: string | null;
+  director_notes: string | null;
   motion_ref_slug: string | null;
   // Set when scripts are merged across a combined-parsha pair so the
   // card can label "From Kedoshim" and routes Approve / Add-move actions
@@ -261,6 +262,7 @@ function ScriptCard({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(script.draft_text ?? '');
+  const [directorNotes, setDirectorNotes] = useState(script.director_notes ?? '');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
@@ -339,6 +341,7 @@ function ScriptCard({
   // Reset local draft whenever the script actually changes (carousel navigation).
   useMemo(() => {
     setDraft(script.draft_text ?? '');
+    setDirectorNotes(script.director_notes ?? '');
     setEditing(false);
     setSaveError(null);
     setJustSaved(false);
@@ -353,6 +356,7 @@ function ScriptCard({
       const res = await saveScriptDraft({
         scriptId: script.id,
         draftText: draft,
+        directorNotes,
         parshaSlug,
       });
       if (!res.ok) {
@@ -372,6 +376,7 @@ function ScriptCard({
 
   const cancel = () => {
     setDraft(script.draft_text ?? '');
+    setDirectorNotes(script.director_notes ?? '');
     setEditing(false);
     setSaveError(null);
   };
@@ -443,46 +448,114 @@ function ScriptCard({
 
       {/* Full draft — read mode or edit mode */}
       {editing ? (
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          disabled={saving}
-          rows={14}
-          style={{
-            width: '100%',
-            boxSizing: 'border-box',
-            fontFamily: 'var(--ff-reading)',
-            fontSize: '15.5px',
-            lineHeight: 1.65,
-            color: 'var(--ink-900)',
-            background: 'var(--linen-50)',
-            border: '1px solid var(--ink-200)',
-            borderRadius: 'var(--r-md)',
-            padding: '14px 16px',
-            resize: 'vertical',
-            minHeight: '260px',
-            marginBottom: '14px',
-            outline: 'none',
-          }}
-        />
-      ) : (
-        <div
-          style={{
-            fontFamily: 'var(--ff-reading)',
-            fontSize: '16px',
-            lineHeight: 1.65,
-            color: 'var(--ink-800)',
-            fontVariationSettings: '"opsz" 18, "SOFT" 30',
-            marginBottom: '18px',
-            whiteSpace: 'pre-wrap',
-          }}
-        >
-          {script.draft_text ? (
-            script.draft_text
-          ) : (
-            <span style={{ fontStyle: 'italic', color: 'var(--ink-400)' }}>No draft text.</span>
-          )}
+        <>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            disabled={saving}
+            rows={14}
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              fontFamily: 'var(--ff-reading)',
+              fontSize: '15.5px',
+              lineHeight: 1.65,
+              color: 'var(--ink-900)',
+              background: 'var(--linen-50)',
+              border: '1px solid var(--ink-200)',
+              borderRadius: 'var(--r-md)',
+              padding: '14px 16px',
+              resize: 'vertical',
+              minHeight: '260px',
+              marginBottom: '14px',
+              outline: 'none',
+            }}
+          />
+          <div style={{ marginBottom: '14px' }}>
+          <label
+            style={{
+              display: 'block',
+              fontFamily: 'var(--ff-body)',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: 'var(--ink-700)',
+              marginBottom: '6px',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            Director notes (optional)
+          </label>
+          <textarea
+            value={directorNotes}
+            onChange={(e) => setDirectorNotes(e.target.value)}
+            disabled={saving}
+            placeholder='e.g. "set the outdoor clips by a slow river" or "make sure he meditates in the dojo clip"'
+            maxLength={1000}
+            rows={3}
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '10px 12px',
+              border: '1px solid var(--ink-200)',
+              borderRadius: 'var(--r-sm)',
+              fontFamily: 'var(--ff-body)',
+              fontSize: '13.5px',
+              lineHeight: 1.5,
+              color: 'var(--ink-900)',
+              background: 'var(--linen-50)',
+              resize: 'vertical',
+              outline: 'none',
+            }}
+          />
+          <div
+            style={{
+              fontFamily: 'var(--ff-body)',
+              fontSize: '11px',
+              color: 'var(--ink-500)',
+              marginTop: '4px',
+              textAlign: 'right',
+            }}
+          >
+            {directorNotes.length}/1000
+          </div>
         </div>
+        </>
+      ) : (
+        <>
+          <div
+            style={{
+              fontFamily: 'var(--ff-reading)',
+              fontSize: '16px',
+              lineHeight: 1.65,
+              color: 'var(--ink-800)',
+              fontVariationSettings: '"opsz" 18, "SOFT" 30',
+              marginBottom: '18px',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {script.draft_text ? (
+              script.draft_text
+            ) : (
+              <span style={{ fontStyle: 'italic', color: 'var(--ink-400)' }}>No draft text.</span>
+            )}
+          </div>
+          {script.director_notes && script.director_notes.trim() && (
+            <div
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: '11px',
+                color: 'var(--ink-500)',
+                fontStyle: 'italic',
+                marginTop: '-8px',
+                marginBottom: '14px',
+              }}
+              title={script.director_notes}
+            >
+              Director notes attached · hover to view
+            </div>
+          )}
+        </>
       )}
 
       {saveError && (

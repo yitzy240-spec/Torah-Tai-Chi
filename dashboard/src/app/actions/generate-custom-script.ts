@@ -80,6 +80,7 @@ export interface CustomScriptResult {
     title: string | null;
     tldr: string | null;
     draft_text: string | null;
+    director_notes: string | null;
   };
   error?: string;
 }
@@ -179,7 +180,7 @@ export async function generateCustomScript(
       draft_text: draft,
       style_note: 'custom-from-idea',
     })
-    .select('id, option, title, tldr, draft_text')
+    .select('id, option, title, tldr, draft_text, director_notes')
     .single();
 
   if (insertErr || !inserted) {
