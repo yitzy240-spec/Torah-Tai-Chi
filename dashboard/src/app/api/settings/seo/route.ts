@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSeoDefaults, updateSeoDefaults } from '@/lib/storyblok';
+import { requireAuth } from '@/lib/api-auth';
 
 export async function GET() {
+  const { response: authResponse } = await requireAuth();
+  if (authResponse) return authResponse;
+
   try {
     const story = await getSeoDefaults();
     return NextResponse.json({ seo: story?.content ?? {} });
@@ -12,6 +16,9 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  const { response: authResponse } = await requireAuth();
+  if (authResponse) return authResponse;
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();

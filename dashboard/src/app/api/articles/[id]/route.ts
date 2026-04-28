@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateArticle, deleteArticle } from '@/lib/storyblok';
+import { requireAuth } from '@/lib/api-auth';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
 export async function PATCH(req: NextRequest, ctx: RouteContext) {
+  const { response: authResponse } = await requireAuth();
+  if (authResponse) return authResponse;
+
   const { id } = await ctx.params;
   const storyId = Number(id);
 
@@ -49,6 +53,9 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
 }
 
 export async function DELETE(_req: NextRequest, ctx: RouteContext) {
+  const { response: authResponse } = await requireAuth();
+  if (authResponse) return authResponse;
+
   const { id } = await ctx.params;
   const storyId = Number(id);
 

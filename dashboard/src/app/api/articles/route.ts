@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createArticle } from '@/lib/storyblok';
+import { requireAuth } from '@/lib/api-auth';
 
 export async function POST(req: NextRequest) {
+  const { response: authResponse } = await requireAuth();
+  if (authResponse) return authResponse;
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();
