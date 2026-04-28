@@ -423,6 +423,7 @@ async def transform_draft_to_clip_plan(
     timeout_s: float = 180.0,
     selected_move: dict | None = None,
     max_retries: int = 3,
+    director_notes: str | None = None,
 ) -> ClipPlan:
     """Transform Yonah's draft into a ClipPlan via Claude (routed through Kie).
 
@@ -438,6 +439,7 @@ async def transform_draft_to_clip_plan(
     prompt = build_prompt(
         parsha_name, book, option, style_note, title, draft,
         selected_move=selected_move,
+        director_notes=director_notes,
     )
     last_exc: Exception | None = None
     for attempt in range(max_retries):

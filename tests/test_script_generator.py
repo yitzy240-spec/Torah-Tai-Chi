@@ -50,6 +50,7 @@ def _fake_plan_with_captions(outdoor_archetype_id: str = "GARDEN_PATH") -> dict:
             "youtube_title": "Test YouTube title",
             "youtube_description": "Test YT description body.",
             "facebook": "Test FB caption, a bit longer and more conversational.",
+            "twitter": "Test X caption #parsha",
         },
         "clips": [
             {"index": 0, "voiceover": "a", "visual_prompt": "prompt",
@@ -189,3 +190,30 @@ def test_build_prompt_includes_director_notes_block_when_provided():
     assert "set the outdoor clips by a slow river" in prompt
     assert "NOT structural overrides" in prompt
     assert prompt.index("DIRECTION FROM YONAH") < prompt.index("Produce the ClipPlan JSON now")
+
+
+@pytest.mark.asyncio
+async def test_transform_draft_forwards_director_notes_to_prompt():
+    """transform_draft_to_clip_plan must forward director_notes into the
+    Claude request body so the agent sees the DIRECTION FROM YONAH block."""
+    captured: dict = {}
+
+    def _record(request):
+        body = json.loads(request.content)
+        captured["messages"] = body["messages"]
+        return Response(200, json=_kie_claude_response_body(_fake_plan_with_captions()))
+
+    async with respx.mock() as mock:
+        mock.post(KIE_CLAUDE_URL).mock(side_effect=_record)
+        await transform_draft_to_clip_plan(
+            parsha_name="Vayikra", book="Leviticus", option="A",
+            style_note="lens", title="t",
+            draft="[HOOK]\nHe called.",
+            api_key="test-key",
+            director_notes="set the outdoor clips by a slow river",
+            max_retries=1,
+        )
+
+    user_content = captured["messages"][0]["content"]
+    assert "DIRECTION FROM YONAH" in user_content
+    assert "set the outdoor clips by a slow river" in user_content
