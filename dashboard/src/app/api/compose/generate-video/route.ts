@@ -127,10 +127,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'MODAL_WORKER_URL not set' }, { status: 500 });
   }
 
+  // Shared secret — Modal trigger() rejects requests without this header
+  // to prevent unauthenticated callers from spawning paid Seedance runs.
+  const triggerSecret = process.env.PIPELINE_TRIGGER_SECRET;
+  if (!triggerSecret) {
+    await supabase.from('jobs')
+      .update({ status: FAILED_STATUS, error_message: 'PIPELINE_TRIGGER_SECRET not set' })
+      .eq('id', job.id);
+    await logEvent({
+      actor: 'modal',
+      level: 'error',
+      event: 'compose.video.trigger.config.missing',
+      subjectType: 'job',
+      subjectId: job.id,
+      message: 'PIPELINE_TRIGGER_SECRET not set — cannot dispatch pipeline',
+    });
+    return NextResponse.json({ error: 'PIPELINE_TRIGGER_SECRET not set' }, { status: 500 });
+  }
+
   try {
     await fetch(workerUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        'x-pipeline-secret': triggerSecret,
+      },
       body: JSON.stringify({ job_id: job.id }),
       // The worker takes 10-30 minutes; we don't wait for the body,
       // just enough to confirm dispatch.

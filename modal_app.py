@@ -9,12 +9,15 @@ as the CLI does — no pipeline logic is duplicated here.
 """
 from __future__ import annotations
 import asyncio
+import hmac
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import modal
+from fastapi import HTTPException, Request
 
 app = modal.App("torah-tai-chi-pipeline")
 
@@ -70,16 +73,90 @@ def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
     return move_dict, mp4_url
 
 
+# In-flight statuses match the job_status enum values that mean "the
+# pipeline is actively working on this job" (see
+# dashboard/supabase/migrations/0001_slice1_schema.sql). 'failed' and
+# 'cancelled' are NOT in this set — those jobs CAN be re-triggered.
+_IN_FLIGHT_STATUSES = frozenset({
+    "queued", "loading_parsha", "generating_plan", "uploading_refs",
+    "generating_clips", "stitching",
+})
+_TERMINAL_STATUSES = frozenset({"done"})
+
+# A job stuck in an in-flight status whose triggered_at is older than
+# this is assumed to be a dead worker and CAN be re-triggered manually.
+# This is the escape hatch for stranded jobs (Modal worker died after
+# spawn but before completing). 30 min comfortably exceeds the longest
+# legitimate generation (~10-15 min for parsha, ~5 min for topic).
+_STUCK_AFTER = timedelta(minutes=30)
+
+
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("torah-tai-chi-env")],  # contains KIE_AI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (ANTHROPIC_API_KEY still in secret but no longer read — Claude now goes through Kie)
     timeout=60 * 60,  # 1 hour max
 )
 @modal.fastapi_endpoint(method="POST")
-def trigger(payload: dict) -> dict:
+def trigger(payload: dict, request: Request) -> dict:
+    # --- Auth: shared-secret header guard ---
+    # Without this, the public Modal endpoint would let anyone discovering
+    # the URL spawn paid Seedance generations. PIPELINE_TRIGGER_SECRET is
+    # distinct from PIPELINE_WEBHOOK_SECRET (which is the outbound webhook
+    # from Modal back to the dashboard).
+    secret = os.environ.get("PIPELINE_TRIGGER_SECRET")
+    if not secret:
+        raise HTTPException(status_code=503, detail="trigger secret not configured")
+    incoming = request.headers.get("x-pipeline-secret") or ""
+    # Length guard before compare_digest avoids a short timing leak from
+    # the constant-time comparison itself when lengths differ.
+    if len(incoming) != len(secret) or not hmac.compare_digest(incoming, secret):
+        raise HTTPException(status_code=403, detail="forbidden")
+
     job_id = payload.get("job_id")
     if not job_id:
         return {"error": "job_id required"}
+
+    # --- Idempotency: don't double-spawn paid generations ---
+    # A dashboard double-click, network retry, or replay attack would
+    # otherwise queue duplicate Seedance runs (~$1-2 each). We check the
+    # current job status and skip if it's terminal or actively in flight.
+    # In-flight jobs older than _STUCK_AFTER are treated as stuck (worker
+    # died) and re-triggering is allowed.
+    from supabase import create_client
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+    existing = (
+        sb.table("jobs")
+        .select("status, triggered_at")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    if existing and existing.data:
+        status = existing.data.get("status")
+        if status in _TERMINAL_STATUSES:
+            return {"status": "skipped", "reason": f"job already {status}"}
+        if status in _IN_FLIGHT_STATUSES:
+            triggered_at_str = existing.data.get("triggered_at")
+            if triggered_at_str:
+                # Supabase returns ISO strings; tolerate the trailing Z.
+                triggered_at = datetime.fromisoformat(
+                    triggered_at_str.replace("Z", "+00:00")
+                )
+                age = datetime.now(timezone.utc) - triggered_at
+                if age < _STUCK_AFTER:
+                    return {
+                        "status": "skipped",
+                        "reason": (
+                            f"job is {status}, in-flight for "
+                            f"{age.total_seconds():.0f}s"
+                        ),
+                    }
+            # else: in-flight but no triggered_at (shouldn't happen — has
+            # default now()) or older than the stuck threshold; fall
+            # through and re-trigger.
+
     # Spawn the work async so we return 200 to Vercel quickly
     run_pipeline.spawn(job_id)
     return {"ok": True, "job_id": job_id}
@@ -90,7 +167,7 @@ def trigger(payload: dict) -> dict:
     secrets=[modal.Secret.from_name("torah-tai-chi-env")],
     timeout=60 * 60,
 )
-def run_pipeline(job_id: str) -> None:
+def run_pipeline(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     # Import after path setup so src/ modules resolve
     from supabase import create_client
@@ -104,6 +181,21 @@ def run_pipeline(job_id: str) -> None:
     from src.events import log_event
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
+
+    # Defense-in-depth idempotency: even if trigger() somehow lets a
+    # terminal job through (e.g. race between two near-simultaneous
+    # spawns), bail before any expensive work. We only guard against
+    # terminal statuses here — this function is the one that SETS
+    # in-flight statuses, so checking those would always self-skip.
+    pre = (
+        sb.table("jobs")
+        .select("status")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
+        return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
         update = {"status": status}
