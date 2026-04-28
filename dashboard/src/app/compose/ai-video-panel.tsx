@@ -28,6 +28,7 @@ type State =
  */
 export function AiVideoPanel({ bufferConfigured }: Props) {
   const [topic, setTopic] = useState('');
+  const [directorNotes, setDirectorNotes] = useState('');
   const [state, setState] = useState<State>({ kind: 'idle' });
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -103,7 +104,7 @@ export function AiVideoPanel({ bufferConfigured }: Props) {
       const res = await fetch('/api/compose/generate-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, moveSlug }),
+        body: JSON.stringify({ topic, moveSlug, directorNotes }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Start failed (${res.status})`);
@@ -123,6 +124,7 @@ export function AiVideoPanel({ bufferConfigured }: Props) {
     setState({ kind: 'idle' });
     setTopic('');
     setMoveSlug(null);
+    setDirectorNotes('');
   };
 
   const humanStatus = (raw: string): string => {
@@ -194,6 +196,22 @@ export function AiVideoPanel({ bufferConfigured }: Props) {
               style={{ ...INPUT_STYLE, resize: 'vertical', minHeight: '80px', lineHeight: 1.5 }}
             />
             <div style={HELP_STYLE}>{topic.length} characters</div>
+          </div>
+
+          <div>
+            <label htmlFor="ai-video-director-notes" style={LABEL_STYLE}>
+              Director notes (optional)
+            </label>
+            <textarea
+              id="ai-video-director-notes"
+              value={directorNotes}
+              onChange={(e) => setDirectorNotes(e.target.value)}
+              rows={3}
+              maxLength={1000}
+              placeholder='e.g. "set the outdoor clips by a slow river" or "make sure he meditates in the dojo clip"'
+              style={{ ...INPUT_STYLE, resize: 'vertical', minHeight: '70px', lineHeight: 1.5 }}
+            />
+            <div style={HELP_STYLE}>{directorNotes.length}/1000</div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '12px 0' }}>
