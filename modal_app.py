@@ -106,13 +106,16 @@ def trigger(payload: dict, request: Request) -> dict:
     # the URL spawn paid Seedance generations. PIPELINE_TRIGGER_SECRET is
     # distinct from PIPELINE_WEBHOOK_SECRET (which is the outbound webhook
     # from Modal back to the dashboard).
+    job_id_for_log = payload.get("job_id") or "<no-job-id>"
     secret = os.environ.get("PIPELINE_TRIGGER_SECRET")
     if not secret:
+        print(f"[trigger] config_error job_id={job_id_for_log} reason=secret-not-set")
         raise HTTPException(status_code=503, detail="trigger secret not configured")
     incoming = request.headers.get("x-pipeline-secret") or ""
     # Length guard before compare_digest avoids a short timing leak from
     # the constant-time comparison itself when lengths differ.
     if len(incoming) != len(secret) or not hmac.compare_digest(incoming, secret):
+        print(f"[trigger] auth_fail job_id={job_id_for_log} incoming_len={len(incoming)}")
         raise HTTPException(status_code=403, detail="forbidden")
 
     job_id = payload.get("job_id")
@@ -139,6 +142,7 @@ def trigger(payload: dict, request: Request) -> dict:
     if existing and existing.data:
         status = existing.data.get("status")
         if status in _TERMINAL_STATUSES:
+            print(f"[trigger] skip_terminal job_id={job_id} status={status}")
             return {"status": "skipped", "reason": f"job already {status}"}
         if status in _IN_FLIGHT_STATUSES:
             triggered_at_str = existing.data.get("triggered_at")
@@ -149,6 +153,10 @@ def trigger(payload: dict, request: Request) -> dict:
                 )
                 age = datetime.now(timezone.utc) - triggered_at
                 if age < _STUCK_AFTER:
+                    print(
+                        f"[trigger] skip_in_flight job_id={job_id} "
+                        f"status={status} age_s={age.total_seconds():.0f}"
+                    )
                     return {
                         "status": "skipped",
                         "reason": (
@@ -156,9 +164,18 @@ def trigger(payload: dict, request: Request) -> dict:
                             f"{age.total_seconds():.0f}s"
                         ),
                     }
-            # else: in-flight but no triggered_at (shouldn't happen — has
-            # default now()) or older than the stuck threshold; fall
-            # through and re-trigger.
+                print(
+                    f"[trigger] retrigger_stuck job_id={job_id} "
+                    f"status={status} age_s={age.total_seconds():.0f}"
+                )
+            else:
+                # In-flight with no triggered_at — schema default should
+                # prevent this, but log if it happens so we notice rather
+                # than silently re-triggering on every call.
+                print(
+                    f"[trigger] retrigger_no_triggered_at job_id={job_id} "
+                    f"status={status}"
+                )
 
     # Spawn the work async so we return 200 to Vercel quickly
     run_pipeline.spawn(job_id)

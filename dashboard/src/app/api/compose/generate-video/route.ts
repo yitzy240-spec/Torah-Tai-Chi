@@ -143,11 +143,10 @@ export async function POST(request: Request) {
 
   // Shared secret — Modal trigger() rejects requests without this header
   // to prevent unauthenticated callers from spawning paid Seedance runs.
+  // Missing env is a transient config bug, not the job's fault: leave the
+  // job in queued state so re-trigger Just Works after the env is fixed.
   const triggerSecret = process.env.PIPELINE_TRIGGER_SECRET;
   if (!triggerSecret) {
-    await supabase.from('jobs')
-      .update({ status: FAILED_STATUS, error_message: 'PIPELINE_TRIGGER_SECRET not set' })
-      .eq('id', job.id);
     await logEvent({
       actor: 'modal',
       level: 'error',
@@ -156,7 +155,7 @@ export async function POST(request: Request) {
       subjectId: job.id,
       message: 'PIPELINE_TRIGGER_SECRET not set — cannot dispatch pipeline',
     });
-    return NextResponse.json({ error: 'PIPELINE_TRIGGER_SECRET not set' }, { status: 500 });
+    return NextResponse.json({ error: 'PIPELINE_TRIGGER_SECRET not set' }, { status: 503 });
   }
 
   try {
