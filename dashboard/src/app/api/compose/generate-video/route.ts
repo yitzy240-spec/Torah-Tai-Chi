@@ -43,13 +43,14 @@ function parseTierKey(key: string | null | undefined): { resolution: Resolution;
 
 const SUCCESS_STATUS = 'done';
 const FAILED_STATUS = 'failed';
+const DIRECTOR_NOTES_MAX_CHARS = 1000;
 
 export async function POST(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-  let body: { topic?: string; moveSlug?: string | null };
+  let body: { topic?: string; moveSlug?: string | null; directorNotes?: string };
   try {
     body = await request.json();
   } catch {
@@ -58,6 +59,18 @@ export async function POST(request: Request) {
   const topic = body.topic?.trim();
   if (!topic) return NextResponse.json({ error: 'topic is required' }, { status: 400 });
   if (topic.length > 2000) return NextResponse.json({ error: 'topic too long (max 2000 chars)' }, { status: 400 });
+
+  let directorNotes: string | null = null;
+  if (typeof body.directorNotes === 'string') {
+    const trimmed = body.directorNotes.trim();
+    if (trimmed.length > DIRECTOR_NOTES_MAX_CHARS) {
+      return NextResponse.json(
+        { error: `directorNotes too long (max ${DIRECTOR_NOTES_MAX_CHARS} chars)` },
+        { status: 400 },
+      );
+    }
+    directorNotes = trimmed === '' ? null : trimmed;
+  }
 
   const moveSlugInput = body.moveSlug ?? null;
   let validatedMoveSlug: string | null = null;
@@ -93,6 +106,7 @@ export async function POST(request: Request) {
       resolution,
       model_tier: modelTier,
       motion_ref_slug: validatedMoveSlug,
+      director_notes: directorNotes,
     })
     .select('id').single();
 
