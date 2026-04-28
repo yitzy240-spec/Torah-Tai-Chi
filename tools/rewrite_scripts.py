@@ -53,6 +53,9 @@ transliteration form:
   Figures: Moshe, Aharon, Avraham, Yitzchak, Yaakov, Yosef, Sarah, Rivka,
     Rachel, Leah, Dovid, Shlomo, Eliyahu — NEVER "Moses", "Aaron",
     "Abraham", "Isaac", "Jacob", "Joseph", "David", "Solomon", "Elijah".
+  Events/places: Yetziat Mitzrayim or "leaving Mitzrayim" — NEVER "the
+    Exodus" (the event). Mitzrayim — NEVER "Egypt" in Torah context.
+    Har Sinai — NEVER "Mount Sinai".
   Same rule for all biblical figures, prophets, kings.
 
 If the existing draft uses an English name, replace it with the Hebrew

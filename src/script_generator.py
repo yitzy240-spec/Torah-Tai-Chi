@@ -86,6 +86,9 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
       Yosef — NEVER "Moses", "Aaron", "Abraham", "Isaac", "Jacob",
       "Joseph". Same rule for all biblical figures (Dovid, Shlomo,
       Eliyahu, Sarah, Rivka, Rachel, Leah, etc.).
+    Events/places: Yetziat Mitzrayim or "leaving Mitzrayim" — NEVER
+      "the Exodus" (the event). Mitzrayim — NEVER "Egypt" when used
+      in a Torah context. Har Sinai — NEVER "Mount Sinai".
 - **Hebrew-origin words that are ALSO natural English words — keep the
   English form, do NOT force a Hebrew phonetic.** These have recognizable
   English pronunciations, and forcing a thick Hebrew accent through TTS
@@ -121,6 +124,9 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
     Dovid -> "DOH-veed"
     Shlomo -> "SHLOH-moh"
     Eliyahu -> "Eh-lee-YAH-hoo"
+    Mitzrayim -> "mits-RAH-yeem"
+    Yetziat Mitzrayim -> "yet-zee-AHT mits-RAH-yeem"
+    Har Sinai -> "HAR see-NAI"
     Baal HaTurim -> "BAH-ahl hah-too-REEM"
     Torah -> "TOH-rah"
     korbanot -> "kor-bah-NOTE"
