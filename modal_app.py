@@ -93,7 +93,10 @@ _STUCK_AFTER = timedelta(minutes=30)
 
 @app.function(
     image=image,
-    secrets=[modal.Secret.from_name("torah-tai-chi-env")],  # contains KIE_AI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (ANTHROPIC_API_KEY still in secret but no longer read — Claude now goes through Kie)
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),  # KIE_AI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),  # PIPELINE_WEBHOOK_SECRET, PIPELINE_TRIGGER_SECRET (later wins, shadows leaked value in torah-tai-chi-env)
+    ],
     timeout=60 * 60,  # 1 hour max
 )
 @modal.fastapi_endpoint(method="POST")
@@ -164,7 +167,10 @@ def trigger(payload: dict, request: Request) -> dict:
 
 @app.function(
     image=image,
-    secrets=[modal.Secret.from_name("torah-tai-chi-env")],
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
     timeout=60 * 60,
 )
 def run_pipeline(job_id: str) -> dict | None:
