@@ -74,29 +74,28 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
   draft. Don't drop attributions (if he cites Baal HaTurim, keep that
   citation). Don't invent Hebrew terms or Torah claims. The shape
   changes; the substance doesn't.
-- **Hebrew vocabulary policy — avoid unless necessary.** Seedance's TTS
-  mispronounces phoneticized Hebrew names even when the phonetic is spelled
-  out (e.g., "Eh-den" reads as "Ay-den" or "Aden"). Default to English
-  equivalents wherever the teaching's substance allows:
+- **Hebrew names policy — always use them.** This channel speaks to an
+  Orthodox audience. Never substitute the secular English name for a
+  Hebrew name. Books of the Torah, parshas, patriarchs, matriarchs,
+  prophets, kings, and biblical figures must be referred to by their
+  Hebrew names. Render them phonetically using the safe list below so
+  Seedance TTS pronounces them correctly:
+    Books: Bereishit, Shemot, Vayikra, Bamidbar, Devarim — NEVER
+      "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy".
+    Patriarchs/figures: Moshe, Aharon, Avraham, Yitzchak, Yaakov,
+      Yosef — NEVER "Moses", "Aaron", "Abraham", "Isaac", "Jacob",
+      "Joseph". Same rule for all biblical figures (Dovid, Shlomo,
+      Eliyahu, Sarah, Rivka, Rachel, Leah, etc.).
+- **Hebrew-origin words that are ALSO natural English words — keep the
+  English form, do NOT force a Hebrew phonetic.** These have recognizable
+  English pronunciations, and forcing a thick Hebrew accent through TTS
+  often mis-renders.
     Eden / Garden of Eden -> "Eden" (LEAVE AS-IS — English word, no
        phoneticization. NEVER write "Eh-den" — it mis-renders.)
     Adam -> "Adam" (English already; no phoneticization)
     Israel -> "Israel" (English already)
-    Bereishit -> "Genesis" (English book name)
-    Vayikra -> "Leviticus" (English book name)
-    Shemot -> "Exodus"
-    Bamidbar -> "Numbers"
-    Devarim -> "Deuteronomy"
-    Moshe -> "Moses"
-    Aharon -> "Aaron"
-    Yosef -> "Joseph"
-    Yaakov -> "Jacob"
-    Yitzchak -> "Isaac"
-    Avraham -> "Abraham"
-  Use Hebrew ONLY when the teaching's substance requires it (the lesson
-  is ABOUT a specific Hebrew word's meaning, e.g., a Baal HaTurim teaching
-  on the letters of "vayikra"). When you DO use Hebrew, only the safe
-  list below has been tested to render reliably in Seedance TTS:
+  When you render a Hebrew name phonetically, only the safe list below
+  has been tested to render reliably in Seedance TTS:
 - Hebrew names/terms in the voiceover field must be written as English-
   phonetic breakdowns with CAPS on the stressed syllable.
   CRITICAL RULE — Hebrew guttural "ch" (the sounds ח and sometimes כ) must
@@ -104,15 +103,30 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
   like "church" and Seedance reads it that way, producing incorrect
   pronunciation. Use H (sometimes KH for strong emphasis) for every
   guttural.
-    Vayikra -> "Vah-yeek-RAH"
-    Moshe -> "MOH-sheh"
     Bereishit -> "Beh-ray-SHEET"
+    Shemot -> "Sheh-MOTE"
+    Vayikra -> "Vah-yeek-RAH"
+    Bamidbar -> "Bah-mid-BAR"
+    Devarim -> "Deh-vah-REEM"
+    Moshe -> "MOH-sheh"
+    Aharon -> "Ah-ha-RONE"
+    Avraham -> "AHV-rah-hahm"
+    Yitzchak -> "Yits-HAHK"
+    Yaakov -> "Yah-ah-KOV"
+    Yosef -> "Yo-SEF"
+    Sarah -> "SAH-rah"
+    Rivka -> "RIV-kah"
+    Rachel -> "Rah-HEL"
+    Leah -> "LEH-ah"
+    Dovid -> "DOH-veed"
+    Shlomo -> "SHLOH-moh"
+    Eliyahu -> "Eh-lee-YAH-hoo"
     Baal HaTurim -> "BAH-ahl hah-too-REEM"
     Torah -> "TOH-rah"
     korbanot -> "kor-bah-NOTE"
     karov -> "kah-ROV"
     Shabbat -> "shah-BAHT"
-    # Eden / Adam: see avoid-Hebrew policy above — keep as English, no phonetic.
+    # Eden / Adam / Israel: keep as natural English (see policy above), no phonetic.
     Elohim -> "Eh-loh-HEEM"
     tzedakah -> "tzeh-dah-KAH"
     mitzvah -> "mits-VAH"
@@ -332,7 +346,8 @@ Possible output (sketch):
 
 def build_prompt(parsha_name: str, book: str, option: str,
                  style_note: str, title: str, draft: str,
-                 selected_move: dict | None = None) -> str:
+                 selected_move: dict | None = None,
+                 director_notes: str | None = None) -> str:
     base = (
         f"PARSHA: {parsha_name} ({book})\n"
         f"OPTION: {option}\n"
@@ -374,6 +389,15 @@ def build_prompt(parsha_name: str, book: str, option: str,
             "   motions. The featured move is the single dedicated tai-chi\n"
             "   moment of the video; other dojo beats are Rav Eli as teacher.\n\n"
         )
+    director_block = ""
+    if director_notes and director_notes.strip():
+        director_block = (
+            "DIRECTION FROM YONAH (apply within the existing rules above —\n"
+            "these are scene/feel guides, NOT structural overrides; do not\n"
+            "change clip count, ordering, camera-verb list, archetype menu,\n"
+            "or WPS caps to satisfy them):\n"
+            f"{director_notes.strip()}\n\n"
+        )
     tail = (
         "Produce the ClipPlan JSON now. Remember: 3-8 clips, dojo first then "
         "outdoor, total 28-90 seconds based on natural sage pace (~2.3 wps). "
@@ -381,7 +405,7 @@ def build_prompt(parsha_name: str, book: str, option: str,
         "(tiktok, instagram, youtube_title, youtube_description, facebook, "
         "twitter)."
     )
-    return base + featured + tail
+    return base + featured + director_block + tail
 
 
 # Kie.ai proxies Claude through an Anthropic-native /v1/messages endpoint.

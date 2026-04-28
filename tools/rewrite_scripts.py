@@ -43,25 +43,28 @@ PRESERVE:
 - Yonah's voice: sage, calm, patient teacher. Not copywriter, not clever,
   not preachy.
 
-HEBREW VOCABULARY — AVOID UNLESS THE TEACHING REQUIRES IT:
-The downstream pipeline runs the script through a TTS that mispronounces
-Hebrew names (Eden becomes 'Aden', etc.). Default to English equivalents:
-  Eden / Gan Eden -> "Eden" or "the Garden" (NO phonetic)
-  Bereishit -> "Genesis"
-  Vayikra -> "Leviticus"
-  Shemot -> "Exodus"
-  Bamidbar -> "Numbers"
-  Devarim -> "Deuteronomy"
-  Moshe -> "Moses"
-  Aharon -> "Aaron"
-  Yosef -> "Joseph"
-  Yaakov -> "Jacob"
-  Yitzchak -> "Isaac"
-  Avraham -> "Abraham"
-  Adam, Israel, etc. — already English, leave as-is
-ONLY keep Hebrew when the teaching is specifically ABOUT a Hebrew word's
-meaning (e.g., a teaching on the letters of "vayikra"). Otherwise use the
-English form.
+HEBREW NAMES — ALWAYS USE THEM:
+This channel speaks to an Orthodox audience. Never substitute the secular
+English name for a Hebrew name. Books, parshas, patriarchs, matriarchs,
+prophets, kings, and biblical figures stay in their standard Hebrew
+transliteration form:
+  Books: Bereishit, Shemot, Vayikra, Bamidbar, Devarim — NEVER "Genesis",
+    "Exodus", "Leviticus", "Numbers", "Deuteronomy".
+  Figures: Moshe, Aharon, Avraham, Yitzchak, Yaakov, Yosef, Sarah, Rivka,
+    Rachel, Leah, Dovid, Shlomo, Eliyahu — NEVER "Moses", "Aaron",
+    "Abraham", "Isaac", "Jacob", "Joseph", "David", "Solomon", "Elijah".
+  Same rule for all biblical figures, prophets, kings.
+
+If the existing draft uses an English name, replace it with the Hebrew
+name. The downstream script generator handles TTS phonetics — your job
+here is just to keep the Hebrew name in standard transliteration.
+
+HEBREW-ORIGIN WORDS THAT ARE ALSO ENGLISH WORDS — keep the English form:
+  Eden / Garden of Eden -> "Eden" (English, no phonetic)
+  Adam -> "Adam"
+  Israel -> "Israel"
+These have natural English pronunciations and don't need to be replaced
+with anything.
 
 FREEDOM:
 - You MAY pick a different angle on the parsha's theme if it fits 90-110
