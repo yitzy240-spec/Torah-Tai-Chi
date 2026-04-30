@@ -27,6 +27,19 @@ const STEP_LABELS: Record<string, string> = Object.fromEntries(
 STEP_LABELS.failed = 'Failed';
 STEP_LABELS.cancelled = 'Cancelled';
 
+/** Format a cost value for display. Returns "—" for null/undefined
+ * (unknown — Kie didn't return a cost field) instead of fabricating
+ * "$0.00" or showing the previous hardcoded $1.20 placeholder. The
+ * pipeline now writes the real Kie credits_consumed value when it
+ * exposes one; legacy rows from before this change have $1.20 (fake)
+ * and will keep showing that until they age out. */
+function formatCost(v: number | string | null | undefined): string {
+  if (v === null || v === undefined) return '—';
+  const n = typeof v === 'string' ? Number(v) : v;
+  if (!Number.isFinite(n)) return '—';
+  return `$${n.toFixed(2)}`;
+}
+
 type Job = {
   id: string;
   status: string;
@@ -315,12 +328,14 @@ export function JobProgress({
             />
           )}
 
-          <p className="text-xs text-neutral-500">
-            Cost so far:{' '}
-            <span className="tabular-nums">
-              ${Number(job.total_cost_usd ?? 0).toFixed(2)}
-            </span>
-          </p>
+          {job.total_cost_usd !== null && job.total_cost_usd !== undefined && (
+            <p className="text-xs text-neutral-500">
+              Cost so far:{' '}
+              <span className="tabular-nums">
+                {formatCost(job.total_cost_usd)}
+              </span>
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -939,10 +954,18 @@ function ClipsSection({ clips }: { clips: Clip[] }) {
   if (clips.length === 0) return null;
 
   const doneCount = clips.filter((c) => c.status === 'done').length;
-  const totalCost = clips.reduce(
+  // Sum only clips with a real cost. Clips with NULL cost (unknown —
+  // Kie didn't return a cost field for that task) are excluded so we
+  // don't underreport or fabricate. If ALL clips are NULL we hide the
+  // total entirely rather than show $0.
+  const knownCostClips = clips.filter(
+    (c) => c.cost_usd !== null && c.cost_usd !== undefined,
+  );
+  const totalCost = knownCostClips.reduce(
     (sum, c) => sum + Number(c.cost_usd ?? 0),
     0,
   );
+  const someCostUnknown = knownCostClips.length < clips.length;
 
   return (
     <Card>
@@ -951,9 +974,13 @@ function ClipsSection({ clips }: { clips: Clip[] }) {
           <span>Clips</span>
           <span className="text-xs font-normal text-neutral-500">
             {doneCount} of {clips.length} done{' '}
-            <span className="text-neutral-400">
-              {`\u00b7 $${totalCost.toFixed(2)} on clips`}
-            </span>
+            {knownCostClips.length > 0 && (
+              <span className="text-neutral-400">
+                {`\u00b7 $${totalCost.toFixed(2)}`}
+                {someCostUnknown && ' (partial)'}
+                {' on clips'}
+              </span>
+            )}
           </span>
         </CardTitle>
       </CardHeader>
@@ -997,7 +1024,7 @@ function ClipRow({ clip }: { clip: Clip }) {
             </Badge>
           )}
           <span className="text-xs tabular-nums text-neutral-500">
-            ${Number(clip.cost_usd ?? 0).toFixed(2)}
+            {formatCost(clip.cost_usd)}
           </span>
         </div>
       </div>

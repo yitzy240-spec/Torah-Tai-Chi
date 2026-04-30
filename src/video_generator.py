@@ -81,6 +81,30 @@ async def generate_clip(
         reference_video_url=reference_video_url,
     )
     task_id = await client.create_task(model, payload)
-    urls = await client.poll_task(task_id)
+    urls, _meta = await client.poll_task(task_id)
     await client.download(urls[0], dest)
     return dest
+
+
+async def generate_clip_with_meta(
+    client: KieClient, clip,
+    character_ref_urls: list[str], dojo_ref_urls: list[str],
+    dest: Path,
+    first_frame_url: Optional[str] = None,
+    audio_url: Optional[str] = None,
+    resolution: str = "720p",
+    model: str = SEEDANCE_MODEL,
+    reference_video_url: Optional[str] = None,
+) -> tuple[Path, dict]:
+    """Same as generate_clip but also returns Kie's task metadata so the
+    caller can extract real cost (credits_consumed / costCredits / etc).
+    """
+    payload = build_seedance_input(
+        clip, character_ref_urls, dojo_ref_urls,
+        first_frame_url, audio_url, resolution,
+        reference_video_url=reference_video_url,
+    )
+    task_id = await client.create_task(model, payload)
+    urls, meta = await client.poll_task(task_id)
+    await client.download(urls[0], dest)
+    return dest, meta

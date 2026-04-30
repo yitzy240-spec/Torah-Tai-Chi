@@ -199,7 +199,7 @@ def run_pipeline(job_id: str) -> dict | None:
     from supabase import create_client
     from src.script_generator import transform_draft_to_clip_plan
     from src.topic_pipeline import generate_draft_from_topic
-    from src.video_generator import generate_clip
+    from src.video_generator import generate_clip, generate_clip_with_meta
     from src.stitcher import concat_clips
     from src.kie_client import KieClient
     from src.models import ClipPlan
@@ -407,7 +407,7 @@ def run_pipeline(job_id: str) -> dict | None:
                 clip_ref_video_url = (
                     motion_ref_mp4_url if clip.motion_ref_slug else None
                 )
-                await generate_clip(
+                _, kie_meta = await generate_clip_with_meta(
                     kie, clip,
                     character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
                     dest=dest, resolution=resolution,
@@ -417,15 +417,30 @@ def run_pipeline(job_id: str) -> dict | None:
                 async with lock:
                     completed += 1
                     set_status("generating_clips", f"Generating {completed} of {len(plan.clips)} clips")
+                # Pull real cost from Kie's task response. Field name varies
+                # across Kie endpoints; try the known variants and store
+                # whatever is present. NULL if Kie didn't expose any (the
+                # UI shows "—" rather than a fake $1.20).
+                real_cost = (
+                    kie_meta.get("creditsConsumed")
+                    or kie_meta.get("credits_consumed")
+                    or kie_meta.get("costCredits")
+                    or kie_meta.get("cost")
+                )
                 clip_update = {
                     "mp4_path": f"internal/{dest.name}",
-                    "status": "done", "cost_usd": 1.20,
+                    "status": "done",
+                    "cost_usd": real_cost,
                     "completed_at": "now()",
                 }
                 if clip_ref_video_url:
                     clip_update["motion_ref_url"] = clip_ref_video_url
                 sb.table("clips").update(clip_update).eq("job_id", job_id).eq("index", clip.index).execute()
-                log_cost("clip", "kie", 1.20, f"clip {clip.index}")
+                if real_cost is not None:
+                    log_cost("clip", "kie", float(real_cost), f"clip {clip.index}")
+                else:
+                    print(f"[modal_app] no cost field in Kie response for clip {clip.index}; "
+                          f"meta keys={list(kie_meta.keys())}")
                 return dest
 
             ordered = await asyncio.gather(*(_one(c) for c in plan.clips))

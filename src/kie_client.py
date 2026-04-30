@@ -80,7 +80,14 @@ class KieClient:
         # Unreachable
         del last_transient
 
-    async def poll_task(self, task_id: str) -> list[str]:
+    async def poll_task(self, task_id: str) -> tuple[list[str], dict]:
+        """Poll a Seedance task until terminal. Returns (urls, raw_data).
+
+        raw_data is Kie's full task record so callers can extract cost
+        and other metadata. Field names vary by endpoint — common
+        candidates include credits_consumed, costCredits, cost — caller
+        decides which to read.
+        """
         deadline = time.monotonic() + self._poll_timeout
         async with httpx.AsyncClient(timeout=self._timeout) as c:
             while time.monotonic() < deadline:
@@ -95,7 +102,17 @@ class KieClient:
                     urls = parsed.get("resultUrls") or []
                     if not urls:
                         raise RuntimeError(f"success without urls: {d}")
-                    return urls
+                    # One-time per-task log of all top-level keys + numeric
+                    # values so we can identify the cost field. Excludes
+                    # heavy fields (resultJson is already parsed above).
+                    cost_hint = {
+                        k: v for k, v in d.items()
+                        if k != "resultJson"
+                        and isinstance(v, (int, float, str))
+                        and not (isinstance(v, str) and len(v) > 80)
+                    }
+                    print(f"[kie_client] task {task_id} success meta={cost_hint}")
+                    return urls, d
                 if state == "fail":
                     raise KieTaskFailed(
                         f"{d.get('failCode')}: {d.get('failMsg')}"
