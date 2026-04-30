@@ -1,0 +1,11 @@
+-- Pipeline transparency: surface the new Gemini visual-verification
+-- phase as its own job_status enum value so the dashboard's
+-- StepIndicator can show "Verifying clips" between "Generating clips"
+-- and "Stitching".
+--
+-- Postgres restricts enum value adds inside transactions. This must be
+-- a TOP-LEVEL statement (no BEGIN wrapper). Supabase's SQL editor
+-- handles that automatically when you run this file as-is.
+--
+-- Idempotent via 'if not exists' — safe to re-run.
+alter type job_status add value if not exists 'verifying';

@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
-import { Check, Loader2, X, RotateCcw, XCircle } from 'lucide-react';
+import { Check, Loader2, X, RotateCcw, XCircle, AlertTriangle, Eye } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,12 @@ const STEPS = [
   { key: 'generating_plan',  label: 'Writing the plan' },
   { key: 'uploading_refs',   label: 'Uploading references' },
   { key: 'generating_clips', label: 'Generating clips' },
+  // 'verifying' is the per-clip Gemini visual-verify pass that runs
+  // immediately after each Seedance generation, before stitching.
+  // The pipeline cycles through verifying within the asyncio.gather
+  // over clips; we render it as one collective stage in the indicator
+  // and surface per-clip detail in the Clips card below.
+  { key: 'verifying',        label: 'Verifying clips' },
   { key: 'stitching',        label: 'Stitching' },
   { key: 'done',             label: 'Done' },
 ] as const;
@@ -69,6 +75,16 @@ type Clip = {
   status: string | null;
   cost_usd: number | string | null;
   mp4_path: string | null;
+  // Per-clip Gemini visual-verification status. Written by the
+  // pipeline's _generate_clip_with_verify loop. 'unchecked' is the
+  // safe default for legacy rows + cases where Gemini was skipped
+  // (no checks generated, OPENROUTER_API_KEY missing, etc).
+  verification_status?: 'unchecked' | 'verifying' | 'verified' | 'failed' | null;
+  verification_attempts?: number | null;
+  // Full Gemini structured response (jsonb). Currently unused by
+  // the row UI; surfaced via console for ops triage and consumed
+  // by the email summary on the dashboard side.
+  verification_notes?: unknown;
 };
 
 type TaiChiMove = {
@@ -204,10 +220,16 @@ export function JobProgress({
       if (latestJob) setJob((j) => ({ ...j, ...(latestJob as Partial<Job>) }));
       const { data: latestClips } = await supabase
         .from('clips')
-        .select('id, index, voiceover, status, cost_usd, mp4_path')
+        .select(
+          'id, index, voiceover, status, cost_usd, mp4_path, ' +
+          'verification_status, verification_attempts, verification_notes',
+        )
         .eq('job_id', job.id)
         .order('index');
-      if (latestClips) setClips(latestClips as Clip[]);
+      // Cast through unknown — Supabase types haven't been regenerated
+      // yet for the new verification_* columns; they'll show as
+      // GenericStringError until typegen runs post-migration.
+      if (latestClips) setClips(latestClips as unknown as Clip[]);
       // clip_plans polling fallback — only fetched while the page is in-flight,
       // which is when the plan can still be written or regenerated.
       const { data: latestPlan } = await supabase
@@ -1024,12 +1046,59 @@ function ClipRow({ clip }: { clip: Clip }) {
               Generating
             </Badge>
           )}
+          <ClipVerifyBadge clip={clip} />
           <span className="text-xs tabular-nums text-neutral-500">
             {formatCost(clip.cost_usd)}
           </span>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Per-clip verification badge rendered alongside the Done/Generating
+ * badge. The pipeline runs Gemini visual verification immediately
+ * after Seedance produces each new clip — this surfaces the result.
+ *
+ * 'unchecked' is the safe default for legacy rows or cases where
+ * verification was skipped (no OPENROUTER_API_KEY, no checks
+ * generated, etc) — we render nothing in that case so the row stays
+ * compact for the common path.
+ */
+function ClipVerifyBadge({ clip }: { clip: Clip }) {
+  const status = clip.verification_status ?? null;
+  const attempts = clip.verification_attempts ?? 0;
+  if (!status || status === 'unchecked') return null;
+  if (status === 'verifying') {
+    return (
+      <Badge variant="outline" className="text-neutral-600 dark:text-neutral-400">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Verifying
+      </Badge>
+    );
+  }
+  if (status === 'verified') {
+    return (
+      <Badge
+        variant="secondary"
+        className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+      >
+        <Eye className="h-3 w-3" />
+        Verified
+      </Badge>
+    );
+  }
+  // 'failed' — the clip shipped but Gemini flagged at least one check
+  // after MAX_VERIFY_ATTEMPTS regenerations. The user should review.
+  return (
+    <Badge
+      variant="outline"
+      className="border-amber-300 bg-amber-500/15 text-amber-700 dark:border-amber-800 dark:text-amber-400"
+    >
+      <AlertTriangle className="h-3 w-3" />
+      Verify failed{attempts > 0 ? ` (${attempts} attempts)` : ''}
+    </Badge>
   );
 }
 
@@ -1094,6 +1163,7 @@ function guessFailedStage(job: Job, clips: Clip[]): string {
   // so "Generating 3 of 5 clips" hits generating_clips before substring "loading"
   // could match a stray phrase.
   if (msg.includes('stitching') || msg.includes('crossfading')) return 'stitching';
+  if (msg.includes('verify') || msg.includes('verifying') || msg.includes('gemini')) return 'verifying';
   if (msg.includes('clip')) return 'generating_clips';
   if (msg.includes('reference') || msg.includes('upload')) return 'uploading_refs';
   if (msg.includes('plan')) return 'generating_plan';

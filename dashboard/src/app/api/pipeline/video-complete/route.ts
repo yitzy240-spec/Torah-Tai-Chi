@@ -234,6 +234,81 @@ export async function POST(request: Request) {
     const parshaName: string = parsha?.name ?? 'Unknown';
     const parshaSlug: string | null = parsha?.slug ?? null;
 
+    // Pull the per-clip Gemini verification state so the success
+    // email can flag any clips that didn't pass after the bounded
+    // retry. Failures here must not block the email — a missing
+    // notes column or RLS denial just means we skip the addendum.
+    let unverifiedAddendumHtml = '';
+    let unverifiedAddendumText = '';
+    try {
+      const { data: clipVerifyRows } = await sb
+        .from('clips')
+        .select('index, verification_status, verification_attempts, verification_notes')
+        .eq('job_id', jobId)
+        .order('index');
+      const failed = (clipVerifyRows ?? []).filter(
+        (c: { verification_status?: string | null }) =>
+          c.verification_status === 'failed',
+      );
+      if (failed.length > 0) {
+        const lines = failed.map((c: {
+          index: number;
+          verification_attempts?: number | null;
+          verification_notes?: unknown;
+        }) => {
+          // verification_notes is the raw Gemini structured response.
+          // Pull failed claims out so the email reads as actionable
+          // ("clip 3 — candles still appear on separate shelves")
+          // rather than "clip 3 didn't verify".
+          const notes = c.verification_notes as
+            | { results?: Array<{ id?: string; pass?: boolean; evidence?: string }>;
+                checks?: Array<{ id?: string; claim?: string }> }
+            | null
+            | undefined;
+          const claimById = new Map<string, string>();
+          for (const ch of notes?.checks ?? []) {
+            if (ch?.id && ch.claim) claimById.set(ch.id, ch.claim);
+          }
+          const failedClaims: string[] = [];
+          const seenIds = new Set<string>();
+          for (const r of notes?.results ?? []) {
+            if (!r?.id) continue;
+            seenIds.add(r.id);
+            if (r.pass !== true) {
+              const claim = claimById.get(r.id) ?? r.id;
+              failedClaims.push(claim);
+            }
+          }
+          // Conservative: a check id with no result row is also a failure.
+          for (const [id, claim] of claimById) {
+            if (!seenIds.has(id)) failedClaims.push(claim);
+          }
+          const summary = failedClaims.length > 0
+            ? failedClaims.slice(0, 2).join('; ')
+            : 'verification failed (no specific claims recorded)';
+          const attemptsLabel = c.verification_attempts
+            ? ` after ${c.verification_attempts} attempt(s)`
+            : '';
+          return { index: c.index, summary, attemptsLabel };
+        });
+        const linesHtml = lines
+          .map((l: { index: number; summary: string; attemptsLabel: string }) =>
+            `<li><strong>Clip ${escapeHtml(String(l.index))}</strong>${escapeHtml(l.attemptsLabel)} — ${escapeHtml(l.summary)}</li>`,
+          )
+          .join('');
+        const linesText = lines
+          .map((l: { index: number; summary: string; attemptsLabel: string }) =>
+            `  - Clip ${l.index}${l.attemptsLabel} — ${l.summary}`,
+          )
+          .join('\n');
+        unverifiedAddendumHtml = `<p><strong>Heads up:</strong> ${failed.length} clip(s) didn&apos;t pass visual verification. You may want to review:</p><ul>${linesHtml}</ul>`;
+        unverifiedAddendumText = `\nHeads up: ${failed.length} clip(s) didn't pass visual verification. You may want to review:\n${linesText}\n`;
+      }
+    } catch (verifyErr) {
+      const msg = verifyErr instanceof Error ? verifyErr.message : String(verifyErr);
+      console.warn(`[video-complete] failed to read clip verification state: ${msg}`);
+    }
+
     try {
       const linkHtml = parshaSlug
         ? `<p>View it here: <a href="${DASHBOARD_BASE_URL}/videos/${escapeHtml(parshaSlug)}">${DASHBOARD_BASE_URL}/videos/${escapeHtml(parshaSlug)}</a></p>`
@@ -244,8 +319,8 @@ export async function POST(request: Request) {
 
       await sendNotification({
         subject: `\u2713 Video ready: ${parshaName}`,
-        html: `<p>Hi,</p><p>The Torah Tai Chi pipeline finished generating <strong>${escapeHtml(parshaName)}</strong>. Autopilot has scheduled it across ${(result.results ?? []).length} connected channel(s) for the upcoming Shabbat.</p>${linkHtml}<p>— Torah Tai Chi pipeline</p>`,
-        text: `The Torah Tai Chi pipeline finished generating ${parshaName}. Autopilot has scheduled it across ${(result.results ?? []).length} connected channel(s) for the upcoming Shabbat.\n\n${linkText}\n\n— Torah Tai Chi pipeline`,
+        html: `<p>Hi,</p><p>The Torah Tai Chi pipeline finished generating <strong>${escapeHtml(parshaName)}</strong>. Autopilot has scheduled it across ${(result.results ?? []).length} connected channel(s) for the upcoming Shabbat.</p>${unverifiedAddendumHtml}${linkHtml}<p>— Torah Tai Chi pipeline</p>`,
+        text: `The Torah Tai Chi pipeline finished generating ${parshaName}. Autopilot has scheduled it across ${(result.results ?? []).length} connected channel(s) for the upcoming Shabbat.\n${unverifiedAddendumText}\n${linkText}\n\n— Torah Tai Chi pipeline`,
       });
     } catch (emailErr) {
       // Resend outage must not fail the autopilot webhook — autopilot

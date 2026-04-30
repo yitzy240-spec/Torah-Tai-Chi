@@ -82,7 +82,7 @@ def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
 # every legitimate first-time call.
 _IN_FLIGHT_STATUSES = frozenset({
     "loading_parsha", "generating_plan", "uploading_refs",
-    "generating_clips", "stitching",
+    "generating_clips", "verifying", "stitching",
 })
 _TERMINAL_STATUSES = frozenset({"done"})
 
@@ -528,12 +528,42 @@ def run_pipeline(job_id: str) -> dict | None:
                             )
                             # fall through to regenerate
 
-                _, kie_meta = await generate_clip_with_meta(
-                    kie, clip,
-                    character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
-                    dest=dest, resolution=resolution,
-                    model=seedance_model,
-                    reference_video_url=clip_ref_video_url,
+                # Wrap the Seedance call in the verify loop. For
+                # run_pipeline (no user feedback yet), checks come
+                # from the visual_prompt itself — baseline-correctness
+                # only. The loop is bounded at MAX_VERIFY_ATTEMPTS;
+                # each iteration uploads the mp4 to Storage so Gemini
+                # can fetch it.
+                async def _seedance_for_clip(c):
+                    _path, _meta = await generate_clip_with_meta(
+                        kie, c,
+                        character_ref_urls=char_refs,
+                        dojo_ref_urls=dojo_refs,
+                        dest=dest, resolution=resolution,
+                        model=seedance_model,
+                        reference_video_url=clip_ref_video_url,
+                    )
+                    return _path, _meta
+
+                (
+                    local_path,
+                    kie_meta,
+                    total_credits,
+                    verify_attempts,
+                    verify_status,
+                    verify_notes,
+                    _checks_used,
+                ) = await _generate_clip_with_verify(
+                    clip=clip,
+                    seedance_call=_seedance_for_clip,
+                    job_id=job_id,
+                    sb=sb,
+                    feedback_text=None,
+                    diagnosis=None,
+                    kie_api_key=os.environ["KIE_AI_API_KEY"],
+                    openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
+                    set_status_fn=set_status,
+                    progress_label=f"clip {clip.index} of {len(plan.clips)}",
                 )
                 async with lock:
                     completed += 1
@@ -541,33 +571,20 @@ def run_pipeline(job_id: str) -> dict | None:
                 # Kie returns credits used (their pricing model is $5/1000
                 # credits = $0.005/credit). Multiply to USD before storing
                 # in cost_usd, since downstream callers (dashboard total,
-                # cost rollup, monthly budget) all assume USD.
-                credits = (
-                    kie_meta.get("creditsConsumed")
-                    or kie_meta.get("credits_consumed")
-                    or kie_meta.get("costCredits")
-                    or kie_meta.get("cost")
-                )
+                # cost rollup, monthly budget) all assume USD. We sum
+                # across ALL Seedance attempts for this clip — every
+                # generation cost real money even if we shipped only
+                # the last one.
                 real_cost_usd = (
-                    float(credits) * KIE_CREDITS_TO_USD if credits is not None else None
+                    total_credits * KIE_CREDITS_TO_USD if total_credits else None
                 )
-                # Persist this clip to Storage immediately so a Modal
-                # worker preempt mid-pipeline doesn't lose already-paid
-                # clips, AND so per-clip surgery (regen ONE clip and
-                # re-stitch using the rest) has the originals to pull
-                # back. Without this the only mp4 that ever leaves Modal
-                # is the final stitched one, making surgery impossible.
+                # Storage upload already happened inside
+                # _generate_clip_with_verify (it has to, so Gemini
+                # can fetch the mp4). The local path is stable across
+                # retries because the helper passes the same dest.
                 clip_storage_path = (
                     f"jobs/{job_id}/clips/clip_{clip.index:02d}.mp4"
                 )
-                with open(dest, "rb") as cf:
-                    sb.storage.from_("videos").upload(
-                        clip_storage_path, cf.read(),
-                        file_options={
-                            "content-type": "video/mp4",
-                            "upsert": "true",
-                        },
-                    )
                 clip_update = {
                     "storage_path": clip_storage_path,
                     # Overwrite the legacy "internal/clip_NN.mp4"
@@ -578,16 +595,28 @@ def run_pipeline(job_id: str) -> dict | None:
                     "status": "done",
                     "cost_usd": real_cost_usd,
                     "completed_at": "now()",
+                    "verification_status": verify_status,
+                    "verification_attempts": verify_attempts,
+                    "verification_notes": verify_notes,
+                    # Persist any prompt augmentation the verify loop
+                    # applied so the dashboard's clip plan / debug
+                    # tools see the prompt that ACTUALLY shipped.
+                    "voiceover": clip.voiceover,
+                    "visual_prompt": clip.visual_prompt,
                 }
                 if clip_ref_video_url:
                     clip_update["motion_ref_url"] = clip_ref_video_url
                 sb.table("clips").update(clip_update).eq("job_id", job_id).eq("index", clip.index).execute()
                 if real_cost_usd is not None:
-                    log_cost("clip", "kie", real_cost_usd, f"clip {clip.index} ({credits} credits)")
+                    log_cost(
+                        "clip", "kie", real_cost_usd,
+                        f"clip {clip.index} ({verify_attempts} attempt(s)) "
+                        f"verify={verify_status}",
+                    )
                 else:
                     print(f"[modal_app] no cost field in Kie response for clip {clip.index}; "
                           f"meta keys={list(kie_meta.keys())}")
-                return dest
+                return local_path
 
             ordered = await asyncio.gather(*(_one(c) for c in plan.clips))
             return [p for p in ordered]
@@ -767,6 +796,592 @@ def _ensure_local(sb, work_dir: Path, storage_path: str) -> Path:
     data = sb.storage.from_("videos").download(storage_path)
     local.write_bytes(data)
     return local
+
+
+# ====================================================================
+# PER-CLIP GEMINI VISUAL VERIFICATION
+# ====================================================================
+#
+# Problem the legacy editor agent couldn't solve: Claude is blind to
+# what Seedance actually rendered. The agent's text-only verify step
+# checks the new ClipPlan against the user's feedback — but if Seedance
+# generates "two candles on separate shelves" despite the prompt
+# saying "side by side on the same surface," the bad clip ships and
+# the user reports the same issue for the Nth time.
+#
+# Fix: per-clip Gemini-powered visual verification immediately after
+# Seedance produces each new clip, BEFORE stitching. Bounded retry: if
+# the clip fails its checks, regenerate ONCE with the failure findings
+# augmenting the prompt; second failure ships anyway with
+# verification_status='failed' so the user knows which clip to review.
+#
+# Model selection (per the project's standing rule, verified at impl
+# time via openrouter.ai/api/v1/models):
+#   google/gemini-3-pro-preview-20260219 — frontier reasoning, 1M ctx,
+#   native video input. Currently $2/$12 per 1M tokens — ~$0.20 per
+#   short-clip verify pass.
+#
+# Bound: max 2 attempts per clip. NEVER more. Latency budget
+# ~30-60s/verify, accepted because the alternative is the user
+# re-running the whole pipeline manually.
+
+# OpenRouter id used for the visual verify call. Pinned to the
+# preview snapshot so a silent OR routing change doesn't shift
+# behavior under us; bump the date when we test a newer Gemini.
+GEMINI_VERIFY_MODEL = "google/gemini-3-pro-preview-20260219"
+
+# Hard cap. Pipeline will never call Seedance more than this many
+# times for one clip during one run.
+MAX_VERIFY_ATTEMPTS = 2
+
+
+def _public_clip_url(storage_path: str) -> str:
+    """Build the public Supabase Storage URL for a clip mp4.
+
+    Clip mp4s are uploaded to the 'videos' bucket which is configured
+    public (per the checkpoint work that made surgery possible).
+    Gemini fetches the mp4 from this URL directly — no signed URL,
+    no service-key handoff.
+    """
+    base = os.environ["SUPABASE_URL"].rstrip("/")
+    return f"{base}/storage/v1/object/public/videos/{storage_path.lstrip('/')}"
+
+
+async def _generate_clip_checks(
+    *,
+    clip_voiceover: str,
+    clip_visual_prompt: str,
+    feedback_text: str,
+    diagnosis: dict | None,
+    kie_api_key: str,
+    openrouter_api_key: str | None,
+) -> list[dict]:
+    """Sonnet 4.6 call. Returns a list of {id, claim, feedback_point}
+    dicts — concrete, binary visual/audio checks the new clip MUST
+    satisfy if the regen actually addressed the user's feedback.
+
+    Returns [] if the model can't ground any concrete checks (unusual
+    feedback shape) — verification then short-circuits to 'unchecked'
+    rather than failing the pipeline.
+    """
+    import json as _json
+    from src.claude_call import claude_call
+    from src.script_generator import _extract_json_block
+
+    system = (
+        "You are generating verification checks for one specific clip. "
+        "Given the user's original feedback and the agent's diagnosis, "
+        "list the visual or audio claims that this clip MUST satisfy "
+        "if the regen succeeded. Be concrete and binary — each check "
+        "must be a yes/no observable in the clip. Each claim should "
+        "include enough specificity that a vision model watching the "
+        "clip could mark it pass/fail without ambiguity (objects, "
+        "spatial relationships, counts, pronunciations). Output ONE "
+        "JSON object: "
+        "{ \"checks\": [ "
+        "{\"id\": \"<short snake_case identifier>\", "
+        "\"claim\": \"<concrete pass/fail statement about what should "
+        "be visible/audible in this clip>\", "
+        "\"feedback_point\": \"<which feedback point this check "
+        "anchors to, or 'general' if it's a baseline correctness "
+        "check>\"} "
+        "] }. No markdown fences, no commentary."
+    )
+    diagnosis_block = (
+        _json.dumps(diagnosis, indent=2) if diagnosis else "(no diagnosis available)"
+    )
+    user_prompt = (
+        f"USER FEEDBACK (the issues that drove this regen):\n"
+        f"{feedback_text}\n\n"
+        f"AGENT DIAGNOSIS:\n{diagnosis_block}\n\n"
+        f"CLIP VOICEOVER (what should be heard):\n{clip_voiceover}\n\n"
+        f"CLIP VISUAL PROMPT (what should be seen):\n{clip_visual_prompt}\n\n"
+        f"List the binary checks that this clip must satisfy. Output JSON only."
+    )
+    try:
+        raw = await claude_call(
+            messages=[{"role": "user", "content": user_prompt}],
+            system=system,
+            model="claude-sonnet-4-6",
+            kie_api_key=kie_api_key,
+            openrouter_api_key=openrouter_api_key,
+            max_tokens=2000,
+            log_prefix="[verify.checks]",
+        )
+        cleaned = _extract_json_block(raw)
+        parsed = _json.loads(cleaned)
+        checks = parsed.get("checks") or []
+        # Mild shape guard — bad rows just get filtered out rather
+        # than crashing the whole verify pass.
+        valid = []
+        for c in checks:
+            if not isinstance(c, dict):
+                continue
+            cid = c.get("id")
+            claim = c.get("claim")
+            if isinstance(cid, str) and isinstance(claim, str) and claim.strip():
+                valid.append({
+                    "id": cid,
+                    "claim": claim,
+                    "feedback_point": c.get("feedback_point") or "general",
+                })
+        return valid
+    except Exception as e:
+        # Check generation is itself best-effort. A Sonnet outage must
+        # not block the pipeline — degrade to "no checks", which the
+        # caller treats as 'unchecked' (skip verify, ship the clip).
+        print(
+            f"[verify.checks] WARN failed to generate checks: "
+            f"{type(e).__name__}: {e}; verify will be skipped for this clip"
+        )
+        return []
+
+
+async def _gemini_verify_clip(
+    *,
+    clip_url: str,
+    checks: list[dict],
+    openrouter_api_key: str,
+) -> dict:
+    """Send the clip mp4 URL + the list of checks to Gemini and ask
+    it to return pass/fail per check with concrete evidence.
+
+    Returns ``{"results": [{"id", "pass", "evidence"}, ...], "error": None}``
+    on success or ``{"results": [], "error": "<reason>"}`` on failure.
+    The caller treats the 'error' branch as 'skip verify, ship the
+    clip' so a Gemini outage never blocks the pipeline.
+    """
+    import json as _json
+
+    import httpx
+
+    if not checks:
+        return {"results": [], "error": "no checks"}
+
+    system = (
+        "You are reviewing one short video clip against a list of "
+        "specific claims. For each claim, watch the clip carefully "
+        "and determine pass/fail with concrete visual evidence "
+        "(timestamp + observation). Be conservative — only mark "
+        "fail if you can see clearly that the claim is violated. "
+        "If unsure, mark pass. Output ONE JSON object: "
+        "{ \"results\": [ "
+        "{\"id\": \"<the check id from input>\", "
+        "\"pass\": true|false, "
+        "\"evidence\": \"<timestamp range + concrete observation, "
+        "e.g. '0:08-0:12, two candles visible on same table about 4 "
+        "inches apart'>\"} "
+        "] }. No markdown fences, no commentary."
+    )
+
+    checks_block = _json.dumps(checks, indent=2)
+    user_text = (
+        f"CHECKS TO EVALUATE (each item has an id, claim, and the "
+        f"feedback point it anchors to):\n{checks_block}\n\n"
+        f"Watch the clip and output the results JSON now."
+    )
+
+    body = {
+        "model": GEMINI_VERIFY_MODEL,
+        "max_tokens": 2000,
+        "messages": [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_text},
+                    # OpenRouter's OpenAI-compatible chat schema accepts
+                    # video URL parts via the same "image_url" shape the
+                    # multimodal Gemini route understands. Type is
+                    # "video_url" per OR's docs for video-capable models.
+                    {"type": "video_url", "video_url": {"url": clip_url}},
+                ],
+            },
+        ],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as http:
+            r = await http.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/yitzy240-spec/Torah-Tai-Chi",
+                    "X-Title": "torah-tai-chi-pipeline",
+                },
+                json=body,
+            )
+        if r.status_code >= 400:
+            return {
+                "results": [],
+                "error": f"openrouter {r.status_code}: {r.text[:200]}",
+            }
+        data = r.json()
+        choices = data.get("choices") or []
+        if not choices:
+            return {"results": [], "error": "openrouter returned no choices"}
+        content = choices[0].get("message", {}).get("content")
+        if not content or not (isinstance(content, str) and content.strip()):
+            return {"results": [], "error": "openrouter returned empty content"}
+        # Strip optional ```json fences. Reuse the same helper the
+        # rest of the pipeline uses so behavior matches.
+        from src.script_generator import _extract_json_block
+        cleaned = _extract_json_block(content)
+        parsed = _json.loads(cleaned)
+        results = parsed.get("results") or []
+        valid = []
+        for res in results:
+            if not isinstance(res, dict):
+                continue
+            rid = res.get("id")
+            rpass = res.get("pass")
+            if isinstance(rid, str) and isinstance(rpass, bool):
+                valid.append({
+                    "id": rid,
+                    "pass": rpass,
+                    "evidence": res.get("evidence") or "",
+                })
+        return {"results": valid, "error": None}
+    except Exception as e:
+        # Gemini / OR outage: treat as 'unverified' rather than
+        # blocking the pipeline. The caller will mark the clip
+        # verification_status='failed' on second-attempt exhaustion,
+        # or just leave it 'unchecked' if this is the only attempt.
+        return {
+            "results": [],
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+def _verify_results_passed(verify_resp: dict, checks: list[dict]) -> bool:
+    """A clip 'passes' verify when:
+      - Gemini call succeeded (no error), AND
+      - every check id from the input has a result row, AND
+      - every result row has pass=true.
+
+    Conservative: a missing result row = fail (not pass), so partial
+    Gemini responses don't slip through unverified.
+    """
+    if verify_resp.get("error"):
+        return False
+    results = verify_resp.get("results") or []
+    pass_by_id = {
+        r["id"]: bool(r.get("pass"))
+        for r in results
+        if isinstance(r, dict) and isinstance(r.get("id"), str)
+    }
+    for c in checks:
+        cid = c.get("id")
+        if not isinstance(cid, str):
+            continue
+        if not pass_by_id.get(cid, False):
+            return False
+    return True
+
+
+def _summarize_failed_checks(
+    checks: list[dict], verify_resp: dict, max_items: int = 3
+) -> str:
+    """Render a 1-line summary of the failures to slot into a status
+    message ("Retrying clip 3 — gemini flagged X").
+    """
+    results_by_id = {
+        r["id"]: r
+        for r in (verify_resp.get("results") or [])
+        if isinstance(r, dict) and isinstance(r.get("id"), str)
+    }
+    failed_claims: list[str] = []
+    for c in checks:
+        cid = c.get("id")
+        if not isinstance(cid, str):
+            continue
+        res = results_by_id.get(cid)
+        # Missing result rows are conservative-failures (per
+        # _verify_results_passed). Surface them as "no answer for X".
+        if res is None:
+            failed_claims.append(c.get("claim") or cid)
+            continue
+        if not bool(res.get("pass")):
+            failed_claims.append(c.get("claim") or cid)
+    if not failed_claims:
+        # Should only happen if verify_resp itself errored.
+        err = verify_resp.get("error") or "verification incomplete"
+        return f"verification error: {err}"
+    summary = "; ".join(failed_claims[:max_items])
+    if len(failed_claims) > max_items:
+        summary += f" (+{len(failed_claims) - max_items} more)"
+    return summary
+
+
+def _build_retry_prompt_addendum(
+    checks: list[dict], verify_resp: dict
+) -> tuple[str, bool]:
+    """Build the augmentation appended to visual_prompt (and optionally
+    voiceover) on retry. Returns (addendum_text, voiceover_related).
+
+    voiceover_related is True when any failed check anchors a voiceover
+    issue (e.g. "Hashem pronounced 'ha-SHEM'" — that's an audio claim,
+    not a visual one). The caller uses it to decide whether to also
+    augment the voiceover field.
+    """
+    results_by_id = {
+        r["id"]: r
+        for r in (verify_resp.get("results") or [])
+        if isinstance(r, dict) and isinstance(r.get("id"), str)
+    }
+    failed_lines: list[str] = []
+    voiceover_related = False
+    for c in checks:
+        cid = c.get("id")
+        if not isinstance(cid, str):
+            continue
+        res = results_by_id.get(cid)
+        if res is not None and bool(res.get("pass")):
+            continue
+        claim = c.get("claim") or cid
+        evidence = (res or {}).get("evidence") or ""
+        line = f"- {claim}"
+        if evidence:
+            line += f" (verifier observed: {evidence})"
+        failed_lines.append(line)
+        # Heuristic: voiceover-related keywords. Cheap and good enough
+        # for a retry hint — false positives just nudge the voiceover
+        # too, which is harmless.
+        anchor = (c.get("feedback_point") or "").lower()
+        text = (claim + " " + anchor).lower()
+        if any(
+            k in text
+            for k in ("voiceover", "pronunci", "audio", "spoken", "narration", "tts")
+        ):
+            voiceover_related = True
+    if not failed_lines:
+        return "", False
+    addendum = (
+        "\n\nPRIOR ATTEMPT FAILED these visual checks. Address each "
+        "one explicitly:\n" + "\n".join(failed_lines)
+    )
+    return addendum, voiceover_related
+
+
+async def _generate_clip_with_verify(
+    *,
+    clip,
+    seedance_call,
+    job_id: str,
+    sb,
+    feedback_text: str | None,
+    diagnosis: dict | None,
+    kie_api_key: str,
+    openrouter_api_key: str | None,
+    set_status_fn,
+    progress_label: str,
+):
+    """Shared Seedance + Gemini-verify loop used by both run_pipeline
+    and regen_agent.
+
+    Args:
+        clip: The pydantic ClipPlan.Clip the call site is about to
+            generate. Mutated in place when a retry needs an augmented
+            visual_prompt / voiceover (the caller still owns the
+            object, so the augmented version is what gets persisted to
+            the clips row).
+        seedance_call: Async callable (clip) -> tuple[Path, dict].
+            The caller wires this to the right
+            generate_clip_with_meta invocation (with the right
+            char_refs / dojo_refs / motion_ref_url). Returns
+            (local_mp4_path, kie_meta).
+        job_id: For Storage upload path + diagnostics.
+        sb: Supabase service client.
+        feedback_text / diagnosis: When called from regen_agent, both
+            are populated and drive concrete check generation. When
+            called from run_pipeline, both can be None — checks will
+            be derived from the visual_prompt itself (baseline
+            correctness only).
+        set_status_fn: The caller's set_status closure. Used to
+            surface "Verifying clip N", "Retrying clip N — gemini
+            flagged ..." in the dashboard.
+        progress_label: Human label for status messages
+            (e.g. "clip 3 of 5"). The caller knows the count; we just
+            interpolate.
+
+    Returns ``(local_path, kie_meta_last, total_cost_usd, attempts,
+    final_status, last_verify_notes, last_checks)``. The caller is
+    responsible for uploading to Storage + writing the clip row.
+
+    Bounded at MAX_VERIFY_ATTEMPTS attempts. Never more, regardless
+    of how badly Gemini disagrees with Seedance.
+    """
+    # Track ALL Seedance attempts' costs — we paid for every regen,
+    # not just the one we shipped.
+    total_credits = 0.0
+    attempts = 0
+    last_kie_meta: dict = {}
+    last_local_path: Path = Path("/tmp/missing.mp4")
+    last_verify_notes: dict = {}
+    last_checks: list[dict] = []
+    final_status = "unchecked"
+
+    # Cap attempts at MAX_VERIFY_ATTEMPTS. Each iteration: Seedance →
+    # upload to Storage so Gemini can fetch → generate checks → call
+    # Gemini → if pass, break; if fail and we have budget, augment
+    # prompt and loop; if out of budget, mark failed and ship.
+    while attempts < MAX_VERIFY_ATTEMPTS:
+        attempts += 1
+        # ---- Generate (Seedance) ----
+        local_path, kie_meta = await seedance_call(clip)
+        last_local_path = local_path
+        last_kie_meta = kie_meta
+        credits = (
+            kie_meta.get("creditsConsumed")
+            or kie_meta.get("credits_consumed")
+            or kie_meta.get("costCredits")
+            or kie_meta.get("cost")
+        )
+        if credits is not None:
+            try:
+                total_credits += float(credits)
+            except (TypeError, ValueError):
+                pass
+
+        # ---- Upload mp4 to Storage so Gemini can fetch ----
+        # Even if verify fails and we retry, the next attempt overwrites
+        # the same path (upsert=true), so the eventual shipped clip's
+        # Storage path is consistent with the final mp4.
+        clip_storage_path = f"jobs/{job_id}/clips/clip_{clip.index:02d}.mp4"
+        with open(local_path, "rb") as cf:
+            sb.storage.from_("videos").upload(
+                clip_storage_path, cf.read(),
+                file_options={
+                    "content-type": "video/mp4",
+                    "upsert": "true",
+                },
+            )
+
+        # ---- Mark verifying in DB so the dashboard shows the spinner
+        #      on this specific clip. If the row doesn't exist yet
+        #      (run_pipeline path inserts it later), this update is a
+        #      no-op; that's fine — the row will land with default
+        #      status='unchecked' until the per-row update at the end.
+        try:
+            sb.table("clips").update({
+                "verification_status": "verifying",
+                "verification_attempts": attempts,
+            }).eq("job_id", job_id).eq("index", clip.index).execute()
+        except Exception:
+            # Non-fatal: schema might not be migrated yet, or the row
+            # might not exist. Don't block the pipeline on UI sugar.
+            pass
+
+        set_status_fn(
+            "verifying",
+            f"Verifying {progress_label} (attempt {attempts}/{MAX_VERIFY_ATTEMPTS})",
+        )
+
+        # ---- Generate per-clip checks (Sonnet) ----
+        # If we have no feedback grounding (run_pipeline path), the
+        # check generator still returns reasonable baseline checks
+        # from the visual_prompt itself, but it might also return
+        # []; that's the "ship the clip, mark unchecked" branch.
+        checks = await _generate_clip_checks(
+            clip_voiceover=clip.voiceover or "",
+            clip_visual_prompt=clip.visual_prompt or "",
+            feedback_text=feedback_text or "",
+            diagnosis=diagnosis,
+            kie_api_key=kie_api_key,
+            openrouter_api_key=openrouter_api_key,
+        )
+        last_checks = checks
+        if not checks:
+            # No checks → no verification possible. Ship as
+            # 'unchecked' rather than blocking. Also no point
+            # retrying — the next attempt would also have no
+            # checks.
+            print(
+                f"[verify] {progress_label}: no checks generated, "
+                f"shipping as unchecked"
+            )
+            final_status = "unchecked"
+            last_verify_notes = {"checks": [], "results": [], "skipped": "no checks"}
+            break
+
+        # ---- Visual verify (Gemini via OpenRouter) ----
+        if not openrouter_api_key:
+            print(
+                f"[verify] {progress_label}: OPENROUTER_API_KEY missing, "
+                f"shipping as unchecked"
+            )
+            final_status = "unchecked"
+            last_verify_notes = {
+                "checks": checks, "results": [],
+                "skipped": "no openrouter key",
+            }
+            break
+
+        clip_url = _public_clip_url(clip_storage_path)
+        verify_resp = await _gemini_verify_clip(
+            clip_url=clip_url,
+            checks=checks,
+            openrouter_api_key=openrouter_api_key,
+        )
+        last_verify_notes = {"checks": checks, **verify_resp}
+
+        passed = _verify_results_passed(verify_resp, checks)
+        if passed:
+            final_status = "verified"
+            break
+
+        # Gemini hit an outage: treat the same as out-of-budget —
+        # ship the clip 'unchecked' rather than burning another
+        # Seedance call on what is likely a transient OR issue.
+        if verify_resp.get("error"):
+            print(
+                f"[verify] {progress_label}: gemini error "
+                f"({verify_resp['error']}); shipping as unchecked"
+            )
+            final_status = "unchecked"
+            break
+
+        # Out of attempts? Ship as failed and let the user know.
+        if attempts >= MAX_VERIFY_ATTEMPTS:
+            failure_summary = _summarize_failed_checks(checks, verify_resp)
+            print(
+                f"[verify] {progress_label}: failed after "
+                f"{attempts}/{MAX_VERIFY_ATTEMPTS} attempts "
+                f"— {failure_summary}"
+            )
+            final_status = "failed"
+            break
+
+        # We have budget — augment the prompt and loop.
+        addendum, voiceover_related = _build_retry_prompt_addendum(
+            checks, verify_resp
+        )
+        clip.visual_prompt = (clip.visual_prompt or "") + addendum
+        if voiceover_related:
+            # Include the same addendum on the voiceover so audio-
+            # related failures (mispronunciation, dropped words) get
+            # a second chance, not just visual ones.
+            clip.voiceover = (clip.voiceover or "") + addendum
+        failure_summary = _summarize_failed_checks(checks, verify_resp)
+        set_status_fn(
+            "verifying",
+            f"Retrying {progress_label} — gemini flagged: {failure_summary}",
+        )
+        print(
+            f"[verify] {progress_label}: attempt {attempts} failed "
+            f"({failure_summary}); regenerating with augmented prompt"
+        )
+
+    return (
+        last_local_path,
+        last_kie_meta,
+        total_credits,
+        attempts,
+        final_status,
+        last_verify_notes,
+        last_checks,
+    )
 
 
 # --- Per-clip surgery prompt ---
@@ -2959,33 +3574,65 @@ def regen_agent(job_id: str) -> dict | None:
         work_dir.mkdir(parents=True, exist_ok=True)
 
         # 8. Regenerate the changed clips IN PARALLEL (asyncio.gather) —
-        #    same shape as regen_smart's _regen_all.
+        #    same shape as regen_smart's _regen_all. Each clip runs the
+        #    Gemini visual-verify loop bounded at MAX_VERIFY_ATTEMPTS.
         new_clips_by_index = {c.index: c for c in new_plan.clips}
         parent_by_index = {c["index"]: c for c in parent_clips}
 
         async def _regen_one(target_idx: int):
             target_clip_pydantic = new_clips_by_index[target_idx]
-            local_path = work_dir / f"clip_{target_idx:02d}.mp4"
+            local_path_dest = work_dir / f"clip_{target_idx:02d}.mp4"
             clip_ref_video_url = (
                 motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
             )
-            _, kie_meta = await generate_clip_with_meta(
-                kie, target_clip_pydantic,
-                character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
-                dest=local_path, resolution=resolution,
-                model=seedance_model,
-                reference_video_url=clip_ref_video_url,
+
+            # Wrap Seedance in the verify loop. Unlike run_pipeline
+            # we have feedback_text + diagnosis here, so the checks
+            # are concrete to what the user complained about.
+            async def _seedance_for_clip(c):
+                _p, _m = await generate_clip_with_meta(
+                    kie, c,
+                    character_ref_urls=char_refs,
+                    dojo_ref_urls=dojo_refs,
+                    dest=local_path_dest, resolution=resolution,
+                    model=seedance_model,
+                    reference_video_url=clip_ref_video_url,
+                )
+                return _p, _m
+
+            (
+                local_path,
+                kie_meta,
+                total_credits,
+                verify_attempts,
+                verify_status,
+                verify_notes,
+                _checks_used,
+            ) = await _generate_clip_with_verify(
+                clip=target_clip_pydantic,
+                seedance_call=_seedance_for_clip,
+                job_id=job_id,
+                sb=sb,
+                feedback_text=feedback_text,
+                diagnosis=diagnosis,
+                kie_api_key=os.environ["KIE_AI_API_KEY"],
+                openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
+                set_status_fn=set_status,
+                progress_label=f"clip {target_idx}",
             )
-            credits = (
-                kie_meta.get("creditsConsumed")
-                or kie_meta.get("credits_consumed")
-                or kie_meta.get("costCredits")
-                or kie_meta.get("cost")
+            cost_usd = total_credits * KIE_CREDITS_TO_USD if total_credits else 0.0
+            credits = total_credits if total_credits else None
+            return (
+                target_idx,
+                local_path,
+                kie_meta,
+                credits,
+                cost_usd,
+                clip_ref_video_url,
+                verify_attempts,
+                verify_status,
+                verify_notes,
             )
-            cost_usd = (
-                float(credits) * KIE_CREDITS_TO_USD if credits is not None else 0.0
-            )
-            return target_idx, local_path, kie_meta, credits, cost_usd, clip_ref_video_url
 
         async def _regen_all():
             return await asyncio.gather(
@@ -3006,21 +3653,26 @@ def regen_agent(job_id: str) -> dict | None:
             # clips and stitch.
             regen_results = []
 
-        # 9. Insert new clip rows + upload to Storage for changed clips.
-        for target_idx, local_path, kie_meta, credits, cost_usd, clip_ref_video_url in regen_results:
+        # 9. Insert new clip rows + record verify outcome. The mp4 was
+        #    already uploaded to Storage inside _generate_clip_with_verify
+        #    so Gemini could fetch it; we don't re-upload here.
+        for (
+            target_idx, local_path, kie_meta, credits, cost_usd,
+            clip_ref_video_url, verify_attempts, verify_status,
+            verify_notes,
+        ) in regen_results:
             target_clip_pydantic = new_clips_by_index[target_idx]
             parent_target = parent_by_index[target_idx]
             new_clip_storage_path = (
                 f"jobs/{job_id}/clips/clip_{target_idx:02d}.mp4"
             )
-            with open(local_path, "rb") as cf:
-                sb.storage.from_("videos").upload(
-                    new_clip_storage_path, cf.read(),
-                    file_options={"content-type": "video/mp4", "upsert": "true"},
-                )
             sb.table("clips").insert({
                 "job_id": job_id,
                 "index": target_clip_pydantic.index,
+                # Persist any prompt augmentation the verify loop
+                # applied to this clip — the dashboard's clip plan /
+                # debug tools should see the prompt that ACTUALLY
+                # shipped, not the pre-retry version.
                 "voiceover": target_clip_pydantic.voiceover,
                 "visual_prompt": target_clip_pydantic.visual_prompt,
                 "setting_id": target_clip_pydantic.setting_id,
@@ -3033,11 +3685,16 @@ def regen_agent(job_id: str) -> dict | None:
                 "cost_usd": cost_usd,
                 "completed_at": "now()",
                 "regen_of_clip_id": parent_target["id"],
+                "verification_status": verify_status,
+                "verification_attempts": verify_attempts,
+                "verification_notes": verify_notes,
             }).execute()
             if credits is not None:
                 log_cost(
                     "clip", "kie", cost_usd,
-                    f"regen_agent clip {target_idx} ({credits} credits)",
+                    f"regen_agent clip {target_idx} "
+                    f"({credits} credits, {verify_attempts} attempt(s)) "
+                    f"verify={verify_status}",
                 )
             else:
                 print(
@@ -3070,7 +3727,10 @@ def regen_agent(job_id: str) -> dict | None:
         # 11. Stitch — new clips on local disk; download the rest.
         set_status("stitching", "Crossfading clips into the final video")
         clip_paths_by_index: dict[int, Path] = {}
-        for target_idx, local_path, _kie_meta, _credits, _cost_usd, _ref_url in regen_results:
+        for (
+            target_idx, local_path, _kie_meta, _credits, _cost_usd,
+            _ref_url, _v_attempts, _v_status, _v_notes,
+        ) in regen_results:
             clip_paths_by_index[target_idx] = local_path
         for parent_c in parent_clips:
             if parent_c["index"] in edited_set:

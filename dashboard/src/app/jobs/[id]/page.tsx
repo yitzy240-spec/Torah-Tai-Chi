@@ -21,7 +21,12 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
   const { data: clips } = await supabase
     .from('clips')
-    .select('id, index, voiceover, status, cost_usd, mp4_path')
+    .select(
+      'id, index, voiceover, status, cost_usd, mp4_path, ' +
+      // Per-clip Gemini visual-verification state. Surfaced in the
+      // job-progress component as the per-clip verify badge.
+      'verification_status, verification_attempts, verification_notes',
+    )
     .eq('job_id', id)
     .order('index');
 
