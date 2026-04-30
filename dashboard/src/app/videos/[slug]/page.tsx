@@ -249,16 +249,46 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const videoPublishedToSite: boolean = latest?.publishedToWebsite ?? false;
   const videoCostUsd = latest?.totalCostUsd ?? null;
 
-  // Also check for an in-flight job so the production arc reflects real state.
+  // Also check for an in-flight job so the production arc reflects real state
+  // AND so we can render the regen-in-progress banner above the page when one
+  // exists. Status list mirrors modal_app.py's _IN_FLIGHT_STATUSES plus
+  // 'queued' (which Modal treats as a fresh-trigger candidate but the user
+  // experiences as in-flight). 'verifying' was missing from the previous
+  // version of this query — added back so the arc + banner light up during
+  // Gemini's per-clip visual-verify pass.
   const { data: activeJob } = await supabase
     .from('jobs')
-    .select('id, status')
+    .select('id, status, status_message, triggered_at, regen_of_job_id')
     .eq('parsha_id', parsha.id)
-    .in('status', ['queued', 'loading_parsha', 'generating_plan', 'uploading_refs', 'generating_clips', 'stitching'])
+    .in('status', ['queued', 'loading_parsha', 'generating_plan', 'uploading_refs', 'generating_clips', 'verifying', 'stitching'])
     .order('triggered_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   const isGenerating = !!activeJob;
+  // Only the regen banner (not first-time generation) is surfaced at the top
+  // of the page — first-time generation already has its placeholder player
+  // below. A regen is identified by regen_of_job_id being set.
+  const inFlightRegen = activeJob && activeJob.regen_of_job_id
+    ? {
+        id: activeJob.id as string,
+        status: activeJob.status as string,
+        status_message: (activeJob.status_message as string | null) ?? null,
+        triggered_at: (activeJob.triggered_at as string | null) ?? null,
+        regen_of_job_id: (activeJob.regen_of_job_id as string | null) ?? null,
+      }
+    : null;
+
+  // Compute the same p25-p75 typical run hint the /jobs/<id> page uses, so
+  // the banner gives the user the same wait-time expectation that the
+  // verbose progress page does.
+  const { data: doneJobsForTiming } = await supabase
+    .from('jobs')
+    .select('triggered_at, completed_at')
+    .eq('status', 'done')
+    .not('completed_at', 'is', null)
+    .order('completed_at', { ascending: false })
+    .limit(20);
+  const typicalRun = computeTypicalRun(doneJobsForTiming ?? []);
 
   // Captions (per-platform copy) come from the LATEST job's clip_plan.
   const captions: Partial<Record<Platform, string>> = {};
@@ -458,6 +488,8 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             versions={versionInfos}
             initialSelectedId={initialSelectedId}
             initialCompare={initialCompare}
+            inFlightRegen={inFlightRegen}
+            typicalRun={typicalRun}
           />
           {/* Script carousel — full width below the feedback row when we
               already have a video, so Yonah can still flip through script
@@ -924,6 +956,32 @@ function VideoReadyPill() {
       Video ready
     </span>
   );
+}
+
+/** p25–p75 of recent successful runs, matching the helper in
+ *  /jobs/[id]/page.tsx so the regen banner here shows the same "typical
+ *  run" hint. Duplicated rather than imported to avoid a shared-server-util
+ *  module for a six-line function. */
+function computeTypicalRun(
+  rows: { triggered_at: string | null; completed_at: string | null }[],
+): { lowMin: number; highMin: number } | null {
+  const durations: number[] = [];
+  for (const r of rows) {
+    if (!r.triggered_at || !r.completed_at) continue;
+    const seconds =
+      (new Date(r.completed_at).getTime() - new Date(r.triggered_at).getTime()) / 1000;
+    // Sanity-bound: ignore obviously bad rows (clock skew, schema migration, etc).
+    if (seconds < 30 || seconds > 60 * 60) continue;
+    durations.push(seconds);
+  }
+  if (durations.length < 3) return null;
+  durations.sort((a, b) => a - b);
+  const p25 = durations[Math.floor(durations.length * 0.25)];
+  const p75 = durations[Math.floor(durations.length * 0.75)];
+  return {
+    lowMin: Math.max(1, Math.round(p25 / 60)),
+    highMin: Math.max(1, Math.round(p75 / 60)),
+  };
 }
 
 function PostedStatusPill({ anyPublished, anyScheduled }: { anyPublished: boolean; anyScheduled: boolean }) {

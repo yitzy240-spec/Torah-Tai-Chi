@@ -249,6 +249,17 @@
   }
 }
 
+/* Regen-in-progress banner — narrow-screen stack. The status sentence
+   plus spinner stays on the first line; the "View full progress" link
+   wraps to its own line below. Threshold matches the rest of the
+   video-detail responsive rules (720px). */
+@media (max-width: 720px) {
+  .regen-banner__link {
+    flex: 1 1 100% !important;
+    margin-top: 2px;
+  }
+}
+
 /* Video detail — compare mode stacks vertically on narrow viewports.
    Per spec: previous on top, current below — which matches DOM order
    (previous is rendered first, then current). */

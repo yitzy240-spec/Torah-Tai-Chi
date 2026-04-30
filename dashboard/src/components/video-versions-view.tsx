@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { VersionSelector } from './version-selector';
 import { CompareView } from './compare-view';
 import { VideoFeedback, type FeedbackClip } from './video-feedback';
+import { RegenInProgressBanner, type InFlightJob } from './regen-in-progress-banner';
 
 /**
  * Owns the per-parsha version state on the /videos/[slug] page. The server
@@ -44,9 +45,21 @@ interface Props {
   versions: VersionInfo[];
   initialSelectedId: string;
   initialCompare: boolean;
+  /** An in-flight regen job for this parsha, if any. When present we
+   *  render the RegenInProgressBanner above the version selector so the
+   *  user can see "a new version is being made" and click through to
+   *  /jobs/<id> for the verbose progress view. */
+  inFlightRegen?: InFlightJob | null;
+  typicalRun?: { lowMin: number; highMin: number } | null;
 }
 
-export function VideoVersionsView({ versions, initialSelectedId, initialCompare }: Props) {
+export function VideoVersionsView({
+  versions,
+  initialSelectedId,
+  initialCompare,
+  inFlightRegen,
+  typicalRun,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -108,6 +121,12 @@ export function VideoVersionsView({ versions, initialSelectedId, initialCompare 
 
   return (
     <div>
+      {inFlightRegen && (
+        <RegenInProgressBanner
+          initialJob={inFlightRegen}
+          typicalRun={typicalRun ?? null}
+        />
+      )}
       <VersionSelector
         total={versions.length}
         selectedIndex={selectedIndex}
