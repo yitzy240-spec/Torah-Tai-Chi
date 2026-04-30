@@ -4,19 +4,17 @@ import { createClient } from '@/lib/supabase/server';
 
 /**
  * Feedback flow. Yonah can leave general feedback on a video or per-clip
- * feedback tied to a specific clip. Three execution paths:
+ * feedback tied to a specific clip. Two execution paths now (Apr 2026):
  *
- *  - Surgery (Cut 2): clipId provided AND parent's clips are all
- *    checkpointed in Storage (storage_path populated). Routes to the
- *    regen-clip Modal endpoint, which regenerates only the targeted
- *    clip and re-stitches reusing the parent's other clips. ~$0.40-1.60.
- *
- *  - Smart regen (Cut 3): NO clipId, parent's clips ALL checkpointed,
- *    parent has a clip_plan. Routes to the regen-smart Modal endpoint
- *    where Claude classifies which clips the feedback targets and only
- *    those get re-Seedanced. Typical cost ~$1-3 — bounded by classify
- *    output. Falls back to full regen inside Modal if Claude can't pin
- *    the feedback to specific clips.
+ *  - Editor agent (regen_agent): clipId-set OR clipId-null, both route
+ *    here when the parent's clips are all checkpointed in Storage AND
+ *    the parent has a clip_plan. The agent runs a 4-step
+ *    diagnose/plan/execute/verify chain (Opus -> Sonnet -> Haiku ->
+ *    Opus, with one Plan retry on verify reject), reads ALL prior
+ *    feedback for the video chain, and only Seedances the clips the
+ *    edits actually changed. Replaces the older regen-clip and
+ *    regen-smart paths — both became low-quality single-call flows
+ *    that ignored prior feedback history. ~$0.40-3 typical.
  *
  *  - Full regen (Cut 1): everything else — general feedback on a legacy
  *    parent (no checkpoints / no plan), OR per-clip feedback on a video
@@ -118,37 +116,27 @@ export async function submitFeedback(opts: {
     .maybeSingle();
   const parentPlanJson = parentPlanRow?.plan_json ?? null;
 
-  // Surgery eligibility: requires per-clip feedback AND every parent
-  // clip already checkpointed to Storage (so re-stitch can pull the
-  // un-touched ones back). One missing storage_path on any parent clip
-  // forces full regen — partial surgery would produce a broken video.
-  // We only need the count of parent clips missing storage_path.
+  // Editor-agent eligibility: every parent clip is already checkpointed
+  // to Storage AND the parent has a clip_plan. The agent always needs
+  // the prior plan to diff against, and re-stitch needs every parent
+  // clip's mp4 to pull back. One missing storage_path forces full
+  // regen — partial surgery would produce a broken video.
   //
-  // Smart-regen eligibility: NO clipId AND every parent clip
-  // checkpointed AND parent has a clip_plan (Claude needs the existing
-  // plan to anchor on). One supabase query covers both — they share
-  // the all-clips-checkpointed precondition.
-  let surgeryEligible = false;
-  let smartRegenEligible = false;
-  // Both paths need the parent's clip-checkpoint coverage. Avoid a
-  // second round-trip: query the count once and reuse it.
-  let allParentClipsCheckpointed = false;
-  if (
-    (clipId && targetClipIndex !== null && targetClipHasCheckpoint) ||
-    (!clipId && parentPlanJson)
-  ) {
+  // Per-clip vs general feedback both route to the same endpoint;
+  // clipId is passed as a hint payload so the diagnose step can weight
+  // toward the user's clicked clip without ignoring broader context.
+  let agentEligible = false;
+  // The agent always needs both: full-checkpoint coverage AND the
+  // parent plan to anchor on. Skip the count query if we already know
+  // a precondition fails.
+  if (parentPlanJson && (!clipId || targetClipHasCheckpoint)) {
     const { count: missingCount } = await supabase
       .from('clips')
       .select('id', { count: 'exact', head: true })
       .eq('job_id', parentJobId)
       .is('storage_path', null);
-    allParentClipsCheckpointed = (missingCount ?? 1) === 0;
-  }
-  if (clipId && targetClipIndex !== null && targetClipHasCheckpoint) {
-    surgeryEligible = allParentClipsCheckpointed;
-  }
-  if (!clipId && parentPlanJson) {
-    smartRegenEligible = allParentClipsCheckpointed;
+    const allParentClipsCheckpointed = (missingCount ?? 1) === 0;
+    agentEligible = allParentClipsCheckpointed;
   }
 
   // Insert the feedback row first so we can FK applied_to_job_id later.
@@ -188,9 +176,11 @@ export async function submitFeedback(opts: {
   const merged = (original + previousPlanBlock + feedbackSection).trim();
 
   // Insert the new (regen) job with all the original parameters and the
-  // version-chain pointer. feedback_clip_index is set ONLY on the
-  // surgery path — full regen leaves it null (the column was added by
-  // 20260430_clip_checkpoint.sql).
+  // version-chain pointer. feedback_clip_index is set when the user
+  // clicked "Fix this clip" AND the agent path is eligible — the
+  // editor agent uses it as a hint anchor in the diagnose step.
+  // Legacy non-eligible parents leave it null and run_pipeline ignores
+  // it. (Column was added by 20260430_clip_checkpoint.sql.)
   const regenInsert: Record<string, unknown> = {
     parsha_id: parentJob.parsha_id,
     script_id: parentJob.script_id,
@@ -205,7 +195,7 @@ export async function submitFeedback(opts: {
     status: 'queued',
     triggered_by: user.id,
   };
-  if (surgeryEligible && targetClipIndex !== null) {
+  if (agentEligible && clipId && targetClipIndex !== null) {
     regenInsert.feedback_clip_index = targetClipIndex;
   }
   const { data: regenJob, error: regenErr } = await supabase
@@ -244,24 +234,30 @@ export async function submitFeedback(opts: {
       .eq('id', regenJob.id);
     return { error: 'PIPELINE_TRIGGER_SECRET not set' };
   }
-  // Surgery / smart regen hit different Modal endpoints. Modal's URL
-  // pattern is <account>--<app>-<function>.modal.run; the trigger
-  // function is 'pipeline-trigger', surgery is
-  // 'pipeline-regen-clip-endpoint', smart-regen is
-  // 'pipeline-regen-smart-endpoint'. We string-replace rather than
-  // carry second/third env vars so deployments don't need paired
-  // config updates.
+  // Editor-agent regen and full regen hit different Modal endpoints.
+  // Modal's URL pattern is <account>--<app>-<function>.modal.run; the
+  // full-pipeline trigger function is 'pipeline-trigger', the editor
+  // agent is 'pipeline-regen-agent-endpoint'. We string-replace rather
+  // than carry a second env var so deployments don't need paired
+  // config updates. (The legacy 'pipeline-regen-clip-endpoint' and
+  // 'pipeline-regen-smart-endpoint' remain deployed but unused — see
+  // the DEPRECATED comments on those Modal functions.)
   let workerUrl = baseTriggerUrl;
-  if (surgeryEligible) {
+  if (agentEligible) {
     workerUrl = baseTriggerUrl.replace(
       'pipeline-trigger',
-      'pipeline-regen-clip-endpoint',
+      'pipeline-regen-agent-endpoint',
     );
-  } else if (smartRegenEligible) {
-    workerUrl = baseTriggerUrl.replace(
-      'pipeline-trigger',
-      'pipeline-regen-smart-endpoint',
-    );
+  }
+  // Per-clip hint payload: the agent uses clip_id as an additional
+  // signal in the diagnose step ("user clicked Fix this clip on clip
+  // with voiceover '...'"). The authoritative target is on the job
+  // row (feedback_clip_index, set above for the agent path). General
+  // feedback sends clip_id: null and the agent diagnoses across the
+  // whole video.
+  const triggerPayload: Record<string, unknown> = { job_id: regenJob.id };
+  if (agentEligible) {
+    triggerPayload.clip_id = clipId;
   }
   try {
     await fetch(workerUrl, {
@@ -270,7 +266,7 @@ export async function submitFeedback(opts: {
         'content-type': 'application/json',
         'x-pipeline-secret': triggerSecret,
       },
-      body: JSON.stringify({ job_id: regenJob.id }),
+      body: JSON.stringify(triggerPayload),
       signal: AbortSignal.timeout(15000),
     });
   } catch (e) {
