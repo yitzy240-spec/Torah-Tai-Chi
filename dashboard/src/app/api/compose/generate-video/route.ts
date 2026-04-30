@@ -167,8 +167,9 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({ job_id: job.id }),
       // The worker takes 10-30 minutes; we don't wait for the body,
-      // just enough to confirm dispatch.
-      signal: AbortSignal.timeout(5000),
+      // just enough to confirm dispatch. 15s covers Modal cold-start
+      // (~7s) plus the auth/idempotency SELECT.
+      signal: AbortSignal.timeout(15000),
     });
     await logEvent({
       actor: 'modal',

@@ -132,8 +132,11 @@ export async function triggerGeneration(
         'x-pipeline-secret': triggerSecret,
       },
       body: JSON.stringify({ job_id: job.id }),
-      // Don't await the response body; the worker takes 15-30 min.
-      signal: AbortSignal.timeout(5000),
+      // Don't await the response body; the worker takes 15-30 min. The
+      // 15s ceiling covers Modal cold-start (~7s) + the auth/idempotency
+      // SELECT (~1s) with margin. 5s was too tight and silently dropped
+      // legit triggers when the container was cold.
+      signal: AbortSignal.timeout(15000),
     });
   } catch (e) {
     // It's OK if the fetch aborts — Modal accepts the job and continues.
