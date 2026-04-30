@@ -25,14 +25,11 @@ be translated in the clip-plan step.
 """
 from __future__ import annotations
 
-import asyncio
-
-import httpx
+from src.claude_call import claude_call
 
 # Kie.ai proxies Claude through an Anthropic-native /v1/messages endpoint.
-# Routing through Kie consolidates AI billing to a single vendor account.
-# Auth is Bearer (not x-api-key); no anthropic-version header required.
-KIE_CLAUDE_URL = "https://api.kie.ai/claude/v1/messages"
+# All HTTP + retry + OpenRouter-fallback concerns live in
+# ``src.claude_call``; this module just supplies the prompt + voice.
 MODEL = "claude-opus-4-6"
 
 
@@ -98,21 +95,24 @@ async def generate_draft_from_topic(
     *,
     model: str = MODEL,
     timeout_s: float = 120.0,
-    max_retries: int = 3,
+    max_retries: int = 5,
+    openrouter_api_key: str | None = None,
 ) -> str:
     """Generate a ~45s Rav-Eli-voiced script draft from a freeform topic.
 
-    Calls Claude through Kie.ai's Anthropic-compatible endpoint. Retries on
-    transient network errors / 5xx with exponential backoff (1s, 2s, 4s);
-    4xx errors bubble up immediately.
+    HTTP + retry + OpenRouter-fallback concerns are delegated to
+    ``src.claude_call.claude_call`` so the resilience policy stays in
+    one place across the pipeline.
 
     Args:
         topic: The user-supplied topic prompt (e.g. "slowing down before
             you speak", "the kabbalistic idea of tzimtzum as yielding").
         api_key: Kie API key (KIE_AI_API_KEY); used as Bearer token.
         model: Override for the Claude model (defaults to Opus 4.6).
-        timeout_s: HTTP timeout.
-        max_retries: Transient-failure retry budget.
+        timeout_s: HTTP timeout per attempt.
+        max_retries: Kie retry budget (default 5; ~31s total wait).
+        openrouter_api_key: Optional OpenRouter key for fallback when
+            Kie's Claude proxy is persistently down.
 
     Returns:
         The draft text — a single string of ~95-110 words. Call
@@ -128,42 +128,16 @@ async def generate_draft_from_topic(
         "wisdom anchor and ONE named tai-chi principle that illuminate "
         "this topic together. Return ONLY the script."
     )
-    payload = {
-        "model": model,
-        "max_tokens": 1024,
-        "system": SYSTEM,
-        "messages": [{"role": "user", "content": user_msg}],
-    }
 
-    last_exc: Exception | None = None
-    for attempt in range(max_retries):
-        try:
-            async with httpx.AsyncClient(timeout=timeout_s) as http:
-                r = await http.post(
-                    KIE_CLAUDE_URL,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
-                if r.status_code >= 500:
-                    raise httpx.HTTPStatusError(
-                        f"Kie Claude 5xx: {r.status_code} {r.text[:200]}",
-                        request=r.request, response=r,
-                    )
-                r.raise_for_status()
-                data = r.json()
-            return data["content"][0]["text"].strip()
-        except (httpx.ConnectError, httpx.ReadError, httpx.ReadTimeout,
-                httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
-            last_exc = e
-            if attempt == max_retries - 1:
-                break
-            backoff = 2 ** attempt  # 1s, 2s, 4s
-            print(f"[topic_pipeline] transient error on attempt "
-                  f"{attempt + 1}/{max_retries}: {type(e).__name__}: {e}; "
-                  f"retrying in {backoff}s")
-            await asyncio.sleep(backoff)
-    assert last_exc is not None
-    raise last_exc
+    text = await claude_call(
+        messages=[{"role": "user", "content": user_msg}],
+        system=SYSTEM,
+        model=model,
+        kie_api_key=api_key,
+        openrouter_api_key=openrouter_api_key,
+        max_kie_retries=max_retries,
+        timeout_s=timeout_s,
+        max_tokens=1024,
+        log_prefix="[topic_pipeline]",
+    )
+    return text.strip()

@@ -428,66 +428,46 @@ async def transform_draft_to_clip_plan(
     api_key: str, model: str = "claude-opus-4-6",
     timeout_s: float = 180.0,
     selected_move: dict | None = None,
-    max_retries: int = 3,
+    max_retries: int = 5,
     director_notes: str | None = None,
+    openrouter_api_key: str | None = None,
 ) -> ClipPlan:
     """Transform Yonah's draft into a ClipPlan via Claude (routed through Kie).
 
-    Retries on transient network errors (ConnectError / ReadError) and
-    5xx responses with exponential backoff. 4xx errors (auth, bad
-    request) bubble up immediately — no point retrying those.
+    HTTP + retry + OpenRouter-fallback concerns are delegated to
+    ``src.claude_call.claude_call``. This function owns the prompt
+    construction, JSON parsing, and ClipPlan validation.
 
     Args:
         api_key: Kie API key (KIE_AI_API_KEY). Used as Bearer auth.
+        max_retries: Kie retry budget (default 5; ~31s total wait).
+        openrouter_api_key: Optional OpenRouter key for fallback when
+            Kie's Claude proxy is persistently down. Without this,
+            Kie failures propagate after retries are exhausted.
     """
-    import asyncio
-    import httpx
+    from src.claude_call import claude_call
+
     prompt = build_prompt(
         parsha_name, book, option, style_note, title, draft,
         selected_move=selected_move,
         director_notes=director_notes,
     )
-    last_exc: Exception | None = None
-    for attempt in range(max_retries):
-        try:
-            async with httpx.AsyncClient(timeout=timeout_s) as http:
-                r = await http.post(
-                    KIE_CLAUDE_URL,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "max_tokens": 8000,
-                        "system": SYSTEM_TEMPLATE,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-                if r.status_code >= 500:
-                    raise httpx.HTTPStatusError(
-                        f"Kie Claude 5xx: {r.status_code} {r.text[:200]}",
-                        request=r.request, response=r,
-                    )
-                r.raise_for_status()
-                data = r.json()
-            raw = data["content"][0]["text"].strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-                raw = raw.strip()
-            parsed = json.loads(raw)
-            return ClipPlan(**parsed)
-        except (httpx.ConnectError, httpx.ReadError, httpx.ReadTimeout,
-                httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
-            last_exc = e
-            if attempt == max_retries - 1:
-                break
-            backoff = 2 ** attempt  # 1s, 2s, 4s
-            print(f"[script_generator] transient error on attempt {attempt + 1}/{max_retries}: "
-                  f"{type(e).__name__}: {e}; retrying in {backoff}s")
-            await asyncio.sleep(backoff)
-    # All retries exhausted
-    assert last_exc is not None
-    raise last_exc
+    raw = await claude_call(
+        messages=[{"role": "user", "content": prompt}],
+        system=SYSTEM_TEMPLATE,
+        model=model,
+        kie_api_key=api_key,
+        openrouter_api_key=openrouter_api_key,
+        max_kie_retries=max_retries,
+        timeout_s=timeout_s,
+        max_tokens=8000,
+        log_prefix="[script_generator]",
+    )
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+    parsed = json.loads(raw)
+    return ClipPlan(**parsed)

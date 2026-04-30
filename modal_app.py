@@ -308,6 +308,7 @@ def run_pipeline(job_id: str) -> dict | None:
                 generate_draft_from_topic(
                     topic=topic_text,
                     api_key=os.environ["KIE_AI_API_KEY"],
+                    openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
                 )
             )
 
@@ -351,6 +352,7 @@ def run_pipeline(job_id: str) -> dict | None:
             option=option, style_note=style_note,
             title=title, draft=draft_text,
             api_key=os.environ["KIE_AI_API_KEY"],
+            openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
             selected_move=selected_move,
             director_notes=job.get("director_notes"),
         ))
