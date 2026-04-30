@@ -191,6 +191,20 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
 - Pause markers the TTS will respect: ellipsis "...", em-dash " — ",
   commas, periods. Use them where they naturally fall in Yonah's prose.
   Don't invent new pauses to pad; don't delete existing ones.
+- **English words that Seedance TTS consistently mis-pronounces — pick a
+  simpler synonym.** TTS struggles with low-frequency multisyllabic
+  Latin-root words. Avoid these and use the bracketed alternative:
+    cessation     -> "ceasing" or "stopping" or "rest"
+    embodiment    -> "embodying" or "living out"
+    cessation of  -> "stopping" / "letting go of"
+    transcendent  -> "beyond words" / "beyond grasp"
+    annihilation  -> "ending" / "undoing"
+    ineffable     -> "beyond words"
+  General rule: if a word feels unusual when read aloud, replace it
+  with the way Yonah would say it in casual speech. Seedance's TTS is
+  well-tuned for everyday English; specialized vocabulary fights it.
+  Yonah will lose nothing by saying "stopping" instead of "cessation"
+  — and the audience won't trip over it.
 
 VISUAL PROMPT per clip — ACTION-FIRST composition:
 
@@ -401,7 +415,19 @@ def build_prompt(parsha_name: str, book: str, option: str,
             "DIRECTION FROM YONAH — AUTHORITATIVE.\n"
             "\n"
             "These notes are not creative suggestions. Apply them faithfully.\n"
-            "They contain two kinds of direction; treat each accordingly:\n"
+            "\n"
+            "If the notes contain a 'PREVIOUS VERSION PLAN' block, you are\n"
+            "EDITING that plan, not generating from scratch. Treat every\n"
+            "clip/voiceover/visual_prompt/setting in that plan as fixed\n"
+            "unless the FEEDBACK section directly addresses it. Do not\n"
+            "introduce new visual elements, change clip count or ordering,\n"
+            "rewrite voiceovers, or shift props that feedback doesn't\n"
+            "mention. The point of the regeneration is to fix the SPECIFIC\n"
+            "issue Yonah named — not to take another swing at the whole\n"
+            "video. Apply feedback minimally and surgically.\n"
+            "\n"
+            "If the notes are direction (no PREVIOUS VERSION PLAN block),\n"
+            "they contain two kinds of guidance; treat each accordingly:\n"
             "\n"
             "  • SCRIPT DIRECTION — specific phrasings, opening words,\n"
             "    lines that should appear in the voiceover. Reproduce these\n"

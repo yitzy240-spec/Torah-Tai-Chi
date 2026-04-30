@@ -82,6 +82,20 @@ export async function submitFeedback(opts: {
     voiceover = (clipRow?.voiceover ?? null) as string | null;
   }
 
+  // Pull the parent's clip plan so the regen anchors on what was already
+  // generated. Without this, Claude starts fresh and introduces unrelated
+  // changes (e.g. roots-from-feet becomes roots-from-crotch even though
+  // the feedback was about something else entirely). With it, the prompt
+  // explicitly says "preserve everything not addressed by the feedback".
+  const { data: parentPlanRow } = await supabase
+    .from('clip_plans')
+    .select('plan_json, created_at')
+    .eq('job_id', parentJobId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const parentPlanJson = parentPlanRow?.plan_json ?? null;
+
   // Insert the feedback row first so we can FK applied_to_job_id later.
   const { data: feedbackRow, error: fbErr } = await supabase
     .from('feedback')
@@ -98,17 +112,25 @@ export async function submitFeedback(opts: {
     return { error: fbErr?.message ?? 'Could not save feedback' };
   }
 
-  // Build merged director_notes: original notes + a "Feedback from previous
-  // version" block. For per-clip feedback, prefix the quoted voiceover so
-  // Claude has unambiguous anchoring.
+  // Build merged director_notes with three sections:
+  //   1. Original director_notes (if any)
+  //   2. The PREVIOUS PLAN as a strict baseline — Claude must preserve
+  //      every detail not directly addressed by the feedback
+  //   3. The FEEDBACK with optional clip voiceover anchor
+  // Without the previous-plan anchor, regen starts from a blank page and
+  // unrelated details drift (clip ordering, props, character actions
+  // shift even though feedback didn't mention them). With it, the
+  // prompt has explicit "this is what was already generated, only
+  // change what feedback addresses" framing.
   const original = (parentJob.director_notes ?? '').toString().trim();
   const feedbackBlock = voiceover
     ? `Feedback about this section: "${voiceover.trim()}"\n${text}`
     : text;
-  const merged = (original
-    ? `${original}\n\nFeedback from previous version:\n${feedbackBlock}`
-    : `Feedback from previous version:\n${feedbackBlock}`
-  ).trim();
+  const previousPlanBlock = parentPlanJson
+    ? `\n\nPREVIOUS VERSION PLAN (preserve everything below unless directly contradicted by the feedback. Do NOT introduce new visual elements, change clip ordering, rewrite voiceovers, or shift props that the feedback does not mention. Treat this as the baseline you are editing, not regenerating from scratch):\n${JSON.stringify(parentPlanJson, null, 2)}`
+    : '';
+  const feedbackSection = `\n\nFEEDBACK ON PREVIOUS VERSION (apply this and only this):\n${feedbackBlock}`;
+  const merged = (original + previousPlanBlock + feedbackSection).trim();
 
   // Insert the new (regen) job with all the original parameters and the
   // version-chain pointer.

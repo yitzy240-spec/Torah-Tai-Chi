@@ -93,6 +93,11 @@ _TERMINAL_STATUSES = frozenset({"done"})
 # legitimate generation (~10-15 min for parsha, ~5 min for topic).
 _STUCK_AFTER = timedelta(minutes=30)
 
+# Kie pricing: $5 buys 1000 credits, so $0.005 per credit. Bulk packages
+# go down to ~$0.00455/credit at the largest tier — we use the base
+# rate for conservative estimates rather than understating cost.
+KIE_CREDITS_TO_USD = 0.005
+
 
 @app.function(
     image=image,
@@ -417,27 +422,30 @@ def run_pipeline(job_id: str) -> dict | None:
                 async with lock:
                     completed += 1
                     set_status("generating_clips", f"Generating {completed} of {len(plan.clips)} clips")
-                # Pull real cost from Kie's task response. Field name varies
-                # across Kie endpoints; try the known variants and store
-                # whatever is present. NULL if Kie didn't expose any (the
-                # UI shows "—" rather than a fake $1.20).
-                real_cost = (
+                # Kie returns credits used (their pricing model is $5/1000
+                # credits = $0.005/credit). Multiply to USD before storing
+                # in cost_usd, since downstream callers (dashboard total,
+                # cost rollup, monthly budget) all assume USD.
+                credits = (
                     kie_meta.get("creditsConsumed")
                     or kie_meta.get("credits_consumed")
                     or kie_meta.get("costCredits")
                     or kie_meta.get("cost")
                 )
+                real_cost_usd = (
+                    float(credits) * KIE_CREDITS_TO_USD if credits is not None else None
+                )
                 clip_update = {
                     "mp4_path": f"internal/{dest.name}",
                     "status": "done",
-                    "cost_usd": real_cost,
+                    "cost_usd": real_cost_usd,
                     "completed_at": "now()",
                 }
                 if clip_ref_video_url:
                     clip_update["motion_ref_url"] = clip_ref_video_url
                 sb.table("clips").update(clip_update).eq("job_id", job_id).eq("index", clip.index).execute()
-                if real_cost is not None:
-                    log_cost("clip", "kie", float(real_cost), f"clip {clip.index}")
+                if real_cost_usd is not None:
+                    log_cost("clip", "kie", real_cost_usd, f"clip {clip.index} ({credits} credits)")
                 else:
                     print(f"[modal_app] no cost field in Kie response for clip {clip.index}; "
                           f"meta keys={list(kie_meta.keys())}")
