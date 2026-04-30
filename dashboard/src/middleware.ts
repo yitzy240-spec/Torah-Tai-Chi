@@ -1,7 +1,25 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+// API routes that authenticate via their own header (x-pipeline-secret,
+// CRON_SECRET, OAuth state) and must NOT be redirected to /login by
+// the session-based middleware. Without these bypasses, Modal/Vercel-
+// cron/OAuth callbacks all hit a 307 to /login and the actual handler
+// never runs (silent failure mode — webhook 307s for no apparent
+// reason from the caller's perspective).
+function isHeaderAuthedPath(pathname: string): boolean {
+  return (
+    pathname.startsWith('/api/pipeline/') ||
+    pathname.startsWith('/api/cron/') ||
+    pathname === '/api/auth/youtube/callback'
+  );
+}
+
 export async function middleware(request: NextRequest) {
+  if (isHeaderAuthedPath(request.nextUrl.pathname)) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
