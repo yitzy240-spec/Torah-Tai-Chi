@@ -77,8 +77,11 @@ def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
 # pipeline is actively working on this job" (see
 # dashboard/supabase/migrations/0001_slice1_schema.sql). 'failed' and
 # 'cancelled' are NOT in this set — those jobs CAN be re-triggered.
+# 'queued' is also NOT here: it's the default state set on insert by
+# the dashboard before calling trigger(); rejecting queued would block
+# every legitimate first-time call.
 _IN_FLIGHT_STATUSES = frozenset({
-    "queued", "loading_parsha", "generating_plan", "uploading_refs",
+    "loading_parsha", "generating_plan", "uploading_refs",
     "generating_clips", "stitching",
 })
 _TERMINAL_STATUSES = frozenset({"done"})
