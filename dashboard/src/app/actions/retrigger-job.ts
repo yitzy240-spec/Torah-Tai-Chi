@@ -38,9 +38,11 @@ export async function retriggerJob(
     };
   }
 
-  // Reset to queued + clear failure state so the live UI flips back to the
-  // step indicator immediately. completed_at is also cleared so any "Done"
-  // styling from a partial prior render doesn't linger.
+  // Reset to queued + clear failure state + reset triggered_at so the
+  // elapsed-time counter restarts from now (otherwise it shows the time
+  // since the original failed attempt, e.g. "18m ago" right after a
+  // retry). completed_at is also cleared so any "Done" styling from a
+  // partial prior render doesn't linger.
   const { error: updErr } = await supabase
     .from('jobs')
     .update({
@@ -48,6 +50,7 @@ export async function retriggerJob(
       status_message: null,
       error_message: null,
       completed_at: null,
+      triggered_at: new Date().toISOString(),
     })
     .eq('id', jobId);
   if (updErr) return { error: `Could not reset job: ${updErr.message}` };
