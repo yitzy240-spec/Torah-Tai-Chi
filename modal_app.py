@@ -885,6 +885,7 @@ JEWISH_REF_FILENAMES: dict[str, str] = {
     "shabbat_candles": "shabbat_candles.jpg",
     "shabbat_table": "shabbat_table.jpg",
     "challah_covered": "challah_covered.jpg",
+    "challah_uncovered": "challah.jpeg",
     "kiddush_cup": "kiddush_cup.jpg",
     "tefillin_worn": "tefillin_worn.jpg",
     "tallit_worn": "tallit_worn.jpg",
@@ -894,6 +895,11 @@ JEWISH_REF_FILENAMES: dict[str, str] = {
 
 # Case-insensitive substring keywords. If clip.visual_prompt contains
 # ANY keyword for a given ref, that ref's URL is injected for this clip.
+# Multiple ref_ids can match the same keyword — both refs get added
+# (deduped by ref_id, capped at MAX_JEWISH_REFS_PER_CLIP). For challah
+# specifically: the generic "challah" keyword grabs BOTH the covered
+# and uncovered photos so Seedance has variants to learn from. Cover-
+# specific phrasing only triggers the covered ref.
 JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
     "shabbat_candles": [
         "shabbat candle", "shabbos candle", "lit candle", "candlestick",
@@ -903,7 +909,10 @@ JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
         "shabbat table", "shabbos table", "shabbat dinner", "set table",
     ],
     "challah_covered": [
-        "challah", "braided bread", "challah cover",
+        "challah cover", "covered challah", "challah",
+    ],
+    "challah_uncovered": [
+        "challah", "braided bread", "uncovered challah",
     ],
     "kiddush_cup": [
         "kiddush cup", "silver cup", "wine goblet", "wine chalice",
