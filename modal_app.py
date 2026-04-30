@@ -3402,10 +3402,17 @@ async def _execute_step(
         f"CURRENT CLIPPLAN:\n{_json.dumps(parent_plan_dict, indent=2)}\n\n"
         f"Output the full new ClipPlan JSON now."
     )
+    # OpenRouter's model ID for Anthropic Haiku 4.5 is
+    # 'anthropic/claude-haiku-4.5' (no date suffix). Pass the dashed
+    # form here; claude_call's translator rewrites to OR's dotted form.
+    # The earlier 'claude-haiku-4-5-20251001' literal pulled in
+    # Anthropic's direct-API timestamped variant which translates to
+    # 'anthropic/claude-haiku-4.5.20251001' on OR — invalid model id,
+    # rejected with 400 Bad Request.
     raw = await claude_call(
         messages=[{"role": "user", "content": user_prompt}],
         system=_REGEN_AGENT_EXECUTE_PROMPT,
-        model="claude-haiku-4-5-20251001",
+        model="claude-haiku-4-5",
         kie_api_key=kie_api_key,
         openrouter_api_key=openrouter_api_key,
         max_tokens=16000,
