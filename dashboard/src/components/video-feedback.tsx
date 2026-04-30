@@ -34,6 +34,11 @@ interface Props {
   costEstimateUsd: number | null;
   /** Coarse copy for resolution: "720p" | "1080p" etc. */
   resolutionLabel: string | null;
+  /** True when this version's parent clips are all checkpointed in
+   * Storage so general feedback will route to smart regen (Claude
+   * picks affected clips, only those re-render). False on legacy
+   * videos where general feedback still triggers a full regen. */
+  smartRegenAvailable: boolean;
 }
 
 export function VideoFeedback({
@@ -44,6 +49,7 @@ export function VideoFeedback({
   clips,
   costEstimateUsd,
   resolutionLabel,
+  smartRegenAvailable,
 }: Props) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -432,7 +438,9 @@ export function VideoFeedback({
               minWidth: '240px',
             }}
           >
-            Re-render takes ~10–15 minutes. You&apos;ll get an email when the new version is ready.
+            {smartRegenAvailable
+              ? 'Smart regen rewrites only the clips your feedback touches — usually 1–3. You\u2019ll get an email when it\u2019s ready.'
+              : 'Re-render takes ~10\u201315 minutes. You\u2019ll get an email when the new version is ready.'}
           </div>
           <button
             type="button"
@@ -458,7 +466,9 @@ export function VideoFeedback({
           >
             {isPending
               ? 'Submitting…'
-              : `Re-render full video${costPreview(costEstimateUsd, resolutionLabel)}`}
+              : smartRegenAvailable
+                ? 'Smart regen \u00b7 only affected clips \u00b7 usually ~$1\u20133 \u00b7 ~3\u20138 min'
+                : `Re-render full video${costPreview(costEstimateUsd, resolutionLabel)}`}
           </button>
         </div>
         {error && (

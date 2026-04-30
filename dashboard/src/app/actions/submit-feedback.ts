@@ -4,16 +4,24 @@ import { createClient } from '@/lib/supabase/server';
 
 /**
  * Feedback flow. Yonah can leave general feedback on a video or per-clip
- * feedback tied to a specific clip. Two execution paths:
+ * feedback tied to a specific clip. Three execution paths:
  *
  *  - Surgery (Cut 2): clipId provided AND parent's clips are all
  *    checkpointed in Storage (storage_path populated). Routes to the
  *    regen-clip Modal endpoint, which regenerates only the targeted
  *    clip and re-stitches reusing the parent's other clips. ~$0.40-1.60.
  *
- *  - Full regen (Cut 1): everything else — general feedback, OR per-clip
- *    feedback on a video generated before checkpointing (legacy parent).
- *    Triggers run_pipeline end-to-end. ~$5-12.
+ *  - Smart regen (Cut 3): NO clipId, parent's clips ALL checkpointed,
+ *    parent has a clip_plan. Routes to the regen-smart Modal endpoint
+ *    where Claude classifies which clips the feedback targets and only
+ *    those get re-Seedanced. Typical cost ~$1-3 — bounded by classify
+ *    output. Falls back to full regen inside Modal if Claude can't pin
+ *    the feedback to specific clips.
+ *
+ *  - Full regen (Cut 1): everything else — general feedback on a legacy
+ *    parent (no checkpoints / no plan), OR per-clip feedback on a video
+ *    generated before checkpointing. Triggers run_pipeline end-to-end.
+ *    ~$5-12.
  *
  * Mirrors trigger-generation.ts dispatch shape (header secret + 15s
  * timeout). On dispatch failure we revert the regen job to 'failed' so the
@@ -115,15 +123,32 @@ export async function submitFeedback(opts: {
   // un-touched ones back). One missing storage_path on any parent clip
   // forces full regen — partial surgery would produce a broken video.
   // We only need the count of parent clips missing storage_path.
+  //
+  // Smart-regen eligibility: NO clipId AND every parent clip
+  // checkpointed AND parent has a clip_plan (Claude needs the existing
+  // plan to anchor on). One supabase query covers both — they share
+  // the all-clips-checkpointed precondition.
   let surgeryEligible = false;
-  if (clipId && targetClipIndex !== null && targetClipHasCheckpoint) {
+  let smartRegenEligible = false;
+  // Both paths need the parent's clip-checkpoint coverage. Avoid a
+  // second round-trip: query the count once and reuse it.
+  let allParentClipsCheckpointed = false;
+  if (
+    (clipId && targetClipIndex !== null && targetClipHasCheckpoint) ||
+    (!clipId && parentPlanJson)
+  ) {
     const { count: missingCount } = await supabase
       .from('clips')
       .select('id', { count: 'exact', head: true })
       .eq('job_id', parentJobId)
       .is('storage_path', null);
-    // Eligible only if zero parent clips are un-checkpointed.
-    surgeryEligible = (missingCount ?? 1) === 0;
+    allParentClipsCheckpointed = (missingCount ?? 1) === 0;
+  }
+  if (clipId && targetClipIndex !== null && targetClipHasCheckpoint) {
+    surgeryEligible = allParentClipsCheckpointed;
+  }
+  if (!clipId && parentPlanJson) {
+    smartRegenEligible = allParentClipsCheckpointed;
   }
 
   // Insert the feedback row first so we can FK applied_to_job_id later.
@@ -219,14 +244,25 @@ export async function submitFeedback(opts: {
       .eq('id', regenJob.id);
     return { error: 'PIPELINE_TRIGGER_SECRET not set' };
   }
-  // Surgery hits a different Modal endpoint. Modal's URL pattern is
-  // <account>--<app>-<function>.modal.run; the trigger function is
-  // 'pipeline-trigger', the surgery endpoint is 'pipeline-regen-clip-endpoint'.
-  // We string-replace rather than carry a second env var so deployments
-  // don't need a paired config update.
-  const workerUrl = surgeryEligible
-    ? baseTriggerUrl.replace('pipeline-trigger', 'pipeline-regen-clip-endpoint')
-    : baseTriggerUrl;
+  // Surgery / smart regen hit different Modal endpoints. Modal's URL
+  // pattern is <account>--<app>-<function>.modal.run; the trigger
+  // function is 'pipeline-trigger', surgery is
+  // 'pipeline-regen-clip-endpoint', smart-regen is
+  // 'pipeline-regen-smart-endpoint'. We string-replace rather than
+  // carry second/third env vars so deployments don't need paired
+  // config updates.
+  let workerUrl = baseTriggerUrl;
+  if (surgeryEligible) {
+    workerUrl = baseTriggerUrl.replace(
+      'pipeline-trigger',
+      'pipeline-regen-clip-endpoint',
+    );
+  } else if (smartRegenEligible) {
+    workerUrl = baseTriggerUrl.replace(
+      'pipeline-trigger',
+      'pipeline-regen-smart-endpoint',
+    );
+  }
   try {
     await fetch(workerUrl, {
       method: 'POST',

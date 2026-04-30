@@ -34,6 +34,10 @@ export interface VersionInfo {
   isRegen: boolean;
   /** The feedback.text that was applied to this version's job, if any. */
   feedbackText: string | null;
+  /** True when every clip on this version's job has a Storage checkpoint
+   * (storage_path) AND a clip_plan exists — i.e. general feedback on
+   * this version will route to smart regen rather than full regen. */
+  smartRegenAvailable: boolean;
 }
 
 interface Props {
@@ -146,6 +150,7 @@ export function VideoVersionsView({ versions, initialSelectedId, initialCompare 
           clips={selected.clips}
           costEstimateUsd={selected.costEstimateUsd}
           resolutionLabel={selected.resolutionLabel}
+          smartRegenAvailable={selected.smartRegenAvailable}
         />
       )}
     </div>

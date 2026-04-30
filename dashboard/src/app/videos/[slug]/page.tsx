@@ -193,7 +193,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
 
     const { data: clipRows } = await supabase
       .from('clips')
-      .select('id, index')
+      .select('id, index, storage_path')
       .eq('job_id', row.jobId)
       .order('index');
 
@@ -201,6 +201,13 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
       planRow?.plan_json,
       (clipRows ?? []) as Array<{ id: string; index: number }>,
     );
+
+    // Smart regen is the path for general feedback when every clip is
+    // checkpointed in Storage AND a clip_plan exists for Claude to
+    // anchor on. Mirrors the eligibility check in submit-feedback.ts.
+    const allClipsCheckpointed = (clipRows ?? []).length > 0
+      && (clipRows ?? []).every((c) => !!(c as { storage_path: string | null }).storage_path);
+    const smartRegenAvailable = !!planRow?.plan_json && allClipsCheckpointed;
 
     let feedbackText: string | null = null;
     if (row.isRegen) {
@@ -229,6 +236,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
       createdAt: row.createdAt,
       isRegen: row.isRegen,
       feedbackText,
+      smartRegenAvailable,
     });
   }
 
