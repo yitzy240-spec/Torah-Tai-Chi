@@ -246,9 +246,15 @@ When director_notes mention or the scene calls for any of these,
 expand them in visual_prompt using THESE descriptions verbatim:
 
   Shabbat candles -> "TWO white tapered candles, both lit, in matching
-    polished silver candlesticks (separate, NOT a single candelabra).
-    Place at the head of the table, slightly offset from each other."
-    Critical: NEVER a candelabra, NEVER a menorah, NEVER 5/7/9 branches.
+    polished silver candlesticks. Place them SIDE BY SIDE on the same
+    surface (the table, or a single tray if on the table), with about
+    4 inches of space between the two candlesticks. They are TWO
+    DISTINCT objects but in ONE GROUPING — read as a pair, not as
+    items scattered around the room. NEVER on separate shelves, NEVER
+    in different parts of the scene, NEVER on opposite ends of a
+    table."
+    Critical: NEVER a candelabra, NEVER a menorah, NEVER 5/7/9 branches,
+    NEVER separated onto different shelves or surfaces.
 
   Challah -> "Braided golden-brown egg bread loaf, six-strand braid,
     glossy crust. Covered with a decorative white cloth (challah cover)
@@ -259,14 +265,21 @@ expand them in visual_prompt using THESE descriptions verbatim:
     holding red wine. Traditional Jewish ceremonial style — slightly
     ornate but not gaudy. Sits to the right of the challah."
 
-  Shabbat table -> "White or cream tablecloth. TWO lit white candles
-    in matching silver candlesticks at the head (NOT a candelabra).
-    A covered braided challah on a wooden board or silver tray.
-    A silver kiddush cup beside the challah, holding red wine.
-    A bottle of red wine. Place settings for the seated guests:
-    plate, knife, fork, spoon, white napkin, water glass each.
-    NO additional candles on the table itself — only the two at
-    the head in their candlesticks."
+  Shabbat table -> "Rectangular dining table with white or cream
+    tablecloth. ALL of the following on the SAME table surface,
+    arranged together (NOT scattered on shelves or other furniture):
+    - TWO lit white candles in matching silver candlesticks placed
+      SIDE BY SIDE at one end of the table, about 4 inches apart,
+      reading as a pair (NOT a candelabra, NOT separated)
+    - A covered braided challah on a wooden board or silver tray,
+      placed centrally on the table
+    - A silver kiddush cup beside the challah, holding red wine
+    - A bottle of red wine on the table
+    - Place settings for the seated guests: plate, knife, fork,
+      spoon, white napkin, water glass each
+    NO additional candles on the table beyond the two in their
+    candlesticks. NO ritual objects on shelves or sideboards in
+    the background — everything is ON THE TABLE."
 
   Menorah / Chanukiah -> "Nine-branch candelabra, gold or silver. Eight
     lights in a horizontal row plus one elevated 'shamash' (helper)
@@ -311,10 +324,24 @@ expand them in visual_prompt using THESE descriptions verbatim:
     silver ornaments — Torah crown (keter) on top, breastplate
     (tas), pointer (yad)."
 
-GENERAL RULE: prefer description over noun. "Two lit white candles in
-silver candlesticks" is more reliable than "Shabbat candles" —
-Seedance needs the visual specifics, not the cultural noun. When in
-doubt, expand more. Specificity is the whole game.
+GENERAL RULES:
+
+1. **Description over noun.** "Two lit white candles in silver
+   candlesticks" is more reliable than "Shabbat candles" — Seedance
+   needs the visual specifics, not the cultural noun.
+
+2. **Spatial grouping must be explicit.** When two or more objects
+   should be TOGETHER (a pair of candles, place settings around a
+   shared table, lulav-and-etrog held together), say so directly:
+   "side by side on the same surface", "all on the same table",
+   "held together in one hand". NEVER use vague spatial words like
+   "offset", "separate", "distinct" on their own — Seedance
+   interprets those as "in different parts of the scene" and will
+   place the items on shelves, opposite walls, or different rooms.
+   Always anchor the grouping with a shared surface, distance hint
+   (e.g. "about 4 inches apart"), or "as a pair / pair / set".
+
+3. **When in doubt, expand more.** Specificity is the whole game.
 
 OUTDOOR ARCHETYPE — pick ONE id whose tonal fit matches the parsha theme:
 {archetype_menu}
