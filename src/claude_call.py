@@ -52,18 +52,27 @@ def _to_openrouter_model(model: str) -> str:
     passed a slash-prefixed id (e.g. `anthropic/claude-opus-4.6` or
     `openai/gpt-5`), we trust it as-is.
 
+    Only Claude family ids are auto-translated. A non-Claude id without
+    a provider prefix (e.g. `gpt-5`) raises — pre-prefix it yourself.
+
     Examples:
         claude-opus-4-6   -> anthropic/claude-opus-4.6
         claude-sonnet-4-6 -> anthropic/claude-sonnet-4.6
         anthropic/claude-opus-4.6 -> anthropic/claude-opus-4.6 (passthrough)
+        gpt-5             -> ValueError
     """
     if "/" in model:
         return model
+    parts = model.split("-")
+    if not parts or parts[0] != "claude":
+        raise ValueError(
+            f"non-Claude model {model!r} cannot be auto-translated for "
+            "OpenRouter; pass a slash-prefixed id like 'openai/gpt-5'"
+        )
     # Convert the trailing "-X-Y" version segment to "X.Y" if it
     # matches the Anthropic family naming pattern. Conservatively only
     # rewrite the LAST two dash-joined numeric segments — this matches
     # claude-opus-4-6 → claude-opus-4.6 without mangling other names.
-    parts = model.split("-")
     if (
         len(parts) >= 2
         and parts[-1].isdigit()
@@ -278,9 +287,22 @@ async def claude_call(
             )
             r.raise_for_status()
             data = r.json()
-            text = data["choices"][0]["message"]["content"]
+            choices = data.get("choices") or []
+            if not choices:
+                # OR can return an empty choices list under heavy
+                # provider moderation or routing failure.
+                raise RuntimeError(
+                    f"OpenRouter returned no choices: {str(data)[:200]}"
+                )
+            content = choices[0].get("message", {}).get("content")
+            if not content:
+                finish = choices[0].get("finish_reason", "?")
+                raise RuntimeError(
+                    f"OpenRouter returned empty content "
+                    f"(finish_reason={finish}): {str(data)[:200]}"
+                )
             print(f"{log_prefix} openrouter attempt: ok")
-            return text
+            return content
         except Exception as or_err:
             # OpenRouter failed too. Per the helper's contract, raise
             # the LAST error — which is OR's, since it's most recent.
