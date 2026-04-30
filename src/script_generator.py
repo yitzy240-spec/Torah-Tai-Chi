@@ -132,7 +132,12 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
     korbanot -> "kor-bah-NOTE"
     karov -> "kah-ROV"
     Shabbat -> "shah-BAHT"
-    Hashem -> "ha-SHEM"                    (the Name — stress on SHEM, never "HAH-shem")
+    Hashem -> PREFER "the Name" or "G-d" instead of writing Hashem in
+       voiceover. Seedance's TTS reliably mis-renders "Hashem" — it
+       drops the trailing M ("Hashev", "Ha-Shey"). The phonetic
+       "ha-SHEM" still hits the same failure. Only write "Hashem" if
+       the cultural specificity is non-negotiable; default to "the
+       Name" or "G-d" everywhere else.
     # Eden / Adam / Israel: keep as natural English (see policy above), no phonetic.
     Elohim -> "Eh-loh-HEEM"
     tzedakah -> "tzeh-dah-KAH"

@@ -777,6 +777,86 @@ def _ensure_local(sb, work_dir: Path, storage_path: str) -> Path:
 # Claude tends to "improve" unrelated clips, which defeats the entire
 # point of surgery (you regenerate just the clip you wanted to fix and
 # pay for one Seedance call instead of all of them).
+# Shared rules that BOTH regen paths (surgery + smart-regen) need to
+# follow when they edit voiceover or visual_prompt fields. Without
+# these, regen prompts silently bypass every rule we put in
+# SYSTEM_TEMPLATE — and Yonah keeps seeing the same Jewish-visual and
+# pronunciation issues across multiple regen iterations.
+#
+# Duplicated from SYSTEM_TEMPLATE (in src/script_generator.py).
+# Future cleanup: extract a single shared rule module both paths import.
+_REGEN_GROUNDING_RULES = """
+WHEN YOU EDIT A VOICEOVER FIELD — phonetic rules:
+
+Hebrew gutturals (ח, sometimes כ) must ALWAYS be rendered as "H",
+NEVER "Ch". English "Ch" sounds like "church" and Seedance's TTS
+reads it that way. Use H, sometimes KH for strong emphasis.
+
+Hashem: PREFER "the Name" or "G-d" instead of writing "Hashem" in
+voiceover. Seedance's TTS reliably mis-renders "Hashem" — drops the
+trailing M ("Hashev", "Ha-Shey"). The phonetic "ha-SHEM" still hits
+the same failure. Only write "Hashem" when cultural specificity is
+non-negotiable.
+
+English words Seedance TTS mis-pronounces — use simpler synonyms:
+  cessation -> "ceasing" / "stopping" / "rest"
+  embodiment -> "embodying" / "living out"
+  transcendent -> "beyond words" / "beyond grasp"
+  annihilation -> "ending" / "undoing"
+  ineffable -> "beyond words"
+
+WHEN YOU EDIT A VISUAL_PROMPT FIELD — Jewish ritual objects must be
+expanded with concrete visual specifics, not vague nouns. Seedance's
+training data is light on Jewish objects, so "Shabbat candles" gets
+substituted with what it knows (a candelabra, a menorah, etc).
+
+  Shabbat candles -> "TWO white tapered candles, both lit, in matching
+    polished silver candlesticks. Place them SIDE BY SIDE on the same
+    surface (the table, or a single tray on the table), with about 4
+    inches of space between the two candlesticks. They are TWO
+    DISTINCT objects but in ONE GROUPING — read as a pair, not items
+    scattered around the room. NEVER on separate shelves, NEVER in
+    different parts of the scene, NEVER on opposite ends of a table."
+    Critical: NEVER a candelabra, NEVER a menorah, NEVER 5/7/9
+    branches, NEVER separated onto different shelves or surfaces.
+
+  Challah -> "Braided golden-brown egg bread loaf, six-strand braid,
+    glossy crust, covered with a decorative white cloth (challah
+    cover) that is plain white or simply embroidered." The cloth is
+    essential.
+
+  Kiddush cup -> "Polished silver chalice-shaped goblet on a short
+    stem, holding red wine. Sits to the right of the challah."
+
+  Shabbat table -> "Rectangular dining table with white or cream
+    tablecloth. ALL of the following on the SAME table surface,
+    arranged together (NOT scattered on shelves or other furniture):
+    TWO lit white candles in matching silver candlesticks SIDE BY
+    SIDE at one end (about 4 inches apart, NOT a candelabra),
+    covered braided challah on a wooden board, silver kiddush cup
+    beside the challah, bottle of red wine, place settings for the
+    seated guests."
+
+CHARACTER CONSISTENCY: every visual_prompt should include a brief
+reminder anchoring the character: "Rav Eli (consistent character
+reference: Pixar-style 3D, navy linen kungfu outfit, neat short
+gray-streaked beard, modest knit kippah — match all other clips
+exactly)." Without this reminder, Seedance regenerates clip-2's
+character with drift — wrong-sized kippah, different facial
+features, etc.
+
+SPATIAL GROUPING: when objects should be TOGETHER, say so directly:
+"side by side on the same surface", "all on the same table", "held
+together in one hand". NEVER use vague spatial words like "offset",
+"separate", "distinct" alone — Seedance reads those as "in different
+parts of the scene".
+
+DESCRIPTION OVER NOUN: "Two lit white candles in silver candlesticks"
+is more reliable than "Shabbat candles". Specificity is the whole
+game.
+"""
+
+
 SURGERY_SYSTEM_PROMPT = """You are editing one clip in an existing video plan.
 
 You will receive:
@@ -796,7 +876,7 @@ visuals, same everything.
 Return the FULL ClipPlan JSON with all original fields (parsha, hook,
 full_script, outdoor_archetype_id, captions, clips). Output JSON only,
 no markdown fences, no commentary.
-"""
+""" + _REGEN_GROUNDING_RULES
 
 
 async def _surgery_edit_plan(
@@ -825,12 +905,16 @@ async def _surgery_edit_plan(
         f"User feedback on that clip:\n{feedback_text}\n\n"
         f"Return the updated full ClipPlan JSON now."
     )
+    # Regen runs occasionally and quality matters more than cost, so
+    # always use the most capable Claude available with an unconstrained
+    # output budget.
     raw = await claude_call(
         messages=[{"role": "user", "content": user_prompt}],
         system=SURGERY_SYSTEM_PROMPT,
+        model="claude-opus-4-7",
         kie_api_key=kie_api_key,
         openrouter_api_key=openrouter_api_key,
-        max_tokens=8000,
+        max_tokens=16000,
         log_prefix="[regen_clip]",
     )
     cleaned = _extract_json_block(raw)
@@ -908,7 +992,7 @@ Rules:
 - Do NOT change clip count, ordering, or duration_s. Those are fixed.
 
 Output JSON only, no markdown fences, no commentary.
-"""
+""" + _REGEN_GROUNDING_RULES
 
 
 def _extract_feedback_section(director_notes: str | None) -> str:
@@ -964,12 +1048,15 @@ async def _smart_edit_plan(
         f"User feedback on the video:\n{feedback_text}\n\n"
         f"Return the JSON object now (changed_clip_indices + plan)."
     )
+    # Most capable model + unconstrained output budget — regen quality
+    # is worth more than the marginal cost since it runs occasionally.
     raw = await claude_call(
         messages=[{"role": "user", "content": user_prompt}],
         system=SMART_REGEN_SYSTEM_PROMPT,
+        model="claude-opus-4-7",
         kie_api_key=kie_api_key,
         openrouter_api_key=openrouter_api_key,
-        max_tokens=8000,
+        max_tokens=16000,
         log_prefix="[regen_smart]",
     )
     cleaned = _extract_json_block(raw)
