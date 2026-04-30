@@ -351,16 +351,43 @@ def run_pipeline(job_id: str) -> dict | None:
             draft_text = script["draft_text"]
 
         # --- Script → ClipPlan via Claude ---
-        set_status("generating_plan", "Claude is writing the clip plan")
-        plan = asyncio.run(transform_draft_to_clip_plan(
-            parsha_name=parsha_name, book=book,
-            option=option, style_note=style_note,
-            title=title, draft=draft_text,
-            api_key=os.environ["KIE_AI_API_KEY"],
-            openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
-            selected_move=selected_move,
-            director_notes=job.get("director_notes"),
-        ))
+        # Resume short-circuit: if a prior run for this job_id already
+        # wrote a clip_plan (e.g. Claude succeeded but Seedance failed
+        # downstream and the user hit Try Again), reuse that plan
+        # instead of paying for a fresh Claude call. The existing
+        # clip-row resume logic below will then reuse any clips that
+        # already finished too — net effect: a retry from clip-gen
+        # failure resumes at the unfinished clip, no upstream rework.
+        existing_plan_row = (
+            sb.table("clip_plans")
+            .select("plan_json")
+            .eq("job_id", job_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+        if existing_plan_row and existing_plan_row.data:
+            set_status(
+                "generating_plan",
+                "Reusing plan from prior attempt (skipping Claude)",
+            )
+            print(
+                f"[resume] reusing clip_plan for job {job_id} — "
+                "skipping transform_draft_to_clip_plan"
+            )
+            plan = ClipPlan(**existing_plan_row.data["plan_json"])
+        else:
+            set_status("generating_plan", "Claude is writing the clip plan")
+            plan = asyncio.run(transform_draft_to_clip_plan(
+                parsha_name=parsha_name, book=book,
+                option=option, style_note=style_note,
+                title=title, draft=draft_text,
+                api_key=os.environ["KIE_AI_API_KEY"],
+                openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
+                selected_move=selected_move,
+                director_notes=job.get("director_notes"),
+            ))
         # Resume-from-partial: a prior failed run may have inserted
         # clip rows AND successfully generated some of them (storage_path
         # populated, mp4 sitting in Supabase Storage). When the new
@@ -427,10 +454,9 @@ def run_pipeline(job_id: str) -> dict | None:
                 to_upsert, on_conflict="job_id,index"
             ).execute()
 
-        # Plan + previous final video are always replaced — they're
-        # cheap to regenerate and we want them to reflect the latest
-        # plan, not whatever the prior run wrote.
-        sb.table("clip_plans").delete().eq("job_id", job_id).execute()
+        # Previous final video is always replaced (a new stitch is
+        # coming). The clip_plan is preserved if we reused it (resume
+        # short-circuit above) or replaced if we generated a fresh one.
         sb.table("videos").delete().eq("job_id", job_id).execute()
 
         if reusable_indices:
@@ -439,13 +465,20 @@ def run_pipeline(job_id: str) -> dict | None:
                 f"{len(plan.clips)} clips from prior run "
                 f"(indices={sorted(reusable_indices)})"
             )
-        sb.table("clip_plans").insert({
-            "job_id": job_id, "plan_json": plan.model_dump(mode="json"),
-            "claude_cost_usd": 0.10,
-        }).execute()
-        # Claude is now billed through Kie (single-vendor consolidation);
-        # vendor tag updated so the dashboard cost rollup attributes correctly.
-        log_cost("clipplan", "kie", 0.10, "ClipPlan generation (Claude via Kie)")
+
+        if existing_plan_row and existing_plan_row.data:
+            # Plan was reused — don't write a new clip_plans row or log
+            # a fresh ClipPlan-generation cost. The original cost was
+            # already logged on the run that produced this plan.
+            pass
+        else:
+            sb.table("clip_plans").insert({
+                "job_id": job_id, "plan_json": plan.model_dump(mode="json"),
+                "claude_cost_usd": 0.10,
+            }).execute()
+            # Claude is now billed through Kie (single-vendor consolidation);
+            # vendor tag updated so the dashboard cost rollup attributes correctly.
+            log_cost("clipplan", "kie", 0.10, "ClipPlan generation (Claude via Kie)")
 
         if selected_move is not None:
             ref_clips = [c for c in plan.clips if c.motion_ref_slug]
