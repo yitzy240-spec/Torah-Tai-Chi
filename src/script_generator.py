@@ -422,6 +422,39 @@ def build_prompt(parsha_name: str, book: str, option: str,
 KIE_CLAUDE_URL = "https://api.kie.ai/claude/v1/messages"
 
 
+def _extract_json_block(text: str) -> str:
+    """Find the JSON object inside a possibly-noisy Claude response.
+
+    Claude responses we've observed in the wild come in three flavors,
+    depending on which relay and which model variant routes the call:
+
+    1. Pure JSON: ``{"clips": [...]}`` — older Kie-relayed Opus.
+    2. Markdown-fenced: ```` ```json\n{...}\n``` ```` — common.
+    3. Preamble + JSON: ``"I need to think...\n{...}"`` — current
+       OpenRouter-relayed Opus loves to narrate its reasoning before
+       producing the JSON.
+
+    Strategy: strip a markdown wrapper if one is present, otherwise
+    locate the OUTER JSON object by the first ``{`` and last ``}``. The
+    pydantic model that parses the result will reject anything that
+    isn't structurally a ClipPlan, so over-broad matching is safe.
+    """
+    text = text.strip()
+    if text.startswith("```"):
+        parts = text.split("```")
+        if len(parts) >= 2:
+            inner = parts[1]
+            if inner.startswith("json"):
+                inner = inner[4:]
+            return inner.strip()
+    first = text.find("{")
+    last = text.rfind("}")
+    if first == -1 or last == -1 or last <= first:
+        # Return as-is so json.loads raises a useful error message.
+        return text
+    return text[first:last + 1]
+
+
 async def transform_draft_to_clip_plan(
     parsha_name: str, book: str, option: str,
     style_note: str, title: str, draft: str,
@@ -472,13 +505,7 @@ async def transform_draft_to_clip_plan(
             max_tokens=8000,
             log_prefix="[script_generator]",
         )
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            # Strip a single ``` ... ``` wrapper, tolerating ```json prefix.
-            cleaned = cleaned.split("```")[1]
-            if cleaned.startswith("json"):
-                cleaned = cleaned[4:]
-            cleaned = cleaned.strip()
+        cleaned = _extract_json_block(raw)
         try:
             parsed = json.loads(cleaned)
             return ClipPlan(**parsed)
