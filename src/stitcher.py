@@ -29,17 +29,22 @@ def _has_audio_stream(mp4: Path) -> bool:
     return bool(result.stdout.strip())
 
 
-def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.2) -> Path:
+def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Path:
     """Stitch clips end-to-end with crossfade transitions.
 
     Single clip: copied through unchanged.
     Multiple clips: chained through ffmpeg xfade (video) + acrossfade (audio
     if present). Output re-encodes to H.264 + AAC.
 
-    Note: crossfade_s defaults to 0.2s (was 0.5s). Longer fades caused audio
-    overlap — Seedance-generated speech at clip boundaries bled into the
-    next clip, producing word-salad. 0.2s is smooth enough visually while
-    keeping voiceover clean at transitions.
+    Tuning history:
+    - 0.5s: visually smooth but audio overlap caused word-salad at clip
+      boundaries (Seedance speech bled into next clip).
+    - 0.2s: kept voiceover clean but transitions felt jerky to viewers.
+    - 0.35s + 'dissolve' transition: current. Dissolve mixes pixels rather
+      than alpha-blending, which masks small endpoint differences between
+      clips better than 'fade'. Audio still uses the same duration since
+      acrossfade triangular curve at 0.35s is just below the audio-bleed
+      threshold for clean voice handoffs.
     """
     if not clips:
         raise ValueError("No clips to concat")
@@ -62,7 +67,7 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.2) -> Pat
         v_in_b = f"[{i + 1}:v]"
         v_out = "[vout]" if i == len(clips) - 2 else f"[vx{i}]"
         video_filters.append(
-            f"{v_in_a}{v_in_b}xfade=transition=fade:"
+            f"{v_in_a}{v_in_b}xfade=transition=dissolve:"
             f"duration={crossfade_s}:offset={offset:.3f}{v_out}"
         )
         if has_audio:
