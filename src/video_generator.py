@@ -13,12 +13,29 @@ MAX_DOJO_REFS = 4  # was 3; bumped to improve dojo setting consistency
 
 
 def _select_refs(character_ref_urls: list[str], dojo_ref_urls: list[str],
-                 setting_id: str) -> list[str]:
+                 setting_id: str,
+                 jewish_ref_urls: Optional[list[str]] = None) -> list[str]:
+    """Order references for Seedance, capped at MAX_REFS.
+
+    Priority (highest first): character refs (always preserved) →
+    jewish ritual refs (already filtered to this clip) → dojo refs
+    (filling the remainder). Dojo refs drop first if MAX_REFS forces
+    a cut — character consistency matters more than the room, and
+    jewish refs anchor specific Jewish-ritual nouns the prompt
+    mentions for THIS clip.
+    """
+    jewish_ref_urls = jewish_ref_urls or []
+    chars = list(character_ref_urls)
     if setting_id == "DOJO":
-        dojos = dojo_ref_urls[:MAX_DOJO_REFS]
-        remaining = MAX_REFS - len(dojos)
-        return dojos + character_ref_urls[:remaining]
-    return character_ref_urls[:MAX_REFS]
+        # Reserve room for ALL chars + the jewish refs first; dojo
+        # fills whatever's left.
+        used = len(chars) + len(jewish_ref_urls)
+        dojo_room = max(0, min(MAX_DOJO_REFS, MAX_REFS - used))
+        dojos = dojo_ref_urls[:dojo_room]
+        return chars + jewish_ref_urls + dojos
+    # Non-dojo setting: chars + jewish, capped at MAX_REFS.
+    combined = chars + jewish_ref_urls
+    return combined[:MAX_REFS]
 
 
 def build_seedance_input(
@@ -29,6 +46,7 @@ def build_seedance_input(
     audio_url: Optional[str],
     resolution: str = "720p",
     reference_video_url: Optional[str] = None,
+    jewish_ref_urls: Optional[list[str]] = None,
 ) -> dict:
     voice_clause = "Voice matches @Audio1 in timbre and delivery. " if audio_url else ""
     motion_addendum = (
@@ -50,7 +68,10 @@ def build_seedance_input(
     )
     payload: dict = {
         "prompt": prompt,
-        "reference_image_urls": _select_refs(character_ref_urls, dojo_ref_urls, clip.setting_id),
+        "reference_image_urls": _select_refs(
+            character_ref_urls, dojo_ref_urls, clip.setting_id,
+            jewish_ref_urls=jewish_ref_urls,
+        ),
         "duration": clip.duration_s,
         "resolution": resolution.lower(),
         "aspect_ratio": "9:16",
@@ -74,11 +95,13 @@ async def generate_clip(
     resolution: str = "720p",
     model: str = SEEDANCE_MODEL,
     reference_video_url: Optional[str] = None,
+    jewish_ref_urls: Optional[list[str]] = None,
 ) -> Path:
     payload = build_seedance_input(
         clip, character_ref_urls, dojo_ref_urls,
         first_frame_url, audio_url, resolution,
         reference_video_url=reference_video_url,
+        jewish_ref_urls=jewish_ref_urls,
     )
     task_id = await client.create_task(model, payload)
     urls, _meta = await client.poll_task(task_id)
@@ -95,6 +118,7 @@ async def generate_clip_with_meta(
     resolution: str = "720p",
     model: str = SEEDANCE_MODEL,
     reference_video_url: Optional[str] = None,
+    jewish_ref_urls: Optional[list[str]] = None,
 ) -> tuple[Path, dict]:
     """Same as generate_clip but also returns Kie's task metadata so the
     caller can extract real cost (credits_consumed / costCredits / etc).
@@ -103,6 +127,7 @@ async def generate_clip_with_meta(
         clip, character_ref_urls, dojo_ref_urls,
         first_frame_url, audio_url, resolution,
         reference_video_url=reference_video_url,
+        jewish_ref_urls=jewish_ref_urls,
     )
     task_id = await client.create_task(model, payload)
     urls, meta = await client.poll_task(task_id)

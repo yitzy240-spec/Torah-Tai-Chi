@@ -469,6 +469,7 @@ def run_pipeline(job_id: str) -> dict | None:
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
+        jewish_refs = asyncio.run(_upload_jewish_refs(kie))
 
         # --- Generate clips (in parallel — Kie.ai polling is mostly I/O wait) ---
         set_status("generating_clips", f"Generating 0 of {len(plan.clips)} clips")
@@ -535,6 +536,7 @@ def run_pipeline(job_id: str) -> dict | None:
                 # each iteration uploads the mp4 to Storage so Gemini
                 # can fetch it.
                 async def _seedance_for_clip(c):
+                    clip_jewish_refs = _jewish_refs_for_clip(c, jewish_refs)
                     _path, _meta = await generate_clip_with_meta(
                         kie, c,
                         character_ref_urls=char_refs,
@@ -543,6 +545,7 @@ def run_pipeline(job_id: str) -> dict | None:
                         model=seedance_model,
                         reference_video_url=clip_ref_video_url,
                         first_frame_url=first_frame_url,
+                        jewish_ref_urls=clip_jewish_refs,
                     )
                     return _path, _meta
 
@@ -858,6 +861,134 @@ async def _upload_dir(kie: "KieClient", dir_path: Path, label: str) -> list[str]
         url = await kie.upload_file(img, remote_dir=f"torah-tai-chi/refs/{label}")
         urls.append(url)
     return urls
+
+
+# ====================================================================
+# JEWISH RITUAL REFERENCE IMAGES
+# ====================================================================
+#
+# Seedance has no visual anchor for Jewish ritual nouns ("Shabbat
+# candles", "challah") in visual_prompts — left to text alone, the
+# model substitutes whatever it learned from training (a candelabra
+# instead of two separate candles, generic loaf instead of a covered
+# braided challah). Solution: 8 reference photos sourced from
+# Wikimedia Commons live in references/jewish/, get uploaded to Kie
+# once per pipeline run, and are injected into reference_image_urls
+# alongside character + dojo refs whenever a clip's visual_prompt
+# mentions a matching Jewish-ritual keyword.
+#
+# Filenames in references/jewish/ map to ref_ids by stem.
+JEWISH_REFS_DIR = Path("/root/references/jewish")
+
+# ref_id -> filename in JEWISH_REFS_DIR (matches Wikimedia downloads).
+JEWISH_REF_FILENAMES: dict[str, str] = {
+    "shabbat_candles": "shabbat_candles.jpg",
+    "shabbat_table": "shabbat_table.jpg",
+    "challah_covered": "challah_covered.jpg",
+    "kiddush_cup": "kiddush_cup.jpg",
+    "tefillin_worn": "tefillin_worn.jpg",
+    "tallit_worn": "tallit_worn.jpg",
+    "lulav_etrog": "lulav_etrog.jpg",
+    "sukkah_interior": "sukkah_interior.jpg",
+}
+
+# Case-insensitive substring keywords. If clip.visual_prompt contains
+# ANY keyword for a given ref, that ref's URL is injected for this clip.
+JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
+    "shabbat_candles": [
+        "shabbat candle", "shabbos candle", "lit candle", "candlestick",
+        "two candles", "pair of candles",
+    ],
+    "shabbat_table": [
+        "shabbat table", "shabbos table", "shabbat dinner", "set table",
+    ],
+    "challah_covered": [
+        "challah", "braided bread", "challah cover",
+    ],
+    "kiddush_cup": [
+        "kiddush cup", "silver cup", "wine goblet", "wine chalice",
+    ],
+    "tefillin_worn": [
+        "tefillin", "phylactery", "phylacteries", "leather strap on arm",
+    ],
+    "tallit_worn": [
+        "tallit", "tallis", "prayer shawl", "tzitzit",
+    ],
+    "lulav_etrog": [
+        "lulav", "etrog", "four species", "arba minim", "sukkot bundle",
+    ],
+    "sukkah_interior": [
+        "sukkah", "succah", "schach", "sukkot booth",
+    ],
+}
+
+# Cap per clip — too many ref images dilutes the character/dojo
+# anchors and confuses Seedance.
+MAX_JEWISH_REFS_PER_CLIP = 3
+
+
+async def _upload_jewish_refs(kie: "KieClient") -> dict[str, str]:  # noqa: F821
+    """Upload Jewish ritual ref photos to Kie once per pipeline run.
+
+    Returns ref_id -> public URL. Missing files are skipped silently
+    so the pipeline continues even if a single asset is absent (the
+    keyword match for that ref will simply find no URL and skip).
+    """
+    out: dict[str, str] = {}
+    for ref_id, filename in JEWISH_REF_FILENAMES.items():
+        path = JEWISH_REFS_DIR / filename
+        if not path.exists():
+            print(f"[jewish-ref] missing file {path}; skipping {ref_id}")
+            continue
+        try:
+            url = await kie.upload_file(
+                path, remote_dir="torah-tai-chi/refs/jewish",
+            )
+            out[ref_id] = url
+        except Exception as e:
+            print(
+                f"[jewish-ref] upload failed for {ref_id} "
+                f"({type(e).__name__}: {e}); continuing without it"
+            )
+    print(f"[jewish-ref] uploaded {len(out)} of {len(JEWISH_REF_FILENAMES)} refs")
+    return out
+
+
+def _jewish_refs_for_clip(clip, jewish_refs: dict[str, str]) -> list[str]:
+    """Return URLs of Jewish refs relevant to this clip's visual_prompt.
+
+    Case-insensitive substring match across JEWISH_REF_KEYWORDS.
+    Deduplicates across keywords for the same ref. Caps at
+    MAX_JEWISH_REFS_PER_CLIP — too many ref images dilutes the
+    character/dojo anchors.
+    """
+    if not jewish_refs:
+        return []
+    prompt = (getattr(clip, "visual_prompt", "") or "").lower()
+    if not prompt:
+        return []
+    matches: list[str] = []
+    matched_ids: list[str] = []
+    seen: set[str] = set()
+    for ref_id, keywords in JEWISH_REF_KEYWORDS.items():
+        if ref_id in seen:
+            continue
+        if any(kw in prompt for kw in keywords):
+            url = jewish_refs.get(ref_id)
+            if url:
+                matches.append(url)
+                matched_ids.append(ref_id)
+                seen.add(ref_id)
+                if len(matches) >= MAX_JEWISH_REFS_PER_CLIP:
+                    break
+    if matched_ids:
+        clip_idx = getattr(clip, "index", "?")
+        setting = getattr(clip, "setting_id", "?")
+        print(
+            f"[jewish-ref] clip {clip_idx} (setting={setting}): "
+            f"injecting [{', '.join(matched_ids)}]"
+        )
+    return matches
 
 
 def _ensure_local(sb, work_dir: Path, storage_path: str) -> Path:
@@ -2064,6 +2195,7 @@ def regen_smart(job_id: str) -> dict | None:
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
+        jewish_refs = asyncio.run(_upload_jewish_refs(kie))
 
         work_dir = Path(f"/tmp/job-{job_id}")
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -2080,12 +2212,16 @@ def regen_smart(job_id: str) -> dict | None:
             clip_ref_video_url = (
                 motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
             )
+            clip_jewish_refs = _jewish_refs_for_clip(
+                target_clip_pydantic, jewish_refs
+            )
             _, kie_meta = await generate_clip_with_meta(
                 kie, target_clip_pydantic,
                 character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
                 dest=local_path, resolution=resolution,
                 model=seedance_model,
                 reference_video_url=clip_ref_video_url,
+                jewish_ref_urls=clip_jewish_refs,
             )
             credits = (
                 kie_meta.get("creditsConsumed")
@@ -2513,11 +2649,15 @@ def regen_clip(job_id: str) -> dict | None:
         # short-lived Kie URLs.
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
+        jewish_refs = asyncio.run(_upload_jewish_refs(kie))
 
         set_status("generating_clips", f"Regenerating clip {target_index}")
         new_local_path = work_dir / f"clip_{target_index:02d}.mp4"
         clip_ref_video_url = (
             motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
+        )
+        clip_jewish_refs = _jewish_refs_for_clip(
+            target_clip_pydantic, jewish_refs
         )
 
         async def _regen_one():
@@ -2527,6 +2667,7 @@ def regen_clip(job_id: str) -> dict | None:
                 dest=new_local_path, resolution=resolution,
                 model=seedance_model,
                 reference_video_url=clip_ref_video_url,
+                jewish_ref_urls=clip_jewish_refs,
             )
 
         _, kie_meta = asyncio.run(_regen_one())
@@ -3690,6 +3831,7 @@ def regen_agent(job_id: str) -> dict | None:
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
+        jewish_refs = asyncio.run(_upload_jewish_refs(kie))
 
         work_dir = Path(f"/tmp/job-{job_id}")
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -3770,6 +3912,7 @@ def regen_agent(job_id: str) -> dict | None:
             # we have feedback_text + diagnosis here, so the checks
             # are concrete to what the user complained about.
             async def _seedance_for_clip(c):
+                clip_jewish_refs = _jewish_refs_for_clip(c, jewish_refs)
                 _p, _m = await generate_clip_with_meta(
                     kie, c,
                     character_ref_urls=char_refs,
@@ -3778,6 +3921,7 @@ def regen_agent(job_id: str) -> dict | None:
                     model=seedance_model,
                     reference_video_url=clip_ref_video_url,
                     first_frame_url=first_frame_url,
+                    jewish_ref_urls=clip_jewish_refs,
                 )
                 return _p, _m
 
