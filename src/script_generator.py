@@ -452,22 +452,50 @@ async def transform_draft_to_clip_plan(
         selected_move=selected_move,
         director_notes=director_notes,
     )
-    raw = await claude_call(
-        messages=[{"role": "user", "content": prompt}],
-        system=SYSTEM_TEMPLATE,
-        model=model,
-        kie_api_key=api_key,
-        openrouter_api_key=openrouter_api_key,
-        max_kie_retries=max_retries,
-        timeout_s=timeout_s,
-        max_tokens=8000,
-        log_prefix="[script_generator]",
-    )
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    parsed = json.loads(raw)
-    return ClipPlan(**parsed)
+    # Outer parse-retry loop: claude_call handles HTTP retries, but if
+    # Claude returns content that doesn't parse as JSON (empty fences,
+    # refusal text, malformed truncation) we re-call with backoff up to
+    # 3 attempts. Each inner claude_call still does its own HTTP retry
+    # budget, so total worst case is ~3 minutes of patient retry before
+    # giving up.
+    import asyncio  # local import; helper-side asyncio also imported elsewhere
+    last_parse_err: Exception | None = None
+    for parse_attempt in range(1, 4):
+        raw = await claude_call(
+            messages=[{"role": "user", "content": prompt}],
+            system=SYSTEM_TEMPLATE,
+            model=model,
+            kie_api_key=api_key,
+            openrouter_api_key=openrouter_api_key,
+            max_kie_retries=max_retries,
+            timeout_s=timeout_s,
+            max_tokens=8000,
+            log_prefix="[script_generator]",
+        )
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            # Strip a single ``` ... ``` wrapper, tolerating ```json prefix.
+            cleaned = cleaned.split("```")[1]
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:]
+            cleaned = cleaned.strip()
+        try:
+            parsed = json.loads(cleaned)
+            return ClipPlan(**parsed)
+        except (json.JSONDecodeError, ValueError, TypeError) as parse_err:
+            last_parse_err = parse_err
+            print(
+                f"[script_generator] parse failed attempt {parse_attempt}/3: "
+                f"{type(parse_err).__name__}: {parse_err}; "
+                f"raw_len={len(raw)} cleaned_len={len(cleaned)} "
+                f"raw_head={raw[:80]!r}"
+            )
+            if parse_attempt < 3:
+                await asyncio.sleep(2 ** parse_attempt)
+                continue
+    # All 3 parse attempts exhausted. Raise a single clean error.
+    assert last_parse_err is not None
+    raise RuntimeError(
+        f"Claude returned non-JSON content after 3 attempts; "
+        f"last error: {type(last_parse_err).__name__}: {last_parse_err}"
+    ) from last_parse_err

@@ -346,28 +346,46 @@ function FailureCallout({
     });
   }
 
+  const [showDetails, setShowDetails] = useState(false);
+  const stage = stageLabel ?? 'the pipeline';
+
   return (
     <div className="space-y-2 rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-950/30">
       <p className="text-sm font-medium text-red-700 dark:text-red-300">
-        Failed during: {stageLabel ?? 'pipeline'}
+        Something went wrong during {stage.toLowerCase()}.
       </p>
-      {errorMessage && (
-        <pre className="whitespace-pre-wrap break-words rounded bg-red-100/60 p-2 text-xs text-red-800 dark:bg-red-950/50 dark:text-red-300">
-          {errorMessage}
-        </pre>
-      )}
+      <p className="text-xs text-red-700/80 dark:text-red-300/80">
+        Click <strong>Try again</strong> to retry. This is usually a temporary issue
+        with the AI provider.
+      </p>
       {actionError && (
         <p className="text-xs text-red-700 dark:text-red-300">{actionError}</p>
       )}
-      <Button
-        variant="destructive"
-        size="sm"
-        disabled={pending}
-        onClick={handleRetry}
-      >
-        <RotateCcw className="h-3.5 w-3.5" />
-        {pending ? 'Re-triggering…' : 'Try again'}
-      </Button>
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={pending}
+          onClick={handleRetry}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          {pending ? 'Re-triggering…' : 'Try again'}
+        </Button>
+        {errorMessage && (
+          <button
+            type="button"
+            onClick={() => setShowDetails((s) => !s)}
+            className="text-xs text-red-700/70 underline-offset-2 hover:underline dark:text-red-300/70"
+          >
+            {showDetails ? 'Hide technical details' : 'Show technical details'}
+          </button>
+        )}
+      </div>
+      {showDetails && errorMessage && (
+        <pre className="whitespace-pre-wrap break-words rounded bg-red-100/60 p-2 text-[11px] leading-snug text-red-800/80 dark:bg-red-950/50 dark:text-red-300/80">
+          {errorMessage}
+        </pre>
+      )}
     </div>
   );
 }
