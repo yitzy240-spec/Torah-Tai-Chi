@@ -261,6 +261,28 @@ async def claude_call(
                     f"{type(parse_err).__name__}: {parse_err}; "
                     f"raw={str(data)[:200]}"
                 ) from parse_err
+
+            # Empty/whitespace text on a 2xx response: Kie does this
+            # during partial maintenance windows. Treat as transient
+            # (like a 5xx) so we retry the call and eventually fall
+            # back to OpenRouter rather than passing "" downstream where
+            # json.loads will crash with a confusing line-1 error.
+            if not text or not text.strip():
+                err = RuntimeError(
+                    f"Kie returned 2xx with empty content; "
+                    f"raw={str(data)[:200]}"
+                )
+                last_kie_exc = err
+                if attempt < max_kie_retries:
+                    backoff = min(2 ** (attempt - 1), _BACKOFF_CAP_S)
+                    print(
+                        f"{log_prefix} kie empty content attempt "
+                        f"{attempt}/{max_kie_retries} sleeping={backoff}s"
+                    )
+                    await asyncio.sleep(backoff)
+                    continue
+                break
+
             return text
 
         # ---- Phase 2: OpenRouter fallback (one attempt) ----
