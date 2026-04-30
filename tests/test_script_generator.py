@@ -8,6 +8,15 @@ from src.script_generator import (
 from src.models import ClipPlan
 
 
+@pytest.fixture(autouse=True)
+def _force_kie_primary(monkeypatch):
+    """Pin the Claude helper to Kie-primary so respx mocks of the Kie
+    URL still match. The production default is now ``openrouter``;
+    these tests predate the switch and only mock the Kie URL.
+    """
+    monkeypatch.setenv("CLAUDE_PRIMARY_PROVIDER", "kie")
+
+
 def test_build_prompt_includes_archetypes_and_guardrails():
     prompt = build_prompt(
         parsha_name="Vayikra", book="Leviticus",
