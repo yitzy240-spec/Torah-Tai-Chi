@@ -477,7 +477,7 @@ def run_pipeline(job_id: str) -> dict | None:
             completed = 0
             lock = asyncio.Lock()
 
-            async def _one(clip):
+            async def _one(clip, first_frame_url: str | None = None):
                 nonlocal completed
                 dest = work_dir / f"clip_{clip.index:02d}.mp4"
                 clip_ref_video_url = (
@@ -542,6 +542,7 @@ def run_pipeline(job_id: str) -> dict | None:
                         dest=dest, resolution=resolution,
                         model=seedance_model,
                         reference_video_url=clip_ref_video_url,
+                        first_frame_url=first_frame_url,
                     )
                     return _path, _meta
 
@@ -618,8 +619,84 @@ def run_pipeline(job_id: str) -> dict | None:
                           f"meta keys={list(kie_meta.keys())}")
                 return local_path
 
-            ordered = await asyncio.gather(*(_one(c) for c in plan.clips))
-            return [p for p in ordered]
+            # First-frame chaining within same-scene clips.
+            # Group consecutive clips by setting_id, preserving plan
+            # order. Each group runs serially (clip N+1 starts from
+            # clip N's last frame for frame-perfect continuity);
+            # groups themselves run in parallel. Trade-off: serializing
+            # within a scene group roughly doubles wall-clock for a
+            # 4-5 clip plan, but eliminates the visible jerk Yonah
+            # complained about at intra-scene boundaries.
+            groups: list[list] = []
+            for c in plan.clips:
+                if groups and groups[-1][-1].setting_id == c.setting_id:
+                    groups[-1].append(c)
+                else:
+                    groups.append([c])
+
+            async def _run_group(group: list) -> list[Path]:
+                paths: list[Path] = []
+                prev_mp4: Path | None = None
+                for idx_in_group, c in enumerate(group):
+                    first_frame_url: str | None = None
+                    if prev_mp4 is not None:
+                        # Same-scene chain: extract previous-in-group's
+                        # last frame, upload to Kie, pass as
+                        # first_frame_url. Failures degrade gracefully
+                        # to no-chain (Seedance generates from refs
+                        # alone — pre-chain behavior).
+                        png_path = (
+                            work_dir / f"firstframe_{c.index:02d}.png"
+                        )
+                        try:
+                            _extract_last_frame(prev_mp4, png_path)
+                            first_frame_url = await _upload_first_frame(
+                                kie, png_path
+                            )
+                            print(
+                                f"[firstframe] clip {c.index}: chaining "
+                                f"from clip {group[idx_in_group - 1].index} "
+                                f"(setting={c.setting_id})"
+                            )
+                        except Exception as ff_err:
+                            print(
+                                f"[firstframe] clip {c.index}: extract/"
+                                f"upload failed "
+                                f"({type(ff_err).__name__}: {ff_err}); "
+                                f"falling through to no-chain"
+                            )
+                            first_frame_url = None
+                        finally:
+                            # Hygienic cleanup — Modal containers are
+                            # ephemeral but no need to bloat /tmp
+                            # mid-run.
+                            try:
+                                if png_path.exists():
+                                    png_path.unlink()
+                            except Exception:
+                                pass
+                    else:
+                        print(
+                            f"[firstframe] clip {c.index}: new scene "
+                            f"(setting={c.setting_id}) — no chain"
+                        )
+                    path = await _one(c, first_frame_url=first_frame_url)
+                    paths.append(path)
+                    prev_mp4 = path
+                return paths
+
+            # Run all scene groups in parallel; flatten in clip-index
+            # order. Defensive sort: groups already preserve order, but
+            # interleaving keeps the contract explicit.
+            group_results = await asyncio.gather(
+                *(_run_group(g) for g in groups)
+            )
+            indexed: list[tuple[int, Path]] = []
+            for grp_paths, grp_clips in zip(group_results, groups):
+                for c, p in zip(grp_clips, grp_paths):
+                    indexed.append((c.index, p))
+            indexed.sort(key=lambda pair: pair[0])
+            return [p for _, p in indexed]
 
         clip_paths: list[Path] = asyncio.run(_generate_all())
 
@@ -796,6 +873,50 @@ def _ensure_local(sb, work_dir: Path, storage_path: str) -> Path:
     data = sb.storage.from_("videos").download(storage_path)
     local.write_bytes(data)
     return local
+
+
+def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:
+    """Extract the last frame of an mp4 as PNG via ffmpeg.
+
+    Used by the same-scene first-frame chaining: feed clip N's last
+    frame as clip N+1's first_frame_url so Seedance starts the next
+    clip exactly where the previous one ended (frame-perfect
+    continuity within the same setting).
+
+    Raises subprocess.CalledProcessError if ffmpeg fails or
+    subprocess.TimeoutExpired if it hangs. Caller is expected to
+    catch and degrade to no-chain behavior.
+    """
+    import subprocess
+    # -sseof -0.1 seeks 0.1s before EOF — close enough to grab the
+    # final visible frame without risking past-EOF on short clips.
+    # -update 1 -frames:v 1 emits exactly one image to dest.
+    subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-sseof", "-0.1",
+            "-i", str(mp4_path),
+            "-update", "1",
+            "-q:v", "1",
+            "-frames:v", "1",
+            str(dest_png),
+        ],
+        check=True,
+        timeout=30,
+        capture_output=True,
+    )
+    return dest_png
+
+
+async def _upload_first_frame(kie: "KieClient", png_path: Path) -> str:  # noqa: F821
+    """Upload a first-frame PNG to Kie and return the public URL.
+
+    Thin wrapper around KieClient.upload_file (which handles base64
+    + mime detection) so call sites read clearly.
+    """
+    return await kie.upload_file(
+        png_path, remote_dir="torah-tai-chi-firstframes"
+    )
 
 
 # ====================================================================
@@ -3586,6 +3707,65 @@ def regen_agent(job_id: str) -> dict | None:
                 motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
             )
 
+            # First-frame chaining for regen: if the parent clip at
+            # (target_idx - 1) exists AND has the same setting_id as
+            # the regen target, download its mp4 from Storage, extract
+            # the last frame, and pass as first_frame_url so the new
+            # clip starts where the previous-in-scene clip ended.
+            # Zero latency hit because parent clips are already
+            # locked — this is just one extra download + ffmpeg call
+            # per regen. Failures degrade to no-chain.
+            first_frame_url: str | None = None
+            prev_parent = parent_by_index.get(target_idx - 1)
+            if (
+                prev_parent
+                and prev_parent.get("setting_id")
+                == target_clip_pydantic.setting_id
+                and prev_parent.get("storage_path")
+            ):
+                try:
+                    prev_local = _ensure_local(
+                        sb, work_dir, prev_parent["storage_path"]
+                    )
+                    png_path = (
+                        work_dir / f"firstframe_{target_idx:02d}.png"
+                    )
+                    try:
+                        _extract_last_frame(prev_local, png_path)
+                        first_frame_url = await _upload_first_frame(
+                            kie, png_path
+                        )
+                        print(
+                            f"[firstframe] regen clip {target_idx}: "
+                            f"chained to parent clip {target_idx - 1} "
+                            f"in same scene "
+                            f"(setting={target_clip_pydantic.setting_id})"
+                        )
+                    finally:
+                        try:
+                            if png_path.exists():
+                                png_path.unlink()
+                        except Exception:
+                            pass
+                except Exception as ff_err:
+                    print(
+                        f"[firstframe] regen clip {target_idx}: "
+                        f"extract/upload failed "
+                        f"({type(ff_err).__name__}: {ff_err}); "
+                        f"falling through to no-chain"
+                    )
+                    first_frame_url = None
+            else:
+                # No previous-in-scene clip available. Either this is
+                # clip 0, or the prior clip is in a different setting,
+                # or we don't have the parent's mp4 cached.
+                print(
+                    f"[firstframe] regen clip {target_idx}: no "
+                    f"previous-in-scene parent "
+                    f"(setting={target_clip_pydantic.setting_id}) "
+                    f"— no chain"
+                )
+
             # Wrap Seedance in the verify loop. Unlike run_pipeline
             # we have feedback_text + diagnosis here, so the checks
             # are concrete to what the user complained about.
@@ -3597,6 +3777,7 @@ def regen_agent(job_id: str) -> dict | None:
                     dest=local_path_dest, resolution=resolution,
                     model=seedance_model,
                     reference_video_url=clip_ref_video_url,
+                    first_frame_url=first_frame_url,
                 )
                 return _p, _m
 
