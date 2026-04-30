@@ -71,17 +71,25 @@ def build_seedance_input(
     )
     payload: dict = {
         "prompt": prompt,
-        "reference_image_urls": _select_refs(
-            character_ref_urls, dojo_ref_urls, clip.setting_id,
-            jewish_ref_urls=jewish_ref_urls,
-        ),
         "duration": clip.duration_s,
         "resolution": resolution.lower(),
         "aspect_ratio": "9:16",
         "web_search": False,
     }
+    # Seedance constraint: reference_image_urls and first_frame_url are
+    # mutually exclusive — sending both returns 422 ("only one scene can
+    # be selected"). When the caller provides a first_frame_url (we're
+    # chaining within a same-scene clip group), the first frame already
+    # encodes character + setting from the previous clip's last frame,
+    # so we drop the ref images entirely. When there's no first frame
+    # (first clip in a scene), the refs anchor the visual identity.
     if first_frame_url:
         payload["first_frame_url"] = first_frame_url
+    else:
+        payload["reference_image_urls"] = _select_refs(
+            character_ref_urls, dojo_ref_urls, clip.setting_id,
+            jewish_ref_urls=jewish_ref_urls,
+        )
     if audio_url:
         payload["reference_audio_urls"] = [audio_url]
     if reference_video_url:
