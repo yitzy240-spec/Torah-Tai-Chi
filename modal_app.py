@@ -435,8 +435,30 @@ def run_pipeline(job_id: str) -> dict | None:
                 real_cost_usd = (
                     float(credits) * KIE_CREDITS_TO_USD if credits is not None else None
                 )
+                # Persist this clip to Storage immediately so a Modal
+                # worker preempt mid-pipeline doesn't lose already-paid
+                # clips, AND so per-clip surgery (regen ONE clip and
+                # re-stitch using the rest) has the originals to pull
+                # back. Without this the only mp4 that ever leaves Modal
+                # is the final stitched one, making surgery impossible.
+                clip_storage_path = (
+                    f"jobs/{job_id}/clips/clip_{clip.index:02d}.mp4"
+                )
+                with open(dest, "rb") as cf:
+                    sb.storage.from_("videos").upload(
+                        clip_storage_path, cf.read(),
+                        file_options={
+                            "content-type": "video/mp4",
+                            "upsert": "true",
+                        },
+                    )
                 clip_update = {
-                    "mp4_path": f"internal/{dest.name}",
+                    "storage_path": clip_storage_path,
+                    # Overwrite the legacy "internal/clip_NN.mp4"
+                    # placeholder with the real Storage path so any
+                    # downstream consumer that reads mp4_path also
+                    # benefits from the checkpoint.
+                    "mp4_path": clip_storage_path,
                     "status": "done",
                     "cost_usd": real_cost_usd,
                     "completed_at": "now()",
@@ -614,3 +636,630 @@ async def _upload_dir(kie: "KieClient", dir_path: Path, label: str) -> list[str]
         url = await kie.upload_file(img, remote_dir=f"torah-tai-chi/refs/{label}")
         urls.append(url)
     return urls
+
+
+def _ensure_local(sb, work_dir: Path, storage_path: str) -> Path:
+    """Download a Storage clip mp4 into work_dir if not already there.
+
+    Used by surgery: the freshly-regenerated clip is already on local
+    disk in work_dir; the rest of the clips need to be pulled back from
+    Storage so concat_clips can read them.
+    """
+    local = work_dir / Path(storage_path).name
+    if local.exists():
+        return local
+    data = sb.storage.from_("videos").download(storage_path)
+    local.write_bytes(data)
+    return local
+
+
+# --- Per-clip surgery prompt ---
+#
+# Distinct from script_generator's full ClipPlan prompt: that one builds
+# a plan from scratch. This one EDITS an existing plan, mutating only
+# the targeted clip. The minimum-change framing is critical — without it
+# Claude tends to "improve" unrelated clips, which defeats the entire
+# point of surgery (you regenerate just the clip you wanted to fix and
+# pay for one Seedance call instead of all of them).
+SURGERY_SYSTEM_PROMPT = """You are editing one clip in an existing video plan.
+
+You will receive:
+- The full existing ClipPlan as JSON.
+- The integer index of the clip the user wants regenerated.
+- The user's feedback about that specific clip.
+
+Your job is to update ONLY that clip's `voiceover` and/or `visual_prompt`
+to address the feedback. Apply the feedback minimally. Do not introduce
+new visual elements, do not change props the feedback doesn't mention,
+do not change the clip's index, duration_s, setting_id, motion_ref_slug,
+or caption_position.
+
+For all other clips, return them EXACTLY as given — same wording, same
+visuals, same everything.
+
+Return the FULL ClipPlan JSON with all original fields (parsha, hook,
+full_script, outdoor_archetype_id, captions, clips). Output JSON only,
+no markdown fences, no commentary.
+"""
+
+
+async def _surgery_edit_plan(
+    *,
+    parent_plan_dict: dict,
+    target_index: int,
+    feedback_text: str,
+    kie_api_key: str,
+    openrouter_api_key: str | None,
+):
+    """Ask Claude to edit one clip in the parent plan; return new ClipPlan.
+
+    Validates that only the targeted clip changed (other clips identical
+    in voiceover, visual_prompt, setting_id, duration_s) — Claude tends
+    to "improve" untouched clips otherwise, which silently inflates the
+    surgery's blast radius beyond what the user agreed to.
+    """
+    import json as _json
+    from src.claude_call import claude_call
+    from src.script_generator import _extract_json_block
+    from src.models import ClipPlan
+
+    user_prompt = (
+        f"Existing ClipPlan:\n{_json.dumps(parent_plan_dict, indent=2)}\n\n"
+        f"Clip index to regenerate: {target_index}\n\n"
+        f"User feedback on that clip:\n{feedback_text}\n\n"
+        f"Return the updated full ClipPlan JSON now."
+    )
+    raw = await claude_call(
+        messages=[{"role": "user", "content": user_prompt}],
+        system=SURGERY_SYSTEM_PROMPT,
+        kie_api_key=kie_api_key,
+        openrouter_api_key=openrouter_api_key,
+        max_tokens=8000,
+        log_prefix="[regen_clip]",
+    )
+    cleaned = _extract_json_block(raw)
+    parsed = _json.loads(cleaned)
+    new_plan = ClipPlan(**parsed)
+
+    # Defense-in-depth: check that only the targeted clip differs.
+    # Claude occasionally drifts on clips it wasn't asked to touch even
+    # with explicit instructions; if that happens we'd silently regen
+    # ONE clip but ship a plan whose other clips diverge from what's
+    # already in Storage, producing a Frankenstein video. Better to
+    # restore the originals than ship that.
+    parent_clips_by_index = {c["index"]: c for c in parent_plan_dict["clips"]}
+    new_clips_by_index = {c.index: c for c in new_plan.clips}
+    if set(parent_clips_by_index.keys()) != set(new_clips_by_index.keys()):
+        raise ValueError(
+            f"surgery plan changed clip indices: "
+            f"parent={sorted(parent_clips_by_index)} "
+            f"new={sorted(new_clips_by_index)}"
+        )
+    for idx, parent_c in parent_clips_by_index.items():
+        if idx == target_index:
+            continue
+        new_c = new_clips_by_index[idx]
+        if (
+            parent_c.get("voiceover") != new_c.voiceover
+            or parent_c.get("visual_prompt") != new_c.visual_prompt
+            or parent_c.get("setting_id") != new_c.setting_id
+            or parent_c.get("duration_s") != new_c.duration_s
+        ):
+            print(
+                f"[regen_clip] WARN clip {idx} drifted in surgery plan; "
+                f"forcing back to parent values"
+            )
+            # Mutate the new_plan's clip back to the parent's wording.
+            # Pydantic models are mutable by default in v2 unless frozen.
+            for field in (
+                "voiceover", "visual_prompt", "setting_id", "duration_s",
+                "caption_position", "emotive_note", "motion_ref_slug",
+                "motion_ref_url",
+            ):
+                if field in parent_c:
+                    setattr(new_c, field, parent_c[field])
+    return new_plan
+
+
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=60 * 60,
+)
+def regen_clip(job_id: str) -> dict | None:
+    """Per-clip surgery: regenerate ONE clip, reuse the rest from Storage.
+
+    Cost shape: ~$0.40-1.60 (one Seedance call + Claude edit) vs the
+    ~$5-12 a full pipeline regen would cost.
+
+    Pre-conditions (the dashboard's submit-feedback action enforces these
+    before triggering this function):
+      - The job row already exists with regen_of_job_id pointing at the
+        parent and feedback_clip_index set to the integer index.
+      - The parent's clips ALL have storage_path populated (otherwise we
+        can't re-stitch). If not, the dashboard falls back to full
+        run_pipeline.
+    """
+    sys.path.insert(0, "/root")
+    from supabase import create_client
+    from src.video_generator import generate_clip_with_meta
+    from src.stitcher import concat_clips
+    from src.kie_client import KieClient
+    from src.thumbnails import extract_thumbnail, upload_thumbnail
+    from src.events import log_event
+
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+
+    pre = (
+        sb.table("jobs")
+        .select("status")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
+        return {"status": "already_done"}
+
+    def set_status(status: str, message: str | None = None) -> None:
+        update = {"status": status}
+        if message is not None:
+            update["status_message"] = message
+        sb.table("jobs").update(update).eq("id", job_id).execute()
+        log_event(
+            sb, actor="modal", level="info",
+            event=f"pipeline.status.{status}",
+            subject_type="job", subject_id=job_id,
+            message=message or status, details={"status": status, "mode": "surgery"},
+        )
+
+    def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
+        sb.table("cost_events").insert({
+            "job_id": job_id, "action": action, "vendor": vendor,
+            "cost_usd": cost_usd, "notes": notes,
+        }).execute()
+        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+
+    try:
+        set_status("loading_parsha", "Loading regen target")
+
+        # 1. Load the regen job + walk back to parent.
+        regen_job = (
+            sb.table("jobs")
+            .select(
+                "regen_of_job_id, feedback_clip_index, resolution, "
+                "model_tier, motion_ref_slug, kind"
+            )
+            .eq("id", job_id)
+            .single()
+            .execute()
+            .data
+        )
+        parent_job_id = regen_job.get("regen_of_job_id")
+        target_index = regen_job.get("feedback_clip_index")
+        if parent_job_id is None or target_index is None:
+            raise ValueError(
+                f"regen_clip requires regen_of_job_id and feedback_clip_index; "
+                f"got parent={parent_job_id} target={target_index}"
+            )
+
+        # 2. Pull the parent's plan and clips. We need both: the plan
+        # because Claude needs the full structure to edit, the clips
+        # because we copy 4 of them and need their storage_path/voiceover.
+        parent_plan_row = (
+            sb.table("clip_plans")
+            .select("plan_json")
+            .eq("job_id", parent_job_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .single()
+            .execute()
+            .data
+        )
+        parent_plan_dict = parent_plan_row["plan_json"]
+
+        parent_clips = (
+            sb.table("clips")
+            .select(
+                "id, index, voiceover, visual_prompt, setting_id, "
+                "duration_s, motion_ref_slug, motion_ref_url, "
+                "storage_path"
+            )
+            .eq("job_id", parent_job_id)
+            .order("index")
+            .execute()
+            .data
+        ) or []
+        if not parent_clips:
+            raise ValueError(f"parent job {parent_job_id} has no clips")
+        # Surgery is only valid when ALL parent clips have a storage_path
+        # — otherwise the re-stitch will fail when we try to download.
+        # The dashboard pre-checks this and routes to full regen if it's
+        # not satisfied, so reaching this branch is a logic error worth
+        # surfacing rather than silently re-running everything.
+        missing = [c["index"] for c in parent_clips if not c.get("storage_path")]
+        if missing:
+            raise ValueError(
+                f"parent job {parent_job_id} has clips without storage_path "
+                f"(indices {missing}); surgery requires checkpointed parents. "
+                f"The dashboard should have routed this to full regen."
+            )
+        if target_index not in {c["index"] for c in parent_clips}:
+            raise ValueError(
+                f"target_index {target_index} not present in parent clips "
+                f"({sorted(c['index'] for c in parent_clips)})"
+            )
+
+        # 3-4. Ask Claude to edit only the targeted clip.
+        set_status("generating_plan", f"Editing clip {target_index} with your feedback")
+        # The regen job's director_notes carries the merged feedback +
+        # previous-plan block (built by submit-feedback.ts). For surgery
+        # we just want the FEEDBACK section; the previous-plan-as-JSON
+        # is redundant because we already have parent_plan_dict.
+        regen_director_notes = (
+            sb.table("jobs")
+            .select("director_notes")
+            .eq("id", job_id)
+            .single()
+            .execute()
+            .data.get("director_notes") or ""
+        )
+
+        new_plan = asyncio.run(_surgery_edit_plan(
+            parent_plan_dict=parent_plan_dict,
+            target_index=target_index,
+            feedback_text=regen_director_notes,
+            kie_api_key=os.environ["KIE_AI_API_KEY"],
+            openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
+        ))
+
+        # 5. Persist the new plan for this regen job.
+        sb.table("clip_plans").insert({
+            "job_id": job_id,
+            "plan_json": new_plan.model_dump(mode="json"),
+            "claude_cost_usd": 0.05,  # surgery prompt is much smaller than full
+        }).execute()
+        log_cost("clipplan", "kie", 0.05, "Surgery plan edit (Claude via Kie)")
+
+        # 6. Re-run Seedance ONLY for the targeted clip.
+        target_clip_pydantic = next(c for c in new_plan.clips if c.index == target_index)
+        parent_target = next(c for c in parent_clips if c["index"] == target_index)
+        work_dir = Path(f"/tmp/job-{job_id}")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        # Resolve motion_ref slug → mp4 url the same way run_pipeline does.
+        # The motion-ref slug is on the regen job (carried over from parent
+        # at insert time); only attach it if the new clip kept the slug.
+        _, motion_ref_mp4_url = _load_selected_move(
+            sb, regen_job.get("motion_ref_slug")
+        )
+
+        resolution = (regen_job.get("resolution") or "720p").lower()
+        model_tier = regen_job.get("model_tier") or "standard"
+        seedance_model = (
+            "bytedance/seedance-2-fast" if model_tier == "fast" else "bytedance/seedance-2"
+        )
+
+        kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        # Surgery doesn't change the character or dojo refs — they're the
+        # same physical PNGs in /root/references/. Re-upload to get fresh
+        # short-lived Kie URLs.
+        char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
+        dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
+
+        set_status("generating_clips", f"Regenerating clip {target_index}")
+        new_local_path = work_dir / f"clip_{target_index:02d}.mp4"
+        clip_ref_video_url = (
+            motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
+        )
+
+        async def _regen_one():
+            return await generate_clip_with_meta(
+                kie, target_clip_pydantic,
+                character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
+                dest=new_local_path, resolution=resolution,
+                model=seedance_model,
+                reference_video_url=clip_ref_video_url,
+            )
+
+        _, kie_meta = asyncio.run(_regen_one())
+        credits = (
+            kie_meta.get("creditsConsumed")
+            or kie_meta.get("credits_consumed")
+            or kie_meta.get("costCredits")
+            or kie_meta.get("cost")
+        )
+        new_clip_cost_usd = (
+            float(credits) * KIE_CREDITS_TO_USD if credits is not None else 0.0
+        )
+        if credits is not None:
+            log_cost(
+                "clip", "kie", new_clip_cost_usd,
+                f"surgery clip {target_index} ({credits} credits)",
+            )
+        else:
+            print(
+                f"[regen_clip] no cost field for clip {target_index}; "
+                f"meta keys={list(kie_meta.keys())}"
+            )
+
+        # 7. Insert the new clip row, including storage upload for the
+        # newly regenerated mp4 so it's checkpointed too (a future
+        # feedback round on this regen will treat THIS as the parent).
+        new_clip_storage_path = f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
+        with open(new_local_path, "rb") as cf:
+            sb.storage.from_("videos").upload(
+                new_clip_storage_path, cf.read(),
+                file_options={"content-type": "video/mp4", "upsert": "true"},
+            )
+        sb.table("clips").insert({
+            "job_id": job_id,
+            "index": target_clip_pydantic.index,
+            "voiceover": target_clip_pydantic.voiceover,
+            "visual_prompt": target_clip_pydantic.visual_prompt,
+            "setting_id": target_clip_pydantic.setting_id,
+            "duration_s": target_clip_pydantic.duration_s,
+            "motion_ref_slug": target_clip_pydantic.motion_ref_slug,
+            "motion_ref_url": clip_ref_video_url,
+            "storage_path": new_clip_storage_path,
+            "mp4_path": new_clip_storage_path,
+            "status": "done",
+            "cost_usd": new_clip_cost_usd,
+            "completed_at": "now()",
+            "regen_of_clip_id": parent_target["id"],
+        }).execute()
+
+        # 8. Copy the other clips from the parent into this regen job.
+        # cost_usd=0 because they didn't actually run this round.
+        # storage_path stays the same — they literally point at the
+        # parent's Storage objects, which are still there because we
+        # never delete clip mp4s. regen_of_clip_id chains to the parent
+        # so the version history is queryable.
+        for parent_c in parent_clips:
+            if parent_c["index"] == target_index:
+                continue
+            sb.table("clips").insert({
+                "job_id": job_id,
+                "index": parent_c["index"],
+                "voiceover": parent_c["voiceover"],
+                "visual_prompt": parent_c["visual_prompt"],
+                "setting_id": parent_c["setting_id"],
+                "duration_s": parent_c["duration_s"],
+                "motion_ref_slug": parent_c.get("motion_ref_slug"),
+                "motion_ref_url": parent_c.get("motion_ref_url"),
+                "storage_path": parent_c["storage_path"],
+                "mp4_path": parent_c["storage_path"],
+                "status": "done",
+                "cost_usd": 0,
+                "completed_at": "now()",
+                "regen_of_clip_id": parent_c["id"],
+            }).execute()
+
+        # 9. Stitch: download the others, keep the new one local, sort
+        # by clip index so the timeline stays in order regardless of
+        # whichever Storage path comes back first.
+        set_status("stitching", "Crossfading clips into the final video")
+        clip_paths_by_index: dict[int, Path] = {target_index: new_local_path}
+        for parent_c in parent_clips:
+            if parent_c["index"] == target_index:
+                continue
+            local = _ensure_local(sb, work_dir, parent_c["storage_path"])
+            clip_paths_by_index[parent_c["index"]] = local
+        ordered_paths = [
+            clip_paths_by_index[i] for i in sorted(clip_paths_by_index)
+        ]
+        final_mp4 = work_dir / "final.mp4"
+        concat_clips(ordered_paths, final_mp4)
+
+        # 10. Upload final + thumbnail + insert videos row.
+        final_storage_path = f"jobs/{job_id}/final.mp4"
+        with open(final_mp4, "rb") as f:
+            sb.storage.from_("videos").upload(
+                final_storage_path, f.read(),
+                file_options={"content-type": "video/mp4", "upsert": "true"},
+            )
+
+        thumb_storage_path: str | None = None
+        try:
+            thumb_local = work_dir / "thumb.png"
+            extract_thumbnail(final_mp4, thumb_local, percent=20.0)
+            thumb_storage_path = upload_thumbnail(thumb_local, f"jobs/{job_id}/thumb.png")
+        except Exception as thumb_err:
+            print(f"[thumb] skipped for surgery job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
+
+        video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
+        if thumb_storage_path:
+            video_row["thumb_path"] = thumb_storage_path
+        sb.table("videos").insert(video_row).execute()
+
+        # 11. Mark done.
+        set_status("done", "Surgery video ready")
+        sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
+
+        # 12. Fire the same video-complete webhook the full pipeline uses,
+        # so the success email / autopilot fan-out logic is identical.
+        # Only parsha kind, matching run_pipeline's behavior.
+        kind = (regen_job.get("kind") or "parsha").lower()
+        if kind == "parsha":
+            try:
+                video_lookup = (
+                    sb.table("videos")
+                    .select("id")
+                    .eq("job_id", job_id)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                    .data
+                )
+                video_id = video_lookup[0]["id"] if video_lookup else None
+                dashboard_url = os.environ.get("DASHBOARD_URL")
+                webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+                if dashboard_url and webhook_secret and video_id:
+                    import httpx
+                    with httpx.Client(timeout=10.0) as client:
+                        resp = client.post(
+                            f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
+                            headers={"x-pipeline-secret": webhook_secret},
+                            json={"jobId": job_id, "videoId": video_id},
+                        )
+                        print(
+                            f"[autopilot] surgery webhook {resp.status_code} for job {job_id}: {resp.text[:200]}"
+                        )
+                else:
+                    print(
+                        f"[autopilot] surgery skipped webhook — missing config (job {job_id})"
+                    )
+            except Exception as hook_err:
+                print(
+                    f"[autopilot] surgery webhook failed for job {job_id}: {type(hook_err).__name__}: {hook_err}"
+                )
+
+        return {"status": "done", "regen_clip_index": target_index}
+
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        failed_stage = "unknown"
+        try:
+            stage_row = (
+                sb.table("jobs")
+                .select("status_message, status")
+                .eq("id", job_id)
+                .single()
+                .execute()
+                .data
+            )
+            failed_stage = (
+                stage_row.get("status_message")
+                or stage_row.get("status")
+                or "unknown"
+            )
+        except Exception:
+            pass
+
+        sb.table("jobs").update({
+            "status": "failed",
+            "error_message": f"{type(e).__name__}: {e}\n{tb}",
+        }).eq("id", job_id).execute()
+        log_event(
+            sb, actor="modal", level="error",
+            event="pipeline.failed",
+            subject_type="job", subject_id=job_id,
+            message=f"surgery {type(e).__name__}: {e}",
+            details={
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": tb,
+                "mode": "surgery",
+            },
+        )
+
+        try:
+            dashboard_url = os.environ.get("DASHBOARD_URL")
+            webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+            if dashboard_url and webhook_secret:
+                import httpx
+                with httpx.Client(timeout=5.0) as client:
+                    resp = client.post(
+                        f"{dashboard_url.rstrip('/')}/api/pipeline/video-failed",
+                        headers={"x-pipeline-secret": webhook_secret},
+                        json={
+                            "jobId": job_id,
+                            "errorMessage": f"{type(e).__name__}: {e}",
+                            "stage": failed_stage,
+                        },
+                    )
+                    print(
+                        f"[fail-notify] surgery webhook {resp.status_code} for job {job_id}: {resp.text[:200]}"
+                    )
+            else:
+                print(
+                    f"[fail-notify] surgery skipped webhook — missing config (job {job_id})"
+                )
+        except Exception as hook_err:
+            print(
+                f"[fail-notify] surgery webhook failed for job {job_id}: {type(hook_err).__name__}: {hook_err}"
+            )
+
+        raise
+
+
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=60 * 60,
+)
+@modal.fastapi_endpoint(method="POST")
+def regen_clip_endpoint(payload: dict, request: Request) -> dict:
+    """Surgery-mode trigger. Auth identical to `trigger`.
+
+    Deployed URL pattern (after `modal deploy modal_app.py`):
+      https://<account>--torah-tai-chi-pipeline-regen-clip-endpoint.modal.run
+
+    The dashboard's submit-feedback action derives this URL from
+    MODAL_WORKER_URL by string-replacing 'pipeline-trigger' with
+    'pipeline-regen-clip-endpoint'.
+    """
+    job_id_for_log = payload.get("job_id") or "<no-job-id>"
+    secret = os.environ.get("PIPELINE_TRIGGER_SECRET")
+    if not secret:
+        print(f"[regen_clip_endpoint] config_error job_id={job_id_for_log} reason=secret-not-set")
+        raise HTTPException(status_code=503, detail="trigger secret not configured")
+    incoming = request.headers.get("x-pipeline-secret") or ""
+    if len(incoming) != len(secret) or not hmac.compare_digest(incoming, secret):
+        print(
+            f"[regen_clip_endpoint] auth_fail job_id={job_id_for_log} "
+            f"incoming_len={len(incoming)}"
+        )
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    job_id = payload.get("job_id")
+    if not job_id:
+        return {"error": "job_id required"}
+
+    # Idempotency: same shape as trigger(). Don't double-spawn paid runs.
+    from supabase import create_client
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+    existing = (
+        sb.table("jobs")
+        .select("status, triggered_at")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    if existing and existing.data:
+        status = existing.data.get("status")
+        if status in _TERMINAL_STATUSES:
+            print(f"[regen_clip_endpoint] skip_terminal job_id={job_id} status={status}")
+            return {"status": "skipped", "reason": f"job already {status}"}
+        if status in _IN_FLIGHT_STATUSES:
+            triggered_at_str = existing.data.get("triggered_at")
+            if triggered_at_str:
+                triggered_at = datetime.fromisoformat(
+                    triggered_at_str.replace("Z", "+00:00")
+                )
+                age = datetime.now(timezone.utc) - triggered_at
+                if age < _STUCK_AFTER:
+                    print(
+                        f"[regen_clip_endpoint] skip_in_flight job_id={job_id} "
+                        f"status={status} age_s={age.total_seconds():.0f}"
+                    )
+                    return {
+                        "status": "skipped",
+                        "reason": (
+                            f"job is {status}, in-flight for "
+                            f"{age.total_seconds():.0f}s"
+                        ),
+                    }
+
+    regen_clip.spawn(job_id)
+    return {"ok": True, "job_id": job_id, "mode": "surgery"}

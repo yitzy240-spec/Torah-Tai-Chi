@@ -3,11 +3,17 @@ import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 
 /**
- * Cut 1 of the feedback flow. Yonah can leave general feedback on a video
- * or per-clip feedback tied to a specific clip; either way we kick off a
- * full pipeline regen with the feedback merged into director_notes context.
+ * Feedback flow. Yonah can leave general feedback on a video or per-clip
+ * feedback tied to a specific clip. Two execution paths:
  *
- * Per-clip surgery (regen only the affected clip's TTS/Seedance) is Cut 2.
+ *  - Surgery (Cut 2): clipId provided AND parent's clips are all
+ *    checkpointed in Storage (storage_path populated). Routes to the
+ *    regen-clip Modal endpoint, which regenerates only the targeted
+ *    clip and re-stitches reusing the parent's other clips. ~$0.40-1.60.
+ *
+ *  - Full regen (Cut 1): everything else — general feedback, OR per-clip
+ *    feedback on a video generated before checkpointing (legacy parent).
+ *    Triggers run_pipeline end-to-end. ~$5-12.
  *
  * Mirrors trigger-generation.ts dispatch shape (header secret + 15s
  * timeout). On dispatch failure we revert the regen job to 'failed' so the
@@ -72,14 +78,22 @@ export async function submitFeedback(opts: {
   // Optional: if the feedback is per-clip, pull the clip's voiceover so we
   // can quote it in director_notes. Claude's prompt then has the exact
   // phrase that triggered the complaint without forcing Yonah to retype.
+  // Also pull `index` (for surgery's feedback_clip_index) and the clip's
+  // own storage_path as a fast yes/no signal for whether this clip can be
+  // surgically regenerated. We confirm the broader fleet of parent clips
+  // separately below — one missing checkpoint forces full regen.
   let voiceover: string | null = null;
+  let targetClipIndex: number | null = null;
+  let targetClipHasCheckpoint = false;
   if (clipId) {
     const { data: clipRow } = await supabase
       .from('clips')
-      .select('voiceover')
+      .select('voiceover, index, storage_path')
       .eq('id', clipId)
       .maybeSingle();
     voiceover = (clipRow?.voiceover ?? null) as string | null;
+    targetClipIndex = (clipRow?.index ?? null) as number | null;
+    targetClipHasCheckpoint = !!(clipRow?.storage_path);
   }
 
   // Pull the parent's clip plan so the regen anchors on what was already
@@ -95,6 +109,22 @@ export async function submitFeedback(opts: {
     .limit(1)
     .maybeSingle();
   const parentPlanJson = parentPlanRow?.plan_json ?? null;
+
+  // Surgery eligibility: requires per-clip feedback AND every parent
+  // clip already checkpointed to Storage (so re-stitch can pull the
+  // un-touched ones back). One missing storage_path on any parent clip
+  // forces full regen — partial surgery would produce a broken video.
+  // We only need the count of parent clips missing storage_path.
+  let surgeryEligible = false;
+  if (clipId && targetClipIndex !== null && targetClipHasCheckpoint) {
+    const { count: missingCount } = await supabase
+      .from('clips')
+      .select('id', { count: 'exact', head: true })
+      .eq('job_id', parentJobId)
+      .is('storage_path', null);
+    // Eligible only if zero parent clips are un-checkpointed.
+    surgeryEligible = (missingCount ?? 1) === 0;
+  }
 
   // Insert the feedback row first so we can FK applied_to_job_id later.
   const { data: feedbackRow, error: fbErr } = await supabase
@@ -133,23 +163,29 @@ export async function submitFeedback(opts: {
   const merged = (original + previousPlanBlock + feedbackSection).trim();
 
   // Insert the new (regen) job with all the original parameters and the
-  // version-chain pointer.
+  // version-chain pointer. feedback_clip_index is set ONLY on the
+  // surgery path — full regen leaves it null (the column was added by
+  // 20260430_clip_checkpoint.sql).
+  const regenInsert: Record<string, unknown> = {
+    parsha_id: parentJob.parsha_id,
+    script_id: parentJob.script_id,
+    partner_parsha_id: parentJob.partner_parsha_id ?? null,
+    kind: parentJob.kind ?? 'parsha',
+    topic: parentJob.topic ?? null,
+    motion_ref_slug: parentJob.motion_ref_slug ?? null,
+    resolution: parentJob.resolution ?? '720p',
+    model_tier: parentJob.model_tier ?? 'standard',
+    director_notes: merged,
+    regen_of_job_id: parentJobId,
+    status: 'queued',
+    triggered_by: user.id,
+  };
+  if (surgeryEligible && targetClipIndex !== null) {
+    regenInsert.feedback_clip_index = targetClipIndex;
+  }
   const { data: regenJob, error: regenErr } = await supabase
     .from('jobs')
-    .insert({
-      parsha_id: parentJob.parsha_id,
-      script_id: parentJob.script_id,
-      partner_parsha_id: parentJob.partner_parsha_id ?? null,
-      kind: parentJob.kind ?? 'parsha',
-      topic: parentJob.topic ?? null,
-      motion_ref_slug: parentJob.motion_ref_slug ?? null,
-      resolution: parentJob.resolution ?? '720p',
-      model_tier: parentJob.model_tier ?? 'standard',
-      director_notes: merged,
-      regen_of_job_id: parentJobId,
-      status: 'queued',
-      triggered_by: user.id,
-    })
+    .insert(regenInsert)
     .select('id')
     .single();
   if (regenErr || !regenJob) {
@@ -169,8 +205,8 @@ export async function submitFeedback(opts: {
     .eq('id', feedbackRow.id);
 
   // Fire-and-forget Modal worker. Same shape as trigger-generation.ts.
-  const workerUrl = process.env.MODAL_WORKER_URL;
-  if (!workerUrl) {
+  const baseTriggerUrl = process.env.MODAL_WORKER_URL;
+  if (!baseTriggerUrl) {
     await supabase.from('jobs')
       .update({ status: 'failed', error_message: 'MODAL_WORKER_URL not set' })
       .eq('id', regenJob.id);
@@ -183,6 +219,14 @@ export async function submitFeedback(opts: {
       .eq('id', regenJob.id);
     return { error: 'PIPELINE_TRIGGER_SECRET not set' };
   }
+  // Surgery hits a different Modal endpoint. Modal's URL pattern is
+  // <account>--<app>-<function>.modal.run; the trigger function is
+  // 'pipeline-trigger', the surgery endpoint is 'pipeline-regen-clip-endpoint'.
+  // We string-replace rather than carry a second env var so deployments
+  // don't need a paired config update.
+  const workerUrl = surgeryEligible
+    ? baseTriggerUrl.replace('pipeline-trigger', 'pipeline-regen-clip-endpoint')
+    : baseTriggerUrl;
   try {
     await fetch(workerUrl, {
       method: 'POST',
