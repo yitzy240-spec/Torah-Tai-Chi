@@ -1,11 +1,12 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
-import { Check, Loader2, X, RotateCcw } from 'lucide-react';
+import { Check, Loader2, X, RotateCcw, XCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { retriggerJob } from '@/app/actions/retrigger-job';
+import { cancelJob } from '@/app/actions/cancel-job';
 
 // Ordered list of the pipeline's "happy-path" stages. Terminal states
 // (failed/cancelled) aren't in this list — we render those by lighting up the
@@ -53,9 +54,11 @@ type Clip = {
 export function JobProgress({
   initialJob,
   initialClips,
+  typicalRun,
 }: {
   initialJob: Job;
   initialClips: Clip[];
+  typicalRun: { lowMin: number; highMin: number } | null;
 }) {
   const [job, setJob] = useState<Job>(initialJob);
   const [clips, setClips] = useState<Clip[]>(initialClips);
@@ -164,8 +167,10 @@ export function JobProgress({
           />
 
           {inFlight && job.triggered_at && (
-            <ElapsedLine startedAt={job.triggered_at} />
+            <ElapsedLine startedAt={job.triggered_at} typicalRun={typicalRun} />
           )}
+
+          {inFlight && <CancelButton jobId={job.id} />}
 
           {job.status_message && !failed && (
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
@@ -272,9 +277,74 @@ function StepIndicator({
   );
 }
 
+// ---------- Cancel button (in-flight jobs) ----------------------------------
+
+function CancelButton({ jobId }: { jobId: string }) {
+  const [pending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function onCancel() {
+    if (pending) return;
+    setError(null);
+    startTransition(async () => {
+      const res = await cancelJob(jobId);
+      if (res.error) {
+        setError(res.error);
+        setConfirming(false);
+      }
+    });
+  }
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="text-xs text-neutral-500 underline-offset-2 hover:text-neutral-700 hover:underline dark:text-neutral-400 dark:hover:text-neutral-200"
+      >
+        Cancel this run
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      <span className="text-neutral-600 dark:text-neutral-300">
+        Cancel? Costs already incurred won&apos;t be refunded.
+      </span>
+      <Button
+        variant="destructive"
+        size="sm"
+        disabled={pending}
+        onClick={onCancel}
+      >
+        <XCircle className="h-3.5 w-3.5" />
+        {pending ? 'Cancelling…' : 'Yes, cancel'}
+      </Button>
+      <button
+        type="button"
+        onClick={() => setConfirming(false)}
+        className="text-neutral-500 underline-offset-2 hover:underline dark:text-neutral-400"
+      >
+        Keep going
+      </button>
+      {error && (
+        <span className="w-full text-red-600 dark:text-red-400">{error}</span>
+      )}
+    </div>
+  );
+}
+
 // ---------- Elapsed time -----------------------------------------------------
 
-function ElapsedLine({ startedAt }: { startedAt: string }) {
+function ElapsedLine({
+  startedAt,
+  typicalRun,
+}: {
+  startedAt: string;
+  typicalRun: { lowMin: number; highMin: number } | null;
+}) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -283,10 +353,17 @@ function ElapsedLine({ startedAt }: { startedAt: string }) {
   }, []);
 
   const elapsedMs = Math.max(0, now - new Date(startedAt).getTime());
+  // Compact "p25–p75" range from recent done jobs; "n/a yet" until enough
+  // history exists rather than a fabricated number.
+  const typical = typicalRun
+    ? typicalRun.lowMin === typicalRun.highMin
+      ? `\u007e${typicalRun.lowMin} min`
+      : `${typicalRun.lowMin}\u2013${typicalRun.highMin} min`
+    : 'building from history';
   return (
     <p className="text-xs text-neutral-500">
       Started {formatDuration(elapsedMs)} ago{' '}
-      <span className="text-neutral-400">{'\u00b7 Typical run: 10\u201315 min'}</span>
+      <span className="text-neutral-400">{`\u00b7 Typical run: ${typical}`}</span>
     </p>
   );
 }

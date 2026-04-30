@@ -25,6 +25,17 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     .eq('job_id', id)
     .order('index');
 
+  // Compute the "typical run" duration from the most recent successful jobs.
+  // Falls back to a sensible default when there isn't enough history yet.
+  const { data: doneJobs } = await supabase
+    .from('jobs')
+    .select('triggered_at, completed_at')
+    .eq('status', 'done')
+    .not('completed_at', 'is', null)
+    .order('completed_at', { ascending: false })
+    .limit(20);
+  const typicalRun = computeTypicalRun(doneJobs ?? []);
+
   // Supabase generated types treat embedded relationships as possibly-error
   // shapes; the component's Job type is the source of truth for the columns
   // we actually rely on, so we cast here rather than threading a wide union
@@ -34,7 +45,32 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       <JobProgress
         initialJob={job as unknown as Parameters<typeof JobProgress>[0]['initialJob']}
         initialClips={(clips ?? []) as unknown as Parameters<typeof JobProgress>[0]['initialClips']}
+        typicalRun={typicalRun}
       />
     </div>
   );
+}
+
+/** Returns a "p25–p75" minute range from recent done jobs, or null if not
+ * enough history exists yet (caller falls back to a static hint). */
+function computeTypicalRun(
+  rows: { triggered_at: string | null; completed_at: string | null }[],
+): { lowMin: number; highMin: number } | null {
+  const durations: number[] = [];
+  for (const r of rows) {
+    if (!r.triggered_at || !r.completed_at) continue;
+    const seconds =
+      (new Date(r.completed_at).getTime() - new Date(r.triggered_at).getTime()) / 1000;
+    // Sanity-bound: ignore obviously bad rows (clock skew, schema migration, etc).
+    if (seconds < 30 || seconds > 60 * 60) continue;
+    durations.push(seconds);
+  }
+  if (durations.length < 3) return null;
+  durations.sort((a, b) => a - b);
+  const p25 = durations[Math.floor(durations.length * 0.25)];
+  const p75 = durations[Math.floor(durations.length * 0.75)];
+  return {
+    lowMin: Math.max(1, Math.round(p25 / 60)),
+    highMin: Math.max(1, Math.round(p75 / 60)),
+  };
 }
