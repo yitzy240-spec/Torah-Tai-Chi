@@ -45,12 +45,37 @@ modules. This helper is Claude-text-only.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import os
 
 import httpx
 
 KIE_CLAUDE_URL = "https://api.kie.ai/claude/v1/messages"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def _parse_or_response(text: str) -> dict:
+    """Parse an OpenRouter chat-completions response body.
+
+    OpenRouter sends SSE-style keep-alive comment lines (": OPENROUTER
+    PROCESSING\\n\\n") while a long-running model thinks, THEN the JSON
+    payload. The Content-Type is application/json but httpx.Response.json()
+    chokes because the comment prefix isn't valid JSON.
+
+    Strip lines starting with ':' (SSE comments) and empty lines, then
+    parse the remainder. Raises ValueError on empty / non-parseable.
+    """
+    lines = text.splitlines()
+    json_lines = [
+        line for line in lines
+        if line and not line.lstrip().startswith(":")
+    ]
+    json_text = "\n".join(json_lines).strip()
+    if not json_text:
+        raise ValueError(
+            "OpenRouter response was empty after stripping keep-alive comments"
+        )
+    return _json.loads(json_text)
 
 # Backoff schedule shared by both providers: 1s, 2s, 4s, 8s, 16s
 # (capped). Sum across the 5-attempt Kie default = ~31s; sum across the
@@ -345,8 +370,28 @@ async def _openrouter_phase(
             )
             r.raise_for_status()
 
-        # 2xx — parse and return.
-        data = r.json()
+        # 2xx — parse and return. Use _parse_or_response (not r.json())
+        # because OR prefixes long-running responses with SSE-style
+        # keep-alive comments that vanilla json.loads chokes on.
+        try:
+            data = _parse_or_response(r.text)
+        except (ValueError, _json.JSONDecodeError) as parse_err:
+            err = RuntimeError(
+                f"OpenRouter response not parseable: "
+                f"{type(parse_err).__name__}: {parse_err}; "
+                f"raw_head={r.text[:200]!r}"
+            )
+            last_exc = err
+            if attempt < max_attempts:
+                backoff = min(2 ** (attempt - 1), _BACKOFF_CAP_S)
+                print(
+                    f"{log_prefix} openrouter parse error attempt "
+                    f"{attempt}/{max_attempts}: {parse_err} "
+                    f"sleeping={backoff}s"
+                )
+                await asyncio.sleep(backoff)
+                continue
+            break
         choices = data.get("choices") or []
         if not choices:
             # OR can return empty choices under heavy provider
