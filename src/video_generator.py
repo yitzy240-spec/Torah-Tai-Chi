@@ -27,12 +27,15 @@ def _select_refs(character_ref_urls: list[str], dojo_ref_urls: list[str],
     jewish_ref_urls = jewish_ref_urls or []
     chars = list(character_ref_urls)
     if setting_id == "DOJO":
-        # Reserve room for ALL chars + the jewish refs first; dojo
-        # fills whatever's left.
+        # Reserve room for chars + jewish refs first; dojo fills
+        # whatever's left. Whole output capped at MAX_REFS so an
+        # over-supplied chars list (test edge case, or future
+        # change) can't produce a >9 ref bundle that Seedance
+        # rejects or truncates unpredictably.
         used = len(chars) + len(jewish_ref_urls)
         dojo_room = max(0, min(MAX_DOJO_REFS, MAX_REFS - used))
         dojos = dojo_ref_urls[:dojo_room]
-        return chars + jewish_ref_urls + dojos
+        return (chars + jewish_ref_urls + dojos)[:MAX_REFS]
     # Non-dojo setting: chars + jewish, capped at MAX_REFS.
     combined = chars + jewish_ref_urls
     return combined[:MAX_REFS]

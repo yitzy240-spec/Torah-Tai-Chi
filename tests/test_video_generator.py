@@ -22,10 +22,13 @@ def test_build_seedance_input_dojo_includes_dojo_refs():
         dojo_ref_urls=["https://x/dojo1.png", "https://x/dojo2.png"],
         first_frame_url=None, audio_url=None, resolution="720p",
     )
-    assert payload["reference_image_urls"][0] == "https://x/dojo1.png"
-    assert payload["reference_image_urls"][1] == "https://x/dojo2.png"
-    assert "https://x/a.png" in payload["reference_image_urls"]
-    assert len(payload["reference_image_urls"]) <= 9
+    refs = payload["reference_image_urls"]
+    # Order is chars first (character consistency anchor highest priority),
+    # then jewish refs (none in this test), then dojos (setting anchor).
+    assert refs[:3] == ["https://x/a.png", "https://x/b.png", "https://x/c.png"]
+    assert "https://x/dojo1.png" in refs
+    assert "https://x/dojo2.png" in refs
+    assert len(refs) <= 9
     assert "first_frame_url" not in payload
     assert STYLE_LOCK in payload["prompt"]
     assert '"Hello."' in payload["prompt"]
@@ -67,9 +70,10 @@ def test_build_seedance_input_caps_refs_at_nine():
     )
     refs = payload["reference_image_urls"]
     assert len(refs) == 9
-    # MAX_DOJO_REFS=4: first four slots are dojo refs, remaining five are char refs
-    assert refs[:4] == ["https://x/d0.png", "https://x/d1.png", "https://x/d2.png", "https://x/d3.png"]
-    assert refs[4:] == [f"https://x/c{i}.png" for i in range(5)]
+    # New ordering: chars FIRST (character consistency outranks scene
+    # anchoring). When chars overflow MAX_REFS, dojos get squeezed out
+    # entirely. With 20 chars supplied, all 9 slots go to chars.
+    assert refs == [f"https://x/c{i}.png" for i in range(9)]
 
 
 def test_build_seedance_input_with_audio_ref():

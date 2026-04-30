@@ -29,8 +29,11 @@ async def test_poll_until_success_returns_result_urls():
             ]
         )
         client = KieClient(api_key="k", poll_interval_s=0)
-        urls = await client.poll_task("t-1")
+        urls, meta = await client.poll_task("t-1")
         assert urls == ["https://cdn/v.mp4"]
+        # poll_task now also returns Kie's full task dict so callers can
+        # extract real cost (credits_consumed / costCredits / etc).
+        assert meta["state"] == "success"
 
 
 @pytest.mark.asyncio
