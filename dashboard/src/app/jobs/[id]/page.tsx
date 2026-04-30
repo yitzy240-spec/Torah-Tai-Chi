@@ -10,9 +10,9 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     .from('jobs')
     .select(
       'id, status, status_message, error_message, parsha_id, script_id, ' +
-      'triggered_at, completed_at, total_cost_usd, director_notes, ' +
+      'motion_ref_slug, triggered_at, completed_at, total_cost_usd, director_notes, ' +
       'parshiot!jobs_parsha_id_fkey(name, book), ' +
-      'scripts(title, option)',
+      'scripts(title, option, draft_text, tldr)',
     )
     .eq('id', id)
     .single();
@@ -24,6 +24,27 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     .select('id, index, voiceover, status, cost_usd, mp4_path')
     .eq('job_id', id)
     .order('index');
+
+  // Tai chi move (joined via jobs.motion_ref_slug). Skip the round-trip when
+  // no move was selected — the DetailsPanel will hide its tab anyway.
+  const motionSlug = (job as { motion_ref_slug?: string | null }).motion_ref_slug ?? null;
+  const { data: taiChiMove } = motionSlug
+    ? await supabase
+        .from('tai_chi_moves')
+        .select('slug, english, pinyin, visual, motion_description')
+        .eq('slug', motionSlug)
+        .maybeSingle()
+    : { data: null };
+
+  // Latest clip plan for this job (Claude's structured output). Available
+  // only after the "writing the plan" stage completes.
+  const { data: clipPlan } = await supabase
+    .from('clip_plans')
+    .select('plan_json, created_at')
+    .eq('job_id', id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   // Compute the "typical run" duration from the most recent successful jobs.
   // Falls back to a sensible default when there isn't enough history yet.
@@ -45,6 +66,12 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       <JobProgress
         initialJob={job as unknown as Parameters<typeof JobProgress>[0]['initialJob']}
         initialClips={(clips ?? []) as unknown as Parameters<typeof JobProgress>[0]['initialClips']}
+        initialTaiChiMove={
+          (taiChiMove ?? null) as Parameters<typeof JobProgress>[0]['initialTaiChiMove']
+        }
+        initialClipPlan={
+          (clipPlan ?? null) as Parameters<typeof JobProgress>[0]['initialClipPlan']
+        }
         typicalRun={typicalRun}
       />
     </div>

@@ -34,12 +34,18 @@ type Job = {
   error_message: string | null;
   parsha_id: string;
   script_id: string | null;
+  motion_ref_slug: string | null;
   triggered_at: string | null;
   completed_at: string | null;
   total_cost_usd: number | string | null;
   director_notes: string | null;
   parshiot?: { name: string; book: string } | null;
-  scripts?: { title: string | null; option: string | null } | null;
+  scripts?: {
+    title: string | null;
+    option: string | null;
+    draft_text: string | null;
+    tldr: string | null;
+  } | null;
 };
 
 type Clip = {
@@ -51,17 +57,52 @@ type Clip = {
   mp4_path: string | null;
 };
 
+type TaiChiMove = {
+  slug: string;
+  english: string;
+  pinyin: string;
+  visual: string;
+  motion_description: string;
+};
+
+// Defensive — pipeline could write a partial plan_json. We only render
+// fields we can validate at runtime.
+type PlanClipShape = {
+  index?: number;
+  voiceover?: string;
+  visual_prompt?: string;
+  setting_id?: string;
+  duration_s?: number;
+};
+type PlanShape = {
+  title?: string;
+  clips?: PlanClipShape[];
+  captions?: Record<string, string | undefined>;
+};
+type ClipPlanRow = {
+  plan_json: unknown;
+  created_at: string | null;
+};
+
 export function JobProgress({
   initialJob,
   initialClips,
+  initialTaiChiMove,
+  initialClipPlan,
   typicalRun,
 }: {
   initialJob: Job;
   initialClips: Clip[];
+  initialTaiChiMove: TaiChiMove | null;
+  initialClipPlan: ClipPlanRow | null;
   typicalRun: { lowMin: number; highMin: number } | null;
 }) {
   const [job, setJob] = useState<Job>(initialJob);
   const [clips, setClips] = useState<Clip[]>(initialClips);
+  const [clipPlan, setClipPlan] = useState<ClipPlanRow | null>(initialClipPlan);
+  // The tai chi move is locked at trigger time and the slug doesn't change
+  // mid-run, so it stays as a prop pass-through rather than client state.
+  const taiChiMove = initialTaiChiMove;
 
   // Subscribe to BOTH jobs (by id) and clips (by job_id) so the user sees
   // step transitions and per-clip completions land without a refresh.
@@ -95,6 +136,35 @@ export function JobProgress({
           );
         },
       )
+      // clip_plans: lets the Clip Plan tab fill in the moment Claude returns,
+      // no manual refresh needed. We pick the row with the newest created_at
+      // because in theory regen flows could produce more than one row.
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'clip_plans', filter: `job_id=eq.${job.id}` },
+        (payload) => {
+          const next = payload.new as ClipPlanRow;
+          setClipPlan((prev) => {
+            if (!prev) return next;
+            const a = prev.created_at ? Date.parse(prev.created_at) : 0;
+            const b = next.created_at ? Date.parse(next.created_at) : 0;
+            return b >= a ? next : prev;
+          });
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'clip_plans', filter: `job_id=eq.${job.id}` },
+        (payload) => {
+          const next = payload.new as ClipPlanRow;
+          setClipPlan((prev) => {
+            if (!prev) return next;
+            const a = prev.created_at ? Date.parse(prev.created_at) : 0;
+            const b = next.created_at ? Date.parse(next.created_at) : 0;
+            return b >= a ? next : prev;
+          });
+        },
+      )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
@@ -124,6 +194,23 @@ export function JobProgress({
         .eq('job_id', job.id)
         .order('index');
       if (latestClips) setClips(latestClips as Clip[]);
+      // clip_plans polling fallback — only fetched while the page is in-flight,
+      // which is when the plan can still be written or regenerated.
+      const { data: latestPlan } = await supabase
+        .from('clip_plans')
+        .select('plan_json, created_at')
+        .eq('job_id', job.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latestPlan) {
+        setClipPlan((prev) => {
+          if (!prev) return latestPlan as ClipPlanRow;
+          const a = prev.created_at ? Date.parse(prev.created_at) : 0;
+          const b = latestPlan.created_at ? Date.parse(latestPlan.created_at) : 0;
+          return b >= a ? (latestPlan as ClipPlanRow) : prev;
+        });
+      }
     };
     const timer = setInterval(tick, 4000);
     return () => clearInterval(timer);
@@ -178,16 +265,19 @@ export function JobProgress({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {job.director_notes && job.director_notes.trim() !== '' && (
-            <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
-                Director notes
-              </p>
-              <p className="mt-1 whitespace-pre-wrap text-sm italic text-neutral-700 dark:text-neutral-300">
-                {job.director_notes}
-              </p>
-            </div>
-          )}
+          <DetailsPanel
+            job={job}
+            taiChiMove={taiChiMove}
+            clipPlan={clipPlan}
+            planExpected={
+              // The plan is written during/after the "writing the plan" stage —
+              // any in-flight stage from generating_plan onward, or any
+              // terminal/done state where we expect a plan to exist.
+              ['generating_plan', 'uploading_refs', 'generating_clips', 'stitching', 'done'].includes(
+                job.status,
+              )
+            }
+          />
 
           <StepIndicator
             currentStepIndex={currentStepIndex}
@@ -239,6 +329,354 @@ export function JobProgress({
       )}
 
       {done && <VideoResult jobId={job.id} />}
+    </div>
+  );
+}
+
+// ---------- Details panel (tabbed) -----------------------------------------
+
+type TabKey = 'script' | 'notes' | 'move' | 'plan';
+
+function DetailsPanel({
+  job,
+  taiChiMove,
+  clipPlan,
+  planExpected,
+}: {
+  job: Job;
+  taiChiMove: TaiChiMove | null;
+  clipPlan: ClipPlanRow | null;
+  planExpected: boolean;
+}) {
+  // Defensive parse — the pipeline can write a partial plan_json mid-run,
+  // and we'd rather show a placeholder than crash the page if a future
+  // schema change breaks the shape.
+  const parsedPlan = useMemo<PlanShape | null>(() => {
+    if (!clipPlan) return null;
+    try {
+      const raw = clipPlan.plan_json;
+      if (!raw || typeof raw !== 'object') return null;
+      return raw as PlanShape;
+    } catch {
+      return null;
+    }
+  }, [clipPlan]);
+
+  const hasScript = !!(
+    job.scripts?.title ||
+    job.scripts?.draft_text ||
+    job.scripts?.tldr ||
+    job.scripts?.option
+  );
+  const hasNotes = !!(job.director_notes && job.director_notes.trim() !== '');
+  const hasMove = !!taiChiMove;
+  // Show the Plan tab once the plan stage is at-least-reachable so users
+  // can see "Generating plan..." instead of having the tab pop in late.
+  const showPlanTab = !!parsedPlan || planExpected;
+
+  const availableTabs = useMemo<TabKey[]>(() => {
+    const t: TabKey[] = [];
+    if (hasScript) t.push('script');
+    if (hasNotes) t.push('notes');
+    if (hasMove) t.push('move');
+    if (showPlanTab) t.push('plan');
+    return t;
+  }, [hasScript, hasNotes, hasMove, showPlanTab]);
+
+  // Default to the first tab that has content. We hold the user's choice
+  // in state but compute the *displayed* active during render so a tab
+  // the user clicked away from doesn't get yanked back to "first" when
+  // data lands later, and so a tab that disappears (e.g. plan never came)
+  // falls back to the first available without an effect-driven re-render.
+  const [userChoice, setUserChoice] = useState<TabKey | null>(null);
+  const active: TabKey | null =
+    userChoice && availableTabs.includes(userChoice)
+      ? userChoice
+      : (availableTabs[0] ?? null);
+
+  if (availableTabs.length === 0) {
+    return (
+      <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          No details yet — the script and plan will appear here as the job runs.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/40">
+      <div className="flex flex-wrap gap-1.5">
+        {availableTabs.includes('script') && (
+          <TabButton active={active === 'script'} onClick={() => setUserChoice('script')}>
+            Script
+          </TabButton>
+        )}
+        {availableTabs.includes('notes') && (
+          <TabButton active={active === 'notes'} onClick={() => setUserChoice('notes')}>
+            Director Notes
+          </TabButton>
+        )}
+        {availableTabs.includes('move') && (
+          <TabButton active={active === 'move'} onClick={() => setUserChoice('move')}>
+            Tai Chi Move
+          </TabButton>
+        )}
+        {availableTabs.includes('plan') && (
+          <TabButton active={active === 'plan'} onClick={() => setUserChoice('plan')}>
+            Clip Plan
+          </TabButton>
+        )}
+      </div>
+      <div className="mt-3">
+        {active === 'script' && <ScriptTab job={job} />}
+        {active === 'notes' && <NotesTab notes={job.director_notes} />}
+        {active === 'move' && taiChiMove && <MoveTab move={taiChiMove} />}
+        {active === 'plan' && (
+          <PlanTab plan={parsedPlan} planRowPresent={!!clipPlan} planExpected={planExpected} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  // Match the dashboard's existing visual language: card border, neutral
+  // text, subtle ring on the active tab.
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? 'rounded-md border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-900 ring-1 ring-neutral-300 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-100 dark:ring-neutral-700'
+          : 'rounded-md border border-transparent px-2.5 py-1 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+function ScriptTab({ job }: { job: Job }) {
+  const s = job.scripts;
+  const title = s?.title ?? null;
+  const option = s?.option ?? null;
+  const tldr = s?.tldr ?? null;
+  const draft = s?.draft_text ?? null;
+  return (
+    <div className="space-y-2">
+      {(title || option) && (
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          {title && (
+            <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+              {title}
+            </p>
+          )}
+          {option && (
+            <span className="text-xs text-neutral-500">Option {option}</span>
+          )}
+        </div>
+      )}
+      {tldr && (
+        <p className="text-xs italic text-neutral-600 dark:text-neutral-400">
+          {tldr}
+        </p>
+      )}
+      {draft ? (
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
+          {draft}
+        </p>
+      ) : (
+        !title &&
+        !tldr && (
+          <p className="text-xs text-neutral-500">No script text on file.</p>
+        )
+      )}
+    </div>
+  );
+}
+
+function NotesTab({ notes }: { notes: string | null }) {
+  if (!notes || notes.trim() === '') {
+    return <p className="text-xs text-neutral-500">No director notes.</p>;
+  }
+  return (
+    <p className="whitespace-pre-wrap text-sm italic text-neutral-700 dark:text-neutral-300">
+      {notes}
+    </p>
+  );
+}
+
+function MoveTab({ move }: { move: TaiChiMove }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+          {move.english}
+        </p>
+        <span className="text-xs italic text-neutral-500">{move.pinyin}</span>
+      </div>
+      {move.visual && (
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+            Visual
+          </p>
+          <p className="mt-0.5 text-sm text-neutral-700 dark:text-neutral-300">
+            {move.visual}
+          </p>
+        </div>
+      )}
+      {move.motion_description && (
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+            Motion
+          </p>
+          <p className="mt-0.5 text-sm text-neutral-700 dark:text-neutral-300">
+            {move.motion_description}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanTab({
+  plan,
+  planRowPresent,
+  planExpected,
+}: {
+  plan: PlanShape | null;
+  planRowPresent: boolean;
+  planExpected: boolean;
+}) {
+  // Plan row exists but parse failed (malformed JSON / stale schema): show
+  // a friendly placeholder rather than a crash or an empty pane.
+  if (!plan) {
+    if (planRowPresent) {
+      return (
+        <p className="text-xs text-neutral-500">
+          Plan written but couldn&apos;t be displayed yet.
+        </p>
+      );
+    }
+    return (
+      <p className="flex items-center gap-2 text-xs text-neutral-500">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        {planExpected ? 'Generating plan…' : 'Plan will appear once Claude finishes writing it.'}
+      </p>
+    );
+  }
+
+  const clips = Array.isArray(plan.clips) ? plan.clips : [];
+  const captions = plan.captions ?? null;
+  const hasCaptions =
+    captions && Object.values(captions).some((v) => typeof v === 'string' && v.trim() !== '');
+
+  return (
+    <div className="space-y-3">
+      {plan.title && (
+        <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
+          {plan.title}
+        </p>
+      )}
+      {clips.length === 0 ? (
+        <p className="text-xs text-neutral-500">Plan has no clips yet.</p>
+      ) : (
+        <ol className="space-y-2.5">
+          {clips.map((clip, i) => (
+            <PlanClipBlock key={clip.index ?? i} clip={clip} fallbackIndex={i} />
+          ))}
+        </ol>
+      )}
+      {hasCaptions && captions && <CaptionsBlock captions={captions} />}
+    </div>
+  );
+}
+
+function PlanClipBlock({
+  clip,
+  fallbackIndex,
+}: {
+  clip: PlanClipShape;
+  fallbackIndex: number;
+}) {
+  // plan_json clips are 0-indexed (per ClipPlan schema). Display 1-based
+  // for the non-technical user — "Clip 1" is friendlier than "Clip 0".
+  const zeroBased = typeof clip.index === 'number' ? clip.index : fallbackIndex;
+  const headerBits = [
+    `Clip ${zeroBased + 1}`,
+    clip.setting_id || null,
+    typeof clip.duration_s === 'number' ? `${clip.duration_s}s` : null,
+  ].filter(Boolean) as string[];
+  return (
+    <li>
+      <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+        {headerBits.join(' \u00b7 ')}
+      </p>
+      <div className="mt-1 space-y-1 pl-3">
+        {clip.voiceover && (
+          <p className="text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
+            <span className="font-medium text-neutral-700 dark:text-neutral-300">
+              Voiceover:
+            </span>{' '}
+            {clip.voiceover}
+          </p>
+        )}
+        {clip.visual_prompt && (
+          <p className="text-xs leading-relaxed text-neutral-600 dark:text-neutral-400">
+            <span className="font-medium text-neutral-700 dark:text-neutral-300">
+              Visual:
+            </span>{' '}
+            {clip.visual_prompt}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function CaptionsBlock({
+  captions,
+}: {
+  captions: Record<string, string | undefined>;
+}) {
+  const [open, setOpen] = useState(false);
+  const entries = Object.entries(captions).filter(
+    (kv): kv is [string, string] => typeof kv[1] === 'string' && kv[1].trim() !== '',
+  );
+  if (entries.length === 0) return null;
+  return (
+    <div className="border-t border-neutral-200 pt-2 dark:border-neutral-800">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs text-neutral-500 underline-offset-2 hover:text-neutral-700 hover:underline dark:text-neutral-400 dark:hover:text-neutral-200"
+      >
+        {open ? 'Hide captions' : `Show captions (${entries.length})`}
+      </button>
+      {open && (
+        <ul className="mt-2 space-y-1.5">
+          {entries.map(([platform, text]) => (
+            <li key={platform} className="text-xs">
+              <p className="font-medium text-neutral-700 dark:text-neutral-300">
+                {platform}
+              </p>
+              <p className="whitespace-pre-wrap text-neutral-600 dark:text-neutral-400">
+                {text}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
