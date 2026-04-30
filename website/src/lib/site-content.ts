@@ -15,14 +15,14 @@ const FALLBACKS: SiteContentMap = {
   'home.hero.title': 'Where ancient wisdom meets the body.',
   'home.hero.title_em': 'meets the body.',
   'home.hero.body':
-    'Torah Tai Chi fuses the weekly parsha with the internal arts \u2014 rooting, yielding, song \u2014 to find the place where Jewish wisdom and the body\u2019s intelligence say the same thing.',
+    'Torah Tai Chi fuses Torah teaching with the internal arts \u2014 rooting, yielding, song \u2014 to find the place where Jewish wisdom and the body\u2019s intelligence say the same thing.',
   'home.about.title': 'The practice between traditions.',
   'home.about.body':
-    'Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts. Each week\u2019s parsha carries a teaching about character, restraint, holiness \u2014 and each of those teachings has a parallel in the body: rooting, yielding, releasing tension without collapsing structure.',
+    'Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts. Each week we draw a teaching from Torah \u2014 sometimes the parsha, sometimes a holiday, sometimes an idea worth turning over \u2014 about character, restraint, holiness, and each carries a parallel in the body: rooting, yielding, releasing tension without collapsing structure.',
   'about.title': 'Where two traditions meet the body.',
   'about.subtitle': 'A practice, not a product.',
   'about.what_is':
-    'Torah Tai Chi is a weekly practice of meeting two traditions in one body. Each week\u2019s parsha carries a teaching; each Chinese internal-arts principle carries a mirror image of that teaching in the language of rooting, yielding, and release.',
+    'Torah Tai Chi is a weekly practice of meeting two traditions in one body. Each week\u2019s teaching from Torah carries a lesson; each Chinese internal-arts principle carries a mirror image of that lesson in the language of rooting, yielding, and release.',
   'about.why_body':
     'The body knows before the mind does. Torah Tai Chi reads the parsha through the spine, the breath, the soft-jaw moment before reaction.',
   'about.how_arrives':

@@ -57,9 +57,11 @@ export default async function AboutPage() {
           <div className="about-byline-text">
             <span className="about-byline-name">A weekly teaching practice</span>
             <span className="about-byline-meta">
-              Each week we take a parsha, pair it with a movement from tai chi,
-              and let the two read each other. No lecture. No performance. Just
-              a body, a text, and a few minutes of attention.
+              Each week we pair a teaching from Torah with a movement from tai
+              chi, and let the two read each other. Sometimes the source is the
+              parsha, sometimes a holiday, sometimes an idea worth turning over.
+              No lecture. No performance. Just a body, a text, and a few minutes
+              of attention.
             </span>
           </div>
         </aside>
