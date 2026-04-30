@@ -512,6 +512,27 @@ def run_pipeline(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
+        # Best-effort: pull the last status message so the email knows
+        # which stage the pipeline died in. If the read fails (e.g. the
+        # row got deleted out from under us), fall back to "unknown".
+        failed_stage = "unknown"
+        try:
+            stage_row = (
+                sb.table("jobs")
+                .select("status_message, status")
+                .eq("id", job_id)
+                .single()
+                .execute()
+                .data
+            )
+            failed_stage = (
+                stage_row.get("status_message")
+                or stage_row.get("status")
+                or "unknown"
+            )
+        except Exception:
+            pass
+
         sb.table("jobs").update({
             "status": "failed", "error_message": f"{type(e).__name__}: {e}\n{tb}",
         }).eq("id", job_id).execute()
@@ -529,6 +550,38 @@ def run_pipeline(job_id: str) -> dict | None:
                 "traceback": tb,
             },
         )
+
+        # Operator-notification webhook. Wrapped in its own try so a
+        # Resend / dashboard outage never masks the original exception
+        # — Modal still needs to see the function fail so its own retry
+        # / failure surfacing works.
+        try:
+            dashboard_url = os.environ.get("DASHBOARD_URL")
+            webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+            if dashboard_url and webhook_secret:
+                import httpx  # lazy import — same pattern as the success webhook above
+                with httpx.Client(timeout=5.0) as client:
+                    resp = client.post(
+                        f"{dashboard_url.rstrip('/')}/api/pipeline/video-failed",
+                        headers={"x-pipeline-secret": webhook_secret},
+                        json={
+                            "jobId": job_id,
+                            "errorMessage": f"{type(e).__name__}: {e}",
+                            "stage": failed_stage,
+                        },
+                    )
+                    print(
+                        f"[fail-notify] webhook {resp.status_code} for job {job_id}: {resp.text[:200]}"
+                    )
+            else:
+                print(
+                    f"[fail-notify] skipped webhook — missing DASHBOARD_URL / PIPELINE_WEBHOOK_SECRET (job {job_id})"
+                )
+        except Exception as hook_err:
+            print(
+                f"[fail-notify] webhook failed for job {job_id}: {type(hook_err).__name__}: {hook_err}"
+            )
+
         raise
 
 

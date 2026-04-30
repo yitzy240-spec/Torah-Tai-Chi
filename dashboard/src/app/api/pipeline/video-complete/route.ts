@@ -3,7 +3,20 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { autoPost } from '@/lib/auto-post';
 import { getStance } from '@/lib/stance';
 import { logEvent } from '@/lib/events';
+import { sendNotification } from '@/lib/email';
 import type { Platform } from '@/lib/platforms';
+
+const DASHBOARD_BASE_URL =
+  process.env.DASHBOARD_BASE_URL ?? 'https://torah-tai-chi-admin.vercel.app';
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -102,7 +115,7 @@ export async function POST(request: Request) {
   // the clip_plan written during this run).
   const { data: job, error: jobErr } = await sb
     .from('jobs')
-    .select('id, kind, parsha_id')
+    .select('id, kind, parsha_id, parshiot:parsha_id(name, slug)')
     .eq('id', jobId)
     .single();
 
@@ -211,6 +224,35 @@ export async function POST(request: Request) {
         youtubeId,
       },
     });
+
+    // Operator notification — success. The Supabase typegen treats
+    // the embedded foreign-table select as a possibly-null relation,
+    // so we accept either an object or array shape here.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parshaRel = (job as any)?.parshiot;
+    const parsha = (Array.isArray(parshaRel) ? parshaRel[0] : parshaRel) ?? null;
+    const parshaName: string = parsha?.name ?? 'Unknown';
+    const parshaSlug: string | null = parsha?.slug ?? null;
+
+    try {
+      const linkHtml = parshaSlug
+        ? `<p>View it here: <a href="${DASHBOARD_BASE_URL}/videos/${escapeHtml(parshaSlug)}">${DASHBOARD_BASE_URL}/videos/${escapeHtml(parshaSlug)}</a></p>`
+        : '<p>Your video is ready — check the dashboard.</p>';
+      const linkText = parshaSlug
+        ? `View it here: ${DASHBOARD_BASE_URL}/videos/${parshaSlug}`
+        : 'Your video is ready — check the dashboard.';
+
+      await sendNotification({
+        subject: `\u2713 Video ready: ${parshaName}`,
+        html: `<p>Hi,</p><p>The Torah Tai Chi pipeline finished generating <strong>${escapeHtml(parshaName)}</strong>. Autopilot has scheduled it across ${(result.results ?? []).length} connected channel(s) for the upcoming Shabbat.</p>${linkHtml}<p>— Torah Tai Chi pipeline</p>`,
+        text: `The Torah Tai Chi pipeline finished generating ${parshaName}. Autopilot has scheduled it across ${(result.results ?? []).length} connected channel(s) for the upcoming Shabbat.\n\n${linkText}\n\n— Torah Tai Chi pipeline`,
+      });
+    } catch (emailErr) {
+      // Resend outage must not fail the autopilot webhook — autopilot
+      // already ran and committed Buffer/YouTube schedules.
+      const msg = emailErr instanceof Error ? emailErr.message : String(emailErr);
+      console.warn(`[video-complete] notification email threw: ${msg}`);
+    }
 
     return NextResponse.json({
       ok: true,
