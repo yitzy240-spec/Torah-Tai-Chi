@@ -132,6 +132,7 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
     korbanot -> "kor-bah-NOTE"
     karov -> "kah-ROV"
     Shabbat -> "shah-BAHT"
+    Hashem -> "ha-SHEM"                    (the Name — stress on SHEM, never "HAH-shem")
     # Eden / Adam / Israel: keep as natural English (see policy above), no phonetic.
     Elohim -> "Eh-loh-HEEM"
     tzedakah -> "tzeh-dah-KAH"
@@ -236,6 +237,84 @@ Camera-direction verbs (pick ONE per clip):
 "static medium shot, head-and-shoulders centered", "static waist-up,
 centered", "slow push in", "slight pull back", "pan left", "pan right",
 "tilt up", "tilt down", "slow orbit", "lateral tracking shot".
+
+JEWISH RITUAL OBJECTS — describe specifics, not just nouns.
+Seedance's training data is light on Jewish ritual objects, so vague
+nouns ("Shabbat candles", "challah") get replaced with what the model
+DOES know — hence the candelabra-instead-of-pair-of-candles failures.
+When director_notes mention or the scene calls for any of these,
+expand them in visual_prompt using THESE descriptions verbatim:
+
+  Shabbat candles -> "TWO white tapered candles, both lit, in matching
+    polished silver candlesticks (separate, NOT a single candelabra).
+    Place at the head of the table, slightly offset from each other."
+    Critical: NEVER a candelabra, NEVER a menorah, NEVER 5/7/9 branches.
+
+  Challah -> "Braided golden-brown egg bread loaf, six-strand braid,
+    glossy crust. Covered with a decorative white cloth (challah cover)
+    that is plain white or simply embroidered." The cloth on top is
+    essential — without it, the model produces a generic loaf.
+
+  Kiddush cup -> "Polished silver chalice-shaped goblet on a short stem,
+    holding red wine. Traditional Jewish ceremonial style — slightly
+    ornate but not gaudy. Sits to the right of the challah."
+
+  Shabbat table -> "White or cream tablecloth. TWO lit white candles
+    in matching silver candlesticks at the head (NOT a candelabra).
+    A covered braided challah on a wooden board or silver tray.
+    A silver kiddush cup beside the challah, holding red wine.
+    A bottle of red wine. Place settings for the seated guests:
+    plate, knife, fork, spoon, white napkin, water glass each.
+    NO additional candles on the table itself — only the two at
+    the head in their candlesticks."
+
+  Menorah / Chanukiah -> "Nine-branch candelabra, gold or silver. Eight
+    lights in a horizontal row plus one elevated 'shamash' (helper)
+    candle. ONLY for Hanukkah scenes. Distinct from Shabbat candles
+    (which are TWO separate candlesticks, not a candelabra)."
+
+  Mezuzah -> "Small decorative case (often silver, brass, or wooden)
+    mounted at a slight tilt on the right doorframe at the upper
+    third of the frame's height. Subtle, not large."
+
+  Tallit -> "Rectangular prayer shawl, white with black or blue
+    horizontal stripes near both edges. Knotted fringes (tzitzit)
+    hanging from all four corners. Worn draped over shoulders."
+
+  Tefillin -> "Black leather boxes — one on the bicep (between elbow
+    and shoulder, leather strap winding down the forearm and around
+    the hand) and one on the forehead (above the hairline, centered).
+    Boxes are simple, square, matte black."
+
+  Kippah / Yarmulke -> "Small round skullcap on the crown of the head.
+    Black velvet, knit/crocheted with patterns, or fabric. Sits above
+    the back of the head, not the forehead."
+
+  Sukkah -> "Temporary outdoor structure, three or four walls of canvas
+    or wood, roof made of natural materials (palm fronds, branches,
+    bamboo) loose enough to see stars through gaps. Decorations
+    inside (paper chains, hanging fruits) optional."
+
+  Etrog -> "Yellow citrus fruit shaped like an oval lemon, but bumpier
+    skin, with a small protruding stem (pitam) at the top. Distinct
+    yellow color, not green."
+
+  Lulav -> "Bundle of long palm frond + myrtle branches + willow
+    branches, held vertically together. The palm frond is tallest,
+    roughly 3-4 feet, with the others bound to its base."
+
+  Star of David / Magen David -> "Six-pointed star formed by two
+    interlocking equilateral triangles. Pure geometric form."
+
+  Torah scroll -> "Two wooden rollers with parchment between, often
+    dressed in a velvet cover (blue, burgundy, or white) with
+    silver ornaments — Torah crown (keter) on top, breastplate
+    (tas), pointer (yad)."
+
+GENERAL RULE: prefer description over noun. "Two lit white candles in
+silver candlesticks" is more reliable than "Shabbat candles" —
+Seedance needs the visual specifics, not the cultural noun. When in
+doubt, expand more. Specificity is the whole game.
 
 OUTDOOR ARCHETYPE — pick ONE id whose tonal fit matches the parsha theme:
 {archetype_menu}

@@ -37,14 +37,15 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
     if present). Output re-encodes to H.264 + AAC.
 
     Tuning history:
-    - 0.5s: visually smooth but audio overlap caused word-salad at clip
-      boundaries (Seedance speech bled into next clip).
-    - 0.2s: kept voiceover clean but transitions felt jerky to viewers.
-    - 0.35s + 'dissolve' transition: current. Dissolve mixes pixels rather
-      than alpha-blending, which masks small endpoint differences between
-      clips better than 'fade'. Audio still uses the same duration since
-      acrossfade triangular curve at 0.35s is just below the audio-bleed
-      threshold for clean voice handoffs.
+    - 0.5s fade: visually smooth but audio overlap caused word-salad at
+      clip boundaries (Seedance speech bled into next clip).
+    - 0.2s fade: kept voiceover clean but transitions felt jerky.
+    - 0.35s dissolve: jerkiness gone but the noise-pattern mixing read
+      as 'static' to viewers — too aggressive a look for a calm
+      teaching video.
+    - 0.35s fade: current. Plain alpha-blend at 0.35s is the smoothest
+      we can push without audio bleed re-emerging. Dissolve was a
+      detour; gentleness wins over edge-masking.
     """
     if not clips:
         raise ValueError("No clips to concat")
@@ -67,7 +68,7 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
         v_in_b = f"[{i + 1}:v]"
         v_out = "[vout]" if i == len(clips) - 2 else f"[vx{i}]"
         video_filters.append(
-            f"{v_in_a}{v_in_b}xfade=transition=dissolve:"
+            f"{v_in_a}{v_in_b}xfade=transition=fade:"
             f"duration={crossfade_s}:offset={offset:.3f}{v_out}"
         )
         if has_audio:
