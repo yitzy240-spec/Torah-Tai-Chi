@@ -630,9 +630,30 @@ def run_pipeline(job_id: str) -> dict | None:
             # within a scene group roughly doubles wall-clock for a
             # 4-5 clip plan, but eliminates the visible jerk Yonah
             # complained about at intra-scene boundaries.
+            # Chain decision: same setting_id is necessary but NOT sufficient.
+            # If the next clip introduces a Jewish ritual keyword the
+            # previous didn't have (e.g. setting_id stays "DOJO" but the
+            # new clip mentions a Shabbat table), we MUST break the chain
+            # — first_frame_url and reference_image_urls are mutually
+            # exclusive in Seedance, and the new ritual ref images need
+            # to go through. So we'd rather lose the seamless transition
+            # than silently strip the ritual visuals.
+            def _can_chain(prev_clip, curr_clip) -> bool:
+                if prev_clip.setting_id != curr_clip.setting_id:
+                    return False
+                prev_kws = _jewish_ref_ids_in_prompt(
+                    prev_clip.visual_prompt or ""
+                )
+                curr_kws = _jewish_ref_ids_in_prompt(
+                    curr_clip.visual_prompt or ""
+                )
+                # If the new clip has any ritual keyword the previous
+                # didn't, treat as a fresh scene so ritual refs flow.
+                return not (curr_kws - prev_kws)
+
             groups: list[list] = []
             for c in plan.clips:
-                if groups and groups[-1][-1].setting_id == c.setting_id:
+                if groups and _can_chain(groups[-1][-1], c):
                     groups[-1].append(c)
                 else:
                     groups.append([c])
@@ -961,6 +982,23 @@ async def _upload_jewish_refs(kie: "KieClient") -> dict[str, str]:  # noqa: F821
             )
     print(f"[jewish-ref] uploaded {len(out)} of {len(JEWISH_REF_FILENAMES)} refs")
     return out
+
+
+def _jewish_ref_ids_in_prompt(visual_prompt: str) -> set[str]:
+    """Set of jewish ref_ids whose keywords appear in this prompt.
+
+    Used by chain-decision logic in the full pipeline + regen_agent to
+    detect when a new clip introduces a ritual keyword its predecessor
+    didn't have. If it does, we MUST break first-frame chaining so the
+    ritual ref images can flow (refs and first_frame are mutually
+    exclusive in Seedance).
+    """
+    text = (visual_prompt or "").lower()
+    found: set[str] = set()
+    for ref_id, kws in JEWISH_REF_KEYWORDS.items():
+        if any(kw in text for kw in kws):
+            found.add(ref_id)
+    return found
 
 
 def _jewish_refs_for_clip(clip, jewish_refs: dict[str, str]) -> list[str]:
@@ -3865,21 +3903,29 @@ def regen_agent(job_id: str) -> dict | None:
                 motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
             )
 
-            # First-frame chaining for regen: if the parent clip at
-            # (target_idx - 1) exists AND has the same setting_id as
-            # the regen target, download its mp4 from Storage, extract
-            # the last frame, and pass as first_frame_url so the new
-            # clip starts where the previous-in-scene clip ended.
-            # Zero latency hit because parent clips are already
-            # locked — this is just one extra download + ffmpeg call
-            # per regen. Failures degrade to no-chain.
+            # First-frame chaining for regen: chain only when (a) parent
+            # clip at (target_idx - 1) exists with same setting_id AND
+            # has a checkpointed storage_path AND (b) the regen target's
+            # visual_prompt doesn't introduce a Jewish ritual keyword the
+            # parent didn't have. Same constraint as full-pipeline chain
+            # logic — first_frame_url and reference_image_urls are
+            # mutually exclusive in Seedance, so introducing a ritual
+            # ref means we MUST use refs (not first_frame).
             first_frame_url: str | None = None
             prev_parent = parent_by_index.get(target_idx - 1)
+            curr_kws = _jewish_ref_ids_in_prompt(
+                target_clip_pydantic.visual_prompt or ""
+            )
+            prev_kws = _jewish_ref_ids_in_prompt(
+                (prev_parent or {}).get("visual_prompt") or ""
+            )
+            new_ritual_introduced = bool(curr_kws - prev_kws)
             if (
                 prev_parent
                 and prev_parent.get("setting_id")
                 == target_clip_pydantic.setting_id
                 and prev_parent.get("storage_path")
+                and not new_ritual_introduced
             ):
                 try:
                     prev_local = _ensure_local(
