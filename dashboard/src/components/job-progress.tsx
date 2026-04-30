@@ -328,6 +328,12 @@ function FailureCallout({
   }, [snapshot]);
 
   function handleRetry() {
+    // Double-click guard: useTransition's `pending` flips after
+    // startTransition is called, so a fast double-click before React
+    // commits could fire two retriggerJob calls. The server backstops
+    // (rejects when status is no longer failed/cancelled), but the
+    // second call's error toast would briefly flash. Bail early.
+    if (pending) return;
     setActionError(null);
     const prev = snapshotRef.current;
     onOptimisticReset();

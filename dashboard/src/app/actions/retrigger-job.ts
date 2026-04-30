@@ -1,4 +1,5 @@
 'use server';
+import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 
 const RETRIGGERABLE_STATUSES = ['failed', 'cancelled'];
@@ -75,9 +76,14 @@ export async function retriggerJob(
         .from('jobs')
         .update({ status: 'failed', error_message: String(e) })
         .eq('id', jobId);
+      revalidatePath(`/jobs/${jobId}`);
       return { error: String(e) };
     }
   }
 
+  // Belt-and-braces: realtime usually catches the status flip, but if the
+  // page rendered before the realtime channel subscribed, this guarantees
+  // the next router refresh sees the new state.
+  revalidatePath(`/jobs/${jobId}`);
   return { ok: true };
 }
