@@ -101,6 +101,34 @@ export function JobProgress({
     };
   }, [job.id]);
 
+  // Polling fallback: realtime requires the tables to be in the
+  // supabase_realtime publication AND the listener to have read RLS.
+  // If anything in that chain breaks, the page would silently stop
+  // updating. Poll every 4s while in-flight as a safety net — when
+  // realtime IS working, the poll is just a no-op duplicate fetch.
+  useEffect(() => {
+    if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled') {
+      return;
+    }
+    const supabase = createClient();
+    const tick = async () => {
+      const { data: latestJob } = await supabase
+        .from('jobs')
+        .select('id, status, status_message, error_message, triggered_at, completed_at, total_cost_usd, director_notes')
+        .eq('id', job.id)
+        .single();
+      if (latestJob) setJob((j) => ({ ...j, ...(latestJob as Partial<Job>) }));
+      const { data: latestClips } = await supabase
+        .from('clips')
+        .select('id, index, voiceover, status, cost_usd, mp4_path')
+        .eq('job_id', job.id)
+        .order('index');
+      if (latestClips) setClips(latestClips as Clip[]);
+    };
+    const timer = setInterval(tick, 4000);
+    return () => clearInterval(timer);
+  }, [job.id, job.status]);
+
   const done = job.status === 'done';
   const failed = job.status === 'failed';
   const cancelled = job.status === 'cancelled';
