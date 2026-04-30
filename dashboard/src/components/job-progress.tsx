@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { Check, Loader2, X, RotateCcw, XCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1035,30 +1036,51 @@ function ClipRow({ clip }: { clip: Clip }) {
 // ---------- Final video ------------------------------------------------------
 
 function VideoResult({ jobId }: { jobId: string }) {
-  const [url, setUrl] = useState<string | null>(null);
+  // We don't render the player inline — Yonah needs the full review
+  // affordances (clip cards, version selector, feedback box). Take him
+  // straight to /videos/<parsha-slug>?v=<videoId> instead.
+  const [target, setTarget] = useState<{
+    videoId: string;
+    parshaSlug: string;
+  } | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
     (async () => {
       const { data: video } = await supabase
         .from('videos')
-        .select('mp4_path')
+        .select('id, jobs!inner(parshiot!inner(slug))')
         .eq('job_id', jobId)
         .single();
       if (!video) return;
-      const { data } = supabase.storage.from('videos').getPublicUrl(video.mp4_path);
-      setUrl(data.publicUrl);
+      // Supabase types treat embedded relations as a union; cast at the
+      // boundary, mirroring the pattern used elsewhere in this file.
+      const v = video as unknown as {
+        id: string;
+        jobs: { parshiot: { slug: string } };
+      };
+      const slug = v.jobs?.parshiot?.slug;
+      if (!slug) return;
+      setTarget({ videoId: v.id, parshaSlug: slug });
     })();
   }, [jobId]);
 
-  if (!url) return null;
+  if (!target) return null;
+  const href = `/videos/${target.parshaSlug}?v=${target.videoId}`;
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Final video</CardTitle>
+        <CardTitle className="text-base">Video ready</CardTitle>
       </CardHeader>
-      <CardContent>
-        <video src={url} controls className="w-full rounded-lg" />
+      <CardContent className="space-y-2">
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">
+          Review the clips and submit feedback on the video page.
+        </p>
+        <Link href={href}>
+          <Button>
+            View video &amp; submit feedback
+          </Button>
+        </Link>
       </CardContent>
     </Card>
   );
