@@ -6,7 +6,8 @@ import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
 import { CaptionsList } from '@/components/captions-list';
 import { PublishToSiteToggle } from '@/components/publish-to-site-toggle';
 import { ScriptCarousel } from '@/components/script-carousel';
-import { VideoFeedback, type FeedbackClip } from '@/components/video-feedback';
+import type { FeedbackClip } from '@/components/video-feedback';
+import { VideoVersionsView, type VersionInfo } from '@/components/video-versions-view';
 import { PLATFORMS, type Platform } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
@@ -45,11 +46,67 @@ async function getParsha(slug: string): Promise<Parsha | null> {
 
 interface PageProps {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
+
+/** Build a captions VTT data URL + flat FeedbackClip[] for a single
+ *  job's clip plan. Pulled out of the page body so we can call it once
+ *  per version when assembling VersionInfo[]. */
+function buildClipPayload(
+  planJson: unknown,
+  clipRows: Array<{ id: string; index: number }>,
+): { captionsVttDataUrl: string | null; clips: FeedbackClip[]; totalDurationS: number } {
+  const plan = (planJson ?? {}) as {
+    clips?: Array<{ voiceover?: string; duration_s?: number; index?: number }>;
+  };
+  if (!Array.isArray(plan.clips) || plan.clips.length === 0) {
+    return { captionsVttDataUrl: null, clips: [], totalDurationS: 0 };
+  }
+  const ordered = [...plan.clips].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+
+  const fmt = (s: number): string => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s - h * 3600 - m * 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${sec.toFixed(3).padStart(6, '0')}`;
+  };
+  let cur = 0;
+  const cues: string[] = [];
+  for (const c of ordered) {
+    const dur = c.duration_s ?? 0;
+    const text = (c.voiceover ?? '').trim();
+    if (dur > 0 && text) cues.push(`${fmt(cur)} --> ${fmt(cur + dur)}\n${text}`);
+    cur += dur;
+  }
+  const captionsVttDataUrl =
+    cues.length > 0
+      ? `data:text/vtt;charset=utf-8;base64,${Buffer.from('WEBVTT\n\n' + cues.join('\n\n') + '\n', 'utf-8').toString('base64')}`
+      : null;
+
+  const idByIndex = new Map<number, string>(clipRows.map((r) => [r.index, r.id]));
+  const clips: FeedbackClip[] = [];
+  let cursorS = 0;
+  for (const c of ordered) {
+    const dur = c.duration_s ?? 0;
+    const idx = c.index ?? 0;
+    const id = idByIndex.get(idx);
+    const start = cursorS;
+    cursorS += dur;
+    if (!id) continue;
+    clips.push({
+      id,
+      voiceover: (c.voiceover ?? '').trim(),
+      startS: start,
+      endS: cursorS,
+    });
+  }
+  return { captionsVttDataUrl, clips, totalDurationS: cursorS };
 }
 
 
-export default async function VideoDetailPage({ params }: PageProps) {
+export default async function VideoDetailPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
+  const sp = await searchParams;
   const supabase = await createClient();
 
   const parsha = await getParsha(slug);
@@ -65,27 +122,124 @@ export default async function VideoDetailPage({ params }: PageProps) {
     .maybeSingle();
   const defaultTierKey: string = defaultTierRow?.value ?? '720p standard';
 
-  // Fetch most recent DONE job for this parsha, including the video + cost.
-  const { data: latestJob } = await supabase
+  // Fetch ALL done jobs for this parsha in chronological order so we can
+  // surface the regen chain. The earliest is v1; subsequent rows are
+  // regen_of_<previous>. We sort by triggered_at since that's a non-null
+  // timestamp for every job; videos.created_at is a tighter signal but
+  // jobs come first so they're guaranteed present.
+  const { data: doneJobsRaw } = await supabase
     .from('jobs')
-    .select('id, resolution, model_tier, total_cost_usd, videos(id, mp4_path, thumb_path, published_to_website)')
+    .select('id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, created_at)')
     .eq('parsha_id', parsha.id)
     .eq('status', 'done')
-    .order('triggered_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order('triggered_at', { ascending: true });
 
-  const jobResolution = (latestJob?.resolution as Resolution | null) ?? null;
-  const jobModelTier = (latestJob?.model_tier as ModelTier | null) ?? null;
+  // Flatten jobs → versions, dropping any job without an attached video
+  // (defensive — done jobs should always have one).
+  type DoneJobRow = {
+    id: string;
+    resolution: string | null;
+    model_tier: string | null;
+    total_cost_usd: number | null;
+    regen_of_job_id: string | null;
+    triggered_at: string | null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    videos: any;
+  };
+  const doneJobs = (doneJobsRaw ?? []) as DoneJobRow[];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const videosRel = latestJob?.videos as any;
-  const video = (Array.isArray(videosRel) ? videosRel[0] : videosRel) ?? null;
-  const videoId: string | null = video?.id ?? null;
-  const videoUrl: string | null = video?.mp4_path ? publicVideoUrl(video.mp4_path) : null;
-  const thumbUrl: string | null = video?.thumb_path ? publicVideoUrl(video.thumb_path) : null;
-  const videoPublishedToSite: boolean = !!video?.published_to_website;
-  const videoCostUsd = (latestJob?.total_cost_usd as number | null) ?? null;
+  const versionRows = doneJobs.flatMap((j) => {
+    const videoRel = j.videos;
+    const v = (Array.isArray(videoRel) ? videoRel[0] : videoRel) ?? null;
+    if (!v?.id) return [];
+    return [{
+      jobId: j.id,
+      videoId: v.id as string,
+      mp4Path: v.mp4_path as string | null,
+      thumbPath: v.thumb_path as string | null,
+      publishedToWebsite: !!v.published_to_website,
+      createdAt: (v.created_at as string | null) ?? (j.triggered_at as string | null) ?? new Date(0).toISOString(),
+      resolution: (j.resolution as Resolution | null) ?? null,
+      modelTier: (j.model_tier as ModelTier | null) ?? null,
+      totalCostUsd: (j.total_cost_usd as number | null) ?? null,
+      isRegen: !!j.regen_of_job_id,
+    }];
+  });
+
+  // Latest = canonical "live" version: drives captions, distribution, cost.
+  const latest = versionRows.length > 0 ? versionRows[versionRows.length - 1] : null;
+
+  // Resolve which version is "selected" — `?v=<videoId>` else latest.
+  const requestedVid = typeof sp.v === 'string' ? sp.v : null;
+  const initialSelectedId = (requestedVid && versionRows.find((v) => v.videoId === requestedVid))
+    ? requestedVid
+    : (latest?.videoId ?? '');
+  const compareParam = typeof sp.compare === 'string' ? sp.compare : null;
+  const initialCompare = compareParam === '1' && versionRows.length >= 2;
+
+  // Per-version clip payloads — captions/clips are version-specific because
+  // each regen has its own clip_plan with potentially different voiceovers.
+  // We also pull the feedback row whose applied_to_job_id = jobId so we can
+  // show the subtitle "Generated from feedback: '<text>'".
+  const versionInfos: VersionInfo[] = [];
+  for (const row of versionRows) {
+    const { data: planRow } = await supabase
+      .from('clip_plans')
+      .select('plan_json')
+      .eq('job_id', row.jobId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: clipRows } = await supabase
+      .from('clips')
+      .select('id, index')
+      .eq('job_id', row.jobId)
+      .order('index');
+
+    const { captionsVttDataUrl, clips, totalDurationS } = buildClipPayload(
+      planRow?.plan_json,
+      (clipRows ?? []) as Array<{ id: string; index: number }>,
+    );
+
+    let feedbackText: string | null = null;
+    if (row.isRegen) {
+      const { data: fbRow } = await supabase
+        .from('feedback')
+        .select('text')
+        .eq('applied_to_job_id', row.jobId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      feedbackText = (fbRow?.text as string | null) ?? null;
+    }
+
+    const costEstimateUsd = row.resolution && row.modelTier && totalDurationS > 0
+      ? estimateSeedanceCost(totalDurationS, row.resolution, row.modelTier)
+      : null;
+
+    versionInfos.push({
+      id: row.videoId,
+      videoUrl: row.mp4Path ? publicVideoUrl(row.mp4Path) : null,
+      thumbUrl: row.thumbPath ? publicVideoUrl(row.thumbPath) : null,
+      captionsVttDataUrl,
+      clips,
+      costEstimateUsd,
+      resolutionLabel: row.resolution,
+      createdAt: row.createdAt,
+      isRegen: row.isRegen,
+      feedbackText,
+    });
+  }
+
+  // Latest version drives the captions panel (per-platform copy) and the
+  // distribution panel (Buffer/YouTube schedule status). These are tied to
+  // the canonical published version of the video.
+  const latestVersionInfo = versionInfos.length > 0 ? versionInfos[versionInfos.length - 1] : null;
+  const latestJobId = latest?.jobId ?? null;
+  const videoId: string | null = latest?.videoId ?? null;
+  const videoPublishedToSite: boolean = latest?.publishedToWebsite ?? false;
+  const videoCostUsd = latest?.totalCostUsd ?? null;
 
   // Also check for an in-flight job so the production arc reflects real state.
   const { data: activeJob } = await supabase
@@ -98,22 +252,17 @@ export default async function VideoDetailPage({ params }: PageProps) {
     .maybeSingle();
   const isGenerating = !!activeJob;
 
-  // Pull real captions + clip-level voiceover from the clip_plan saved by
-  // Modal after generation. The captions feed the per-platform preview;
-  // the clip voiceovers + durations feed the in-player WebVTT track.
-  let captions: Partial<Record<Platform, string>> = {};
-  let captionsVttDataUrl: string | null = null;
-  let feedbackClips: FeedbackClip[] = [];
-  let totalDurationS = 0;
-  if (latestJob?.id) {
-    const { data: planRow } = await supabase
+  // Captions (per-platform copy) come from the LATEST job's clip_plan.
+  const captions: Partial<Record<Platform, string>> = {};
+  if (latestJobId) {
+    const { data: latestPlanRow } = await supabase
       .from('clip_plans')
       .select('plan_json')
-      .eq('job_id', latestJob.id)
+      .eq('job_id', latestJobId)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    const planJson = (planRow?.plan_json ?? {}) as {
+    const planJson = (latestPlanRow?.plan_json ?? {}) as {
       captions?: {
         tiktok?: string;
         instagram?: string;
@@ -122,62 +271,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
         facebook?: string;
         twitter?: string;
       };
-      clips?: Array<{ voiceover?: string; duration_s?: number; index?: number }>;
     };
-    // Build a WebVTT data URL from the per-clip voiceovers so the <video>
-    // can render closed captions. Cumulative time offsets from duration_s.
-    if (Array.isArray(planJson.clips) && planJson.clips.length > 0) {
-      const orderedClips = [...planJson.clips].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-      const fmt = (s: number): string => {
-        const h = Math.floor(s / 3600);
-        const m = Math.floor((s % 3600) / 60);
-        const sec = s - h * 3600 - m * 60;
-        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${sec.toFixed(3).padStart(6, '0')}`;
-      };
-      let cur = 0;
-      const cues: string[] = [];
-      for (const c of orderedClips) {
-        const dur = c.duration_s ?? 0;
-        const text = (c.voiceover ?? '').trim();
-        if (dur > 0 && text) {
-          cues.push(`${fmt(cur)} --> ${fmt(cur + dur)}\n${text}`);
-        }
-        cur += dur;
-      }
-      if (cues.length > 0) {
-        const vtt = 'WEBVTT\n\n' + cues.join('\n\n') + '\n';
-        captionsVttDataUrl = `data:text/vtt;charset=utf-8;base64,${Buffer.from(vtt, 'utf-8').toString('base64')}`;
-      }
-
-      // Build FeedbackClip[] for the per-clip feedback UI. We need the real
-      // clip rows (for the FK clip_id) joined with the plan's voiceover +
-      // duration. Plan is the source of truth for voiceover/duration; the
-      // clips table is the source for stable UUIDs.
-      const { data: clipRows } = await supabase
-        .from('clips')
-        .select('id, index')
-        .eq('job_id', latestJob.id)
-        .order('index');
-      const idByIndex = new Map<number, string>(
-        (clipRows ?? []).map((r) => [r.index as number, r.id as string]),
-      );
-      let cursorS = 0;
-      for (const c of orderedClips) {
-        const dur = c.duration_s ?? 0;
-        const idx = c.index ?? 0;
-        const id = idByIndex.get(idx);
-        const start = cursorS;
-        cursorS += dur;
-        if (!id) continue; // no matching clip row — skip rather than make up an id
-        feedbackClips.push({
-          id,
-          voiceover: (c.voiceover ?? '').trim(),
-          startS: start,
-          endS: cursorS,
-        });
-      }
-      totalDurationS = cursorS;
-    }
     const src = planJson.captions ?? {};
     if (src.tiktok) captions.tiktok = src.tiktok;
     if (src.instagram) captions.instagram = src.instagram;
@@ -190,7 +284,8 @@ export default async function VideoDetailPage({ params }: PageProps) {
     }
   }
 
-  // Fetch post statuses for last 7 days
+  // Fetch post statuses for last 7 days (latest video only — we don't post
+  // older versions).
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: recentPosts } = videoId
     ? await supabase
@@ -223,13 +318,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
 
   const words = wordCount(aTight?.draft_text);
 
-  // Cost preview for the regen submit button — same helper that the
-  // compose flow uses. If we don't have duration yet (e.g. plan_json
-  // missing), VideoFeedback falls back to a coarse range based on
-  // resolution alone.
-  const costEstimateUsd = jobResolution && jobModelTier && totalDurationS > 0
-    ? estimateSeedanceCost(totalDurationS, jobResolution, jobModelTier)
-    : null;
+  const hasAnyVideo = !!latestVersionInfo?.videoUrl && (latestVersionInfo?.clips.length ?? 0) > 0;
 
   return (
     <div className="stagger">
@@ -350,20 +439,17 @@ export default async function VideoDetailPage({ params }: PageProps) {
         <ArcStage done={arcSchedule === 'done'} running={arcSchedule === 'running'} label={anyPublished ? 'Published' : anyScheduled ? 'Scheduled' : 'Schedule'} />
       </div>
 
-      {videoUrl && feedbackClips.length > 0 ? (
+      {hasAnyVideo ? (
         <>
-          {/* Video player + per-clip feedback list + general feedback box.
-              Voiceover-driven — Yonah identifies clips by what Rav Eli says,
-              not by index. Submitting any feedback redirects to the new
-              regen job's progress page. */}
-          <VideoFeedback
-            videoId={videoId}
-            videoUrl={videoUrl}
-            thumbUrl={thumbUrl}
-            captionsVttDataUrl={captionsVttDataUrl}
-            clips={feedbackClips}
-            costEstimateUsd={costEstimateUsd}
-            resolutionLabel={jobResolution}
+          {/* Video player + version selector + per-clip feedback list +
+              general feedback box. The VideoVersionsView client component
+              owns version state (?v=<videoId>) and compare mode (?compare=1)
+              so URLs are shareable; the underlying VideoFeedback contract
+              is unchanged. */}
+          <VideoVersionsView
+            versions={versionInfos}
+            initialSelectedId={initialSelectedId}
+            initialCompare={initialCompare}
           />
           {/* Script carousel — full width below the feedback row when we
               already have a video, so Yonah can still flip through script
@@ -403,14 +489,14 @@ export default async function VideoDetailPage({ params }: PageProps) {
                 background: 'var(--ink-900)',
               }}
             >
-              {videoUrl ? (
+              {latestVersionInfo?.videoUrl ? (
                 <video
-                  src={videoUrl}
-                  poster={thumbUrl ?? undefined}
+                  src={latestVersionInfo.videoUrl}
+                  poster={latestVersionInfo.thumbUrl ?? undefined}
                   controls
                   playsInline
                   preload="metadata"
-                  crossOrigin={captionsVttDataUrl ? 'anonymous' : undefined}
+                  crossOrigin={latestVersionInfo.captionsVttDataUrl ? 'anonymous' : undefined}
                   style={{
                     width: '100%',
                     aspectRatio: '9 / 16',
@@ -418,13 +504,13 @@ export default async function VideoDetailPage({ params }: PageProps) {
                     background: 'var(--ink-900)',
                   }}
                 >
-                  {captionsVttDataUrl && (
+                  {latestVersionInfo.captionsVttDataUrl && (
                     <track
                       kind="captions"
                       srcLang="en"
                       label="English"
                       default
-                      src={captionsVttDataUrl}
+                      src={latestVersionInfo.captionsVttDataUrl}
                     />
                   )}
                 </video>
@@ -479,10 +565,10 @@ export default async function VideoDetailPage({ params }: PageProps) {
                   )}
                 </div>
               )}
-              {videoUrl && (
+              {latestVersionInfo?.videoUrl && (
                 <div style={{ display: 'flex', gap: '6px', padding: '10px 12px', background: 'var(--ink-800)' }}>
                   <a
-                    href={videoUrl}
+                    href={latestVersionInfo.videoUrl}
                     download
                     style={{
                       flex: 1,
@@ -566,7 +652,7 @@ export default async function VideoDetailPage({ params }: PageProps) {
             Per-platform preview
           </p>
           <CaptionsList
-            jobId={latestJob?.id ?? null}
+            jobId={latestJobId}
             captions={captions}
             parshaSlug={parsha.slug}
           />
