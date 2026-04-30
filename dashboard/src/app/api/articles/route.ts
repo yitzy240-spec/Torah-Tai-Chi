@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createArticle } from '@/lib/storyblok';
 import { requireAuth } from '@/lib/api-auth';
+import { revalidateWebsite } from '@/lib/revalidate-website';
 
 export async function POST(req: NextRequest) {
   const { response: authResponse } = await requireAuth();
@@ -29,6 +30,10 @@ export async function POST(req: NextRequest) {
       seo_og_image: (body.seo_og_image as string) ?? null,
     });
 
+    // Direct ISR revalidation for instant public-site updates.
+    if (Boolean(body.published)) {
+      await revalidateWebsite(`articles/${story.slug}`);
+    }
     // Return a shape compatible with what ArticleForm expects (needs .id)
     return NextResponse.json({ id: String(story.id), slug: story.slug }, { status: 201 });
   } catch (e) {

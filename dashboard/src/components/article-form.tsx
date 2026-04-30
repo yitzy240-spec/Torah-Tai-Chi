@@ -90,6 +90,11 @@ export function ArticleForm({ initial }: ArticleFormProps) {
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initial?.slug);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when a publish completes successfully — drives the
+  // "Public site updating…" confirmation banner. The API route
+  // already kicked off ISR revalidation before returning, so the
+  // public site is refreshing while this banner is on screen.
+  const [lastPublished, setLastPublished] = useState<number | null>(null);
 
   function set<K extends keyof ArticleFormData>(key: K, value: ArticleFormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -143,8 +148,17 @@ export function ArticleForm({ initial }: ArticleFormProps) {
       return;
     }
 
-    const saved = await res.json();
-    const id = saved.id ?? form.id;
+    await res.json();
+    if (publish) {
+      // The API route triggers website revalidation server-side before
+      // returning, so by this point the public site is updating. Give
+      // the user a brief confirmation banner instead of a silent
+      // redirect — a publish that immediately bounces them looks
+      // identical to no-op.
+      setLastPublished(Date.now());
+      setTimeout(() => router.push('/articles'), 1500);
+      return;
+    }
     router.push('/articles');
   }
 
@@ -152,6 +166,25 @@ export function ArticleForm({ initial }: ArticleFormProps) {
 
   return (
     <div style={{ maxWidth: '760px' }}>
+      {lastPublished && (
+        <div
+          role="status"
+          style={{
+            background: 'var(--linen-100)',
+            border: '1px solid var(--ink-200)',
+            borderRadius: 'var(--r-md)',
+            padding: '12px 16px',
+            marginBottom: '18px',
+            fontFamily: 'var(--ff-body)',
+            fontSize: '14px',
+            color: 'var(--ink-800)',
+            lineHeight: 1.5,
+          }}
+        >
+          <strong style={{ fontWeight: 600 }}>✓ Saved.</strong>{' '}
+          Public site is refreshing now — usually live within 5-10 seconds.
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '22px' }}>
         {/* Title */}
         <div>
