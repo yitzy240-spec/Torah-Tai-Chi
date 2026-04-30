@@ -6,8 +6,10 @@ import { ScheduleAllSheet } from '@/components/schedule-all-sheet';
 import { CaptionsList } from '@/components/captions-list';
 import { PublishToSiteToggle } from '@/components/publish-to-site-toggle';
 import { ScriptCarousel } from '@/components/script-carousel';
+import { VideoFeedback, type FeedbackClip } from '@/components/video-feedback';
 import { PLATFORMS, type Platform } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
+import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 
 interface Script {
   id: string;
@@ -73,6 +75,9 @@ export default async function VideoDetailPage({ params }: PageProps) {
     .limit(1)
     .maybeSingle();
 
+  const jobResolution = (latestJob?.resolution as Resolution | null) ?? null;
+  const jobModelTier = (latestJob?.model_tier as ModelTier | null) ?? null;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const videosRel = latestJob?.videos as any;
   const video = (Array.isArray(videosRel) ? videosRel[0] : videosRel) ?? null;
@@ -98,6 +103,8 @@ export default async function VideoDetailPage({ params }: PageProps) {
   // the clip voiceovers + durations feed the in-player WebVTT track.
   let captions: Partial<Record<Platform, string>> = {};
   let captionsVttDataUrl: string | null = null;
+  let feedbackClips: FeedbackClip[] = [];
+  let totalDurationS = 0;
   if (latestJob?.id) {
     const { data: planRow } = await supabase
       .from('clip_plans')
@@ -141,6 +148,35 @@ export default async function VideoDetailPage({ params }: PageProps) {
         const vtt = 'WEBVTT\n\n' + cues.join('\n\n') + '\n';
         captionsVttDataUrl = `data:text/vtt;charset=utf-8;base64,${Buffer.from(vtt, 'utf-8').toString('base64')}`;
       }
+
+      // Build FeedbackClip[] for the per-clip feedback UI. We need the real
+      // clip rows (for the FK clip_id) joined with the plan's voiceover +
+      // duration. Plan is the source of truth for voiceover/duration; the
+      // clips table is the source for stable UUIDs.
+      const { data: clipRows } = await supabase
+        .from('clips')
+        .select('id, index')
+        .eq('job_id', latestJob.id)
+        .order('index');
+      const idByIndex = new Map<number, string>(
+        (clipRows ?? []).map((r) => [r.index as number, r.id as string]),
+      );
+      let cursorS = 0;
+      for (const c of orderedClips) {
+        const dur = c.duration_s ?? 0;
+        const idx = c.index ?? 0;
+        const id = idByIndex.get(idx);
+        const start = cursorS;
+        cursorS += dur;
+        if (!id) continue; // no matching clip row — skip rather than make up an id
+        feedbackClips.push({
+          id,
+          voiceover: (c.voiceover ?? '').trim(),
+          startS: start,
+          endS: cursorS,
+        });
+      }
+      totalDurationS = cursorS;
     }
     const src = planJson.captions ?? {};
     if (src.tiktok) captions.tiktok = src.tiktok;
@@ -186,6 +222,14 @@ export default async function VideoDetailPage({ params }: PageProps) {
   }
 
   const words = wordCount(aTight?.draft_text);
+
+  // Cost preview for the regen submit button — same helper that the
+  // compose flow uses. If we don't have duration yet (e.g. plan_json
+  // missing), VideoFeedback falls back to a coarse range based on
+  // resolution alone.
+  const costEstimateUsd = jobResolution && jobModelTier && totalDurationS > 0
+    ? estimateSeedanceCost(totalDurationS, jobResolution, jobModelTier)
+    : null;
 
   return (
     <div className="stagger">
@@ -306,252 +350,172 @@ export default async function VideoDetailPage({ params }: PageProps) {
         <ArcStage done={arcSchedule === 'done'} running={arcSchedule === 'running'} label={anyPublished ? 'Published' : anyScheduled ? 'Scheduled' : 'Schedule'} />
       </div>
 
-      {/* ROW 1: Video player + Script panel */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '280px 1fr',
-          gap: '32px',
-          marginBottom: '32px',
-          alignItems: 'start',
-        }}
-        className="row-video-script"
-      >
-        {/* Phone-frame video player — real <video> when we have mp4,
-            generating-state placeholder while a job is in flight, empty
-            state otherwise. */}
-        <div
-          style={{
-            position: 'relative',
-            width: '280px',
-            borderRadius: 'var(--r-lg)',
-            overflow: 'hidden',
-            boxShadow: 'var(--shadow-page)',
-            background: 'var(--ink-900)',
-          }}
-        >
-          {videoUrl ? (
-            <video
-              src={videoUrl}
-              poster={thumbUrl ?? undefined}
-              controls
-              playsInline
-              preload="metadata"
-              // crossOrigin needed so the browser will load a <track>
-              // alongside a cross-origin (Supabase Storage) video src.
-              // Supabase public buckets serve Access-Control-Allow-Origin: *.
-              crossOrigin={captionsVttDataUrl ? 'anonymous' : undefined}
+      {videoUrl && feedbackClips.length > 0 ? (
+        <>
+          {/* Video player + per-clip feedback list + general feedback box.
+              Voiceover-driven — Yonah identifies clips by what Rav Eli says,
+              not by index. Submitting any feedback redirects to the new
+              regen job's progress page. */}
+          <VideoFeedback
+            videoId={videoId}
+            videoUrl={videoUrl}
+            thumbUrl={thumbUrl}
+            captionsVttDataUrl={captionsVttDataUrl}
+            clips={feedbackClips}
+            costEstimateUsd={costEstimateUsd}
+            resolutionLabel={jobResolution}
+          />
+          {/* Script carousel — full width below the feedback row when we
+              already have a video, so Yonah can still flip through script
+              variants without losing the player + feedback context. */}
+          <div style={{ marginBottom: '32px' }}>
+            <ScriptCarousel
+              parshaId={parsha.id}
+              parshaName={parsha.name}
+              defaultTierKey={defaultTierKey}
+              scripts={parsha.scripts ?? []}
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Pre-video state: no clip list yet, so keep the original
+              placeholder/generating-state player on the left and the
+              ScriptCarousel on the right. Feedback UI only makes sense
+              once there's a video to react to. */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '280px 1fr',
+              gap: '32px',
+              marginBottom: '32px',
+              alignItems: 'start',
+            }}
+            className="row-video-script"
+          >
+            <div
               style={{
-                width: '100%',
-                aspectRatio: '9 / 16',
-                display: 'block',
+                position: 'relative',
+                width: '280px',
+                borderRadius: 'var(--r-lg)',
+                overflow: 'hidden',
+                boxShadow: 'var(--shadow-page)',
                 background: 'var(--ink-900)',
               }}
             >
-              {captionsVttDataUrl && (
-                <track
-                  kind="captions"
-                  srcLang="en"
-                  label="English"
-                  default
-                  src={captionsVttDataUrl}
-                />
+              {videoUrl ? (
+                <video
+                  src={videoUrl}
+                  poster={thumbUrl ?? undefined}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  crossOrigin={captionsVttDataUrl ? 'anonymous' : undefined}
+                  style={{
+                    width: '100%',
+                    aspectRatio: '9 / 16',
+                    display: 'block',
+                    background: 'var(--ink-900)',
+                  }}
+                >
+                  {captionsVttDataUrl && (
+                    <track
+                      kind="captions"
+                      srcLang="en"
+                      label="English"
+                      default
+                      src={captionsVttDataUrl}
+                    />
+                  )}
+                </video>
+              ) : (
+                <div
+                  style={{
+                    aspectRatio: '9 / 16',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    position: 'relative',
+                    background: isGenerating ? 'var(--navy-800)' : 'var(--ink-800)',
+                    color: 'var(--linen-50)',
+                    fontFamily: 'var(--ff-display)',
+                    fontStyle: 'italic',
+                    fontSize: '13px',
+                    textAlign: 'center',
+                    padding: '24px',
+                    fontVariationSettings: '"opsz" 16, "SOFT" 50',
+                  }}
+                >
+                  {isGenerating ? (
+                    <span>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          background: 'var(--linen-50)',
+                          marginRight: 8,
+                          animation: 'pulse-navy 1.8s ease-in-out infinite',
+                        }}
+                      />
+                      Generating…
+                      <br />
+                      <a
+                        href={`/jobs/${activeJob?.id}`}
+                        style={{
+                          color: 'var(--linen-50)',
+                          textDecoration: 'underline',
+                          textDecorationColor: 'rgba(250,244,232,.4)',
+                          fontSize: '11.5px',
+                          opacity: 0.8,
+                        }}
+                      >
+                        view progress →
+                      </a>
+                    </span>
+                  ) : (
+                    <span style={{ opacity: 0.6 }}>No video yet.<br />Approve a script to start.</span>
+                  )}
+                </div>
               )}
-            </video>
-          ) : (
-            <div
-              style={{
-                aspectRatio: '9 / 16',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                position: 'relative',
-                background: isGenerating ? 'var(--navy-800)' : 'var(--ink-800)',
-                color: 'var(--linen-50)',
-                fontFamily: 'var(--ff-display)',
-                fontStyle: 'italic',
-                fontSize: '13px',
-                textAlign: 'center',
-                padding: '24px',
-                fontVariationSettings: '"opsz" 16, "SOFT" 50',
-              }}
-            >
-              {isGenerating ? (
-                <span>
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      width: 10,
-                      height: 10,
-                      borderRadius: '50%',
-                      background: 'var(--linen-50)',
-                      marginRight: 8,
-                      animation: 'pulse-navy 1.8s ease-in-out infinite',
-                    }}
-                  />
-                  Generating…
-                  <br />
+              {videoUrl && (
+                <div style={{ display: 'flex', gap: '6px', padding: '10px 12px', background: 'var(--ink-800)' }}>
                   <a
-                    href={`/jobs/${activeJob?.id}`}
+                    href={videoUrl}
+                    download
                     style={{
-                      color: 'var(--linen-50)',
-                      textDecoration: 'underline',
-                      textDecorationColor: 'rgba(250,244,232,.4)',
-                      fontSize: '11.5px',
-                      opacity: 0.8,
+                      flex: 1,
+                      minHeight: '38px',
+                      fontFamily: 'var(--ff-body)',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: 'var(--linen-100)',
+                      background: 'rgba(250,244,232,.08)',
+                      border: '1px solid rgba(250,244,232,.12)',
+                      borderRadius: '999px',
+                      letterSpacing: '0.02em',
+                      transition: 'all var(--trans)',
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
                   >
-                    view progress →
+                    Download
                   </a>
-                </span>
-              ) : (
-                <span style={{ opacity: 0.6 }}>No video yet.<br />Approve a script to start.</span>
+                </div>
               )}
             </div>
-          )}
-          {videoUrl && (
-            <div
-              style={{
-                display: 'flex',
-                gap: '6px',
-                padding: '10px 12px',
-                background: 'var(--ink-800)',
-              }}
-            >
-              <a
-                href={videoUrl}
-                download
-                style={{
-                  flex: 1,
-                  minHeight: '38px',
-                  fontFamily: 'var(--ff-body)',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: 'var(--linen-100)',
-                  background: 'rgba(250,244,232,.08)',
-                  border: '1px solid rgba(250,244,232,.12)',
-                  borderRadius: '999px',
-                  letterSpacing: '0.02em',
-                  transition: 'all var(--trans)',
-                  textDecoration: 'none',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                Download
-              </a>
-            </div>
-          )}
-        </div>
-
-        {/* Script carousel — arrow through A / B / C / A-tight / custom variants */}
-        <ScriptCarousel
-          parshaId={parsha.id}
-          parshaName={parsha.name}
-          defaultTierKey={defaultTierKey}
-          scripts={parsha.scripts ?? []}
-        />
-      </div>
-
-      {/* Regen box — full width */}
-      <div
-        style={{
-          padding: '28px 32px',
-          border: '1px solid var(--cedar-300)',
-          borderRadius: 'var(--r-lg)',
-          background: 'linear-gradient(180deg, rgba(240,223,193,.3) 0%, var(--linen-50) 100%)',
-          marginBottom: '28px',
-        }}
-      >
-        <h3
-          style={{
-            fontFamily: 'var(--ff-display)',
-            fontWeight: 500,
-            fontSize: '18px',
-            margin: '0 0 6px 0',
-            color: 'var(--ink-900)',
-            fontVariationSettings: '"opsz" 22, "SOFT" 30',
-          }}
-        >
-          What would you change?
-        </h3>
-        <p
-          style={{
-            fontFamily: 'var(--ff-display)',
-            fontStyle: 'italic',
-            fontSize: '13.5px',
-            color: 'var(--ink-500)',
-            margin: '0 0 16px 0',
-            fontVariationSettings: '"opsz" 14, "SOFT" 60',
-          }}
-        >
-          Describe what felt off. Claude will identify which clips to adjust and show you the plan before anything regenerates.
-        </p>
-        <textarea
-          placeholder="The desert scene felt rushed, and Rav Eli's gesture in clip 3 didn't match the gravity of the line..."
-          style={{
-            width: '100%',
-            minHeight: '88px',
-            padding: '16px 18px',
-            border: '1px solid var(--ink-200)',
-            borderRadius: 'var(--r-md)',
-            background: 'var(--linen-50)',
-            fontFamily: 'var(--ff-body)',
-            fontSize: '15px',
-            color: 'var(--ink-900)',
-            resize: 'vertical',
-            lineHeight: 1.55,
-            outline: 'none',
-          }}
-        />
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '16px',
-            marginTop: '14px',
-            flexWrap: 'wrap',
-          }}
-        >
-          <div
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: '13px',
-              color: 'var(--ink-400)',
-              lineHeight: 1.45,
-              fontVariationSettings: '"opsz" 14, "SOFT" 60',
-              flex: 1,
-              minWidth: '240px',
-            }}
-          >
-            Typical regen costs ~$1.20 per clip. You&apos;ll see the estimate before committing.
+            <ScriptCarousel
+              parshaId={parsha.id}
+              parshaName={parsha.name}
+              defaultTierKey={defaultTierKey}
+              scripts={parsha.scripts ?? []}
+            />
           </div>
-          <button
-            type="button"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontFamily: 'var(--ff-body)',
-              fontWeight: 500,
-              fontSize: '14px',
-              padding: '11px 22px',
-              minHeight: '44px',
-              borderRadius: '999px',
-              border: '1px solid var(--ink-200)',
-              background: 'transparent',
-              color: 'var(--ink-700)',
-              cursor: 'pointer',
-              transition: 'all var(--trans)',
-            }}
-          >
-            Submit feedback
-          </button>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* ROW 2: Captions + Distribution. Mirrors ROW 1's narrow|wide split
           (video 280 | script 1fr), flipped — captions (wide content) on
