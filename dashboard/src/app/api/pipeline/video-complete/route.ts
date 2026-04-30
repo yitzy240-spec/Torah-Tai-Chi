@@ -9,6 +9,16 @@ import type { Platform } from '@/lib/platforms';
 const DASHBOARD_BASE_URL =
   process.env.DASHBOARD_BASE_URL ?? 'https://torah-tai-chi-admin.vercel.app';
 
+/** Translate the autoPost error string into something Yonah can read.
+ *  Falls back to the raw message if no friendly version is known. */
+function autopilotSentenceFromError(msg: string): string {
+  const m = msg.toLowerCase();
+  if (m.includes('no captions')) return 'the AI plan was missing post captions';
+  if (m.includes('buffer') && m.includes('token')) return 'the Buffer connection isn\'t set up';
+  if (m.includes('youtube')) return 'YouTube wasn\'t reachable';
+  return msg.length > 120 ? msg.slice(0, 120) + '…' : msg;
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -95,19 +105,6 @@ export async function POST(request: Request) {
   }
 
   const stance = await getStance();
-  if (stance !== 'auto') {
-    await logEvent({
-      actor: 'system',
-      level: 'info',
-      event: 'autopilot.skipped.stance',
-      subjectType: 'video',
-      subjectId: videoId,
-      message: `Autopilot skipped — stance is '${stance}'`,
-      details: { stance, jobId },
-    });
-    return NextResponse.json({ ok: true, skipped: 'stance' });
-  }
-
   const sb = createServiceClient();
 
   // Load the job. We need parsha_id to confirm this is a parsha job
@@ -133,7 +130,8 @@ export async function POST(request: Request) {
   }
 
   // Topic jobs come from Compose with their own UI; autopilot only fans
-  // out weekly parsha videos.
+  // out weekly parsha videos. Stance gates apply only to parsha jobs.
+  const autopilotEligible = (job.kind === 'parsha' || !job.kind) && stance === 'auto';
   if (job.kind && job.kind !== 'parsha') {
     await logEvent({
       actor: 'system',
@@ -144,7 +142,16 @@ export async function POST(request: Request) {
       message: `Autopilot skipped — job kind is '${job.kind}'`,
       details: { kind: job.kind, jobId },
     });
-    return NextResponse.json({ ok: true, skipped: 'kind' });
+  } else if (stance !== 'auto') {
+    await logEvent({
+      actor: 'system',
+      level: 'info',
+      event: 'autopilot.skipped.stance',
+      subjectType: 'video',
+      subjectId: videoId,
+      message: `Autopilot skipped — stance is '${stance}'`,
+      details: { stance, jobId },
+    });
   }
 
   // Pull the A-tight script for the parsha so we have it in the log
@@ -169,7 +176,52 @@ export async function POST(request: Request) {
     .single();
 
   const captions = shapeCaptions(planRow?.plan_json);
-  if (Object.keys(captions).length === 0) {
+
+  // Autopilot path: only runs if eligible AND there are captions to
+  // post with. Otherwise we fall through to the success email so
+  // Yonah at least knows the video is ready, even if scheduling
+  // didn't fan out.
+  const scheduledAt = nextFriday6pmLocal();
+  let autopilotResult: Awaited<ReturnType<typeof autoPost>> | null = null;
+  let autopilotErrorMsg: string | null = null;
+
+  if (autopilotEligible && Object.keys(captions).length > 0) {
+    try {
+      const result = await autoPost({
+        videoId,
+        scheduledAt,
+        captions,
+        shareNow: false,
+      });
+
+      if (result.error) {
+        autopilotErrorMsg = result.error;
+        await logEvent({
+          actor: 'system',
+          level: 'error',
+          event: 'autopilot.error',
+          subjectType: 'video',
+          subjectId: videoId,
+          message: `Autopilot fanout failed: ${result.error}`,
+          details: { jobId, error: result.error },
+        });
+      } else {
+        autopilotResult = result;
+      }
+    } catch (autopilotErr) {
+      autopilotErrorMsg = autopilotErr instanceof Error ? autopilotErr.message : String(autopilotErr);
+      await logEvent({
+        actor: 'system',
+        level: 'error',
+        event: 'autopilot.error',
+        subjectType: 'video',
+        subjectId: videoId,
+        message: `Autopilot threw: ${autopilotErrorMsg}`,
+        details: { jobId, error: autopilotErrorMsg },
+      });
+    }
+  } else if (autopilotEligible && Object.keys(captions).length === 0) {
+    autopilotErrorMsg = 'no captions on clip_plan';
     await logEvent({
       actor: 'system',
       level: 'error',
@@ -179,31 +231,14 @@ export async function POST(request: Request) {
       message: `Autopilot: no captions on clip_plan for job ${jobId}`,
       details: { jobId },
     });
-    return NextResponse.json({ error: 'no captions on clip_plan' }, { status: 422 });
   }
 
-  const scheduledAt = nextFriday6pmLocal();
+  // Email send happens regardless of autopilot outcome — the video IS
+  // ready and Yonah needs to know. The email body adapts based on
+  // whether autopilot ran, was skipped, or errored.
 
   try {
-    const result = await autoPost({
-      videoId,
-      scheduledAt,
-      captions,
-      shareNow: false,
-    });
-
-    if (result.error) {
-      await logEvent({
-        actor: 'system',
-        level: 'error',
-        event: 'autopilot.error',
-        subjectType: 'video',
-        subjectId: videoId,
-        message: `Autopilot fanout failed: ${result.error}`,
-        details: { jobId, error: result.error },
-      });
-      return NextResponse.json({ error: result.error }, { status: 500 });
-    }
+    const result = autopilotResult ?? { results: [] };
 
     const bufferIds = (result.results ?? [])
       .filter((r) => r.platform !== 'youtube')
@@ -317,10 +352,31 @@ export async function POST(request: Request) {
         ? `View it here: ${DASHBOARD_BASE_URL}/videos/${parshaSlug}`
         : 'Your video is ready — check the dashboard.';
 
+      // Autopilot status sentence adapts to what actually happened.
+      let autopilotSentenceHtml: string;
+      let autopilotSentenceText: string;
+      if (autopilotResult) {
+        const n = (autopilotResult.results ?? []).length;
+        autopilotSentenceHtml = `Autopilot has scheduled it across ${n} connected channel(s) for the upcoming Shabbat.`;
+        autopilotSentenceText = autopilotSentenceHtml;
+      } else if (autopilotErrorMsg) {
+        autopilotSentenceHtml = `Autopilot didn&apos;t schedule it — ${escapeHtml(autopilotSentenceFromError(autopilotErrorMsg))}. You can review and schedule manually.`;
+        autopilotSentenceText = `Autopilot didn't schedule it — ${autopilotSentenceFromError(autopilotErrorMsg)}. You can review and schedule manually.`;
+      } else if (!autopilotEligible && job.kind && job.kind !== 'parsha') {
+        autopilotSentenceHtml = 'This was a topic generation, so autopilot didn&apos;t fan out.';
+        autopilotSentenceText = "This was a topic generation, so autopilot didn't fan out.";
+      } else if (!autopilotEligible) {
+        autopilotSentenceHtml = `Autopilot is currently set to <strong>${escapeHtml(stance)}</strong>, so this video wasn&apos;t auto-scheduled. Review it on the dashboard to publish.`;
+        autopilotSentenceText = `Autopilot is currently set to '${stance}', so this video wasn't auto-scheduled. Review it on the dashboard to publish.`;
+      } else {
+        autopilotSentenceHtml = 'Autopilot didn&apos;t fan out this run.';
+        autopilotSentenceText = "Autopilot didn't fan out this run.";
+      }
+
       await sendNotification({
         subject: `\u2713 Video ready: ${parshaName}`,
-        html: `<p>Hi,</p><p>The Torah Tai Chi pipeline finished generating <strong>${escapeHtml(parshaName)}</strong>. Autopilot has scheduled it across ${(result.results ?? []).length} connected channel(s) for the upcoming Shabbat.</p>${unverifiedAddendumHtml}${linkHtml}<p>— Torah Tai Chi pipeline</p>`,
-        text: `The Torah Tai Chi pipeline finished generating ${parshaName}. Autopilot has scheduled it across ${(result.results ?? []).length} connected channel(s) for the upcoming Shabbat.\n${unverifiedAddendumText}\n${linkText}\n\n— Torah Tai Chi pipeline`,
+        html: `<p>Hi,</p><p>The Torah Tai Chi pipeline finished generating <strong>${escapeHtml(parshaName)}</strong>. ${autopilotSentenceHtml}</p>${unverifiedAddendumHtml}${linkHtml}<p>— Torah Tai Chi pipeline</p>`,
+        text: `The Torah Tai Chi pipeline finished generating ${parshaName}. ${autopilotSentenceText}\n${unverifiedAddendumText}\n${linkText}\n\n— Torah Tai Chi pipeline`,
       });
     } catch (emailErr) {
       // Resend outage must not fail the autopilot webhook — autopilot
