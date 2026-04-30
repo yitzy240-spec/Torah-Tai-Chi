@@ -361,16 +361,84 @@ def run_pipeline(job_id: str) -> dict | None:
             selected_move=selected_move,
             director_notes=job.get("director_notes"),
         ))
-        # Clean up any partial state from a prior failed run of this
-        # same job_id (re-trigger after credits-insufficient, network
-        # crash, etc). The unique constraint on (clips.job_id, index)
-        # would otherwise reject the inserts below. Resume-from-partial
-        # (skip clips that already have storage_path populated) is the
-        # smarter Phase 2.3 enhancement; for now this hard-reset just
-        # makes retry safe at the cost of re-doing prior work.
-        sb.table("clips").delete().eq("job_id", job_id).execute()
+        # Resume-from-partial: a prior failed run may have inserted
+        # clip rows AND successfully generated some of them (storage_path
+        # populated, mp4 sitting in Supabase Storage). When the new
+        # ClipPlan matches an existing clip's voiceover/visual_prompt/
+        # setting/duration exactly, we keep that row and reuse the
+        # cached mp4 — no Seedance call, no credits spent. Mismatched
+        # or missing rows are upserted fresh.
+        existing_rows = (
+            sb.table("clips")
+            .select(
+                "index, voiceover, visual_prompt, setting_id, "
+                "duration_s, storage_path, status"
+            )
+            .eq("job_id", job_id)
+            .execute()
+        )
+        existing_by_index: dict[int, dict] = {
+            r["index"]: r for r in (existing_rows.data or [])
+        }
+
+        def _can_reuse(c, ex):
+            return bool(
+                ex
+                and ex.get("storage_path")
+                and ex.get("status") == "done"
+                and ex.get("voiceover") == c.voiceover
+                and ex.get("visual_prompt") == c.visual_prompt
+                and ex.get("setting_id") == c.setting_id
+                and int(ex.get("duration_s") or 0) == int(c.duration_s)
+            )
+
+        new_indices = {c.index for c in plan.clips}
+        reusable_indices: set[int] = {
+            c.index for c in plan.clips
+            if _can_reuse(c, existing_by_index.get(c.index))
+        }
+
+        # Drop any stale clips not in the new plan (e.g. plan got smaller).
+        stale_indices = set(existing_by_index.keys()) - new_indices
+        if stale_indices:
+            sb.table("clips").delete().eq("job_id", job_id).in_(
+                "index", list(stale_indices)
+            ).execute()
+
+        # Upsert clips that need (re)generation — reusable ones are
+        # left untouched so their storage_path/cost_usd survive.
+        to_upsert = [
+            {
+                "job_id": job_id,
+                "index": c.index,
+                "voiceover": c.voiceover,
+                "visual_prompt": c.visual_prompt,
+                "setting_id": c.setting_id,
+                "duration_s": c.duration_s,
+                "motion_ref_slug": c.motion_ref_slug,
+                "status": "pending",
+                "storage_path": None,
+                "cost_usd": None,
+            }
+            for c in plan.clips if c.index not in reusable_indices
+        ]
+        if to_upsert:
+            sb.table("clips").upsert(
+                to_upsert, on_conflict="job_id,index"
+            ).execute()
+
+        # Plan + previous final video are always replaced — they're
+        # cheap to regenerate and we want them to reflect the latest
+        # plan, not whatever the prior run wrote.
         sb.table("clip_plans").delete().eq("job_id", job_id).execute()
         sb.table("videos").delete().eq("job_id", job_id).execute()
+
+        if reusable_indices:
+            print(
+                f"[modal_app] resume: reusing {len(reusable_indices)} of "
+                f"{len(plan.clips)} clips from prior run "
+                f"(indices={sorted(reusable_indices)})"
+            )
         sb.table("clip_plans").insert({
             "job_id": job_id, "plan_json": plan.model_dump(mode="json"),
             "claude_cost_usd": 0.10,
@@ -378,13 +446,6 @@ def run_pipeline(job_id: str) -> dict | None:
         # Claude is now billed through Kie (single-vendor consolidation);
         # vendor tag updated so the dashboard cost rollup attributes correctly.
         log_cost("clipplan", "kie", 0.10, "ClipPlan generation (Claude via Kie)")
-        for c in plan.clips:
-            sb.table("clips").insert({
-                "job_id": job_id, "index": c.index, "voiceover": c.voiceover,
-                "visual_prompt": c.visual_prompt, "setting_id": c.setting_id,
-                "duration_s": c.duration_s,
-                "motion_ref_slug": c.motion_ref_slug,
-            }).execute()
 
         if selected_move is not None:
             ref_clips = [c for c in plan.clips if c.motion_ref_slug]
@@ -422,6 +483,51 @@ def run_pipeline(job_id: str) -> dict | None:
                 clip_ref_video_url = (
                     motion_ref_mp4_url if clip.motion_ref_slug else None
                 )
+
+                # Resume short-circuit: this clip's plan exactly matches a
+                # prior run's already-generated mp4 in Storage. Download
+                # the cached mp4 to /tmp instead of paying Seedance again.
+                # The eligibility check happened earlier in run_pipeline
+                # (clips with this index were preserved with status='done'
+                # and storage_path set). If the row's status is 'done',
+                # we trust the storage_path and reuse.
+                if clip.index in reusable_indices:
+                    cached = (
+                        sb.table("clips")
+                        .select("storage_path")
+                        .eq("job_id", job_id)
+                        .eq("index", clip.index)
+                        .maybe_single()
+                        .execute()
+                    )
+                    storage_path = (cached.data or {}).get("storage_path")
+                    if storage_path:
+                        try:
+                            data = sb.storage.from_("videos").download(
+                                storage_path
+                            )
+                            dest.write_bytes(data)
+                            async with lock:
+                                completed += 1
+                                set_status(
+                                    "generating_clips",
+                                    f"Generating {completed} of "
+                                    f"{len(plan.clips)} clips "
+                                    f"(reused {len(reusable_indices)} "
+                                    f"from prior run)",
+                                )
+                            print(
+                                f"[modal_app] reused clip {clip.index} "
+                                f"from {storage_path} (no Seedance call)"
+                            )
+                            return dest
+                        except Exception as e:
+                            print(
+                                f"[modal_app] cached clip {clip.index} "
+                                f"download failed ({e}); regenerating"
+                            )
+                            # fall through to regenerate
+
                 _, kie_meta = await generate_clip_with_meta(
                     kie, clip,
                     character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
