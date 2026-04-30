@@ -361,6 +361,16 @@ def run_pipeline(job_id: str) -> dict | None:
             selected_move=selected_move,
             director_notes=job.get("director_notes"),
         ))
+        # Clean up any partial state from a prior failed run of this
+        # same job_id (re-trigger after credits-insufficient, network
+        # crash, etc). The unique constraint on (clips.job_id, index)
+        # would otherwise reject the inserts below. Resume-from-partial
+        # (skip clips that already have storage_path populated) is the
+        # smarter Phase 2.3 enhancement; for now this hard-reset just
+        # makes retry safe at the cost of re-doing prior work.
+        sb.table("clips").delete().eq("job_id", job_id).execute()
+        sb.table("clip_plans").delete().eq("job_id", job_id).execute()
+        sb.table("videos").delete().eq("job_id", job_id).execute()
         sb.table("clip_plans").insert({
             "job_id": job_id, "plan_json": plan.model_dump(mode="json"),
             "claude_cost_usd": 0.10,
