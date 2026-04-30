@@ -2207,26 +2207,33 @@ def regen_smart_endpoint(payload: dict, request: Request) -> dict:
 _REGEN_AGENT_DIAGNOSE_PROMPT = """You are diagnosing user feedback on a video pipeline. Your output drives the next three steps; clarity matters more than thoroughness.
 
 You will receive:
-- The user's CURRENT feedback on the latest video.
-- ALL prior feedback on previous versions of the same video (chronological).
+- The user's CURRENT feedback on the latest video. THIS is the request you are responding to.
+- ALL prior feedback on previous versions of the same video (chronological). This is HISTORICAL CONTEXT showing what's been tried — NOT a backlog of work items.
 - The current ClipPlan (the most recent generation we shipped).
 - The original director_notes provided when the video was first generated.
 - (Optional) a hint that the user clicked "Fix this clip" on a specific clip — when present, weight the diagnosis toward that clip but do not ignore broader feedback.
 
+CRITICAL: only act on points the user is raising in the CURRENT feedback. If
+a prior round flagged something and the user did not re-flag it this round,
+they have moved on — it's CLOSED, even if the prior fix was imperfect. Do
+NOT silently re-litigate prior complaints. The user is the judge of what's
+done; if they're not complaining about it now, leave it alone.
+
 Output ONE JSON object, no markdown fences, no commentary, with this exact shape:
 
 {
-  "user_intent": "<one-paragraph plain-language summary of what the user wants fixed>",
+  "user_intent": "<one-paragraph plain-language summary of what the user wants fixed THIS ROUND. Quote the current feedback closely; do not invent new fixes from prior history.>",
   "affected_clip_indices": [int, ...],
   "root_causes": ["<concrete cause, e.g. 'Seedance TTS drops trailing M in Hashem'>", ...],
-  "specific_fixes": ["<concrete change, e.g. 'replace ha-SHEM with the Name in clips 0 and 4 voiceovers'>", ...],
-  "previously_flagged_issues_recurring": ["<feedback points that were raised before but not fixed>", ...],
-  "risks_to_watch": ["<things that might go wrong if we apply these fixes naively>", ...]
+  "specific_fixes": ["<concrete change tied to the CURRENT feedback, e.g. 'replace ha-SHEM with the Name in clip 0 voiceover'. Do NOT include fixes for issues that are only in prior feedback.>", ...],
+  "previously_flagged_issues_recurring": ["<STRICT intersection: a point that the user is raising AGAIN this round AND that they also raised in a prior round. If the current feedback doesn't mention it, leave it OUT.>", ...],
+  "risks_to_watch": ["<things that might go wrong if we apply these fixes naively, including 'don't disturb anything in the prior feedback that wasn't re-flagged this round'>", ...]
 }
 
 Rules:
 - Be concrete. "fix the pronunciation" is useless; "replace ha-SHEM with the Name in clip 0 voiceover" is useful.
-- If a complaint appears in BOTH the current feedback AND the prior feedback list, it MUST appear in previously_flagged_issues_recurring — that's the signal Plan/Execute need to take it seriously this round.
+- previously_flagged_issues_recurring is a STRICT INTERSECTION: a point only belongs there if the user is raising it in the CURRENT feedback AND raised something equivalent in prior feedback. If the user dropped it from this round's feedback, it does NOT belong in this list.
+- specific_fixes should map 1:1 to points in the user_intent. Don't add fixes for issues the user didn't mention.
 - Identify clip indices precisely. If feedback names a phrase, find which clip's voiceover contains it. If feedback is whole-video (pacing/tone), list every clip index.
 - Output JSON only.
 
@@ -2261,7 +2268,8 @@ Rules:
 - old_value MUST match the current ClipPlan exactly (copy-paste). If it doesn't, Execute will reject the edit.
 - If the diagnosis's affected_clip_indices is empty AND there are no specific fixes, output {"edits": []} — Execute will pass the plan through unchanged.
 - Apply ALL of the diagnosis's specific_fixes. Don't drop any.
-- Apply ALL of the previously_flagged_issues_recurring. These are the ones the user has complained about repeatedly — they MUST be fixed this round.
+- previously_flagged_issues_recurring is HISTORY, not a checklist. Do NOT generate edits FROM that field — it tells you "the user has complained about this before and is complaining again, so be EXTRA careful to fix it well in the specific_fixes that already cover it." Anything not in specific_fixes does not get edited.
+- DO NOT edit clips or fields the diagnosis didn't flag. If the user didn't ask for a change there this round, leave it alone — even if you think a prior round's fix was imperfect.
 - Output JSON only.
 
 """ + _REGEN_GROUNDING_RULES
