@@ -5,22 +5,26 @@ import { getSiteContent, splitEm } from "@/lib/site-content";
 import { getThisWeekParsha } from "@/lib/hebcal";
 import RecentTeachingsCarousel, { type CarouselCard } from "@/components/RecentTeachingsCarousel";
 import ArticleCard from "@/components/ArticleCard";
+import Announcement from "@/components/Announcement";
 import Brand from "@/components/Brand";
 
 // ISR: revalidate every 60 s; Storyblok webhook triggers on-demand revalidation
 export const revalidate = 60;
 
+// Hebrew book names — the brand's chosen voice. The DB still stores
+// English ("Leviticus" etc.) for legacy reasons, so we map both shapes
+// to the Hebrew display name.
 const BOOK_SHORT: Record<string, string> = {
-  Genesis: "Genesis",
-  Exodus: "Exodus",
-  Leviticus: "Leviticus",
-  Numbers: "Numbers",
-  Deuteronomy: "Deuteronomy",
-  Bereishit: "Genesis",
-  Shemot: "Exodus",
-  Vayikra: "Leviticus",
-  Bamidbar: "Numbers",
-  Devarim: "Deuteronomy",
+  Genesis: "Bereishit",
+  Exodus: "Shemot",
+  Leviticus: "Vayikra",
+  Numbers: "Bamidbar",
+  Deuteronomy: "Devarim",
+  Bereishit: "Bereishit",
+  Shemot: "Shemot",
+  Vayikra: "Vayikra",
+  Bamidbar: "Bamidbar",
+  Devarim: "Devarim",
 };
 
 export default async function HomePage() {
@@ -167,6 +171,9 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+
+      {/* ANNOUNCEMENT — only renders when home.announcement.visible=true and a title is set */}
+      <Announcement content={content} />
 
       {/* DIVIDER */}
       <div className="divider">

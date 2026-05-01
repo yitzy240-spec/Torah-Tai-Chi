@@ -61,17 +61,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
+// Hebrew book names — the brand's chosen voice. The DB still stores
+// English ("Leviticus" etc.) for legacy reasons, so we map both shapes
+// to the Hebrew display name.
 const BOOK_SHORT: Record<string, string> = {
-  Genesis: "Genesis",
-  Exodus: "Exodus",
-  Leviticus: "Leviticus",
-  Numbers: "Numbers",
-  Deuteronomy: "Deuteronomy",
-  Bereishit: "Genesis",
-  Shemot: "Exodus",
-  Vayikra: "Leviticus",
-  Bamidbar: "Numbers",
-  Devarim: "Deuteronomy",
+  Genesis: "Bereishit",
+  Exodus: "Shemot",
+  Leviticus: "Vayikra",
+  Numbers: "Bamidbar",
+  Deuteronomy: "Devarim",
+  Bereishit: "Bereishit",
+  Shemot: "Shemot",
+  Vayikra: "Vayikra",
+  Bamidbar: "Bamidbar",
+  Devarim: "Devarim",
 };
 
 export default async function VideoDetailPage({ params }: Props) {
