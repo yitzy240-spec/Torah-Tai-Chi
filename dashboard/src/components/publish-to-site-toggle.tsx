@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { setVideoPublished } from '@/app/actions/set-video-published';
+import { PublishConfirmDialog } from './publish-confirm-dialog';
 
 interface Props {
   videoId: string;
@@ -11,16 +12,29 @@ interface Props {
   /** Compact variant fits inline next to the status pills; default is the
    *  fuller card style for the posting panel. */
   variant?: 'card' | 'pill';
+  /** Drives the confirm dialog. When all four are present, a confirm
+   *  modal opens before publishing. The unpublish direction skips the
+   *  modal — easy to undo, low risk. Older callers (today-posting-panel,
+   *  homepage cards) can omit these for the legacy direct-toggle behavior. */
+  versionLabel?: string;
+  parshaName?: string;
+  replacing?: { label: string } | null;
+  thumbUrl?: string | null;
 }
 
-export function PublishToSiteToggle({ videoId, initialPublished, parshaSlug, variant = 'card' }: Props) {
+export function PublishToSiteToggle({
+  videoId, initialPublished, parshaSlug, variant = 'card',
+  versionLabel, parshaName, replacing, thumbUrl,
+}: Props) {
   const [published, setPublished] = useState(initialPublished);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const router = useRouter();
 
-  const toggle = () => {
-    const next = !published;
+  const canShowDialog = !!versionLabel && !!parshaName;
+
+  const runToggle = (next: boolean) => {
     setError(null);
     setPublished(next); // optimistic
     startTransition(async () => {
@@ -34,43 +48,55 @@ export function PublishToSiteToggle({ videoId, initialPublished, parshaSlug, var
     });
   };
 
-  if (variant === 'pill') {
-    return (
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={isPending}
-        title={
-          isPending
-            ? 'Updating…'
-            : published
-              ? 'Live on torahtaichi.com — click to unpublish'
-              : 'Not on torahtaichi.com — click to publish'
-        }
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '6px',
-          fontFamily: 'var(--ff-body)',
-          fontWeight: 500,
-          fontSize: '11.5px',
-          padding: '4px 12px 4px 8px',
-          borderRadius: '999px',
-          border: 'none',
-          cursor: isPending ? 'wait' : 'pointer',
-          background: published ? 'rgba(46,125,94,.12)' : 'rgba(140,125,100,.08)',
-          color: published ? 'var(--jade)' : 'var(--ink-500)',
-          opacity: isPending ? 0.6 : 1,
-          transition: 'all var(--trans)',
-        }}
-      >
-        <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: published ? 'var(--jade)' : 'var(--ink-300)', flexShrink: 0 }} />
-        {published ? 'On torahtaichi.com' : 'Off torahtaichi.com'}
-      </button>
-    );
-  }
+  const onClick = () => {
+    if (!published && canShowDialog) {
+      // Publishing: open confirm dialog when we have enough context to
+      // describe what's about to happen.
+      setDialogOpen(true);
+      return;
+    }
+    // Unpublishing or legacy caller: toggle directly.
+    runToggle(!published);
+  };
 
-  return (
+  const onConfirm = () => {
+    setDialogOpen(false);
+    runToggle(true);
+  };
+
+  const button = variant === 'pill' ? (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isPending}
+      title={
+        isPending
+          ? 'Updating…'
+          : published
+            ? 'Live on torahtaichi.com — click to unpublish'
+            : 'Not on torahtaichi.com — click to publish'
+      }
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        fontFamily: 'var(--ff-body)',
+        fontWeight: 500,
+        fontSize: '11.5px',
+        padding: '4px 12px 4px 8px',
+        borderRadius: '999px',
+        border: 'none',
+        cursor: isPending ? 'wait' : 'pointer',
+        background: published ? 'rgba(46,125,94,.12)' : 'rgba(140,125,100,.08)',
+        color: published ? 'var(--jade)' : 'var(--ink-500)',
+        opacity: isPending ? 0.6 : 1,
+        transition: 'all var(--trans)',
+      }}
+    >
+      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: published ? 'var(--jade)' : 'var(--ink-300)', flexShrink: 0 }} />
+      {published ? 'On torahtaichi.com' : 'Off torahtaichi.com'}
+    </button>
+  ) : (
     <div
       style={{
         display: 'flex',
@@ -118,7 +144,7 @@ export function PublishToSiteToggle({ videoId, initialPublished, parshaSlug, var
       </div>
       <button
         type="button"
-        onClick={toggle}
+        onClick={onClick}
         disabled={isPending}
         style={{
           fontFamily: 'var(--ff-body)',
@@ -138,5 +164,21 @@ export function PublishToSiteToggle({ videoId, initialPublished, parshaSlug, var
         {isPending ? 'Saving…' : published ? 'Unpublish' : 'Publish to site'}
       </button>
     </div>
+  );
+
+  return (
+    <>
+      {button}
+      <PublishConfirmDialog
+        open={dialogOpen}
+        onCancel={() => setDialogOpen(false)}
+        onConfirm={onConfirm}
+        versionLabel={versionLabel ?? ''}
+        parshaName={parshaName ?? ''}
+        replacing={replacing}
+        thumbUrl={thumbUrl}
+        pending={isPending}
+      />
+    </>
   );
 }

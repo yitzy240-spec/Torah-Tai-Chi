@@ -255,6 +255,31 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const videoPublishedToSite: boolean = selectedRow?.publishedToWebsite ?? false;
   const videoCostUsd = latest?.totalCostUsd ?? null;
 
+  // Confirm-dialog context for the publish toggle: which version Yonah
+  // is about to publish, and what (if anything) it'll replace on the
+  // public site.
+  const selectedRowIndex = selectedRow
+    ? versionRows.findIndex((v) => v.videoId === selectedRow.videoId)
+    : -1;
+  const selectedVersionLabel = selectedRowIndex >= 0
+    ? `Version ${selectedRowIndex + 1}`
+    : 'Latest';
+  const currentlyLiveSibling = selectedRow
+    ? versionRows.find((v) => v.publishedToWebsite && v.videoId !== selectedRow.videoId) ?? null
+    : null;
+  const currentlyLiveSiblingIndex = currentlyLiveSibling
+    ? versionRows.findIndex((v) => v.videoId === currentlyLiveSibling.videoId)
+    : -1;
+  const currentlyLiveSiblingLabel = currentlyLiveSiblingIndex >= 0
+    ? `Version ${currentlyLiveSiblingIndex + 1}`
+    : null;
+  const publishReplacing = currentlyLiveSibling && currentlyLiveSiblingLabel
+    ? { label: currentlyLiveSiblingLabel }
+    : null;
+  const selectedThumbUrl = selectedRow?.thumbPath
+    ? publicVideoUrl(selectedRow.thumbPath)
+    : null;
+
   // Also check for an in-flight job so the production arc reflects real state
   // AND so we can render the regen-in-progress banner above the page when one
   // exists. Status list mirrors modal_app.py's _IN_FLIGHT_STATUSES plus
@@ -446,6 +471,10 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               initialPublished={videoPublishedToSite}
               parshaSlug={parsha.slug}
               variant="pill"
+              versionLabel={selectedVersionLabel}
+              parshaName={parsha.name}
+              replacing={publishReplacing}
+              thumbUrl={selectedThumbUrl}
             />
           )}
         </div>
@@ -794,6 +823,10 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
                   videoId={videoId}
                   initialPublished={videoPublishedToSite}
                   parshaSlug={parsha.slug}
+                  versionLabel={selectedVersionLabel}
+                  parshaName={parsha.name}
+                  replacing={publishReplacing}
+                  thumbUrl={selectedThumbUrl}
                 />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-start' }}>
                   <ScheduleAllSheet
