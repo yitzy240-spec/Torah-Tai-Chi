@@ -83,11 +83,12 @@ export async function setVideoPublished(
       }
     }
 
-    // Snapshot the spoken script from the latest clip_plan for this
-    // job. Per-clip surgery edits land on individual clip voiceovers,
-    // so concatenating them gives an accurate transcript of what's in
-    // the published video — the original scripts.draft_text would only
-    // reflect the FIRST generation.
+    // Snapshot the clean script from the latest clip_plan for this
+    // job. We use plan_json.full_script — the un-phonetized version
+    // Yonah authored — instead of concatenating clips[].voiceover,
+    // which has Seedance pronunciation guides like "ha-SHEM" and
+    // "Mah Boo" baked in. Those guides help the TTS but read as
+    // typos to a human reader on the public site.
     const { data: planRow } = await sb
       .from('clip_plans')
       .select('plan_json')
@@ -96,18 +97,13 @@ export async function setVideoPublished(
       .limit(1)
       .maybeSingle();
     const planJson = (planRow?.plan_json ?? {}) as {
-      clips?: Array<{ index?: number; voiceover?: string }>;
+      full_script?: string;
     };
-    const ordered = [...(planJson.clips ?? [])]
-      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-    const spoken = ordered
-      .map((c) => (c.voiceover ?? '').trim())
-      .filter(Boolean)
-      .join('\n\n');
-    if (spoken) {
+    const cleanScript = (planJson.full_script ?? '').trim();
+    if (cleanScript) {
       await sb
         .from('videos')
-        .update({ spoken_script: spoken })
+        .update({ spoken_script: cleanScript })
         .eq('id', videoId);
     }
   }
