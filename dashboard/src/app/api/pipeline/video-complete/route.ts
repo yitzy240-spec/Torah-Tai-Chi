@@ -109,10 +109,12 @@ export async function POST(request: Request) {
 
   // Load the job. We need parsha_id to confirm this is a parsha job
   // and to find the A-tight script (for logging — captions come from
-  // the clip_plan written during this run).
+  // the clip_plan written during this run). regen_of_job_id tells us
+  // whether this is a fresh first-generation or a user-driven regen
+  // (which we never auto-post — see autopilotEligible below).
   const { data: job, error: jobErr } = await sb
     .from('jobs')
-    .select('id, kind, parsha_id, parshiot:parsha_id(name, slug)')
+    .select('id, kind, parsha_id, regen_of_job_id, parshiot:parsha_id(name, slug)')
     .eq('id', jobId)
     .single();
 
@@ -131,7 +133,16 @@ export async function POST(request: Request) {
 
   // Topic jobs come from Compose with their own UI; autopilot only fans
   // out weekly parsha videos. Stance gates apply only to parsha jobs.
-  const autopilotEligible = (job.kind === 'parsha' || !job.kind) && stance === 'auto';
+  // Regens never auto-post: a regen means Yonah is correcting something
+  // (a name, a visual, a clip swap), and the original video may already
+  // be live. Re-fanning would create duplicate posts on every channel.
+  // The user re-ships from the post-now sheet manually when ready.
+  const isRegen = !!(job as { regen_of_job_id?: string | null }).regen_of_job_id;
+  const autopilotEligible = (
+    (job.kind === 'parsha' || !job.kind)
+    && stance === 'auto'
+    && !isRegen
+  );
   if (job.kind && job.kind !== 'parsha') {
     await logEvent({
       actor: 'system',
@@ -141,6 +152,16 @@ export async function POST(request: Request) {
       subjectId: videoId,
       message: `Autopilot skipped — job kind is '${job.kind}'`,
       details: { kind: job.kind, jobId },
+    });
+  } else if (isRegen) {
+    await logEvent({
+      actor: 'system',
+      level: 'info',
+      event: 'autopilot.skipped.regen',
+      subjectType: 'video',
+      subjectId: videoId,
+      message: 'Autopilot skipped — this is a regen, not a first generation',
+      details: { jobId, regenOfJobId: (job as { regen_of_job_id?: string | null }).regen_of_job_id },
     });
   } else if (stance !== 'auto') {
     await logEvent({
