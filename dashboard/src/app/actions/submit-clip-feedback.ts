@@ -162,6 +162,14 @@ export async function submitClipFeedback(opts: {
     }
   }
 
-  revalidatePath(`/videos/${videoId}/edit`);
+  if (parentJob.parsha_id) {
+    const { data: parshaRow } = await supabase
+      .from('parshiot')
+      .select('slug')
+      .eq('id', parentJob.parsha_id)
+      .maybeSingle();
+    const slug = (parshaRow?.slug as string | undefined) ?? null;
+    if (slug) revalidatePath(`/videos/${slug}/edit`);
+  }
   return { ok: true, jobId: regenJob.id };
 }

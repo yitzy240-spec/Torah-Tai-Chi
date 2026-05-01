@@ -11,47 +11,59 @@ export interface ClipVersion {
 }
 
 export interface ClipVersionsResult {
-  rootJobId: string;
+  parshaId: string;
+  /** A representative non-compose job id for this parsha — used by
+   *  the compose action to copy generation parameters (motion_ref_slug,
+   *  resolution, etc.). Latest done job, or first if none done yet. */
+  representativeJobId: string;
   versionsByIndex: Map<number, ClipVersion[]>;
 }
 
 /**
- * Walk the regen tree starting from `rootJobId` and return every clip
- * version (across the original job and all regens), grouped by clip
- * index. Versions within an index are ordered oldest -> newest.
+ * Get every clip version produced for a given parsha across all
+ * generation runs and all regen trees. Excludes compose jobs (which
+ * don't generate new clips, they reuse existing ones). Versions
+ * within an index are ordered oldest -> newest.
  *
- * Compose jobs are excluded — they don't generate new clip mp4s,
- * they reuse existing ones.
+ * Mirrors the version-collection pattern in /videos/[slug]/page.tsx
+ * but flattens to clip-level instead of video-level.
  */
-export async function getClipVersions(
+export async function getClipVersionsByParsha(
   supabase: SupabaseClient,
-  rootJobId: string,
-): Promise<ClipVersionsResult> {
-  const allJobIds: string[] = [rootJobId];
-  let frontier: string[] = [rootJobId];
-  for (let i = 0; i < 64; i++) {
-    if (frontier.length === 0) break;
-    const { data } = await supabase
-      .from('jobs')
-      .select('id, kind')
-      .in('regen_of_job_id', frontier);
-    const next = (data ?? [])
-      .filter((r: { kind: string | null }) => (r.kind ?? 'parsha') !== 'compose')
-      .map((r: { id: string }) => r.id);
-    if (next.length === 0) break;
-    allJobIds.push(...next);
-    frontier = next;
-  }
+  parshaId: string,
+): Promise<ClipVersionsResult | null> {
+  const { data: jobRows } = await supabase
+    .from('jobs')
+    .select('id, kind, status, triggered_at')
+    .eq('parsha_id', parshaId)
+    .order('triggered_at', { ascending: true });
 
+  const nonComposeJobs = (jobRows ?? []).filter(
+    (j: { kind: string | null }) => (j.kind ?? 'parsha') !== 'compose',
+  );
+  if (nonComposeJobs.length === 0) return null;
+
+  // Pick a representative job — prefer the latest done one, else the
+  // latest queued/processing one. compose-video.ts uses this for
+  // generation-parameter lookup.
+  const doneJobs = nonComposeJobs.filter(
+    (j: { status: string | null }) => j.status === 'done',
+  );
+  const representative = doneJobs.length > 0
+    ? doneJobs[doneJobs.length - 1]
+    : nonComposeJobs[nonComposeJobs.length - 1];
+
+  const jobIds = nonComposeJobs.map((j: { id: string }) => j.id);
   const { data: clipRows } = await supabase
     .from('clips')
     .select('id, job_id, index, voiceover, visual_prompt, storage_path, created_at')
-    .in('job_id', allJobIds)
+    .in('job_id', jobIds)
     .order('index')
     .order('created_at');
 
   const versionsByIndex = new Map<number, ClipVersion[]>();
   for (const row of clipRows ?? []) {
+    if (!row.storage_path) continue; // skip in-flight / failed clip rows
     const v: ClipVersion = {
       clipId: row.id as string,
       jobId: row.job_id as string,
@@ -65,5 +77,9 @@ export async function getClipVersions(
     arr.push(v);
     versionsByIndex.set(v.index, arr);
   }
-  return { rootJobId, versionsByIndex };
+  return {
+    parshaId,
+    representativeJobId: representative.id as string,
+    versionsByIndex,
+  };
 }

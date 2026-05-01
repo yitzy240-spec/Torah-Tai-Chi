@@ -1,22 +1,25 @@
 'use server';
-import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 
 /**
  * Compose: stitch a user-chosen ordered list of clip_ids into a new
  * video. Clip_ids must:
- *   - all belong to the same parsha's regen tree (rooted at rootJobId)
  *   - cover every slot index 0..N-1 exactly once, in slot order
  *   - all have storage_path set
+ *
+ * `referenceJobId` is any non-compose job for the parsha (the dashboard
+ * picks the latest done one). compose-video copies its generation
+ * parameters (motion_ref_slug, resolution, etc.) onto the new compose
+ * job.
  *
  * On success, queues a Modal compose job and returns the new video_id.
  */
 export async function composeVideo(opts: {
-  rootJobId: string;
+  referenceJobId: string;
   /** Clip UUIDs in slot order (index 0 first, then 1, etc.). */
   clipIds: string[];
 }): Promise<{ ok: true; videoId: string; jobId: string } | { error: string }> {
-  const { rootJobId, clipIds } = opts;
+  const { referenceJobId, clipIds } = opts;
   if (clipIds.length === 0) {
     return { error: 'Pick at least one clip per slot.' };
   }
@@ -48,26 +51,26 @@ export async function composeVideo(opts: {
     }
   }
 
-  const { data: rootJob } = await supabase
+  const { data: refJob } = await supabase
     .from('jobs')
     .select(
       'id, parsha_id, script_id, motion_ref_slug, model_tier, resolution, ' +
       'partner_parsha_id, topic',
     )
-    .eq('id', rootJobId).single();
-  if (!rootJob) return { error: 'Root job not found.' };
+    .eq('id', referenceJobId).single();
+  if (!refJob) return { error: 'Reference job not found.' };
 
   const { data: composeJob } = await supabase
     .from('jobs').insert({
-      parsha_id: rootJob.parsha_id,
-      script_id: rootJob.script_id,
-      partner_parsha_id: rootJob.partner_parsha_id ?? null,
-      motion_ref_slug: rootJob.motion_ref_slug ?? null,
-      resolution: rootJob.resolution ?? '720p',
-      model_tier: rootJob.model_tier ?? 'standard',
+      parsha_id: refJob.parsha_id,
+      script_id: refJob.script_id,
+      partner_parsha_id: refJob.partner_parsha_id ?? null,
+      motion_ref_slug: refJob.motion_ref_slug ?? null,
+      resolution: refJob.resolution ?? '720p',
+      model_tier: refJob.model_tier ?? 'standard',
       kind: 'compose',
-      topic: rootJob.topic ?? null,
-      regen_of_job_id: rootJobId,
+      topic: refJob.topic ?? null,
+      regen_of_job_id: referenceJobId,
       status: 'queued',
       triggered_by: user.id,
     }).select('id').single();
@@ -111,6 +114,5 @@ export async function composeVideo(opts: {
     }
   }
 
-  revalidatePath(`/videos/${videoRow.id}/edit`);
   return { ok: true, videoId: videoRow.id as string, jobId: composeJob.id as string };
 }
