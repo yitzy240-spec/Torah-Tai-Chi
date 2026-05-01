@@ -3278,6 +3278,22 @@ Rules:
 """
 
 
+_REGEN_SINGLE_CLIP_PROMPT = """You are rewriting ONE clip in a video plan based on user feedback. Output the full updated clip as JSON.
+
+You receive:
+- The current clip's full plan (voiceover, visual_prompt, setting_id, duration_s, motion_ref_slug, etc.).
+- The user's feedback about this specific clip.
+
+Output ONE JSON object (no markdown fences, no commentary) with the SAME shape as the input clip. Rules:
+- Change ONLY voiceover and/or visual_prompt — whichever the feedback addresses. Both is fine if both apply.
+- Copy every other field verbatim (setting_id, duration_s, motion_ref_slug, caption_position, emotive_note, motion_ref_url, index).
+- Be conservative: preserve everything the feedback doesn't directly address. Don't paraphrase, don't "improve," don't add new visual elements.
+- If the feedback is about pronunciation, edit voiceover with phonetic guidance (e.g. "Sha-BAHT" or "the Name (Hashem)").
+- If the feedback is about the visual, edit visual_prompt with specific, concrete additions/changes.
+- Output JSON only.
+""" + _REGEN_GROUNDING_RULES
+
+
 def _fetch_prior_feedback(sb, parent_job_id: str) -> list[dict]:
     """Walk the regen_of_job_id chain and collect ALL feedback rows for
     every video produced by every ancestor job, ordered chronologically.
@@ -4388,3 +4404,516 @@ def regen_agent_endpoint(payload: dict, request: Request) -> dict:
 
     regen_agent.spawn(job_id)
     return {"ok": True, "job_id": job_id, "mode": "regen_agent"}
+
+
+# --- Single-clip surgery -------------------------------------------------
+# Replaces regen_agent for the per-clip feedback path. The dashboard
+# tells us which clip to fix — we don't ask an LLM. One Sonnet call
+# rewrites the target clip's voiceover/visual_prompt given the user's
+# feedback, then Seedance re-renders only that clip. Cheaper, faster,
+# and scope is impossible to get wrong because there's no "scope
+# decision" step.
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=60 * 60,
+)
+def regen_single_clip(job_id: str) -> dict | None:
+    """Single-clip surgery with hard-clamped scope.
+
+    Pre-conditions enforced by submit-clip-feedback.ts:
+      - regen_of_job_id set
+      - feedback_clip_index set (an int 0..N-1)
+      - parent's clips ALL have storage_path
+      - parent has a clip_plan
+    """
+    sys.path.insert(0, "/root")
+    from supabase import create_client
+    from src.video_generator import generate_clip_with_meta
+    from src.stitcher import concat_clips
+    from src.kie_client import KieClient
+    from src.thumbnails import extract_thumbnail, upload_thumbnail
+    from src.events import log_event
+    from src.claude_call import claude_call
+    from src.script_generator import _extract_json_block
+    from src.models import ClipPlan
+    import json as _json
+
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+
+    pre = (
+        sb.table("jobs").select("status").eq("id", job_id)
+        .maybe_single().execute()
+    )
+    if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
+        return {"status": "already_done"}
+
+    def set_status(status: str, message: str | None = None) -> None:
+        update = {"status": status}
+        if message is not None:
+            update["status_message"] = message
+        sb.table("jobs").update(update).eq("id", job_id).execute()
+        log_event(
+            sb, actor="modal", level="info",
+            event=f"pipeline.status.{status}",
+            subject_type="job", subject_id=job_id,
+            message=message or status,
+            details={"status": status, "mode": "regen_single_clip"},
+        )
+
+    def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
+        sb.table("cost_events").insert({
+            "job_id": job_id, "action": action, "vendor": vendor,
+            "cost_usd": cost_usd, "notes": notes,
+        }).execute()
+        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+
+    try:
+        set_status("loading_parsha", "Loading clip to regenerate")
+
+        regen_job = (
+            sb.table("jobs").select(
+                "regen_of_job_id, feedback_clip_index, resolution, "
+                "model_tier, motion_ref_slug, kind, director_notes"
+            ).eq("id", job_id).single().execute().data
+        )
+        parent_job_id = regen_job.get("regen_of_job_id")
+        target_index = regen_job.get("feedback_clip_index")
+        if parent_job_id is None or target_index is None:
+            raise ValueError(
+                f"regen_single_clip requires regen_of_job_id and "
+                f"feedback_clip_index; got parent={parent_job_id} "
+                f"target={target_index}"
+            )
+
+        parent_plan_row = (
+            sb.table("clip_plans").select("plan_json")
+            .eq("job_id", parent_job_id)
+            .order("created_at", desc=True).limit(1)
+            .single().execute().data
+        )
+        parent_plan_dict = parent_plan_row["plan_json"]
+
+        parent_clips = (
+            sb.table("clips").select(
+                "id, index, voiceover, visual_prompt, setting_id, "
+                "duration_s, motion_ref_slug, motion_ref_url, storage_path"
+            ).eq("job_id", parent_job_id).order("index").execute().data
+        ) or []
+        if not parent_clips:
+            raise ValueError(f"parent job {parent_job_id} has no clips")
+        missing = [c["index"] for c in parent_clips if not c.get("storage_path")]
+        if missing:
+            raise ValueError(
+                f"parent job {parent_job_id} missing storage_path "
+                f"on clips {missing}; single-clip regen requires "
+                f"checkpointed parent."
+            )
+
+        target_parent_clip = next(
+            (c for c in parent_clips if c["index"] == target_index), None
+        )
+        if not target_parent_clip:
+            raise ValueError(
+                f"target_index {target_index} not in parent clips"
+            )
+
+        feedback_text = _extract_feedback_section(
+            regen_job.get("director_notes")
+        )
+        if not feedback_text:
+            raise ValueError(
+                f"regen_single_clip job {job_id} has no parsable "
+                f"feedback in director_notes"
+            )
+
+        # Single Sonnet call: rewrite the target clip.
+        set_status("generating_plan", f"Rewriting clip {target_index}")
+        target_clip_dict = next(
+            c for c in parent_plan_dict["clips"]
+            if c["index"] == target_index
+        )
+        rewrite_prompt = (
+            f"FEEDBACK FROM USER:\n{feedback_text}\n\n"
+            f"CURRENT CLIP (the one to rewrite):\n"
+            f"{_json.dumps(target_clip_dict, indent=2)}\n\n"
+            f"Output the full rewritten clip JSON now."
+        )
+        raw = asyncio.run(claude_call(
+            messages=[{"role": "user", "content": rewrite_prompt}],
+            system=_REGEN_SINGLE_CLIP_PROMPT,
+            model="claude-sonnet-4-6",
+            kie_api_key=os.environ["KIE_AI_API_KEY"],
+            openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
+            max_tokens=8000,
+            log_prefix="[regen_single_clip.rewrite]",
+        ))
+        rewritten_clip_dict = _json.loads(_extract_json_block(raw))
+        log_cost("clipplan", "kie", 0.02, "regen_single_clip rewrite (Sonnet)")
+
+        # Build new ClipPlan: parent plan with target clip swapped.
+        new_plan_dict = dict(parent_plan_dict)
+        new_plan_dict["clips"] = [
+            rewritten_clip_dict if c["index"] == target_index else dict(c)
+            for c in parent_plan_dict["clips"]
+        ]
+        new_plan = ClipPlan(**new_plan_dict)
+        sb.table("clip_plans").insert({
+            "job_id": job_id,
+            "plan_json": new_plan.model_dump(mode="json"),
+            "claude_cost_usd": 0.02,
+        }).execute()
+
+        # Resolve refs.
+        resolution = (regen_job.get("resolution") or "720p").lower()
+        model_tier = regen_job.get("model_tier") or "standard"
+        seedance_model = (
+            "bytedance/seedance-2-fast" if model_tier == "fast"
+            else "bytedance/seedance-2"
+        )
+        _, motion_ref_mp4_url = _load_selected_move(
+            sb, regen_job.get("motion_ref_slug")
+        )
+        kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
+        dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
+        jewish_refs = asyncio.run(_upload_jewish_refs(kie))
+
+        work_dir = Path(f"/tmp/job-{job_id}")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        target_clip_pydantic = next(
+            c for c in new_plan.clips if c.index == target_index
+        )
+        local_path_dest = work_dir / f"clip_{target_index:02d}.mp4"
+        clip_ref_video_url = (
+            motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
+        )
+
+        # First-frame chain: chain to parent's previous-clip last frame
+        # when same setting + no new ritual. Same logic as regen_agent.
+        first_frame_url: str | None = None
+        prev_parent = next(
+            (c for c in parent_clips if c["index"] == target_index - 1),
+            None,
+        )
+        curr_kws = _jewish_ref_ids_in_prompt(
+            target_clip_pydantic.visual_prompt or ""
+        )
+        prev_kws = _jewish_ref_ids_in_prompt(
+            (prev_parent or {}).get("visual_prompt") or ""
+        )
+        new_ritual_introduced = bool(curr_kws - prev_kws)
+        if (
+            prev_parent
+            and prev_parent.get("setting_id") == target_clip_pydantic.setting_id
+            and prev_parent.get("storage_path")
+            and not new_ritual_introduced
+        ):
+            try:
+                prev_local = _ensure_local(
+                    sb, work_dir, prev_parent["storage_path"]
+                )
+                png_path = work_dir / f"firstframe_{target_index:02d}.png"
+                _extract_last_frame(prev_local, png_path)
+                first_frame_url = asyncio.run(
+                    _upload_first_frame(kie, png_path)
+                )
+            except Exception as ff_err:
+                print(
+                    f"[firstframe] regen_single_clip {target_index}: "
+                    f"{type(ff_err).__name__}: {ff_err}; no chain"
+                )
+                first_frame_url = None
+
+        set_status("generating_clips", f"Regenerating clip {target_index}")
+        clip_jewish_refs = _jewish_refs_for_clip(
+            target_clip_pydantic, jewish_refs
+        )
+
+        async def _seedance_for_clip(c):
+            return await generate_clip_with_meta(
+                kie, c,
+                character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
+                dest=local_path_dest, resolution=resolution,
+                model=seedance_model,
+                reference_video_url=clip_ref_video_url,
+                first_frame_url=first_frame_url,
+                jewish_ref_urls=clip_jewish_refs,
+            )
+
+        async def _render():
+            return await _generate_clip_with_verify(
+                clip=target_clip_pydantic,
+                seedance_call=_seedance_for_clip,
+                job_id=job_id,
+                sb=sb,
+                feedback_text=feedback_text,
+                diagnosis=None,
+                kie_api_key=os.environ["KIE_AI_API_KEY"],
+                openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
+                set_status_fn=set_status,
+                progress_label=f"clip {target_index}",
+            )
+
+        (
+            local_path,
+            kie_meta,
+            total_credits,
+            verify_attempts,
+            verify_status,
+            verify_notes,
+            _checks_used,
+        ) = asyncio.run(_render())
+        cost_usd = total_credits * KIE_CREDITS_TO_USD if total_credits else 0.0
+        if total_credits:
+            log_cost(
+                "clip", "kie", cost_usd,
+                f"regen_single_clip clip {target_index} "
+                f"({total_credits} credits, {verify_attempts} attempt(s)) "
+                f"verify={verify_status}",
+            )
+
+        # Upload regen'd clip mp4.
+        new_clip_storage_path = (
+            f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
+        )
+        with open(local_path, "rb") as f:
+            sb.storage.from_("clips").upload(
+                new_clip_storage_path, f.read(),
+                file_options={
+                    "content-type": "video/mp4",
+                    "upsert": "true",
+                },
+            )
+
+        # Insert clip rows: new for the regen'd clip, copy parent for the rest.
+        sb.table("clips").insert({
+            "job_id": job_id,
+            "index": target_clip_pydantic.index,
+            "voiceover": target_clip_pydantic.voiceover,
+            "visual_prompt": target_clip_pydantic.visual_prompt,
+            "setting_id": target_clip_pydantic.setting_id,
+            "duration_s": target_clip_pydantic.duration_s,
+            "motion_ref_slug": target_clip_pydantic.motion_ref_slug,
+            "motion_ref_url": clip_ref_video_url,
+            "storage_path": new_clip_storage_path,
+            "mp4_path": new_clip_storage_path,
+            "status": "done",
+            "cost_usd": cost_usd,
+            "completed_at": "now()",
+            "regen_of_clip_id": target_parent_clip["id"],
+            "verification_status": verify_status,
+            "verification_attempts": verify_attempts,
+            "verification_notes": verify_notes,
+        }).execute()
+        for parent_c in parent_clips:
+            if parent_c["index"] == target_index:
+                continue
+            sb.table("clips").insert({
+                "job_id": job_id,
+                "index": parent_c["index"],
+                "voiceover": parent_c["voiceover"],
+                "visual_prompt": parent_c["visual_prompt"],
+                "setting_id": parent_c["setting_id"],
+                "duration_s": parent_c["duration_s"],
+                "motion_ref_slug": parent_c.get("motion_ref_slug"),
+                "motion_ref_url": parent_c.get("motion_ref_url"),
+                "storage_path": parent_c["storage_path"],
+                "mp4_path": parent_c["storage_path"],
+                "status": "done",
+                "cost_usd": 0,
+                "completed_at": "now()",
+                "regen_of_clip_id": parent_c["id"],
+            }).execute()
+
+        # Stitch: regen'd clip on local disk, parent clips downloaded.
+        set_status("stitching", "Stitching final video")
+        clip_paths_by_index: dict[int, Path] = {target_index: local_path}
+        for parent_c in parent_clips:
+            if parent_c["index"] == target_index:
+                continue
+            clip_paths_by_index[parent_c["index"]] = _ensure_local(
+                sb, work_dir, parent_c["storage_path"]
+            )
+        ordered = [clip_paths_by_index[i] for i in sorted(clip_paths_by_index)]
+        final_mp4 = work_dir / "final.mp4"
+        concat_clips(ordered, final_mp4)
+
+        # Upload final + thumbnail + insert videos row.
+        final_storage_path = f"jobs/{job_id}/final.mp4"
+        with open(final_mp4, "rb") as f:
+            sb.storage.from_("videos").upload(
+                final_storage_path, f.read(),
+                file_options={
+                    "content-type": "video/mp4", "upsert": "true",
+                },
+            )
+        thumb_storage_path: str | None = None
+        try:
+            thumb_local = work_dir / "thumb.png"
+            extract_thumbnail(final_mp4, thumb_local, percent=20.0)
+            thumb_storage_path = upload_thumbnail(
+                thumb_local, f"jobs/{job_id}/thumb.png"
+            )
+        except Exception as thumb_err:
+            print(
+                f"[thumb] regen_single_clip skipped: "
+                f"{type(thumb_err).__name__}: {thumb_err}"
+            )
+        video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
+        if thumb_storage_path:
+            video_row["thumb_path"] = thumb_storage_path
+        sb.table("videos").insert(video_row).execute()
+
+        # Mark done + webhook (parsha kind only).
+        set_status("done", "Regen ready")
+        sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
+        kind = (regen_job.get("kind") or "parsha").lower()
+        if kind == "parsha":
+            try:
+                video_lookup = (
+                    sb.table("videos").select("id")
+                    .eq("job_id", job_id)
+                    .order("created_at", desc=True).limit(1)
+                    .execute().data
+                )
+                video_id = video_lookup[0]["id"] if video_lookup else None
+                dashboard_url = os.environ.get("DASHBOARD_URL")
+                webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+                if dashboard_url and webhook_secret and video_id:
+                    import httpx
+                    with httpx.Client(timeout=10.0) as client:
+                        resp = client.post(
+                            f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
+                            headers={"x-pipeline-secret": webhook_secret},
+                            json={"jobId": job_id, "videoId": video_id},
+                        )
+                        print(
+                            f"[autopilot] regen_single_clip webhook "
+                            f"{resp.status_code} for job {job_id}"
+                        )
+            except Exception as hook_err:
+                print(
+                    f"[autopilot] regen_single_clip webhook failed: "
+                    f"{type(hook_err).__name__}: {hook_err}"
+                )
+
+        return {"status": "done", "clip_index": target_index}
+
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        sb.table("jobs").update({
+            "status": "failed",
+            "error_message": f"{type(e).__name__}: {e}\n{tb}",
+        }).eq("id", job_id).execute()
+        log_event(
+            sb, actor="modal", level="error",
+            event="pipeline.failed",
+            subject_type="job", subject_id=job_id,
+            message=f"regen_single_clip {type(e).__name__}: {e}",
+            details={
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": tb,
+                "mode": "regen_single_clip",
+            },
+        )
+        raise
+
+
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=60 * 60,
+)
+@modal.fastapi_endpoint(method="POST")
+def regen_single_clip_endpoint(payload: dict, request: Request) -> dict:
+    """Single-clip surgery trigger.
+
+    Auth + idempotency identical to regen_agent_endpoint. The dashboard's
+    submit-clip-feedback action targets this endpoint when the parent
+    is checkpointed.
+
+    Deployed URL pattern (after `modal deploy modal_app.py`):
+      https://<account>--torah-tai-chi-pipeline-regen-single-clip-endpoint.modal.run
+
+    The dashboard derives this URL from MODAL_WORKER_URL by string-
+    replacing 'pipeline-trigger' with 'pipeline-regen-single-clip-endpoint'.
+
+    Payload (POST JSON):
+      { "job_id": "<uuid>" }
+    The job's feedback_clip_index column carries the authoritative
+    target index.
+    """
+    job_id_for_log = payload.get("job_id") or "<no-job-id>"
+    secret = os.environ.get("PIPELINE_TRIGGER_SECRET")
+    if not secret:
+        print(
+            f"[regen_single_clip_endpoint] config_error "
+            f"job_id={job_id_for_log} reason=secret-not-set"
+        )
+        raise HTTPException(status_code=503, detail="trigger secret not configured")
+    incoming = request.headers.get("x-pipeline-secret") or ""
+    if len(incoming) != len(secret) or not hmac.compare_digest(incoming, secret):
+        print(
+            f"[regen_single_clip_endpoint] auth_fail "
+            f"job_id={job_id_for_log} incoming_len={len(incoming)}"
+        )
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    job_id = payload.get("job_id")
+    if not job_id:
+        return {"error": "job_id required"}
+
+    from supabase import create_client
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+    existing = (
+        sb.table("jobs")
+        .select("status, triggered_at")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    if existing and existing.data:
+        status = existing.data.get("status")
+        if status in _TERMINAL_STATUSES:
+            print(
+                f"[regen_single_clip_endpoint] skip_terminal "
+                f"job_id={job_id} status={status}"
+            )
+            return {"status": "skipped", "reason": f"job already {status}"}
+        if status in _IN_FLIGHT_STATUSES:
+            triggered_at_str = existing.data.get("triggered_at")
+            if triggered_at_str:
+                triggered_at = datetime.fromisoformat(
+                    triggered_at_str.replace("Z", "+00:00")
+                )
+                age = datetime.now(timezone.utc) - triggered_at
+                if age < _STUCK_AFTER:
+                    print(
+                        f"[regen_single_clip_endpoint] skip_in_flight "
+                        f"job_id={job_id} status={status} "
+                        f"age_s={age.total_seconds():.0f}"
+                    )
+                    return {
+                        "status": "skipped",
+                        "reason": (
+                            f"job is {status}, in-flight for "
+                            f"{age.total_seconds():.0f}s"
+                        ),
+                    }
+
+    regen_single_clip.spawn(job_id)
+    return {"ok": True, "job_id": job_id, "mode": "regen_single_clip"}
