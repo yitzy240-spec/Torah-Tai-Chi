@@ -520,6 +520,44 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
 
       {hasAnyVideo ? (
         <>
+          {/* Direct entry to per-clip surgery + compose. The video page
+              still hosts general feedback (broad strokes), but for
+              targeted clip-by-clip work this is the canonical surface. */}
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', gap: '12px',
+              marginBottom: '16px', flexWrap: 'wrap',
+            }}
+          >
+            <Link
+              href={`/videos/${parsha.slug}/edit`}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                fontFamily: 'var(--ff-body)', fontWeight: 500,
+                fontSize: '13px', padding: '9px 18px', minHeight: '40px',
+                borderRadius: '999px',
+                border: '1px solid var(--navy-800)',
+                background: 'var(--navy-800)',
+                color: 'var(--linen-50)',
+                textDecoration: 'none',
+              }}
+            >
+              Edit clips →
+            </Link>
+            <span
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+                fontSize: '13px',
+                color: 'var(--ink-500)',
+                fontVariationSettings: '"opsz" 14, "SOFT" 50',
+              }}
+            >
+              Fix one clip at a time, or stitch the best version of each
+              clip together.
+            </span>
+          </div>
+
           {/* Video player + version selector + per-clip feedback list +
               general feedback box. The VideoVersionsView client component
               owns version state (?v=<videoId>) and compare mode (?compare=1)
