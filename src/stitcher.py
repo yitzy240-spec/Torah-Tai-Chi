@@ -95,3 +95,40 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
 
     subprocess.run(args, check=True, capture_output=True)
     return dest
+
+
+def loudnorm_then_concat(
+    inputs: list[Path], dest: Path, crossfade_s: float = 0.35
+) -> Path:
+    """Two-pass: normalize each input's audio with EBU R128 loudnorm,
+    then concat with crossfade.
+
+    Compose pulls clips from different generation runs which can have
+    different loudness profiles (varies by Seedance roll, sometimes 6+
+    LUFS apart). Loudnorm flattens them so cuts don't yank the volume.
+
+    First pass: per-clip loudnorm with -c:v copy (cheap — no video re-
+    encode). Second pass: standard concat_clips, which re-encodes to
+    H.264 + AAC. Total of one video encode.
+    """
+    work_dir = dest.parent
+    work_dir.mkdir(parents=True, exist_ok=True)
+    normalized: list[Path] = []
+    for i, src in enumerate(inputs):
+        norm_path = work_dir / f"_norm_{i:02d}.mp4"
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(src),
+                "-af", "loudnorm=I=-23:LRA=7:TP=-2",
+                "-c:v", "copy",
+                str(norm_path),
+            ],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"loudnorm failed for {src}: "
+                f"{result.stderr.decode('utf-8', errors='replace')[-500:]}"
+            )
+        normalized.append(norm_path)
+    return concat_clips(normalized, dest, crossfade_s=crossfade_s)

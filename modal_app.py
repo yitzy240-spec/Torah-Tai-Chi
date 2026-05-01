@@ -4917,3 +4917,272 @@ def regen_single_clip_endpoint(payload: dict, request: Request) -> dict:
 
     regen_single_clip.spawn(job_id)
     return {"ok": True, "job_id": job_id, "mode": "regen_single_clip"}
+
+
+# --- Compose ---------------------------------------------------------
+# Stitch a user-chosen ordered list of existing clip mp4s into a new
+# final video. No Seedance, no Claude — just download + loudnorm +
+# concat. Lets the user mix-and-match clips across multiple regen
+# attempts (e.g. clip 1 from v3, clip 2 from v7, clip 3 from v5).
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=30 * 60,
+)
+def compose_video(compose_job_id: str) -> dict | None:
+    """Stitch a user-chosen ordered list of clip_ids into a final video.
+
+    Pre-conditions enforced by compose-video.ts:
+      - compose job has kind='compose'
+      - the videos row for this job has composed_from_clip_ids set
+        (a non-empty ordered jsonb array of clip UUIDs, one per slot
+        in order 0..N-1)
+      - all referenced clips have storage_path populated
+    """
+    sys.path.insert(0, "/root")
+    from supabase import create_client
+    from src.stitcher import loudnorm_then_concat
+    from src.thumbnails import extract_thumbnail, upload_thumbnail
+    from src.events import log_event
+
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+
+    pre = (
+        sb.table("jobs").select("status").eq("id", compose_job_id)
+        .maybe_single().execute()
+    )
+    if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
+        return {"status": "already_done"}
+
+    def set_status(status: str, message: str | None = None) -> None:
+        update = {"status": status}
+        if message is not None:
+            update["status_message"] = message
+        sb.table("jobs").update(update).eq("id", compose_job_id).execute()
+        log_event(
+            sb, actor="modal", level="info",
+            event=f"pipeline.status.{status}",
+            subject_type="job", subject_id=compose_job_id,
+            message=message or status,
+            details={"status": status, "mode": "compose"},
+        )
+
+    try:
+        set_status("loading_parsha", "Loading clips for compose")
+
+        compose_video_row = (
+            sb.table("videos")
+            .select("id, composed_from_clip_ids")
+            .eq("job_id", compose_job_id)
+            .single().execute().data
+        )
+        clip_ids = compose_video_row.get("composed_from_clip_ids") or []
+        if not clip_ids:
+            raise ValueError(
+                f"compose job {compose_job_id} has empty "
+                f"composed_from_clip_ids"
+            )
+
+        # Resolve each clip_id to its storage_path. Order matters —
+        # clip_ids is already in slot order (0..N-1).
+        clip_rows = (
+            sb.table("clips").select("id, storage_path, index")
+            .in_("id", clip_ids).execute().data
+        ) or []
+        by_id = {c["id"]: c for c in clip_rows}
+        ordered: list[dict] = []
+        for cid in clip_ids:
+            row = by_id.get(cid)
+            if not row or not row.get("storage_path"):
+                raise ValueError(
+                    f"clip {cid} missing or has no storage_path"
+                )
+            ordered.append(row)
+
+        # Download each to work dir.
+        work_dir = Path(f"/tmp/compose-{compose_job_id}")
+        work_dir.mkdir(parents=True, exist_ok=True)
+        local_paths: list[Path] = []
+        for row in ordered:
+            local_paths.append(
+                _ensure_local(sb, work_dir, row["storage_path"])
+            )
+
+        # Loudnorm + concat.
+        set_status("stitching", f"Stitching {len(local_paths)} clip(s)")
+        final_mp4 = work_dir / "final.mp4"
+        loudnorm_then_concat(local_paths, final_mp4)
+
+        # Upload final + thumbnail.
+        final_storage_path = f"jobs/{compose_job_id}/final.mp4"
+        with open(final_mp4, "rb") as f:
+            sb.storage.from_("videos").upload(
+                final_storage_path, f.read(),
+                file_options={
+                    "content-type": "video/mp4", "upsert": "true",
+                },
+            )
+        thumb_storage_path: str | None = None
+        try:
+            thumb_local = work_dir / "thumb.png"
+            extract_thumbnail(final_mp4, thumb_local, percent=20.0)
+            thumb_storage_path = upload_thumbnail(
+                thumb_local, f"jobs/{compose_job_id}/thumb.png"
+            )
+        except Exception as thumb_err:
+            print(
+                f"[thumb] compose skipped: "
+                f"{type(thumb_err).__name__}: {thumb_err}"
+            )
+
+        # Update the pre-existing videos row with the final mp4 path.
+        update: dict = {"mp4_path": final_storage_path}
+        if thumb_storage_path:
+            update["thumb_path"] = thumb_storage_path
+        sb.table("videos").update(update).eq(
+            "id", compose_video_row["id"]
+        ).execute()
+
+        set_status("done", "Compose ready")
+        sb.table("jobs").update({"completed_at": "now()"}).eq(
+            "id", compose_job_id
+        ).execute()
+
+        # Webhook to dashboard (compose is parsha-adjacent — same hook).
+        try:
+            dashboard_url = os.environ.get("DASHBOARD_URL")
+            webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+            if dashboard_url and webhook_secret:
+                import httpx
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(
+                        f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
+                        headers={"x-pipeline-secret": webhook_secret},
+                        json={
+                            "jobId": compose_job_id,
+                            "videoId": compose_video_row["id"],
+                        },
+                    )
+                    print(
+                        f"[autopilot] compose webhook {resp.status_code} "
+                        f"for job {compose_job_id}"
+                    )
+        except Exception as hook_err:
+            print(
+                f"[autopilot] compose webhook failed: "
+                f"{type(hook_err).__name__}: {hook_err}"
+            )
+
+        return {"status": "done", "video_id": compose_video_row["id"]}
+
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        sb.table("jobs").update({
+            "status": "failed",
+            "error_message": f"{type(e).__name__}: {e}\n{tb}",
+        }).eq("id", compose_job_id).execute()
+        log_event(
+            sb, actor="modal", level="error",
+            event="pipeline.failed",
+            subject_type="job", subject_id=compose_job_id,
+            message=f"compose_video {type(e).__name__}: {e}",
+            details={
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": tb,
+                "mode": "compose",
+            },
+        )
+        raise
+
+
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=60 * 60,
+)
+@modal.fastapi_endpoint(method="POST")
+def compose_video_endpoint(payload: dict, request: Request) -> dict:
+    """Compose-video trigger.
+
+    Auth + idempotency identical to regen_agent_endpoint. The dashboard's
+    compose-video action targets this endpoint after inserting the job
+    + pre-populating the videos row's composed_from_clip_ids.
+
+    Deployed URL pattern (after `modal deploy modal_app.py`):
+      https://<account>--torah-tai-chi-pipeline-compose-video-endpoint.modal.run
+
+    Payload (POST JSON):
+      { "compose_job_id": "<uuid>" }
+    """
+    job_id_for_log = payload.get("compose_job_id") or "<no-job-id>"
+    secret = os.environ.get("PIPELINE_TRIGGER_SECRET")
+    if not secret:
+        print(
+            f"[compose_video_endpoint] config_error "
+            f"job_id={job_id_for_log} reason=secret-not-set"
+        )
+        raise HTTPException(status_code=503, detail="trigger secret not configured")
+    incoming = request.headers.get("x-pipeline-secret") or ""
+    if len(incoming) != len(secret) or not hmac.compare_digest(incoming, secret):
+        print(
+            f"[compose_video_endpoint] auth_fail "
+            f"job_id={job_id_for_log} incoming_len={len(incoming)}"
+        )
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    job_id = payload.get("compose_job_id")
+    if not job_id:
+        return {"error": "compose_job_id required"}
+
+    from supabase import create_client
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+    existing = (
+        sb.table("jobs")
+        .select("status, triggered_at")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    if existing and existing.data:
+        status = existing.data.get("status")
+        if status in _TERMINAL_STATUSES:
+            print(
+                f"[compose_video_endpoint] skip_terminal "
+                f"job_id={job_id} status={status}"
+            )
+            return {"status": "skipped", "reason": f"job already {status}"}
+        if status in _IN_FLIGHT_STATUSES:
+            triggered_at_str = existing.data.get("triggered_at")
+            if triggered_at_str:
+                triggered_at = datetime.fromisoformat(
+                    triggered_at_str.replace("Z", "+00:00")
+                )
+                age = datetime.now(timezone.utc) - triggered_at
+                if age < _STUCK_AFTER:
+                    print(
+                        f"[compose_video_endpoint] skip_in_flight "
+                        f"job_id={job_id} status={status} "
+                        f"age_s={age.total_seconds():.0f}"
+                    )
+                    return {
+                        "status": "skipped",
+                        "reason": (
+                            f"job is {status}, in-flight for "
+                            f"{age.total_seconds():.0f}s"
+                        ),
+                    }
+
+    compose_video.spawn(job_id)
+    return {"ok": True, "compose_job_id": job_id, "mode": "compose"}
