@@ -16,6 +16,20 @@ function pickActiveVersion(versions, selectedId) {
   return versions.find(v => v.videoId === selectedId) ?? latest;
 }
 
+function defaultSelectedVideoId(versions) {
+  if (versions.length === 0) return null;
+  const published = versions.find(v => v.publishedToWebsite);
+  if (published) return published.videoId;
+  return versions[versions.length - 1].videoId;
+}
+
+function resolveInitialSelectedId(versions, requestedFromQuery) {
+  if (requestedFromQuery && versions.some(v => v.videoId === requestedFromQuery)) {
+    return requestedFromQuery;
+  }
+  return defaultSelectedVideoId(versions) ?? '';
+}
+
 const cases = [
   {
     name: 'empty list returns null',
@@ -92,7 +106,89 @@ const cases = [
   },
 ];
 
+// Cases for resolveInitialSelectedId — the published-version-first
+// fallback chain that drives `initialSelectedId` on /videos/[slug].
+const initialCases = [
+  {
+    name: 'no versions returns empty string',
+    versions: [],
+    requested: null,
+    expect: '',
+  },
+  {
+    name: 'no requested, no published → latest',
+    versions: [
+      { videoId: 'v1', publishedToWebsite: false },
+      { videoId: 'v2', publishedToWebsite: false },
+      { videoId: 'v3', publishedToWebsite: false },
+    ],
+    requested: null,
+    expect: 'v3',
+  },
+  {
+    name: 'no requested, published mid-tree → published wins',
+    versions: [
+      { videoId: 'v1', publishedToWebsite: false },
+      { videoId: 'v2', publishedToWebsite: true },
+      { videoId: 'v3', publishedToWebsite: false },
+      { videoId: 'v4', publishedToWebsite: false },
+    ],
+    requested: null,
+    expect: 'v2',
+  },
+  {
+    name: 'no requested, published is latest → still published',
+    versions: [
+      { videoId: 'v1', publishedToWebsite: false },
+      { videoId: 'v2', publishedToWebsite: true },
+    ],
+    requested: null,
+    expect: 'v2',
+  },
+  {
+    name: 'requested matches a version → requested wins (overrides published)',
+    versions: [
+      { videoId: 'v1', publishedToWebsite: false },
+      { videoId: 'v2', publishedToWebsite: true },
+      { videoId: 'v3', publishedToWebsite: false },
+    ],
+    requested: 'v3',
+    expect: 'v3',
+  },
+  {
+    name: 'requested does not match → fall back to published',
+    versions: [
+      { videoId: 'v1', publishedToWebsite: false },
+      { videoId: 'v2', publishedToWebsite: true },
+    ],
+    requested: 'v999-stale',
+    expect: 'v2',
+  },
+  {
+    name: 'requested empty string treated as none → latest (no published)',
+    versions: [
+      { videoId: 'v1', publishedToWebsite: false },
+      { videoId: 'v2', publishedToWebsite: false },
+    ],
+    requested: '',
+    expect: 'v2',
+  },
+];
+
 let failed = 0;
+for (const c of initialCases) {
+  const got = resolveInitialSelectedId(c.versions, c.requested);
+  if (got !== c.expect) {
+    failed++;
+    console.error(`FAIL [resolveInitialSelectedId]: ${c.name}`);
+    console.error(`  requested:  ${JSON.stringify(c.requested)}`);
+    console.error(`  expected:   ${JSON.stringify(c.expect)}`);
+    console.error(`  got:        ${JSON.stringify(got)}`);
+  } else {
+    console.log(`PASS [resolveInitialSelectedId]: ${c.name}`);
+  }
+}
+
 for (const c of cases) {
   const got = pickActiveVersion(c.versions, c.selectedId);
   const ok = JSON.stringify(got) === JSON.stringify(c.expect);
@@ -107,8 +203,9 @@ for (const c of cases) {
   }
 }
 
+const totalCases = cases.length + initialCases.length;
 if (failed > 0) {
-  console.error(`\n${failed} of ${cases.length} cases failed.`);
+  console.error(`\n${failed} of ${totalCases} cases failed.`);
   process.exit(1);
 }
-console.log(`\nAll ${cases.length} cases passed.`);
+console.log(`\nAll ${totalCases} cases passed.`);

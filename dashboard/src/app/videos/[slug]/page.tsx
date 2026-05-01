@@ -11,7 +11,7 @@ import { VideoVersionsView, type VersionInfo } from '@/components/video-versions
 import { PLATFORMS, type Platform } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
-import { pickActiveVersion } from '@/lib/active-version';
+import { pickActiveVersion, resolveInitialSelectedId } from '@/lib/active-version';
 
 interface Script {
   id: string;
@@ -170,11 +170,13 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // Latest = canonical "live" version: drives captions, distribution, cost.
   const latest = versionRows.length > 0 ? versionRows[versionRows.length - 1] : null;
 
-  // Resolve which version is "selected" — `?v=<videoId>` else latest.
+  // Resolve which version is "selected": `?v=<videoId>` if it matches
+  // a known version; otherwise the version currently live on the
+  // website (if any); otherwise the latest. Once a video is published
+  // for this parsha, it becomes the default view — newer drafts are
+  // still in the version chips, just not pre-selected.
   const requestedVid = typeof sp.v === 'string' ? sp.v : null;
-  const initialSelectedId = (requestedVid && versionRows.find((v) => v.videoId === requestedVid))
-    ? requestedVid
-    : (latest?.videoId ?? '');
+  const initialSelectedId = resolveInitialSelectedId(versionRows, requestedVid);
   const compareParam = typeof sp.compare === 'string' ? sp.compare : null;
   const initialCompare = compareParam === '1' && versionRows.length >= 2;
 
