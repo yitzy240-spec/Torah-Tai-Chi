@@ -4,4 +4,8 @@ export function publicVideoUrl(path: string): string {
   return `${SUPABASE_URL}/storage/v1/object/public/videos/${path.replace(/^\/+/, '')}`;
 }
 
+export function publicClipUrl(path: string): string {
+  return `${SUPABASE_URL}/storage/v1/object/public/clips/${path.replace(/^\/+/, '')}`;
+}
+
 export const PLACEHOLDER_THUMB_URL = publicVideoUrl('placeholders/video_placeholder.png');

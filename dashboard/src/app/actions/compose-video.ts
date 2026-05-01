@@ -51,14 +51,20 @@ export async function composeVideo(opts: {
     }
   }
 
-  const { data: refJob } = await supabase
+  const { data: refJobRaw } = await supabase
     .from('jobs')
     .select(
       'id, parsha_id, script_id, motion_ref_slug, model_tier, resolution, ' +
       'partner_parsha_id, topic',
     )
     .eq('id', referenceJobId).single();
-  if (!refJob) return { error: 'Reference job not found.' };
+  if (!refJobRaw) return { error: 'Reference job not found.' };
+  const refJob = refJobRaw as unknown as {
+    id: string; parsha_id: string | null; script_id: string | null;
+    motion_ref_slug: string | null; model_tier: string | null;
+    resolution: string | null; partner_parsha_id: string | null;
+    topic: string | null;
+  };
 
   const { data: composeJob } = await supabase
     .from('jobs').insert({
