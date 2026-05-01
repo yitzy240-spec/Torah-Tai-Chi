@@ -51,7 +51,7 @@ export default async function BookPage() {
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: bookSchemaJson }} />
       <header className="page-header stagger">
-        <div className="page-kicker">THE BOOK</div>
+        <div className="page-kicker">{c['book.kicker']}</div>
         <h1>{title}</h1>
         {subtitle && <p className="page-subtitle"><em>{subtitle}</em></p>}
       </header>
@@ -81,7 +81,7 @@ export default async function BookPage() {
             </a>
           ) : (
             <p className="book-coming-soon" style={{ marginTop: "2rem", fontStyle: "italic", color: "var(--ink-400)" }}>
-              Available soon.
+              {c['book.coming_soon']}
             </p>
           )}
         </div>

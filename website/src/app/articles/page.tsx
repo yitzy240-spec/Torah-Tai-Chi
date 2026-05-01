@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllArticles } from "@/lib/articles";
+import { getSiteContent } from "@/lib/site-content";
 
 // ISR: revalidate every 60 s
 export const revalidate = 60;
@@ -46,13 +47,6 @@ function formatDate(ts: string | null | undefined): string {
 
 type CategoryKey = "all" | "essay" | "teaching" | "reflection";
 
-const CATEGORIES: { key: CategoryKey; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "essay", label: "Essay" },
-  { key: "teaching", label: "Teaching" },
-  { key: "reflection", label: "Reflection" },
-];
-
 function normaliseCategory(raw: string | string[] | undefined): CategoryKey {
   if (!raw) return "all";
   const value = (Array.isArray(raw) ? raw[0] : raw).toLowerCase();
@@ -64,6 +58,14 @@ export default async function ArticlesPage({ searchParams }: ArticlesPageProps) 
   const articles = await getAllArticles();
   const { category: rawCategory } = await searchParams;
   const activeCategory = normaliseCategory(rawCategory);
+  const content = await getSiteContent();
+
+  const CATEGORIES: { key: CategoryKey; label: string }[] = [
+    { key: "all", label: content['articles.category.all'] },
+    { key: "essay", label: content['articles.category.essay'] },
+    { key: "teaching", label: content['articles.category.teaching'] },
+    { key: "reflection", label: content['articles.category.reflection'] },
+  ];
 
   const visibleArticles =
     activeCategory === "all"
@@ -73,10 +75,10 @@ export default async function ArticlesPage({ searchParams }: ArticlesPageProps) 
   return (
     <>
       <header className="page-header stagger">
-        <div className="page-kicker">THE WRITINGS</div>
-        <h1>From the writings</h1>
+        <div className="page-kicker">{content['articles.kicker']}</div>
+        <h1>{content['articles.title']}</h1>
         <p className="page-subtitle">
-          <em>Reflections on where wisdom lives in the body.</em>
+          <em>{content['articles.subtitle']}</em>
         </p>
       </header>
 
@@ -101,7 +103,7 @@ export default async function ArticlesPage({ searchParams }: ArticlesPageProps) 
         {visibleArticles.length === 0 && (
           <p style={{ fontStyle: "italic", color: "var(--ink-400)", fontFamily: "var(--ff-display)" }}>
             {articles.length === 0
-              ? "No articles published yet."
+              ? content['articles.empty.no_articles']
               : `No articles in "${activeCategory}" yet.`}
           </p>
         )}

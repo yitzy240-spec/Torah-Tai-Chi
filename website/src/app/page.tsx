@@ -96,18 +96,18 @@ export default async function HomePage() {
           <div className="hero-cta hero-cta-desktop">
             {thisWeek && (
               <Link href={`/videos/${thisWeek.slug}`} className="btn btn-primary">
-                Play {thisWeek.name} teaching
+                {content['home.cta.play_teaching_template'].replace('{parsha}', thisWeek.name)}
                 <span aria-hidden="true" className="btn-arrow">→</span>
               </Link>
             )}
             {!thisWeek && (
               <Link href="/videos" className="btn btn-primary">
-                Play this week&apos;s teaching
+                {content['home.cta.play_default']}
                 <span aria-hidden="true" className="btn-arrow">→</span>
               </Link>
             )}
             <Link href="/videos" className="hero-cta-link">
-              Explore all parshiot
+              {content['home.cta.explore_all']}
             </Link>
           </div>
         </div>
@@ -115,7 +115,7 @@ export default async function HomePage() {
         <div className="hero-video">
           {thisWeek && (
             <div className="video-parsha-tag">
-              This week: {thisWeek.name}{" "}
+              {content['home.video.this_week_label']} {thisWeek.name}{" "}
               <span className="heb" lang="he" dir="rtl">
                 {thisWeek.hebrewName}
               </span>
@@ -145,7 +145,7 @@ export default async function HomePage() {
               <span className="video-caption-name">{thisWeek.name}</span>
               <span className="video-caption-sep" aria-hidden="true">·</span>
               <span className="video-caption-title">
-                {thisWeek.atightTitle ?? "~45s teaching"}
+                {thisWeek.atightTitle ?? content['home.video.fallback_title']}
               </span>
             </div>
           )}
@@ -156,18 +156,18 @@ export default async function HomePage() {
         <div className="hero-cta hero-cta-mobile">
           {thisWeek && (
             <Link href={`/videos/${thisWeek.slug}`} className="btn btn-primary">
-              Play {thisWeek.name} teaching
+              {content['home.cta.play_teaching_template'].replace('{parsha}', thisWeek.name)}
               <span aria-hidden="true" className="btn-arrow">→</span>
             </Link>
           )}
           {!thisWeek && (
             <Link href="/videos" className="btn btn-primary">
-              Play this week&apos;s teaching
+              {content['home.cta.play_default']}
               <span aria-hidden="true" className="btn-arrow">→</span>
             </Link>
           )}
           <Link href="/videos" className="hero-cta-link">
-            Explore all parshiot
+            {content['home.cta.explore_all']}
           </Link>
         </div>
       </section>
@@ -180,8 +180,8 @@ export default async function HomePage() {
         <div className="divider-line"></div>
         <div className="divider-text">
           <span>
-            <span className="ch">松</span> rooted release, not collapse{" "}
-            <span className="ch">·</span> the craft compounds{" "}
+            <span className="ch">松</span> {content['home.divider.left_phrase']}{" "}
+            <span className="ch">·</span> {content['home.divider.right_phrase']}{" "}
             <span className="ch">勁</span>
           </span>
         </div>
@@ -190,9 +190,9 @@ export default async function HomePage() {
       {/* RECENT VIDEOS */}
       <section className="recent stagger">
         <div className="section-head">
-          <h2>Recent teachings</h2>
+          <h2>{content['home.recent.heading']}</h2>
           <Link href="/videos" className="more">
-            All 54 parshiot →
+            {content['home.recent.cta_label']}
           </Link>
         </div>
         {carouselCards.length > 0 ? (
@@ -208,9 +208,9 @@ export default async function HomePage() {
               padding: "32px 16px",
             }}
           >
-            The first teaching drops this week.{" "}
+            {content['home.recent.empty_message']}{" "}
             <Link href="/videos" style={{ color: "var(--cedar-600)" }}>
-              Browse all 54 parshiot →
+              {content['home.recent.empty_cta']}
             </Link>
           </p>
         )}
@@ -219,9 +219,9 @@ export default async function HomePage() {
       {/* RECENT ARTICLES */}
       <section className="recent stagger" style={{ paddingTop: "88px" }}>
         <div className="section-head">
-          <h2>From the writings</h2>
+          <h2>{content['home.articles.heading']}</h2>
           <Link href="/articles" className="more">
-            All articles →
+            {content['home.articles.cta_label']}
           </Link>
         </div>
         <div className="article-grid">

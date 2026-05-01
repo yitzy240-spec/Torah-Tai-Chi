@@ -5,6 +5,7 @@ import VideoCard from "@/components/VideoCard";
 import ShareRow from "@/components/ShareRow";
 import WatchOnRow from "@/components/WatchOnRow";
 import { videoSchema, breadcrumbSchema } from "@/lib/jsonld";
+import { getSiteContent } from "@/lib/site-content";
 
 // ISR: revalidate every 300 s (5 min); new slugs served on demand
 export const revalidate = 300;
@@ -90,6 +91,8 @@ export default async function VideoDetailPage({ params }: Props) {
     // fallback to empty
   }
 
+  const content = await getSiteContent();
+
   const nearbyList = [nearby.prev, nearby.next].filter(Boolean) as Array<{
     name: string;
     slug: string;
@@ -133,7 +136,7 @@ export default async function VideoDetailPage({ params }: Props) {
       )}
       <div className="back-wrap">
         <Link href="/videos" className="back-link">
-          &larr; All teachings
+          {content['video_detail.back_link']}
         </Link>
       </div>
 
@@ -172,7 +175,7 @@ export default async function VideoDetailPage({ params }: Props) {
                     </svg>
                   </div>
                   <div className="vlabel">
-                    {parsha.name} &middot; coming soon
+                    {parsha.name} &middot; {content['video_detail.coming_soon_suffix']}
                   </div>
                 </>
               )}
@@ -182,7 +185,7 @@ export default async function VideoDetailPage({ params }: Props) {
           <article className="vd-script stagger">
             <div className="vd-script-kicker">
               <span className="bar"></span>
-              The teaching
+              {content['video_detail.script.kicker']}
               <span className="bar"></span>
             </div>
             {scriptParagraphs.length > 0 ? (
@@ -191,27 +194,28 @@ export default async function VideoDetailPage({ params }: Props) {
               ))
             ) : (
               <p>
-                <em>Script coming soon.</em>
+                <em>{content['video_detail.script.empty']}</em>
               </p>
             )}
           </article>
 
           {parsha.postUrls && Object.keys(parsha.postUrls).length > 0 ? (
-            <WatchOnRow postUrls={parsha.postUrls} />
+            <WatchOnRow postUrls={parsha.postUrls} label={content['share.watch_on_label']} />
           ) : (
             <ShareRow
               url={`https://torahtaichi.com/videos/${slug}`}
               title={parsha.atightTitle ?? `${parsha.name} — Torah Tai Chi`}
+              label={content['share.share_label']}
             />
           )}
         </>
       ) : (
         <div style={{ maxWidth: "900px", margin: "0 auto", padding: "48px 48px 0" }}>
           <h1 style={{ fontFamily: "var(--ff-display)", color: "var(--ink-900)" }}>
-            Teaching not found
+            {content['video_detail.not_found.title']}
           </h1>
           <p>
-            <Link href="/videos">Browse all teachings →</Link>
+            <Link href="/videos">{content['video_detail.not_found.cta']}</Link>
           </p>
         </div>
       )}
@@ -220,10 +224,10 @@ export default async function VideoDetailPage({ params }: Props) {
         <section className="more-section">
           <div className="more-head">
             <h2>
-              More <em>teachings</em>
+              {content['video_detail.more.heading_before_em']}<em>{content['video_detail.more.heading_em']}</em>
             </h2>
             <Link href="/videos" className="more">
-              All 54 parshiot &rarr;
+              {content['video_detail.more.cta_label']}
             </Link>
           </div>
           <div className="more-grid stagger">

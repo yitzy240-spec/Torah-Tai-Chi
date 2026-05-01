@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getAllParshiot } from "@/lib/parshiot";
 import { getThisWeekParsha } from "@/lib/hebcal";
 import VideosFilter from "@/components/VideosFilter";
+import { getSiteContent } from "@/lib/site-content";
 
 // ISR: revalidate every 60 s
 export const revalidate = 60;
@@ -38,6 +39,8 @@ export default async function VideosPage() {
     parshiot = [];
   }
 
+  const content = await getSiteContent();
+
   // Feature A: mark which card is current week
   const hebcalParsha = await getThisWeekParsha();
   const currentWeekSlug = hebcalParsha?.slug ?? null;
@@ -54,10 +57,10 @@ export default async function VideosPage() {
   return (
     <>
       <header className="page-header stagger">
-        <div className="page-kicker">THE TEACHINGS</div>
-        <h1>The weekly teachings</h1>
+        <div className="page-kicker">{content['videos.kicker']}</div>
+        <h1>{content['videos.title']}</h1>
         <p className="page-subtitle">
-          <em>Fifty-four parshiot. One cycle through the Torah, told through the body.</em>
+          <em>{content['videos.subtitle']}</em>
         </p>
       </header>
 

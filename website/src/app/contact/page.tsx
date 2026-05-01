@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Brand from "@/components/Brand";
 import { ContactForm } from "./contact-form";
+import { getSiteContent } from "@/lib/site-content";
 
 export const metadata: Metadata = {
   title: "Contact",
@@ -23,21 +24,20 @@ export const metadata: Metadata = {
   },
 };
 
-export default function ContactPage() {
+export default async function ContactPage() {
+  const c = await getSiteContent();
+  const email = c['footer.contact_email'];
   return (
     <>
       <main className="about-wrap stagger">
         <div className="about-kicker">
           <span className="bar"></span>
-          Get in touch
+          {c['contact.kicker']}
         </div>
         <h1>
-          Say <em>hello</em>
+          {c['contact.title.before_em']}<em>{c['contact.title.em']}</em>
         </h1>
-        <p className="about-deck">
-          Questions, collaborations, or just to say hi — we read
-          everything that lands here.
-        </p>
+        <p className="about-deck">{c['contact.deck']}</p>
 
         <ContactForm />
 
@@ -50,12 +50,12 @@ export default function ContactPage() {
             marginTop: "32px",
           }}
         >
-          Or email us directly at{" "}
+          {c['contact.email_intro']}{" "}
           <a
-            href="mailto:info@torahtaichi.com"
+            href={`mailto:${email}`}
             style={{ color: "var(--cedar-600)" }}
           >
-            info@torahtaichi.com
+            {email}
           </a>
           .
         </p>

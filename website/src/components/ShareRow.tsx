@@ -5,6 +5,9 @@ import { useState } from 'react';
 interface Props {
   url: string;
   title: string;
+  /** Heading shown above the share buttons. Falls back to a sensible
+   *  default when omitted so legacy callers keep working. */
+  label?: string;
 }
 
 /**
@@ -14,7 +17,8 @@ interface Props {
  * - Always shows direct WhatsApp / X / Facebook links + a copy-link button
  *   so desktop users have a path too.
  */
-export default function ShareRow({ url, title }: Props) {
+export default function ShareRow({ url, title, label }: Props) {
+  const heading = label ?? "Share this teaching";
   const [copied, setCopied] = useState(false);
   const text = `${title} — Torah Tai Chi`;
 
@@ -46,8 +50,8 @@ export default function ShareRow({ url, title }: Props) {
   const facebookUrl = `https://www.facebook.com/sharer/sharer.php?u=${enc(url)}`;
 
   return (
-    <section className="share-row" aria-label="Share this teaching">
-      <div className="share-label">Share this teaching</div>
+    <section className="share-row" aria-label={heading}>
+      <div className="share-label">{heading}</div>
       <div className="share-buttons">
         {canNativeShare && (
           <button type="button" onClick={onNativeShare} className="share-btn share-btn-primary">

@@ -14,13 +14,11 @@ export default async function SiteFooter() {
             <Brand size={28} />
             <span className="footer-brand-name">Torah Tai Chi</span>
           </Link>
-          <p className="footer-tagline">
-            Where ancient wisdom meets the body. A weekly practice, in under a minute.
-          </p>
+          <p className="footer-tagline">{c['footer.tagline']}</p>
         </div>
 
         <nav className="footer-nav" aria-label="Footer">
-          <span className="footer-nav-title">Explore</span>
+          <span className="footer-nav-title">{c['footer.heading.explore']}</span>
           <Link href="/">Home</Link>
           <Link href="/videos">Videos</Link>
           <Link href="/articles">Articles</Link>
@@ -30,24 +28,24 @@ export default async function SiteFooter() {
         </nav>
 
         <div className="footer-connect">
-          <span className="footer-nav-title">Connect</span>
+          <span className="footer-nav-title">{c['footer.heading.connect']}</span>
           <Link href="/contact" className="footer-contact-link">
-            Contact us
+            {c['footer.label.contact_us']}
           </Link>
-          <a href="mailto:info@torahtaichi.com" className="footer-contact-link">
-            info@torahtaichi.com
+          <a href={`mailto:${c['footer.contact_email']}`} className="footer-contact-link">
+            {c['footer.contact_email']}
           </a>
           <div className="footer-socials">
-            <a href="https://tiktok.com/@torahtaichi" aria-label="TikTok" target="_blank" rel="noopener noreferrer">
+            <a href={c['social.url.tiktok']} aria-label="TikTok" target="_blank" rel="noopener noreferrer">
               <TikTokIcon />
             </a>
-            <a href="https://youtube.com/@torahtaichi" aria-label="YouTube" target="_blank" rel="noopener noreferrer">
+            <a href={c['social.url.youtube']} aria-label="YouTube" target="_blank" rel="noopener noreferrer">
               <YouTubeIcon />
             </a>
-            <a href="https://instagram.com/torahtaichi" aria-label="Instagram" target="_blank" rel="noopener noreferrer">
+            <a href={c['social.url.instagram']} aria-label="Instagram" target="_blank" rel="noopener noreferrer">
               <InstagramIcon />
             </a>
-            <a href="https://facebook.com/torahtaichi" aria-label="Facebook" target="_blank" rel="noopener noreferrer">
+            <a href={c['social.url.facebook']} aria-label="Facebook" target="_blank" rel="noopener noreferrer">
               <FacebookIcon />
             </a>
           </div>

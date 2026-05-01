@@ -45,7 +45,7 @@ export default async function AboutPage() {
       <main className="about-wrap stagger">
         <div className="about-kicker">
           <span className="bar"></span>
-          About the practice
+          {c['about.kicker']}
         </div>
         <h1>{c['about.title']}</h1>
         <p className="about-deck">{c['about.subtitle']}</p>
@@ -55,85 +55,55 @@ export default async function AboutPage() {
             <Brand size={44} />
           </div>
           <div className="about-byline-text">
-            <span className="about-byline-name">A weekly teaching practice</span>
-            <span className="about-byline-meta">
-              Each week we pair a teaching from Torah with a movement from tai
-              chi, and let the two read each other. Sometimes the source is the
-              parsha, sometimes a holiday, sometimes an idea worth turning over.
-              No lecture. No performance. Just a body, a text, and a few minutes
-              of attention.
-            </span>
+            <span className="about-byline-name">{c['about.byline.name']}</span>
+            <span className="about-byline-meta">{c['about.byline.body']}</span>
           </div>
         </aside>
 
         <section className="about-section">
-          <h2>What Torah Tai Chi is</h2>
+          <h2>{c['about.section.what_is.heading']}</h2>
           {paras(c['about.what_is']).map((p, i) => <p key={i}>{p}</p>)}
         </section>
 
         <section className="about-section">
-          <h2>Why the body</h2>
+          <h2>{c['about.section.why_body.heading']}</h2>
           {paras(c['about.why_body']).map((p, i) => <p key={i}>{p}</p>)}
         </section>
 
         <section className="about-section">
-          <h2>How it arrives</h2>
+          <h2>{c['about.section.how_arrives.heading']}</h2>
           {paras(c['about.how_arrives']).map((p, i) => <p key={i}>{p}</p>)}
         </section>
 
         <section className="about-section">
-          <h2>Where to find us</h2>
+          <h2>{c['about.section.where_to_find.heading']}</h2>
           <ul className="social-list">
             <li>
-              <a
-                href="https://tiktok.com/@torahtaichi"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className="si">
-                  <TikTokIcon />
-                </span>
+              <a href={c['social.url.tiktok']} target="_blank" rel="noopener noreferrer">
+                <span className="si"><TikTokIcon /></span>
                 <span className="sn">TikTok</span>
-                <span className="sh">@torahtaichi</span>
+                <span className="sh">{c['social.handle.tiktok']}</span>
               </a>
             </li>
             <li>
-              <a
-                href="https://youtube.com/@torahtaichi"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className="si">
-                  <YouTubeIcon />
-                </span>
+              <a href={c['social.url.youtube']} target="_blank" rel="noopener noreferrer">
+                <span className="si"><YouTubeIcon /></span>
                 <span className="sn">YouTube</span>
-                <span className="sh">@torahtaichi</span>
+                <span className="sh">{c['social.handle.youtube']}</span>
               </a>
             </li>
             <li>
-              <a
-                href="https://instagram.com/torahtaichi"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className="si">
-                  <InstagramIcon />
-                </span>
+              <a href={c['social.url.instagram']} target="_blank" rel="noopener noreferrer">
+                <span className="si"><InstagramIcon /></span>
                 <span className="sn">Instagram</span>
-                <span className="sh">@torahtaichi</span>
+                <span className="sh">{c['social.handle.instagram']}</span>
               </a>
             </li>
             <li>
-              <a
-                href="https://facebook.com/torahtaichi"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <span className="si">
-                  <FacebookIcon />
-                </span>
+              <a href={c['social.url.facebook']} target="_blank" rel="noopener noreferrer">
+                <span className="si"><FacebookIcon /></span>
                 <span className="sn">Facebook</span>
-                <span className="sh">/torahtaichi</span>
+                <span className="sh">{c['social.handle.facebook']}</span>
               </a>
             </li>
           </ul>
@@ -141,20 +111,18 @@ export default async function AboutPage() {
 
         {/* Next-step CTAs so readers don't hit a dead end */}
         <section className="about-next">
-          <h2 className="about-next-title">Keep going</h2>
-          <p className="about-next-deck">
-            The practice lives in the weekly teachings. Start there.
-          </p>
+          <h2 className="about-next-title">{c['about.next.heading']}</h2>
+          <p className="about-next-deck">{c['about.next.deck']}</p>
           <div className="about-next-ctas">
             <Link href="/videos" className="btn btn-primary">
-              Watch this week&apos;s teaching
+              {c['about.next.cta_videos']}
               <span aria-hidden="true" className="btn-arrow">→</span>
             </Link>
             <Link href="/articles" className="hero-cta-link">
-              Read the writings
+              {c['about.next.cta_articles']}
             </Link>
-            <a href="mailto:info@torahtaichi.com" className="hero-cta-link">
-              Get in touch
+            <a href={`mailto:${c['footer.contact_email']}`} className="hero-cta-link">
+              {c['about.next.cta_contact']}
             </a>
           </div>
         </section>

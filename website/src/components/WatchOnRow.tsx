@@ -2,6 +2,8 @@ import type { Parsha } from "@/lib/parshiot";
 
 interface Props {
   postUrls: NonNullable<Parsha["postUrls"]>;
+  /** Heading shown above the buttons. Falls back to a default. */
+  label?: string;
 }
 
 const PLATFORM_ORDER: Array<keyof NonNullable<Parsha["postUrls"]>> = [
@@ -26,15 +28,16 @@ const PLATFORM_LABEL: Record<string, string> = {
  * results). Shows one button per platform that has a URL — missing
  * platforms are silently hidden.
  */
-export default function WatchOnRow({ postUrls }: Props) {
+export default function WatchOnRow({ postUrls, label }: Props) {
+  const heading = label ?? "Watch on";
   const platforms = PLATFORM_ORDER.filter(
     (p) => typeof postUrls[p] === "string" && postUrls[p]!.length > 0,
   );
   if (platforms.length === 0) return null;
 
   return (
-    <section className="share-row" aria-label="Watch this teaching on">
-      <div className="share-label">Watch on</div>
+    <section className="share-row" aria-label={heading}>
+      <div className="share-label">{heading}</div>
       <div className="share-buttons">
         {platforms.map((p) => {
           const url = postUrls[p]!;
