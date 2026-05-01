@@ -14,6 +14,13 @@ interface ScheduleAllSheetProps {
   mode?: 'now' | 'schedule';
   /** Visual variant for the trigger: solid navy ('primary') or outline. */
   variant?: 'primary' | 'secondary';
+  /** When true and shareNow is true, scheduleAll ALSO flips
+   *  published_to_website. This prop drives the UI hint that explains
+   *  it; the actual flip happens server-side. */
+  alreadyPublishedToWebsite?: boolean;
+  /** Passed through to scheduleAll for revalidation when site-publish
+   *  bundles in. */
+  parshaSlug?: string;
 }
 
 /** Returns the next Friday at 18:00 local time */
@@ -40,7 +47,10 @@ function formatFriendly(d: Date): string {
   return `${dayNames[d.getDay()]} ${monthNames[d.getMonth()]} ${d.getDate()} at ${h12}:${String(d.getMinutes()).padStart(2,'0')}${ampm}`;
 }
 
-export function ScheduleAllSheet({ videoId, captions, bufferConfigured, mode = 'schedule', variant = 'primary' }: ScheduleAllSheetProps) {
+export function ScheduleAllSheet({
+  videoId, captions, bufferConfigured, mode = 'schedule', variant = 'primary',
+  alreadyPublishedToWebsite, parshaSlug,
+}: ScheduleAllSheetProps) {
   const defaultDate = nextFriday6pm();
   const [open, setOpen] = useState(false);
   const [notConfiguredOpen, setNotConfiguredOpen] = useState(false);
@@ -79,7 +89,9 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured, mode = '
     setError(null);
     startTransition(async () => {
       const d = shareNow ? new Date() : new Date(scheduledAt);
-      const result = await scheduleAll({ videoId, scheduledAt: d, captions, shareNow });
+      const result = await scheduleAll({
+        videoId, scheduledAt: d, captions, shareNow, parshaSlug,
+      });
       if (result.error === 'BUFFER_NOT_CONFIGURED') {
         closeSheet();
         setNotConfiguredOpen(true);
@@ -91,15 +103,22 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured, mode = '
       }
       closeSheet();
       const count = result.results?.length ?? 0;
+      const sitePart = result.alsoPublishedToSite
+        ? ' and torahtaichi.com'
+        : '';
       setToastMsg(
         shareNow
-          ? `Posting to ${count} channel${count !== 1 ? 's' : ''} now`
+          ? `Posting to ${count} channel${count !== 1 ? 's' : ''}${sitePart}`
           : `Scheduled to ${count} channel${count !== 1 ? 's' : ''} for ${formatFriendly(d)}`,
       );
       setToastVisible(true);
       setTimeout(() => setToastVisible(false), 4000);
     });
   };
+
+  const willPublishSiteToo = (
+    shareNow && !alreadyPublishedToWebsite
+  );
 
   const scheduledDate = new Date(scheduledAt);
 
@@ -280,9 +299,28 @@ export function ScheduleAllSheet({ videoId, captions, bufferConfigured, mode = '
           </div>
 
           {shareNow ? (
-            <p style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: 'var(--ink-500)', margin: 0, fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
-              Posts publish immediately to every connected channel.
-            </p>
+            <>
+              <p style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: 'var(--ink-500)', margin: 0, fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
+                Posts publish immediately to every connected channel.
+              </p>
+              {willPublishSiteToo && (
+                <p
+                  style={{
+                    fontFamily: 'var(--ff-body)',
+                    fontSize: '12.5px',
+                    color: 'var(--ink-700)',
+                    margin: '8px 0 0 0',
+                    padding: '8px 10px',
+                    border: '1px solid rgba(46,125,94,.25)',
+                    background: 'rgba(46,125,94,.06)',
+                    borderRadius: '6px',
+                  }}
+                >
+                  This will also publish the video to torahtaichi.com
+                  (replacing any earlier version of this parsha).
+                </p>
+              )}
+            </>
           ) : (
             <>
               <label
