@@ -13,6 +13,7 @@ import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 import { pickActiveVersion, resolveInitialSelectedId } from '@/lib/active-version';
 import { getConnectedPlatforms } from '@/lib/connected-platforms';
+import { refreshVideoPostUrls } from '@/lib/refresh-post-urls';
 
 interface Script {
   id: string;
@@ -255,6 +256,18 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const videoId: string | null = selectedRow?.videoId ?? null;
   const videoPublishedToSite: boolean = selectedRow?.publishedToWebsite ?? false;
   const videoCostUsd = latest?.totalCostUsd ?? null;
+
+  // Best-effort: catch up Buffer-backed post URLs so videos.post_urls
+  // (read by the public website to render 'Watch on TikTok' / etc.
+  // buttons) stays current. Early-returns when there's nothing to do,
+  // so the cost is one DB query in the steady state.
+  if (videoId) {
+    try {
+      await refreshVideoPostUrls(videoId);
+    } catch (e) {
+      console.warn('[refreshVideoPostUrls] failed:', e);
+    }
+  }
 
   // Which platforms are actually wired up (Buffer + YouTube). Drives
   // the captions list (hide unconfigured) and the post-now sheet

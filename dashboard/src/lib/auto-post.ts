@@ -25,6 +25,39 @@ function actorForPlatform(platform: Platform): EventActor {
   return platform === 'youtube' ? 'youtube' : 'buffer';
 }
 
+/**
+ * Merge a single platform → URL entry into videos.post_urls (jsonb).
+ * Best-effort: failures are logged but never throw. The public website
+ * reads post_urls to show 'Watch on TikTok' / 'Watch on YouTube' / etc.
+ * buttons; missing keys just hide that button.
+ */
+async function mergePostUrl(
+  supabase: ReturnType<typeof createServiceClient>,
+  videoId: string,
+  platform: string,
+  url: string,
+): Promise<void> {
+  try {
+    const { data: row } = await supabase
+      .from('videos')
+      .select('post_urls')
+      .eq('id', videoId)
+      .maybeSingle();
+    const current = (row?.post_urls as Record<string, string> | null) ?? {};
+    if (current[platform] === url) return; // no-op
+    const next = { ...current, [platform]: url };
+    await supabase
+      .from('videos')
+      .update({ post_urls: next })
+      .eq('id', videoId);
+  } catch (e) {
+    console.warn(
+      `[mergePostUrl] failed for ${platform} ${videoId}:`,
+      (e as Error).message,
+    );
+  }
+}
+
 async function withRetry<T>(fn: () => Promise<T>, delays = [200, 1000]): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i <= delays.length; i++) {
@@ -284,14 +317,19 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
           tags: ['Torah', 'Tai Chi', 'Shorts'],
         }));
 
+        const youtubeUrl = `https://youtube.com/shorts/${ytVideo.id}`;
         await supabase.from('posts').insert({
           video_id: args.videoId,
           platform: 'youtube',
           buffer_update_id: ytVideo.id,
+          post_url: youtubeUrl,
           scheduled_at: args.scheduledAt.toISOString(),
           status: args.shareNow ? 'published' : 'scheduled',
           caption,
         });
+        // YouTube URL is deterministic at upload time, so denormalize it
+        // onto videos.post_urls immediately for the public website to use.
+        await mergePostUrl(supabase, args.videoId, 'youtube', youtubeUrl);
 
         results.push({ platform: 'youtube', externalId: ytVideo.id });
         await logEvent({

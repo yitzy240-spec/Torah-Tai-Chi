@@ -26,6 +26,11 @@ export interface Parsha {
    *  the dashboard caption editor). Falls back to atightScript when
    *  unset. */
   websiteCaption?: string | null;
+  /** Per-platform direct URLs for the post on each network (filled in by
+   *  the dashboard from autoPost results). Keys: tiktok, instagram,
+   *  youtube, facebook, twitter. Missing keys = no post on that platform
+   *  (or not yet resolved); the website hides the corresponding button. */
+  postUrls?: Partial<Record<'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'twitter', string>>;
 }
 
 // All known slugs for generateStaticParams fallback
@@ -66,7 +71,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       .eq("option", "A-tight"),
     client
       .from("videos")
-      .select("parsha_id, thumb_path, mp4_path, website_caption, spoken_script")
+      .select("parsha_id, thumb_path, mp4_path, website_caption, spoken_script, post_urls")
       .in("parsha_id", parshaIds),
   ]);
 
@@ -79,18 +84,23 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   const videoMap = new Map<string, string | null>();
   const captionMap = new Map<string, string | null>();
   const spokenScriptMap = new Map<string, string | null>();
+  const postUrlsMap = new Map<string, Parsha["postUrls"]>();
   for (const v of (videosResult.data ?? []) as Array<{
     parsha_id: string | null;
     thumb_path: string | null;
     mp4_path: string | null;
     website_caption: string | null;
     spoken_script: string | null;
+    post_urls: Record<string, string> | null;
   }>) {
     if (!v.parsha_id) continue;
     if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
     if (v.mp4_path) videoMap.set(v.parsha_id, v.mp4_path);
     if (v.website_caption) captionMap.set(v.parsha_id, v.website_caption);
     if (v.spoken_script) spokenScriptMap.set(v.parsha_id, v.spoken_script);
+    if (v.post_urls && Object.keys(v.post_urls).length > 0) {
+      postUrlsMap.set(v.parsha_id, v.post_urls as Parsha["postUrls"]);
+    }
   }
 
   return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string }) => {
@@ -112,6 +122,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
       videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
       websiteCaption: captionMap.get(row.id) ?? null,
+      postUrls: postUrlsMap.get(row.id),
     };
   });
 }
@@ -142,7 +153,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     // public-readable anyway.
     client
       .from("videos")
-      .select("thumb_path, mp4_path, website_caption, spoken_script")
+      .select("thumb_path, mp4_path, website_caption, spoken_script, post_urls")
       .eq("parsha_id", parshaData.id)
       .maybeSingle(),
   ]);
@@ -151,6 +162,8 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
   const mp4Path = videoResult.data?.mp4_path ?? null;
   const spoken = (videoResult.data as { spoken_script?: string | null } | null)
     ?.spoken_script ?? null;
+  const postUrlsRaw = (videoResult.data as { post_urls?: Record<string, string> | null } | null)
+    ?.post_urls ?? null;
 
   return {
     id: parshaData.id,
@@ -164,6 +177,9 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
     videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
     websiteCaption: videoResult.data?.website_caption ?? null,
+    postUrls: postUrlsRaw && Object.keys(postUrlsRaw).length > 0
+      ? (postUrlsRaw as Parsha["postUrls"])
+      : undefined,
   };
 }
 

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getAllParshiot, getParshaBySlug, getNearbyParshiot, ALL_PARSHA_SLUGS } from "@/lib/parshiot";
 import VideoCard from "@/components/VideoCard";
 import ShareRow from "@/components/ShareRow";
+import WatchOnRow from "@/components/WatchOnRow";
 import { videoSchema, breadcrumbSchema } from "@/lib/jsonld";
 
 // ISR: revalidate every 300 s (5 min); new slugs served on demand
@@ -175,10 +176,6 @@ export default async function VideoDetailPage({ params }: Props) {
             </div>
           </div>
 
-          {parsha.websiteCaption && (
-            <p className="vd-deck stagger">{parsha.websiteCaption}</p>
-          )}
-
           <article className="vd-script stagger">
             <div className="vd-script-kicker">
               <span className="bar"></span>
@@ -196,10 +193,14 @@ export default async function VideoDetailPage({ params }: Props) {
             )}
           </article>
 
-          <ShareRow
-            url={`https://torahtaichi.com/videos/${slug}`}
-            title={parsha.atightTitle ?? `${parsha.name} — Torah Tai Chi`}
-          />
+          {parsha.postUrls && Object.keys(parsha.postUrls).length > 0 ? (
+            <WatchOnRow postUrls={parsha.postUrls} />
+          ) : (
+            <ShareRow
+              url={`https://torahtaichi.com/videos/${slug}`}
+              title={parsha.atightTitle ?? `${parsha.name} — Torah Tai Chi`}
+            />
+          )}
         </>
       ) : (
         <div style={{ maxWidth: "900px", margin: "0 auto", padding: "48px 48px 0" }}>
