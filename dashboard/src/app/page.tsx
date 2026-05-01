@@ -252,11 +252,16 @@ async function loadPostingData(parshaId: string): Promise<PostingData | null> {
   }
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  // ORDER BY created_at DESC so the .find() below grabs the LATEST
+  // attempt per platform. Without this, a failed first attempt sticks
+  // in the UI even after a successful retry — we keep both rows in
+  // posts for audit but only the freshest matters for status display.
   const { data: recentPosts } = await supabase
     .from('posts')
-    .select('platform, status, scheduled_at, published_at')
+    .select('platform, status, scheduled_at, published_at, created_at')
     .eq('video_id', videoId)
-    .gte('created_at', sevenDaysAgo);
+    .gte('created_at', sevenDaysAgo)
+    .order('created_at', { ascending: false });
   const postsByPlatform: Partial<Record<Platform, PostState | null>> = {};
   for (const p of PLATFORMS) {
     const row = (recentPosts ?? []).find((r) => r.platform === p);
