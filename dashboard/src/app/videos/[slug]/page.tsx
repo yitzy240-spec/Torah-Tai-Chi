@@ -12,6 +12,7 @@ import { PLATFORMS, type Platform } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 import { pickActiveVersion, resolveInitialSelectedId } from '@/lib/active-version';
+import { getConnectedPlatforms } from '@/lib/connected-platforms';
 
 interface Script {
   id: string;
@@ -254,6 +255,11 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const videoId: string | null = selectedRow?.videoId ?? null;
   const videoPublishedToSite: boolean = selectedRow?.publishedToWebsite ?? false;
   const videoCostUsd = latest?.totalCostUsd ?? null;
+
+  // Which platforms are actually wired up (Buffer + YouTube). Drives
+  // the captions list (hide unconfigured) and the post-now sheet
+  // (don't claim we'll post to channels that aren't connected).
+  const connectedPlatforms = await getConnectedPlatforms();
 
   // Confirm-dialog context for the publish toggle: which version Yonah
   // is about to publish, and what (if anything) it'll replace on the
@@ -730,6 +736,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             jobId={latestJobId}
             captions={captions}
             parshaSlug={parsha.slug}
+            connectedPlatforms={connectedPlatforms}
           />
         </div>
 

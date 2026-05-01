@@ -10,9 +10,14 @@ interface Props {
   jobId: string | null;
   captions: Partial<Record<Platform, string>>;
   parshaSlug?: string;
+  /** Platforms that are actually wired up (Buffer profile or YouTube
+   *  OAuth). Captions for platforms not in this list are hidden so
+   *  Yonah doesn't waste time editing copy that won't post anywhere.
+   *  When undefined, all platforms render (backwards-compat). */
+  connectedPlatforms?: Platform[];
 }
 
-export function CaptionsList({ jobId, captions, parshaSlug }: Props) {
+export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }: Props) {
   const [editingPlatform, setEditingPlatform] = useState<Platform | null>(null);
   const [draft, setDraft] = useState('');
   const [isPending, startTransition] = useTransition();
@@ -50,7 +55,8 @@ export function CaptionsList({ jobId, captions, parshaSlug }: Props) {
     });
   };
 
-  const rows = PLATFORMS
+  const allowedPlatforms: readonly Platform[] = connectedPlatforms ?? PLATFORMS;
+  const rows = allowedPlatforms
     .map((p) => ({ platform: p, caption: captions[p] ?? null }))
     .filter((r): r is { platform: Platform; caption: string } => !!r.caption);
 
