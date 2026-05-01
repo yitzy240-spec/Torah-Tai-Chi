@@ -10,12 +10,16 @@ import { revalidatePath } from 'next/cache';
  * torahtaichi.com filters unpublished rows out, so this is the single
  * gate Yonah controls before a video goes live.
  *
- * Invariant: at most ONE video per parsha is published at a time. When
- * setting published=true, any other video for the same parsha that is
- * currently published gets unpublished first. This stops the website
- * from showing two competing takes of the same parsha (e.g. when Yonah
- * publishes a freshly-composed v5 of Emor, the previously-live v2
- * comes down automatically).
+ * Invariants:
+ *   1. At most ONE video per parsha is published at a time. Sibling
+ *      versions are unpublished automatically before the new one goes
+ *      live, so the public site never has two competing takes.
+ *   2. When publishing, snapshot the clip-plan voiceovers into
+ *      videos.spoken_script. The website renders that text on the video
+ *      page; without the snapshot it would show the original script,
+ *      which can drift from per-clip-edited regens.
+ *   3. Bust the public website's ISR cache so the publish/unpublish
+ *      reflects immediately instead of waiting up to 60 s.
  *
  * Service-role write because the existing 'authed all videos' policy
  * applies to authenticated users — but the publish gate is a
@@ -44,10 +48,11 @@ export async function setVideoPublished(
     if (vErr || !videoRow) {
       return { error: vErr?.message ?? 'Video not found' };
     }
+    const jobId = videoRow.job_id as string;
     const { data: jobRow, error: jErr } = await sb
       .from('jobs')
       .select('parsha_id')
-      .eq('id', videoRow.job_id as string)
+      .eq('id', jobId)
       .single();
     if (jErr || !jobRow) {
       return { error: jErr?.message ?? 'Job not found for video' };
@@ -55,8 +60,7 @@ export async function setVideoPublished(
     const parshaId = jobRow.parsha_id as string | null;
 
     // If this video belongs to a parsha, unpublish any sibling videos
-    // that are currently live. We do this even if no siblings exist —
-    // the eq() filter just no-ops in that case.
+    // that are currently live.
     if (parshaId) {
       const { data: siblingJobs } = await sb
         .from('jobs')
@@ -78,6 +82,34 @@ export async function setVideoPublished(
         );
       }
     }
+
+    // Snapshot the spoken script from the latest clip_plan for this
+    // job. Per-clip surgery edits land on individual clip voiceovers,
+    // so concatenating them gives an accurate transcript of what's in
+    // the published video — the original scripts.draft_text would only
+    // reflect the FIRST generation.
+    const { data: planRow } = await sb
+      .from('clip_plans')
+      .select('plan_json')
+      .eq('job_id', jobId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const planJson = (planRow?.plan_json ?? {}) as {
+      clips?: Array<{ index?: number; voiceover?: string }>;
+    };
+    const ordered = [...(planJson.clips ?? [])]
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const spoken = ordered
+      .map((c) => (c.voiceover ?? '').trim())
+      .filter(Boolean)
+      .join('\n\n');
+    if (spoken) {
+      await sb
+        .from('videos')
+        .update({ spoken_script: spoken })
+        .eq('id', videoId);
+    }
   }
 
   const { error } = await sb
@@ -88,6 +120,32 @@ export async function setVideoPublished(
 
   if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`);
   revalidatePath('/');
+
+  // Bust the public website's ISR cache. Fire-and-forget — failures
+  // here shouldn't block the publish (the website will catch up on its
+  // 60 s ISR window even if this call fails).
+  if (parshaSlug) {
+    const websiteUrl = process.env.WEBSITE_REVALIDATE_URL;
+    const websiteSecret = process.env.WEBSITE_REVALIDATE_SECRET
+      ?? process.env.STORYBLOK_WEBHOOK_SECRET;
+    if (websiteUrl && websiteSecret) {
+      const hit = (full_slug: string) => fetch(websiteUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'webhook-signature': websiteSecret,
+        },
+        body: JSON.stringify({ full_slug }),
+        signal: AbortSignal.timeout(5000),
+      }).catch((e) => {
+        console.warn(
+          `[setVideoPublished] website revalidate ${full_slug} failed:`, e,
+        );
+      });
+      // Both the parsha video page and the homepage list need to refresh.
+      await Promise.all([hit(`videos/${parshaSlug}`), hit('')]);
+    }
+  }
 
   return { replacedVideoIds };
 }

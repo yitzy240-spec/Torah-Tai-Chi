@@ -9,6 +9,11 @@ export interface Parsha {
   slug: string;
   book: string;
   hebrewName: string;
+  /** Script text shown on the video page. Prefers
+   *  videos.spoken_script (the transcript snapshot taken at publish
+   *  time, accurate for the live version even after per-clip regens).
+   *  Falls back to scripts.draft_text when no published video exists or
+   *  the snapshot wasn't written. */
   atightScript?: string;
   atightTitle?: string;
   /** Feature B: full public URL for the video thumbnail, or null if none yet */
@@ -61,7 +66,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       .eq("option", "A-tight"),
     client
       .from("videos")
-      .select("parsha_id, thumb_path, mp4_path, website_caption")
+      .select("parsha_id, thumb_path, mp4_path, website_caption, spoken_script")
       .in("parsha_id", parshaIds),
   ]);
 
@@ -73,22 +78,26 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   const thumbMap = new Map<string, string | null>();
   const videoMap = new Map<string, string | null>();
   const captionMap = new Map<string, string | null>();
+  const spokenScriptMap = new Map<string, string | null>();
   for (const v of (videosResult.data ?? []) as Array<{
     parsha_id: string | null;
     thumb_path: string | null;
     mp4_path: string | null;
     website_caption: string | null;
+    spoken_script: string | null;
   }>) {
     if (!v.parsha_id) continue;
     if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
     if (v.mp4_path) videoMap.set(v.parsha_id, v.mp4_path);
     if (v.website_caption) captionMap.set(v.parsha_id, v.website_caption);
+    if (v.spoken_script) spokenScriptMap.set(v.parsha_id, v.spoken_script);
   }
 
   return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string }) => {
     const script = scriptMap.get(row.id);
     const thumbPath = thumbMap.get(row.id) ?? null;
     const mp4Path = videoMap.get(row.id) ?? null;
+    const spoken = spokenScriptMap.get(row.id) ?? null;
     return {
       id: row.id,
       order: row.order,
@@ -96,7 +105,9 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       slug: row.slug,
       book: row.book,
       hebrewName: HEBREW_NAMES[row.slug] ?? "",
-      atightScript: script?.draft_text,
+      // Prefer the spoken-script snapshot (matches the live video's
+      // actual voiceovers); fall back to the draft when none exists yet.
+      atightScript: spoken ?? script?.draft_text,
       atightTitle: script?.title,
       thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
       videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
@@ -131,13 +142,15 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     // public-readable anyway.
     client
       .from("videos")
-      .select("thumb_path, mp4_path, website_caption")
+      .select("thumb_path, mp4_path, website_caption, spoken_script")
       .eq("parsha_id", parshaData.id)
       .maybeSingle(),
   ]);
 
   const thumbPath = videoResult.data?.thumb_path ?? null;
   const mp4Path = videoResult.data?.mp4_path ?? null;
+  const spoken = (videoResult.data as { spoken_script?: string | null } | null)
+    ?.spoken_script ?? null;
 
   return {
     id: parshaData.id,
@@ -146,7 +159,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     slug: parshaData.slug,
     book: parshaData.book,
     hebrewName: HEBREW_NAMES[parshaData.slug] ?? "",
-    atightScript: scriptResult.data?.draft_text,
+    atightScript: spoken ?? scriptResult.data?.draft_text,
     atightTitle: scriptResult.data?.title,
     thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
     videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,

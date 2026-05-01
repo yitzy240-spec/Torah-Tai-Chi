@@ -382,15 +382,18 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
     }
   }
 
-  // Fetch post statuses for last 7 days (latest video only — we don't post
-  // older versions).
+  // Fetch post statuses for last 7 days. ORDER BY created_at DESC so the
+  // .find() below grabs the LATEST attempt per platform — without this,
+  // a failed first attempt sticks in the UI even after a successful retry
+  // (we keep both rows in `posts` for audit).
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: recentPosts } = videoId
     ? await supabase
         .from('posts')
-        .select('platform, status, scheduled_at, published_at, buffer_update_id')
+        .select('platform, status, scheduled_at, published_at, buffer_update_id, created_at')
         .eq('video_id', videoId)
         .gte('created_at', sevenDaysAgo)
+        .order('created_at', { ascending: false })
     : { data: null };
 
   const postsByPlatform = Object.fromEntries(
