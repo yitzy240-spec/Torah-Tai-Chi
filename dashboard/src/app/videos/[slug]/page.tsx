@@ -11,6 +11,7 @@ import { VideoVersionsView, type VersionInfo } from '@/components/video-versions
 import { PLATFORMS, type Platform } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
+import { pickActiveVersion } from '@/lib/active-version';
 
 interface Script {
   id: string;
@@ -240,13 +241,16 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
     });
   }
 
-  // Latest version drives the captions panel (per-platform copy) and the
-  // distribution panel (Buffer/YouTube schedule status). These are tied to
-  // the canonical published version of the video.
+  // Latest drives display panels (captions, cost, distribution status).
+  // SELECTED drives action controls (publish toggle, schedule sheets) so
+  // that "publish now" and "schedule" act on the version the user is
+  // viewing, not silently on the latest. When no ?v= is set, selected
+  // falls back to latest, so the default behavior is unchanged.
   const latestVersionInfo = versionInfos.length > 0 ? versionInfos[versionInfos.length - 1] : null;
   const latestJobId = latest?.jobId ?? null;
-  const videoId: string | null = latest?.videoId ?? null;
-  const videoPublishedToSite: boolean = latest?.publishedToWebsite ?? false;
+  const selectedRow = pickActiveVersion(versionRows, initialSelectedId);
+  const videoId: string | null = selectedRow?.videoId ?? null;
+  const videoPublishedToSite: boolean = selectedRow?.publishedToWebsite ?? false;
   const videoCostUsd = latest?.totalCostUsd ?? null;
 
   // Also check for an in-flight job so the production arc reflects real state
