@@ -184,27 +184,37 @@ interface PostingData {
 async function loadPostingData(parshaId: string): Promise<PostingData | null> {
   const supabase = await createClient();
 
-  const { data: rawJob } = await supabase
+  // Pull every done job + its video for this parsha. We need to pick
+  // the one whose state actually drives the homepage — the published
+  // version if any, else the latest draft. Reading just the latest
+  // row meant the Today panel showed 'Not posted / Off site / Not
+  // scheduled' for parshiot whose posts went out from an older version.
+  const { data: doneJobs } = await supabase
     .from('jobs')
     .select(
-      'id, status, script_id, total_cost_usd, ' +
+      'id, status, script_id, total_cost_usd, triggered_at, ' +
       'videos(id, mp4_path, thumb_path, published_to_website), ' +
       'scripts(option)',
     )
     .eq('parsha_id', parshaId)
     .eq('status', 'done')
-    .order('triggered_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order('triggered_at', { ascending: false });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const latestJob = rawJob as any;
-  if (!latestJob) return null;
+  const rows = (doneJobs ?? []).flatMap((j: any) => {
+    const v = (Array.isArray(j.videos) ? j.videos[0] : j.videos) ?? null;
+    if (!v?.id) return [];
+    return [{ job: j, video: v }];
+  });
+  if (rows.length === 0) return null;
 
-  const videoRel = latestJob.videos;
-  const video = (Array.isArray(videoRel) ? videoRel[0] : videoRel) ?? null;
-  const videoId: string | null = video?.id ?? null;
-  if (!videoId) return null;
+  // Published version wins. Falls back to latest done job when nothing
+  // is published yet (the original behavior, preserved for first-runs).
+  const chosen = rows.find((r) => !!r.video.published_to_website) ?? rows[0];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const latestJob = chosen.job as any;
+  const video = chosen.video;
+  const videoId: string = video.id;
 
   const scriptRel = latestJob.scripts;
   const scriptRow = (Array.isArray(scriptRel) ? scriptRel[0] : scriptRel) ?? null;
