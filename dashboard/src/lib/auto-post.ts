@@ -139,8 +139,10 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         channelId: profile.id,
         text: caption,
         mediaUrl,
+        mediaType: 'video',
         scheduledAt: args.shareNow ? undefined : args.scheduledAt,
         shareNow: args.shareNow,
+        channelService: platform,
       }));
 
       await supabase.from('posts').insert({
