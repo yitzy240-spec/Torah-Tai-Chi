@@ -8,7 +8,7 @@ import { PublishToSiteToggle } from '@/components/publish-to-site-toggle';
 import { ScriptCarousel } from '@/components/script-carousel';
 import type { FeedbackClip } from '@/components/video-feedback';
 import { VideoVersionsView, type VersionInfo } from '@/components/video-versions-view';
-import { PLATFORMS, type Platform } from '@/lib/platforms';
+import { PLATFORMS, type Platform, type CaptionField } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 import { pickActiveVersion, resolveInitialSelectedId } from '@/lib/active-version';
@@ -328,6 +328,13 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const typicalRun = computeTypicalRun(doneJobsForTiming ?? []);
 
   // Captions (per-platform copy) come from the LATEST job's clip_plan.
+  // Per-FIELD shape: youtube_title and youtube_description are kept
+  // distinct so the editor can let Yonah change each independently and
+  // YouTube uploads use the right field for the right slot.
+  const captionFields: Partial<Record<CaptionField, string>> = {};
+  // Legacy compat: also build a flattened captions: Partial<Record<Platform,string>>
+  // for places that still consume the per-platform shape (e.g. the old
+  // schedule sheet preview before this refactor extends to it).
   const captions: Partial<Record<Platform, string>> = {};
   if (latestJobId) {
     const { data: latestPlanRow } = await supabase
@@ -348,10 +355,26 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
       };
     };
     const src = planJson.captions ?? {};
-    if (src.tiktok) captions.tiktok = src.tiktok;
-    if (src.instagram) captions.instagram = src.instagram;
-    if (src.facebook) captions.facebook = src.facebook;
-    if (src.twitter) captions.twitter = src.twitter;
+    if (src.tiktok) {
+      captionFields.tiktok = src.tiktok;
+      captions.tiktok = src.tiktok;
+    }
+    if (src.instagram) {
+      captionFields.instagram = src.instagram;
+      captions.instagram = src.instagram;
+    }
+    if (src.facebook) {
+      captionFields.facebook = src.facebook;
+      captions.facebook = src.facebook;
+    }
+    if (src.twitter) {
+      captionFields.twitter = src.twitter;
+      captions.twitter = src.twitter;
+    }
+    if (src.youtube_title) captionFields.youtube_title = src.youtube_title;
+    if (src.youtube_description) {
+      captionFields.youtube_description = src.youtube_description;
+    }
     if (src.youtube_title || src.youtube_description) {
       const title = (src.youtube_title ?? '').trim();
       const desc = (src.youtube_description ?? '').trim();
@@ -772,7 +795,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
           </p>
           <CaptionsList
             jobId={latestJobId}
-            captions={captions}
+            captions={captionFields}
             parshaSlug={parsha.slug}
             connectedPlatforms={connectedPlatforms}
           />

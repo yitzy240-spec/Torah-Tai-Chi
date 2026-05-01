@@ -2,20 +2,22 @@
 
 import { createServiceClient } from '@/lib/supabase/service';
 import { revalidatePath } from 'next/cache';
-import type { Platform } from '@/lib/platforms';
+import type { CaptionField } from '@/lib/platforms';
 
 interface UpdateCaptionArgs {
   jobId: string;
-  platform: Platform;
+  /** Which caption field to update. YouTube has two distinct fields
+   *  (youtube_title + youtube_description); all other platforms have a
+   *  single field that matches the platform name. */
+  field: CaptionField;
   text: string;
   parshaSlug?: string;
 }
 
 /**
- * Update one platform's caption inside the latest clip_plan for a job.
- * YouTube is special: the UI edits the joined "title\ndescription" string,
- * so we split on the first newline and write back youtube_title +
- * youtube_description (matches the shape Modal originally writes).
+ * Update one caption field inside the latest clip_plan for a job.
+ * Each field is stored separately in plan_json.captions, including
+ * youtube_title and youtube_description (no flatten/split).
  *
  * Service-role client because RLS on clip_plans is authenticated-all but
  * captions live in plan_json — keeping writes on the service-role side
@@ -39,19 +41,7 @@ export async function updateCaption(
 
   const planJson = (planRow.plan_json ?? {}) as Record<string, unknown>;
   const captions = { ...((planJson.captions as Record<string, string>) ?? {}) };
-
-  if (args.platform === 'youtube') {
-    const idx = args.text.indexOf('\n');
-    if (idx === -1) {
-      captions.youtube_title = args.text;
-      captions.youtube_description = '';
-    } else {
-      captions.youtube_title = args.text.slice(0, idx);
-      captions.youtube_description = args.text.slice(idx + 1);
-    }
-  } else {
-    captions[args.platform] = args.text;
-  }
+  captions[args.field] = args.text;
 
   const newPlan = { ...planJson, captions };
 
@@ -65,7 +55,7 @@ export async function updateCaption(
   // Mirror Instagram caption -> videos.website_caption so the public
   // website always reads the latest copy without needing access to
   // clip_plans (which holds internal prompt/structure data).
-  if (args.platform === 'instagram') {
+  if (args.field === 'instagram') {
     await sb
       .from('videos')
       .update({ website_caption: args.text })

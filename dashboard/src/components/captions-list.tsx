@@ -3,46 +3,54 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { PlatformIcon } from './platform-icon';
-import { PLATFORMS, CAPTION_LIMITS, type Platform } from '@/lib/platforms';
+import {
+  CAPTION_FIELDS,
+  CAPTION_FIELD_LIMITS,
+  CAPTION_FIELD_DISPLAY,
+  CAPTION_FIELD_PLATFORM,
+  type CaptionField,
+  type Platform,
+} from '@/lib/platforms';
 import { updateCaption } from '@/app/actions/update-caption';
 
 interface Props {
   jobId: string | null;
-  captions: Partial<Record<Platform, string>>;
+  /** Per-field caption text. Keys are caption fields (so YouTube has
+   *  two distinct entries: youtube_title and youtube_description). */
+  captions: Partial<Record<CaptionField, string>>;
   parshaSlug?: string;
-  /** Platforms that are actually wired up (Buffer profile or YouTube
-   *  OAuth). Captions for platforms not in this list are hidden so
-   *  Yonah doesn't waste time editing copy that won't post anywhere.
-   *  When undefined, all platforms render (backwards-compat). */
+  /** Platforms that are actually wired up. Caption fields whose
+   *  underlying platform isn't in this list are hidden so Yonah doesn't
+   *  edit copy that won't post anywhere. When undefined, all fields render. */
   connectedPlatforms?: Platform[];
 }
 
 export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }: Props) {
-  const [editingPlatform, setEditingPlatform] = useState<Platform | null>(null);
+  const [editingField, setEditingField] = useState<CaptionField | null>(null);
   const [draft, setDraft] = useState('');
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const startEdit = (platform: Platform, current: string) => {
+  const startEdit = (field: CaptionField, current: string) => {
     setError(null);
-    setEditingPlatform(platform);
+    setEditingField(field);
     setDraft(current);
   };
 
   const cancel = () => {
-    setEditingPlatform(null);
+    setEditingField(null);
     setDraft('');
     setError(null);
   };
 
   const save = () => {
-    if (!editingPlatform || !jobId) return;
+    if (!editingField || !jobId) return;
     setError(null);
     startTransition(async () => {
       const res = await updateCaption({
         jobId,
-        platform: editingPlatform,
+        field: editingField,
         text: draft,
         parshaSlug,
       });
@@ -55,10 +63,15 @@ export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }
     });
   };
 
-  const allowedPlatforms: readonly Platform[] = connectedPlatforms ?? PLATFORMS;
-  const rows = allowedPlatforms
-    .map((p) => ({ platform: p, caption: captions[p] ?? null }))
-    .filter((r): r is { platform: Platform; caption: string } => !!r.caption);
+  const allowedFields: readonly CaptionField[] = connectedPlatforms
+    ? CAPTION_FIELDS.filter((f) =>
+        connectedPlatforms.includes(CAPTION_FIELD_PLATFORM[f]),
+      )
+    : CAPTION_FIELDS;
+
+  const rows = allowedFields
+    .map((f) => ({ field: f, caption: captions[f] ?? null }))
+    .filter((r): r is { field: CaptionField; caption: string } => !!r.caption);
 
   if (rows.length === 0) {
     return (
@@ -79,13 +92,15 @@ export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }
 
   return (
     <>
-      {rows.map(({ platform, caption }) => {
-        const isEditing = editingPlatform === platform;
-        const overLimit = isEditing && draft.length > CAPTION_LIMITS[platform];
+      {rows.map(({ field, caption }) => {
+        const isEditing = editingField === field;
+        const overLimit = isEditing && draft.length > CAPTION_FIELD_LIMITS[field];
+        const platform = CAPTION_FIELD_PLATFORM[field];
+        const label = CAPTION_FIELD_DISPLAY[field];
 
         return (
           <div
-            key={platform}
+            key={field}
             style={{
               padding: '12px 14px',
               border: `1px solid ${isEditing ? 'var(--navy-300)' : 'var(--ink-100)'}`,
@@ -115,10 +130,23 @@ export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }
 
             {isEditing ? (
               <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontFamily: 'var(--ff-body)',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-500)',
+                    marginBottom: '6px',
+                  }}
+                >
+                  {label}
+                </div>
                 <textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  rows={platform === 'youtube' ? 6 : 4}
+                  rows={field === 'youtube_title' ? 2 : field === 'youtube_description' ? 6 : 4}
                   autoFocus
                   style={{
                     width: '100%',
@@ -191,7 +219,7 @@ export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }
                       fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    {draft.length}/{CAPTION_LIMITS[platform]}
+                    {draft.length}/{CAPTION_FIELD_LIMITS[field]}
                   </span>
                 </div>
                 {error && (
@@ -209,22 +237,36 @@ export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }
               </div>
             ) : (
               <>
-                <span
-                  style={{
-                    fontSize: '13px',
-                    color: 'var(--ink-700)',
-                    flex: 1,
-                    minWidth: 0,
-                    lineHeight: 1.45,
-                    overflowWrap: 'anywhere',
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >
-                  {caption}
-                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontFamily: 'var(--ff-body)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      color: 'var(--ink-500)',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    {label}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '13px',
+                      color: 'var(--ink-700)',
+                      lineHeight: 1.45,
+                      overflowWrap: 'anywhere',
+                      whiteSpace: 'pre-wrap',
+                      display: 'block',
+                    }}
+                  >
+                    {caption}
+                  </span>
+                </div>
                 <button
                   type="button"
-                  onClick={() => startEdit(platform, caption)}
+                  onClick={() => startEdit(field, caption)}
                   disabled={!jobId}
                   title={jobId ? undefined : 'Generate the video first'}
                   style={{
