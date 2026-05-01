@@ -30,6 +30,12 @@ interface ScheduleAllSheetProps {
   versionLabel?: string;
   /** Parsha name for the sheet header. */
   parshaName?: string;
+  /** Sibling version that's currently live on the site. When the
+   *  bundled site-publish runs (post-now on an unpublished video),
+   *  this version will be unpublished. */
+  replacing?: { label: string } | null;
+  /** Thumbnail of the version being posted. */
+  thumbUrl?: string | null;
 }
 
 /** Returns the next Friday at 18:00 local time */
@@ -59,13 +65,10 @@ function formatFriendly(d: Date): string {
 export function ScheduleAllSheet({
   videoId, captions, bufferConfigured, mode = 'schedule', variant = 'primary',
   alreadyPublishedToWebsite, parshaSlug, connectedPlatforms,
-  versionLabel, parshaName,
+  versionLabel, parshaName, replacing, thumbUrl,
 }: ScheduleAllSheetProps) {
   const channels: readonly Platform[] = connectedPlatforms ?? PLATFORMS;
   const channelCount = channels.length;
-  const channelLabel = channels
-    .map((p) => PLATFORM_DISPLAY[p])
-    .join(' \u00b7 ');
   const defaultDate = nextFriday6pm();
   const [open, setOpen] = useState(false);
   const [notConfiguredOpen, setNotConfiguredOpen] = useState(false);
@@ -325,28 +328,9 @@ export function ScheduleAllSheet({
           </div>
 
           {shareNow ? (
-            <>
-              <p style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: 'var(--ink-500)', margin: 0, fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
-                Posts publish immediately to every connected channel.
-              </p>
-              {willPublishSiteToo && (
-                <p
-                  style={{
-                    fontFamily: 'var(--ff-body)',
-                    fontSize: '12.5px',
-                    color: 'var(--ink-700)',
-                    margin: '8px 0 0 0',
-                    padding: '8px 10px',
-                    border: '1px solid rgba(46,125,94,.25)',
-                    background: 'rgba(46,125,94,.06)',
-                    borderRadius: '6px',
-                  }}
-                >
-                  This will also publish the video to torahtaichi.com
-                  (replacing any earlier version of this parsha).
-                </p>
-              )}
-            </>
+            <p style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12.5px', color: 'var(--ink-500)', margin: 0, fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
+              Posts publish immediately to every connected channel.
+            </p>
           ) : (
             <>
               <label
@@ -398,24 +382,141 @@ export function ScheduleAllSheet({
           )}
         </div>
 
-        {/* Platforms summary */}
+        {/* Review: everything that's about to go out. */}
         <div
           style={{
             padding: '14px 16px',
-            background: 'var(--ink-100)',
+            background: 'var(--linen-50)',
+            border: '1px solid var(--ink-100)',
             borderRadius: 'var(--r-md)',
             marginBottom: '20px',
-            fontFamily: 'var(--ff-display)',
-            fontStyle: 'italic',
+            fontFamily: 'var(--ff-body)',
             fontSize: '13px',
-            color: 'var(--ink-600)',
-            fontVariationSettings: '"opsz" 14, "SOFT" 50',
+            color: 'var(--ink-700)',
             lineHeight: 1.55,
           }}
         >
-          {channelCount > 0
-            ? channelLabel
-            : 'No channels connected — connect at least one in /channels.'}
+          <div
+            style={{
+              fontFamily: 'var(--ff-body)',
+              fontSize: '11px',
+              fontWeight: 600,
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              color: 'var(--ink-500)',
+              marginBottom: '10px',
+            }}
+          >
+            Review
+          </div>
+
+          {/* Header row: thumbnail + version/parsha + replacing notice. */}
+          {(versionLabel || thumbUrl || replacing) && (
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '14px' }}>
+              {thumbUrl && (
+                <img
+                  src={thumbUrl}
+                  alt={versionLabel ? `${versionLabel} thumbnail` : 'video thumbnail'}
+                  style={{
+                    width: '64px',
+                    height: '88px',
+                    objectFit: 'cover',
+                    borderRadius: '6px',
+                    background: 'var(--ink-100)',
+                    flexShrink: 0,
+                  }}
+                />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {versionLabel && parshaName && (
+                  <div style={{ fontWeight: 500, fontSize: '14px', color: 'var(--ink-900)', marginBottom: '4px' }}>
+                    {versionLabel} of {parshaName}
+                  </div>
+                )}
+                {replacing && (
+                  <div
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--ink-700)',
+                      padding: '6px 8px',
+                      background: 'rgba(180, 130, 0, .08)',
+                      border: '1px solid rgba(180, 130, 0, .2)',
+                      borderRadius: '4px',
+                      marginTop: '4px',
+                    }}
+                  >
+                    Replaces <strong>{replacing.label}</strong> currently live on the site.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Per-channel preview: caption + name. */}
+          <div style={{ marginBottom: shareNow && willPublishSiteToo ? '10px' : 0 }}>
+            <div
+              style={{
+                fontSize: '11.5px',
+                fontWeight: 500,
+                letterSpacing: '0.04em',
+                color: 'var(--ink-500)',
+                marginBottom: '6px',
+              }}
+            >
+              {shareNow ? 'Posting to' : 'Scheduling to'}{' '}
+              {channelCount} channel{channelCount === 1 ? '' : 's'}
+            </div>
+            {channelCount === 0 ? (
+              <p style={{ fontSize: '12.5px', color: 'var(--ink-500)', fontStyle: 'italic', margin: 0 }}>
+                No channels connected. Connect at least one in /channels.
+              </p>
+            ) : (
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+                {channels.map((p) => {
+                  const cap = (captions[p] ?? '').trim();
+                  const preview = cap.length > 100 ? `${cap.slice(0, 100).trim()}\u2026` : cap;
+                  return (
+                    <li
+                      key={p}
+                      style={{
+                        padding: '8px 0',
+                        borderTop: '1px solid var(--ink-100)',
+                        fontSize: '12.5px',
+                      }}
+                    >
+                      <div style={{ fontWeight: 500, color: 'var(--ink-900)', marginBottom: '2px' }}>
+                        {PLATFORM_DISPLAY[p]}
+                      </div>
+                      <div style={{ color: 'var(--ink-600)', fontStyle: cap ? 'normal' : 'italic' }}>
+                        {preview || '(no caption set)'}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {/* Bundled site publish notice — only inside the review when
+              it's actually going to fire (post-now AND not yet live). */}
+          {shareNow && willPublishSiteToo && (
+            <div
+              style={{
+                padding: '8px 10px',
+                border: '1px solid rgba(46,125,94,.25)',
+                background: 'rgba(46,125,94,.06)',
+                borderRadius: '6px',
+                fontSize: '12.5px',
+                color: 'var(--ink-700)',
+                marginTop: '10px',
+              }}
+            >
+              <strong>Plus:</strong> publishes to torahtaichi.com
+              {replacing
+                ? ` (unpublishes ${replacing.label} at the same time).`
+                : '.'}
+            </div>
+          )}
         </div>
 
         {error && (
