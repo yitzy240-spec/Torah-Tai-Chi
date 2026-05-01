@@ -13,6 +13,8 @@ interface ScheduleAllArgs {
   shareNow?: boolean;
   /** Optional parsha slug for revalidation when site-publish is bundled. */
   parshaSlug?: string;
+  /** Channels the user opted in to. Omit to post everywhere with a caption. */
+  selectedPlatforms?: readonly Platform[];
 }
 
 /**

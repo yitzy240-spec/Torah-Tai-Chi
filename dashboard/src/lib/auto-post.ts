@@ -45,6 +45,11 @@ export interface AutoPostArgs {
   captions: Partial<Record<Platform, string>>;
   /** If true, publish immediately — ignore scheduledAt. */
   shareNow?: boolean;
+  /** Platforms the user explicitly opted in to for this post. When
+   *  omitted, post to every platform that has a caption (autopilot
+   *  webhooks rely on the omit-default; the dashboard sheet always
+   *  passes an explicit list). */
+  selectedPlatforms?: readonly Platform[];
 }
 
 export interface AutoPostResult {
@@ -76,7 +81,15 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
   const results: Array<{ platform: Platform; externalId: string }> = [];
   const errors: string[] = [];
 
-  const requested = PLATFORMS.filter((p) => args.captions[p]);
+  // Yonah can opt out of specific channels per-post. When
+  // selectedPlatforms is undefined, post to every platform that has a
+  // caption (legacy behavior — used by autopilot webhooks too).
+  const selectedSet = args.selectedPlatforms
+    ? new Set(args.selectedPlatforms)
+    : null;
+  const requested = PLATFORMS
+    .filter((p) => args.captions[p])
+    .filter((p) => (selectedSet ? selectedSet.has(p) : true));
   const needsBuffer = requested.some((p) => p !== 'youtube');
   const needsYouTube = requested.includes('youtube');
 

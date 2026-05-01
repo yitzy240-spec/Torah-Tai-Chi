@@ -68,13 +68,26 @@ export function ScheduleAllSheet({
   versionLabel, parshaName, replacing, thumbUrl,
 }: ScheduleAllSheetProps) {
   const channels: readonly Platform[] = connectedPlatforms ?? PLATFORMS;
-  const channelCount = channels.length;
   const defaultDate = nextFriday6pm();
   const [open, setOpen] = useState(false);
   const [notConfiguredOpen, setNotConfiguredOpen] = useState(false);
   const [shareNow, setShareNow] = useState(mode === 'now');
   const [scheduledAt, setScheduledAt] = useState(formatDatetimeLocal(defaultDate));
   const [isPending, startTransition] = useTransition();
+  // Per-channel opt-in state. Defaults to every connected channel
+  // selected; resets each time the sheet opens so previous unchecks
+  // don't carry over silently.
+  const [selectedChannels, setSelectedChannels] = useState<Set<Platform>>(
+    () => new Set(channels),
+  );
+  const selectedCount = selectedChannels.size;
+  const toggleChannel = (p: Platform) => {
+    setSelectedChannels((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p); else next.add(p);
+      return next;
+    });
+  };
   const [toastMsg, setToastMsg] = useState('');
   const [toastVisible, setToastVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +109,9 @@ export function ScheduleAllSheet({
     // "Post now" button doesn't inherit a previous "Schedule for later"
     // selection.
     setShareNow(mode === 'now');
+    // Reset per-channel selection to "all on" each open so a previous
+    // session's unchecks don't silently carry into the next post.
+    setSelectedChannels(new Set(channels));
     setOpen(true);
   };
 
@@ -109,6 +125,7 @@ export function ScheduleAllSheet({
       const d = shareNow ? new Date() : new Date(scheduledAt);
       const result = await scheduleAll({
         videoId, scheduledAt: d, captions, shareNow, parshaSlug,
+        selectedPlatforms: Array.from(selectedChannels),
       });
       if (result.error === 'BUFFER_NOT_CONFIGURED') {
         closeSheet();
@@ -276,13 +293,12 @@ export function ScheduleAllSheet({
           {versionLabel && parshaName ? (
             <>
               Posting <strong>{versionLabel} of {parshaName}</strong> to{' '}
-              {channelCount} connected channel{channelCount === 1 ? '' : 's'}{' '}
-              simultaneously.
+              {selectedCount} channel{selectedCount === 1 ? '' : 's'}.
             </>
           ) : (
             <>
-              Will schedule to {channelCount} connected channel
-              {channelCount === 1 ? '' : 's'} simultaneously.
+              Will schedule to {selectedCount} channel
+              {selectedCount === 1 ? '' : 's'}.
             </>
           )}
         </p>
@@ -455,10 +471,12 @@ export function ScheduleAllSheet({
             </div>
           )}
 
-          {/* Per-channel preview: caption + name. */}
+          {/* Per-channel toggles + caption preview. Click a row to opt
+              in/out of that channel for THIS post. */}
           <div style={{ marginBottom: shareNow && willPublishSiteToo ? '10px' : 0 }}>
             <div
               style={{
+                display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
                 fontSize: '11.5px',
                 fontWeight: 500,
                 letterSpacing: '0.04em',
@@ -466,10 +484,16 @@ export function ScheduleAllSheet({
                 marginBottom: '6px',
               }}
             >
-              {shareNow ? 'Posting to' : 'Scheduling to'}{' '}
-              {channelCount} channel{channelCount === 1 ? '' : 's'}
+              <span>
+                {shareNow ? 'Posting to' : 'Scheduling to'}{' '}
+                {selectedCount} of {channels.length} channel
+                {channels.length === 1 ? '' : 's'}
+              </span>
+              <span style={{ fontWeight: 400, fontSize: '11px', color: 'var(--ink-400)' }}>
+                Click to toggle
+              </span>
             </div>
-            {channelCount === 0 ? (
+            {channels.length === 0 ? (
               <p style={{ fontSize: '12.5px', color: 'var(--ink-500)', fontStyle: 'italic', margin: 0 }}>
                 No channels connected. Connect at least one in /channels.
               </p>
@@ -478,21 +502,63 @@ export function ScheduleAllSheet({
                 {channels.map((p) => {
                   const cap = (captions[p] ?? '').trim();
                   const preview = cap.length > 100 ? `${cap.slice(0, 100).trim()}\u2026` : cap;
+                  const isSelected = selectedChannels.has(p);
                   return (
-                    <li
-                      key={p}
-                      style={{
-                        padding: '8px 0',
-                        borderTop: '1px solid var(--ink-100)',
-                        fontSize: '12.5px',
-                      }}
-                    >
-                      <div style={{ fontWeight: 500, color: 'var(--ink-900)', marginBottom: '2px' }}>
-                        {PLATFORM_DISPLAY[p]}
-                      </div>
-                      <div style={{ color: 'var(--ink-600)', fontStyle: cap ? 'normal' : 'italic' }}>
-                        {preview || '(no caption set)'}
-                      </div>
+                    <li key={p} style={{ borderTop: '1px solid var(--ink-100)' }}>
+                      <button
+                        type="button"
+                        onClick={() => toggleChannel(p)}
+                        style={{
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '10px',
+                          padding: '10px 0',
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          fontFamily: 'inherit',
+                          opacity: isSelected ? 1 : 0.45,
+                          transition: 'opacity var(--trans)',
+                        }}
+                        aria-pressed={isSelected}
+                        aria-label={
+                          isSelected
+                            ? `Skip ${PLATFORM_DISPLAY[p]} for this post`
+                            : `Include ${PLATFORM_DISPLAY[p]} in this post`
+                        }
+                      >
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            flexShrink: 0,
+                            marginTop: '2px',
+                            width: '16px',
+                            height: '16px',
+                            borderRadius: '4px',
+                            border: `1.5px solid ${isSelected ? 'var(--navy-800)' : 'var(--ink-300)'}`,
+                            background: isSelected ? 'var(--navy-800)' : 'transparent',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'var(--linen-50)',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            lineHeight: 1,
+                          }}
+                        >
+                          {isSelected ? '\u2713' : ''}
+                        </span>
+                        <span style={{ flex: 1, fontSize: '12.5px' }}>
+                          <span style={{ fontWeight: 500, color: 'var(--ink-900)', display: 'block', marginBottom: '2px' }}>
+                            {PLATFORM_DISPLAY[p]}
+                          </span>
+                          <span style={{ color: 'var(--ink-600)', fontStyle: cap ? 'normal' : 'italic', display: 'block' }}>
+                            {preview || '(no caption set)'}
+                          </span>
+                        </span>
+                      </button>
                     </li>
                   );
                 })}
@@ -547,14 +613,17 @@ export function ScheduleAllSheet({
           <button
             type="button"
             onClick={confirm}
-            disabled={isPending}
+            disabled={isPending || selectedCount === 0}
+            title={selectedCount === 0 ? 'Pick at least one channel' : undefined}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '8px',
               fontFamily: 'var(--ff-body)', fontWeight: 500, fontSize: '14px',
               padding: '11px 22px', minHeight: '44px', borderRadius: '999px',
               border: '1px solid var(--navy-800)', background: 'var(--navy-800)',
-              color: 'var(--linen-50)', cursor: isPending ? 'wait' : 'pointer',
-              transition: 'all var(--trans)', opacity: isPending ? 0.7 : 1,
+              color: 'var(--linen-50)',
+              cursor: isPending || selectedCount === 0 ? 'not-allowed' : 'pointer',
+              transition: 'all var(--trans)',
+              opacity: isPending ? 0.7 : selectedCount === 0 ? 0.4 : 1,
               boxShadow: '0 1px 0 rgba(255,255,255,.08) inset, 0 6px 14px -10px rgba(19,30,56,.42)',
             }}
           >
