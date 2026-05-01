@@ -237,10 +237,41 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         message: 'YouTube upload skipped: no video file present',
       });
     } else {
-      // Split caption into title (first line, ≤100 chars) + description (rest).
-      const [firstLine, ...rest] = caption.split('\n');
-      const title = firstLine.slice(0, 100);
-      const description = rest.length > 0 ? rest.join('\n').trim() : caption;
+      // Read youtube_title + youtube_description directly from the plan
+      // so they keep their distinct semantics. Falling back to a
+      // split-on-newline of `caption` swaps title/description when one
+      // field is empty: the description gets sliced to 100 chars and
+      // posted as the title, with hashtags alone as the description.
+      // That bug happened in production for Emor. Always prefer the
+      // structured fields; only fall back when no plan exists.
+      const { data: vJob } = await supabase
+        .from('videos').select('job_id').eq('id', args.videoId).single();
+      const { data: planRow } = await supabase
+        .from('clip_plans')
+        .select('plan_json')
+        .eq('job_id', vJob?.job_id ?? '')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const planCaptions = (
+        (planRow?.plan_json as { captions?: Record<string, string> } | null)
+          ?.captions ?? {}
+      );
+      const planTitle = (planCaptions.youtube_title ?? '').trim();
+      const planDesc = (planCaptions.youtube_description ?? '').trim();
+
+      let title: string;
+      let description: string;
+      if (planTitle || planDesc) {
+        title = (planTitle || planDesc).slice(0, 100);
+        description = planDesc || planTitle;
+      } else {
+        // Legacy path: no structured fields — split the flattened
+        // string. Same as before.
+        const [firstLine, ...rest] = caption.split('\n');
+        title = firstLine.slice(0, 100);
+        description = rest.length > 0 ? rest.join('\n').trim() : caption;
+      }
 
       try {
         const ytVideo = await withRetry(() => uploadToYouTube({
