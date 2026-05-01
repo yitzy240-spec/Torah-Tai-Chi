@@ -2,7 +2,7 @@ import Link from 'next/link';
 
 export const metadata = { title: 'Connect YouTube — Torah Tai Chi' };
 
-const ORIGIN = 'https://torah-tai-chi-admin.vercel.app';
+const ORIGIN = 'https://admin.torahtaichi.com';
 
 const STEPS = [
   {

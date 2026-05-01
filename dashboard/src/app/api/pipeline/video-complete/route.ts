@@ -7,7 +7,7 @@ import { sendNotification } from '@/lib/email';
 import type { Platform } from '@/lib/platforms';
 
 const DASHBOARD_BASE_URL =
-  process.env.DASHBOARD_BASE_URL ?? 'https://torah-tai-chi-admin.vercel.app';
+  process.env.DASHBOARD_BASE_URL ?? 'https://admin.torahtaichi.com';
 
 /** Translate the autoPost error string into something Yonah can read.
  *  Falls back to the raw message if no friendly version is known. */

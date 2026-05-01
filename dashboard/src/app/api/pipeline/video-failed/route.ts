@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
  */
 
 const DASHBOARD_BASE_URL =
-  process.env.DASHBOARD_BASE_URL ?? 'https://torah-tai-chi-admin.vercel.app';
+  process.env.DASHBOARD_BASE_URL ?? 'https://admin.torahtaichi.com';
 
 interface Body {
   jobId?: string;
