@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { scheduleAll } from '@/app/actions/schedule-all';
-import type { Platform } from '@/lib/platforms';
+import { PLATFORMS, PLATFORM_DISPLAY, type Platform } from '@/lib/platforms';
 
 interface ScheduleAllSheetProps {
   videoId: string;
@@ -21,6 +21,15 @@ interface ScheduleAllSheetProps {
   /** Passed through to scheduleAll for revalidation when site-publish
    *  bundles in. */
   parshaSlug?: string;
+  /** Channels actually wired up (Buffer + YouTube). Drives the
+   *  channel chip list and the lede count. When undefined, falls back
+   *  to all PLATFORMS for backwards-compat (legacy callers). */
+  connectedPlatforms?: Platform[];
+  /** Optional version label for the sheet header (e.g. "Version 3").
+   *  Lets Yonah see which take is going out. */
+  versionLabel?: string;
+  /** Parsha name for the sheet header. */
+  parshaName?: string;
 }
 
 /** Returns the next Friday at 18:00 local time */
@@ -49,8 +58,14 @@ function formatFriendly(d: Date): string {
 
 export function ScheduleAllSheet({
   videoId, captions, bufferConfigured, mode = 'schedule', variant = 'primary',
-  alreadyPublishedToWebsite, parshaSlug,
+  alreadyPublishedToWebsite, parshaSlug, connectedPlatforms,
+  versionLabel, parshaName,
 }: ScheduleAllSheetProps) {
+  const channels: readonly Platform[] = connectedPlatforms ?? PLATFORMS;
+  const channelCount = channels.length;
+  const channelLabel = channels
+    .map((p) => PLATFORM_DISPLAY[p])
+    .join(' \u00b7 ');
   const defaultDate = nextFriday6pm();
   const [open, setOpen] = useState(false);
   const [notConfiguredOpen, setNotConfiguredOpen] = useState(false);
@@ -252,7 +267,18 @@ export function ScheduleAllSheet({
             fontVariationSettings: '"opsz" 14, "SOFT" 50',
           }}
         >
-          Will schedule to all 4 connected channels simultaneously.
+          {versionLabel && parshaName ? (
+            <>
+              Posting <strong>{versionLabel} of {parshaName}</strong> to{' '}
+              {channelCount} connected channel{channelCount === 1 ? '' : 's'}{' '}
+              simultaneously.
+            </>
+          ) : (
+            <>
+              Will schedule to {channelCount} connected channel
+              {channelCount === 1 ? '' : 's'} simultaneously.
+            </>
+          )}
         </p>
 
         {/* Timing toggle */}
@@ -387,7 +413,9 @@ export function ScheduleAllSheet({
             lineHeight: 1.55,
           }}
         >
-          TikTok · Instagram · YouTube · Facebook · X
+          {channelCount > 0
+            ? channelLabel
+            : 'No channels connected — connect at least one in /channels.'}
         </div>
 
         {error && (

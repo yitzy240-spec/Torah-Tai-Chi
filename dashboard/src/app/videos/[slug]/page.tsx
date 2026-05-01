@@ -881,6 +881,9 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
                     mode="now"
                     alreadyPublishedToWebsite={videoPublishedToSite}
                     parshaSlug={parsha.slug}
+                    connectedPlatforms={connectedPlatforms}
+                    versionLabel={selectedVersionLabel}
+                    parshaName={parsha.name}
                   />
                   <ScheduleAllSheet
                     videoId={videoId}
@@ -889,6 +892,9 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
                     mode="schedule"
                     variant="secondary"
                     parshaSlug={parsha.slug}
+                    connectedPlatforms={connectedPlatforms}
+                    versionLabel={selectedVersionLabel}
+                    parshaName={parsha.name}
                   />
                 </div>
               </>
