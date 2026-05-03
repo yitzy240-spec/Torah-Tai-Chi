@@ -96,22 +96,65 @@ export async function triggerGeneration(
     };
   }
 
-  const { data: job, error } = await supabase
+  // Resume-in-place: if the most recent attempt for this parsha+script
+  // failed, REUSE that job's id rather than insert a fresh row. Modal's
+  // resume short-circuits in modal_app.run_pipeline are keyed on job_id —
+  // the existing clip_plan and any clips that already wrote to Storage
+  // get reused, so a retry costs only the failing clip + downstream
+  // (~$1-2) instead of a from-scratch run (~$5-6 + a Claude call).
+  // We only resume when the last attempt was 'failed' — if the latest
+  // is 'done', this is a regenerate (different intent) and gets a fresh
+  // job. The in-flight idempotency check above already guards against
+  // re-triggering a queued/running job.
+  const { data: lastJob } = await supabase
     .from('jobs')
-    .insert({
-      parsha_id: parshaId,
-      script_id: scriptId,
-      partner_parsha_id: partnerParshaId ?? null,
-      status: 'queued',
-      triggered_by: user.id,
-      resolution,
-      model_tier: modelTier,
-      motion_ref_slug: motionRefSlug,
-      director_notes: scriptDirectorNotes,
-    })
-    .select('id').single();
+    .select('id, status')
+    .eq('parsha_id', parshaId)
+    .eq('script_id', scriptId)
+    .order('triggered_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const resumeJobId = lastJob?.status === 'failed' ? lastJob.id : null;
 
-  if (error || !job) return { error: error?.message ?? 'Insert failed' };
+  let jobId: string;
+  if (resumeJobId) {
+    const { error: updateErr } = await supabase
+      .from('jobs')
+      .update({
+        status: 'queued',
+        error_message: null,
+        status_message: null,
+        triggered_at: new Date().toISOString(),
+        completed_at: null,
+        triggered_by: user.id,
+        resolution,
+        model_tier: modelTier,
+        motion_ref_slug: motionRefSlug,
+        director_notes: scriptDirectorNotes,
+        partner_parsha_id: partnerParshaId ?? null,
+      })
+      .eq('id', resumeJobId);
+    if (updateErr) return { error: `Resume failed: ${updateErr.message}` };
+    jobId = resumeJobId;
+  } else {
+    const { data: job, error } = await supabase
+      .from('jobs')
+      .insert({
+        parsha_id: parshaId,
+        script_id: scriptId,
+        partner_parsha_id: partnerParshaId ?? null,
+        status: 'queued',
+        triggered_by: user.id,
+        resolution,
+        model_tier: modelTier,
+        motion_ref_slug: motionRefSlug,
+        director_notes: scriptDirectorNotes,
+      })
+      .select('id').single();
+
+    if (error || !job) return { error: error?.message ?? 'Insert failed' };
+    jobId = job.id;
+  }
 
   // Fire-and-forget the Modal worker. The worker posts status back to Supabase.
   const workerUrl = process.env.MODAL_WORKER_URL;
@@ -131,7 +174,7 @@ export async function triggerGeneration(
         'content-type': 'application/json',
         'x-pipeline-secret': triggerSecret,
       },
-      body: JSON.stringify({ job_id: job.id }),
+      body: JSON.stringify({ job_id: jobId }),
       // Don't await the response body; the worker takes 15-30 min. The
       // 15s ceiling covers Modal cold-start (~7s) + the auth/idempotency
       // SELECT (~1s) with margin. 5s was too tight and silently dropped
@@ -144,10 +187,10 @@ export async function triggerGeneration(
     if ((e as Error).name !== 'TimeoutError' && (e as Error).name !== 'AbortError') {
       await supabase.from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', job.id);
+        .eq('id', jobId);
       return { error: String(e) };
     }
   }
 
-  return { jobId: job.id };
+  return { jobId };
 }
