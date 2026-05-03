@@ -76,15 +76,16 @@ def build_seedance_input(
         "aspect_ratio": "9:16",
         "web_search": False,
     }
-    # Seedance constraint: reference_image_urls and first_frame_url are
-    # mutually exclusive — sending both returns 422 ("only one scene can
-    # be selected"). When the caller provides a first_frame_url (we're
-    # chaining within a same-scene clip group), the first frame already
-    # encodes character + setting from the previous clip's last frame,
-    # so we drop the ref images entirely. When there's no first frame
-    # (first clip in a scene), the refs anchor the visual identity.
-    if first_frame_url:
-        payload["first_frame_url"] = first_frame_url
+    # Seedance has two mutex pairs that share first_frame_url:
+    #   first_frame_url ↔ reference_image_urls
+    #   first_frame_url ↔ reference_video_urls
+    # When a motion ref is supplied for this clip, the user explicitly
+    # opted into that move — it wins over the auto-attached chain frame.
+    # Identity falls back to reference_image_urls; the next clip's chain
+    # picks up from this clip's last frame as usual.
+    chain_frame = first_frame_url if not reference_video_url else None
+    if chain_frame:
+        payload["first_frame_url"] = chain_frame
     else:
         payload["reference_image_urls"] = _select_refs(
             character_ref_urls, dojo_ref_urls, clip.setting_id,

@@ -126,3 +126,26 @@ def test_build_seedance_input_without_reference_video_url_omits_field():
     )
     assert "reference_video_urls" not in payload
     assert "motion study" not in payload["prompt"].lower()
+
+
+def test_build_seedance_input_drops_first_frame_when_reference_video_set():
+    """Regression: Seedance rejects payloads with both first_frame_url and
+    reference_video_urls (400: "reference video and first/last frames are
+    mutually exclusive"). When both are provided, drop first_frame and let
+    reference_image_urls anchor identity instead — the user-selected
+    motion ref outranks the auto-attached chain frame."""
+    clip = _dojo_clip()
+    payload = build_seedance_input(
+        clip,
+        character_ref_urls=["https://x/c0.png"],
+        dojo_ref_urls=["https://x/d0.png"],
+        first_frame_url="https://x/prev_last.png",
+        audio_url=None, resolution="720p",
+        reference_video_url="https://supabase/videos/tai_chi_moves/x.mp4",
+    )
+    assert "first_frame_url" not in payload
+    assert payload["reference_video_urls"] == [
+        "https://supabase/videos/tai_chi_moves/x.mp4"
+    ]
+    # Identity falls back to reference_image_urls when chain frame drops.
+    assert "https://x/c0.png" in payload["reference_image_urls"]

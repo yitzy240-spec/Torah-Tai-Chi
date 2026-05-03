@@ -674,6 +674,12 @@ def run_pipeline(job_id: str) -> dict | None:
             def _can_chain(prev_clip, curr_clip) -> bool:
                 if prev_clip.setting_id != curr_clip.setting_id:
                     return False
+                # Motion ref is mutex with first_frame_url in Seedance.
+                # Chaining INTO a motion-ref clip would force the payload
+                # layer to drop the chain frame anyway — break here so we
+                # don't upload a frame we'd discard.
+                if getattr(curr_clip, "motion_ref_slug", None):
+                    return False
                 prev_kws = _jewish_ref_ids_in_prompt(
                     prev_clip.visual_prompt or ""
                 )
