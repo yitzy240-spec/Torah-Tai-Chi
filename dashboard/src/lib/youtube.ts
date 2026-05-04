@@ -23,6 +23,11 @@ const REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
 export const YOUTUBE_SCOPES = [
   'https://www.googleapis.com/auth/youtube.upload',
   'https://www.googleapis.com/auth/youtube.readonly',
+  // Required for the YouTube Analytics API v2 (watch time, geography,
+  // demographics). Existing tokens issued before this scope was added
+  // will 403 from /youtubeAnalytics/v2/reports — the UI surfaces a
+  // reconnect banner via YouTubeScopeError below.
+  'https://www.googleapis.com/auth/yt-analytics.readonly',
 ];
 
 export interface YouTubeConnection {
@@ -441,4 +446,156 @@ export async function listVideoComments(
       replyCount: item.snippet?.totalReplyCount ?? 0,
     };
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// YouTube Analytics API v2 — watch time, geography, demographics
+//
+// Requires the yt-analytics.readonly scope. Tokens issued before that
+// scope was added to YOUTUBE_SCOPES will 403; callers should catch
+// YouTubeScopeError and surface a reconnect banner.
+// ─────────────────────────────────────────────────────────────────────────
+
+const ANALYTICS_REPORTS_ENDPOINT = 'https://youtubeanalytics.googleapis.com/v2/reports';
+
+/** Default analytics window. YouTube Analytics defaults to 28 days for
+ *  most channel-level reports — keep that consistent across our cards. */
+const DEFAULT_WINDOW_DAYS = 28;
+
+export interface ChannelWatchSummary {
+  /** Total minutes watched in window. */
+  watchTimeMinutes: number;
+  /** Avg view duration in seconds. */
+  averageViewDurationSeconds: number;
+  /** Total views in window (for cross-checking against Data API). */
+  views: number;
+}
+
+export interface CountryViewShare {
+  countryCode: string; // 2-letter ISO
+  views: number;
+  watchTimeMinutes: number;
+}
+
+export interface AgeGenderShare {
+  ageGroup: string; // e.g. "age25-34"
+  gender: 'male' | 'female' | 'user_specified' | 'unknown';
+  viewerPercentage: number;
+}
+
+/**
+ * Thrown when the Analytics API returns 403 — typically means the OAuth
+ * refresh token doesn't carry yt-analytics.readonly. The UI should
+ * surface a "Reconnect YouTube" banner that points the user back at
+ * /api/auth/youtube/start (which already sends prompt=consent so Google
+ * re-prompts and issues a token with the widened scope set).
+ */
+export class YouTubeScopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'YouTubeScopeError';
+  }
+}
+
+function isoDaysAgo(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().split('T')[0];
+}
+
+function todayIso(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * Low-level wrapper around https://youtubeanalytics.googleapis.com/v2/reports.
+ * Translates 403s into YouTubeScopeError so the page can render a
+ * reconnect banner instead of a generic error.
+ */
+async function analyticsQuery(params: Record<string, string>): Promise<unknown> {
+  const accessToken = await getAccessToken();
+  const url = new URL(ANALYTICS_REPORTS_ENDPOINT);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    if (res.status === 403) {
+      throw new YouTubeScopeError(
+        `YouTube Analytics 403: ${body.slice(0, 200)}`,
+      );
+    }
+    throw new Error(`YouTube Analytics ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+/**
+ * Channel-level watch summary for the last N days (default 28).
+ * Returns zeros if the API responds with no rows (new channels, or a
+ * brand-new window with no traffic).
+ */
+export async function getChannelWatchSummary(
+  windowDays: number = DEFAULT_WINDOW_DAYS,
+): Promise<ChannelWatchSummary> {
+  const data = (await analyticsQuery({
+    ids: 'channel==MINE',
+    startDate: isoDaysAgo(windowDays),
+    endDate: todayIso(),
+    metrics: 'estimatedMinutesWatched,averageViewDuration,views',
+  })) as { rows?: number[][] };
+  const row = data.rows?.[0] ?? [0, 0, 0];
+  return {
+    watchTimeMinutes: row[0] ?? 0,
+    averageViewDurationSeconds: row[1] ?? 0,
+    views: row[2] ?? 0,
+  };
+}
+
+/**
+ * Top countries by view count for the last N days (default 28).
+ * Capped to 50 by the API; we default to 10 for the UI list.
+ */
+export async function getTopCountries(
+  max: number = 10,
+  windowDays: number = DEFAULT_WINDOW_DAYS,
+): Promise<CountryViewShare[]> {
+  const data = (await analyticsQuery({
+    ids: 'channel==MINE',
+    startDate: isoDaysAgo(windowDays),
+    endDate: todayIso(),
+    metrics: 'views,estimatedMinutesWatched',
+    dimensions: 'country',
+    sort: '-views',
+    maxResults: String(Math.min(Math.max(max, 1), 50)),
+  })) as { rows?: Array<[string, number, number]> };
+  return (data.rows ?? []).map(([countryCode, views, watchTimeMinutes]) => ({
+    countryCode,
+    views,
+    watchTimeMinutes,
+  }));
+}
+
+/**
+ * Age × gender viewer percentage for the last N days (default 28).
+ * Returns an empty array when YouTube has insufficient data for the
+ * cohort (typically <100 views per cohort) — UI shows an "insufficient
+ * data" placeholder rather than throwing.
+ */
+export async function getAgeGenderShare(
+  windowDays: number = DEFAULT_WINDOW_DAYS,
+): Promise<AgeGenderShare[]> {
+  const data = (await analyticsQuery({
+    ids: 'channel==MINE',
+    startDate: isoDaysAgo(windowDays),
+    endDate: todayIso(),
+    metrics: 'viewerPercentage',
+    dimensions: 'ageGroup,gender',
+  })) as { rows?: Array<[string, string, number]> };
+  return (data.rows ?? []).map(([ageGroup, gender, viewerPercentage]) => ({
+    ageGroup,
+    gender: (gender as AgeGenderShare['gender']) ?? 'unknown',
+    viewerPercentage,
+  }));
 }
