@@ -363,3 +363,82 @@ export async function listChannelVideos(limit = 25): Promise<ChannelVideoStats[]
     };
   });
 }
+
+export interface YouTubeComment {
+  id: string;
+  authorName: string;
+  authorAvatarUrl: string | null;
+  authorChannelUrl: string | null;
+  text: string;        // Plain text. The API also returns HTML; we use the plain version.
+  publishedAt: string; // ISO timestamp
+  likeCount: number;
+  replyCount: number;
+}
+
+/**
+ * List the most recent top-level comments for a YouTube video. Uses an
+ * OAuth access token (we already have one wired up for upload + readonly)
+ * but the underlying scope `youtube.readonly` is sufficient — no new
+ * scope needed for read-only comment access on public videos.
+ *
+ * Returns an empty array on permission errors (private videos, comments
+ * disabled, etc.) so the UI can render "no comments yet" gracefully.
+ *
+ * @param videoId  YouTube video id (the 11-char public id)
+ * @param max      Maximum top-level threads to return (default 25)
+ */
+export async function listVideoComments(
+  videoId: string,
+  max: number = 25,
+): Promise<YouTubeComment[]> {
+  const accessToken = await getAccessToken();
+  const url = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('videoId', videoId);
+  url.searchParams.set('maxResults', String(Math.min(Math.max(max, 1), 100)));
+  url.searchParams.set('order', 'time'); // newest first
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    // Common: 403 commentsDisabled, 404 videoNotFound. Don't throw —
+    // return [] so the UI can show empty-state messaging.
+    return [];
+  }
+  const data = await res.json() as {
+    items?: Array<{
+      id: string;
+      snippet?: {
+        topLevelComment?: {
+          snippet?: {
+            authorDisplayName?: string;
+            authorProfileImageUrl?: string;
+            authorChannelUrl?: string;
+            textDisplay?: string;
+            textOriginal?: string;
+            publishedAt?: string;
+            likeCount?: number;
+          };
+        };
+        totalReplyCount?: number;
+      };
+    }>;
+  };
+  return (data.items ?? []).map((item) => {
+    const top = item.snippet?.topLevelComment?.snippet;
+    return {
+      id: item.id,
+      authorName: top?.authorDisplayName ?? '(unknown)',
+      authorAvatarUrl: top?.authorProfileImageUrl ?? null,
+      authorChannelUrl: top?.authorChannelUrl ?? null,
+      // Prefer the plain-text rendering (textOriginal) if present, fall
+      // back to textDisplay (which is HTML — we don't render it as HTML
+      // anyway, so worst case it shows literal <br> etc).
+      text: top?.textOriginal ?? top?.textDisplay ?? '',
+      publishedAt: top?.publishedAt ?? new Date().toISOString(),
+      likeCount: top?.likeCount ?? 0,
+      replyCount: item.snippet?.totalReplyCount ?? 0,
+    };
+  });
+}
