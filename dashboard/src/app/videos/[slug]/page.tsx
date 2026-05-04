@@ -10,6 +10,7 @@ import type { FeedbackClip } from '@/components/video-feedback';
 import { VideoVersionsView, type VersionInfo } from '@/components/video-versions-view';
 import type { EditableClipVersion } from '@/components/editable-clip-card';
 import { EditableClipList } from '@/components/editable-clip-list';
+import { EditingHelpModal } from '@/components/editing-help-modal';
 import { PLATFORMS, type Platform, type CaptionField } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
@@ -468,6 +469,10 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const words = wordCount(aTight?.draft_text);
 
   const hasAnyVideo = !!latestVersionInfo?.videoUrl && (latestVersionInfo?.clips.length ?? 0) > 0;
+  // The Clips section (and therefore the jump-to-clips anchor in the
+  // header) only renders when there are clip plans AND a latest video.
+  // Mirrors the conditional on the <section id="clips"> below.
+  const hasEditableClips = Object.keys(editableClipsByIndex).length > 0 && !!latestVersionInfo?.videoUrl;
 
   return (
     <div className="stagger">
@@ -556,6 +561,20 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               replacing={publishReplacing}
               thumbUrl={selectedThumbUrl}
             />
+          )}
+          {hasEditableClips && (
+            <a
+              href="#clips"
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: 13,
+                color: 'var(--navy-700)',
+                textDecoration: 'underline',
+                textUnderlineOffset: 4,
+              }}
+            >
+              Edit clips ↓
+            </a>
           )}
         </div>
       </header>
@@ -805,17 +824,28 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             scrollMarginTop: 80,
           }}
         >
-          <h2
+          <div
             style={{
-              fontFamily: 'var(--ff-display)',
-              fontWeight: 500,
-              fontSize: 22,
-              color: 'var(--ink-900)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
               margin: '0 0 6px 0',
             }}
           >
-            Clips
-          </h2>
+            <h2
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontWeight: 500,
+                fontSize: 22,
+                color: 'var(--ink-900)',
+                margin: 0,
+              }}
+            >
+              Clips
+            </h2>
+            <EditingHelpModal />
+          </div>
           <p
             style={{
               fontFamily: 'var(--ff-display)',
