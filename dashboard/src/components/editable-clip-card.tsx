@@ -137,12 +137,16 @@ export function EditableClipCard({
       // Modal kicks the work off async — the action returned as soon as
       // the job was queued. Poll until terminal so the button stays in
       // "Re-rendering…" the whole time and the page only refreshes once
-      // the new mp4 + stitched video are actually ready. 5 min cap is a
-      // sanity bound; single-clip re-renders typically finish in 30-60s.
+      // the new mp4 + stitched video are actually ready. Cap at 20 min
+      // because we observed real Seedance runs take 9-10 min in
+      // production (Kie queue + 720p Standard rendering + their internal
+      // verification pass). The earlier 5-min cap timed out before the
+      // regen finished, refreshed against stale data, and confused the
+      // user into thinking the regen had failed.
       const jobId = r.jobId;
       const TERMINAL = new Set(['done', 'failed']);
       const start = Date.now();
-      while (Date.now() - start < 5 * 60 * 1000) {
+      while (Date.now() - start < 20 * 60 * 1000) {
         await new Promise((res) => setTimeout(res, 5000));
         try {
           const statusRes = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
