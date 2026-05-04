@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { generateCustomScript } from '@/app/actions/generate-custom-script';
 import { saveScriptDraft } from '@/app/actions/save-script-draft';
@@ -283,12 +283,32 @@ function ScriptCard({
   const [tldrSaving, setTldrSaving] = useState(false);
   const [tldrSaved, setTldrSaved] = useState(false);
 
+  // Tracked timers for the "saved ✓" indicators so we can clear before
+  // re-arming (rapid double-saves) and on unmount (carousel navigation
+  // within 1.8s of a save). Mirrors editable-clip-card's
+  // savedIndicatorTimerRef pattern landed in 96a486f.
+  const titleSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tldrSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending "saved ✓" timeouts on unmount.
+  useEffect(() => {
+    return () => {
+      if (titleSavedTimerRef.current) clearTimeout(titleSavedTimerRef.current);
+      if (tldrSavedTimerRef.current) clearTimeout(tldrSavedTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     setTitleDraft(script.title ?? '');
     setTldrDraft(script.tldr ?? '');
     setEditingTitle(false);
     setEditingTldr(false);
-  }, [script.id, script.title, script.tldr]);
+  }, [script.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Don't depend on script.title/script.tldr — a parent refresh after a
+  // successful save would otherwise clobber any new keystrokes the user
+  // typed during the round-trip. Resync only when navigating to a
+  // different script in the carousel (different script.id). Mirrors the
+  // pattern landed in 96a486f for editable-clip-card.
 
   async function saveTitle() {
     if (titleDraft === (script.title ?? '')) {
@@ -308,7 +328,8 @@ function ScriptCard({
     }
     setEditingTitle(false);
     setTitleSaved(true);
-    setTimeout(() => setTitleSaved(false), 1800);
+    if (titleSavedTimerRef.current) clearTimeout(titleSavedTimerRef.current);
+    titleSavedTimerRef.current = setTimeout(() => setTitleSaved(false), 1800);
     router.refresh();
   }
 
@@ -330,7 +351,8 @@ function ScriptCard({
     }
     setEditingTldr(false);
     setTldrSaved(true);
-    setTimeout(() => setTldrSaved(false), 1800);
+    if (tldrSavedTimerRef.current) clearTimeout(tldrSavedTimerRef.current);
+    tldrSavedTimerRef.current = setTimeout(() => setTldrSaved(false), 1800);
     router.refresh();
   }
 
