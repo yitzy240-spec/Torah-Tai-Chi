@@ -136,7 +136,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // jobs come first so they're guaranteed present.
   const { data: doneJobsRaw } = await supabase
     .from('jobs')
-    .select('id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, created_at)')
+    .select('id, kind, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, created_at)')
     .eq('parsha_id', parsha.id)
     .eq('status', 'done')
     .order('triggered_at', { ascending: true });
@@ -145,6 +145,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // (defensive — done jobs should always have one).
   type DoneJobRow = {
     id: string;
+    kind: string | null;
     resolution: string | null;
     model_tier: string | null;
     total_cost_usd: number | null;
@@ -890,6 +891,15 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             durationsByIndex={durationsByIndex}
             resolution={(latest?.resolution as Resolution | null) ?? null}
             modelTier={(latest?.modelTier as ModelTier | null) ?? null}
+            referenceJobId={
+              // Latest non-compose done job for this parsha. composeVideo
+              // copies its generation params (motion_ref_slug, resolution,
+              // tier) onto the new compose job. A compose job itself isn't
+              // a valid reference because it doesn't carry those params.
+              [...doneJobs].reverse().find(
+                (j) => (j.kind ?? 'parsha') !== 'compose',
+              )?.id ?? doneJobs[doneJobs.length - 1]?.id ?? ''
+            }
           />
         </section>
       )}

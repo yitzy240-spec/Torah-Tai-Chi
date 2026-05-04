@@ -524,11 +524,64 @@ export function EditableClipCard({
         </p>
       )}
 
-      {/* Version chips intentionally hidden in this iteration —
-          VideoVersionsView already provides version selection via ?v=
-          URL param, and dual selectors disagree (this card's chips were
-          local-state only). Re-enable when cross-component version
-          selection is unified. */}
+      {versions.length > 1 && (
+        <div style={{ marginTop: 16 }}>
+          <p
+            style={{
+              fontFamily: 'var(--ff-body)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              color: 'var(--cedar-600)',
+              margin: '0 0 6px 0',
+            }}
+          >
+            Versions
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {versions.map((v, i) => {
+              const isSelected = v.clipId === selectedClipId;
+              const isLatest = i === versions.length - 1;
+              return (
+                <button
+                  key={v.clipId}
+                  type="button"
+                  onClick={() => onSelectVersion(v.clipId)}
+                  style={{
+                    fontFamily: 'var(--ff-body)',
+                    fontSize: 12,
+                    padding: '6px 12px',
+                    minHeight: 36,
+                    borderRadius: '999px',
+                    border: isSelected
+                      ? '1.5px solid var(--navy-700)'
+                      : '1px solid var(--ink-200)',
+                    background: isSelected ? 'var(--navy-wash)' : 'white',
+                    color: isSelected ? 'var(--navy-800)' : 'var(--ink-700)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  v{i + 1}{isLatest ? ' (latest)' : ''}
+                </button>
+              );
+            })}
+          </div>
+          <p
+            style={{
+              fontFamily: 'var(--ff-display)',
+              fontStyle: 'italic',
+              fontSize: 12,
+              color: 'var(--ink-500)',
+              margin: '6px 0 0',
+            }}
+          >
+            Click a version to preview it here. Use the &ldquo;Apply
+            selection&rdquo; button below the clip list to stitch a new
+            video using the picked versions.
+          </p>
+        </div>
+      )}
     </section>
   );
 }
