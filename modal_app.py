@@ -4990,6 +4990,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
     try:
+        # matches regen_single_clip's status sequence — would benefit from a clearer name across both
         set_status("loading_parsha", "Reading edited clip text")
         regen_job = (
             sb.table("jobs").select(
