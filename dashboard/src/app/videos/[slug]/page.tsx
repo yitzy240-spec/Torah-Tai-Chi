@@ -17,6 +17,7 @@ import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/see
 import { pickActiveVersion, resolveInitialSelectedId } from '@/lib/active-version';
 import { getConnectedPlatforms } from '@/lib/connected-platforms';
 import { refreshVideoPostUrls } from '@/lib/refresh-post-urls';
+import { YouTubeComments } from '@/components/youtube-comments';
 
 interface Script {
   id: string;
@@ -448,6 +449,17 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const postsByPlatform = Object.fromEntries(
     PLATFORMS.map((p) => [p, recentPosts?.find((post) => post.platform === p) ?? null]),
   ) as Record<Platform, typeof recentPosts extends (infer T)[] | null ? T | null : null>;
+
+  // For YouTube posts the YouTube video id is stored in `buffer_update_id`
+  // (despite the column name — see auto-post.ts where the YT upload writes
+  // it). Only show the comments section for the LATEST published YouTube
+  // post (the .find() above already grabs newest-first since recentPosts
+  // is ordered created_at DESC).
+  const youtubePost = recentPosts?.find(
+    (p) => p.platform === 'youtube' && p.status === 'published',
+  );
+  const youtubeVideoId =
+    (youtubePost?.buffer_update_id as string | null | undefined) ?? null;
 
   // Buffer token presence
   const bufferConfigured = !!process.env.BUFFER_ACCESS_TOKEN;
@@ -1068,6 +1080,13 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
           </div>
         </div>
       </div>
+
+      {/* YouTube comments — only when published to YouTube + we can resolve
+          the YT video id. Component itself handles the empty-state and
+          silent-hide-on-auth-error cases. */}
+      {youtubeVideoId && (
+        <YouTubeComments youtubeVideoId={youtubeVideoId} />
+      )}
 
       {/* Cost whisper — real job cost when available */}
       {videoCostUsd !== null && (
