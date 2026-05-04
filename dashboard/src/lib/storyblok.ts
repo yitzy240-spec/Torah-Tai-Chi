@@ -359,7 +359,11 @@ export async function getSiteText(key: string): Promise<SbSiteTextStory | null> 
   return story ?? null;
 }
 
-export async function upsertSiteText(key: string, value: string): Promise<void> {
+export async function upsertSiteText(
+  key: string,
+  value: string,
+  description?: string,
+): Promise<void> {
   const slug = key.replace(/\./g, '-');
   const fullSlug = `${SITE_TEXT_FOLDER}/${slug}`;
   const existing = await getStoryBySlug(fullSlug);
@@ -370,6 +374,7 @@ export async function upsertSiteText(key: string, value: string): Promise<void> 
       component: 'site_text',
       key,
       value,
+      ...(description !== undefined ? { description } : {}),
     };
     const res = await mapi('PUT', `/stories/${existing.id}`, {
       story: { ...existing, content },
@@ -385,6 +390,7 @@ export async function upsertSiteText(key: string, value: string): Promise<void> 
       component: 'site_text',
       key,
       value,
+      ...(description !== undefined ? { description } : {}),
     };
     const res = await mapi('POST', '/stories/', {
       story: { name: key, slug, parent_id: folderId, content },
