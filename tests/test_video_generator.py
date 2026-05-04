@@ -23,11 +23,11 @@ def test_build_seedance_input_dojo_includes_dojo_refs():
         first_frame_url=None, audio_url=None, resolution="720p",
     )
     refs = payload["reference_image_urls"]
-    # Order is chars first (character consistency anchor highest priority),
-    # then jewish refs (none in this test), then dojos (setting anchor).
-    assert refs[:3] == ["https://x/a.png", "https://x/b.png", "https://x/c.png"]
-    assert "https://x/dojo1.png" in refs
-    assert "https://x/dojo2.png" in refs
+    # Dojo refs come FIRST so Seedance anchors the room; chars fill
+    # the remainder. (Was reversed 2026-04-30 → 2026-05-04 — drifted
+    # dojo + drifted kippah; restored.)
+    assert refs[:2] == ["https://x/dojo1.png", "https://x/dojo2.png"]
+    assert refs[2:] == ["https://x/a.png", "https://x/b.png", "https://x/c.png"]
     assert len(refs) <= 9
     assert "first_frame_url" not in payload
     assert STYLE_LOCK in payload["prompt"]
@@ -59,6 +59,12 @@ def test_build_seedance_input_with_first_frame_url():
 
 
 def test_build_seedance_input_caps_refs_at_nine():
+    """Regression: with 20 chars and 5 dojos on a DOJO clip, dojo refs
+    get guaranteed seats first (up to MAX_DOJO_REFS=4), then chars fill
+    the rest, total capped at MAX_REFS=9. Earlier code put chars first
+    and starved dojos to zero — that shipped 2026-04-30 and Yonah saw
+    drifting dojos + drifting kippah for four days because the dojo had
+    no anchor at all."""
     clip = _dojo_clip()
     chars = [f"https://x/c{i}.png" for i in range(20)]
     dojos = [f"https://x/d{i}.png" for i in range(5)]
@@ -70,10 +76,10 @@ def test_build_seedance_input_caps_refs_at_nine():
     )
     refs = payload["reference_image_urls"]
     assert len(refs) == 9
-    # New ordering: chars FIRST (character consistency outranks scene
-    # anchoring). When chars overflow MAX_REFS, dojos get squeezed out
-    # entirely. With 20 chars supplied, all 9 slots go to chars.
-    assert refs == [f"https://x/c{i}.png" for i in range(9)]
+    # 4 dojo refs FIRST (Seedance weights leading items more), then
+    # 5 char refs filling the rest.
+    assert refs[:4] == [f"https://x/d{i}.png" for i in range(4)]
+    assert refs[4:] == [f"https://x/c{i}.png" for i in range(5)]
 
 
 def test_build_seedance_input_with_audio_ref():

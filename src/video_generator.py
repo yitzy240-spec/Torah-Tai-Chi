@@ -17,26 +17,28 @@ def _select_refs(character_ref_urls: list[str], dojo_ref_urls: list[str],
                  jewish_ref_urls: Optional[list[str]] = None) -> list[str]:
     """Order references for Seedance, capped at MAX_REFS.
 
-    Priority (highest first): character refs (always preserved) →
-    jewish ritual refs (already filtered to this clip) → dojo refs
-    (filling the remainder). Dojo refs drop first if MAX_REFS forces
-    a cut — character consistency matters more than the room, and
-    jewish refs anchor specific Jewish-ritual nouns the prompt
-    mentions for THIS clip.
+    For DOJO clips: dojo refs FIRST with guaranteed seats (up to
+    MAX_DOJO_REFS), then jewish refs (clip-specific), then chars
+    fill remainder. Dojo first because the room is what Seedance
+    drifts on — without an anchor it invents a different studio
+    every clip. We had 12 char refs and MAX_REFS=9, which under
+    a chars-first ordering literally starved dojo refs to ZERO,
+    plus dropped the last 3 chars by alphabetical sort. That
+    regression shipped 2026-04-30 (commit 3336672 + 53ad4d3) and
+    surfaced as Yonah complaining "the dojo isn't respected" and
+    "the kippah keeps changing" — restored to pre-regression order
+    here.
+
+    For non-DOJO clips: chars + jewish (no scene refs available
+    for outdoor archetypes; the archetype text in the prompt
+    carries the setting).
     """
     jewish_ref_urls = jewish_ref_urls or []
     chars = list(character_ref_urls)
     if setting_id == "DOJO":
-        # Reserve room for chars + jewish refs first; dojo fills
-        # whatever's left. Whole output capped at MAX_REFS so an
-        # over-supplied chars list (test edge case, or future
-        # change) can't produce a >9 ref bundle that Seedance
-        # rejects or truncates unpredictably.
-        used = len(chars) + len(jewish_ref_urls)
-        dojo_room = max(0, min(MAX_DOJO_REFS, MAX_REFS - used))
-        dojos = dojo_ref_urls[:dojo_room]
-        return (chars + jewish_ref_urls + dojos)[:MAX_REFS]
-    # Non-dojo setting: chars + jewish, capped at MAX_REFS.
+        dojos = dojo_ref_urls[:MAX_DOJO_REFS]
+        char_room = max(0, MAX_REFS - len(dojos) - len(jewish_ref_urls))
+        return (dojos + jewish_ref_urls + chars[:char_room])[:MAX_REFS]
     combined = chars + jewish_ref_urls
     return combined[:MAX_REFS]
 
