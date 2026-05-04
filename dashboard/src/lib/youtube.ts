@@ -521,12 +521,46 @@ async function analyticsQuery(params: Record<string, string>): Promise<unknown> 
   });
   if (!res.ok) {
     const body = await res.text();
+    // Parse YouTube's structured error so we can distinguish scope issues
+    // from API-not-enabled, quota-exhausted, channel-ineligible, etc.
+    // YouTube returns: { error: { code, message, errors: [{ reason }] } }
+    let reason: string | null = null;
+    let parsedMessage: string | null = null;
+    try {
+      const parsed = JSON.parse(body) as {
+        error?: { errors?: Array<{ reason?: string }>; message?: string };
+      };
+      reason = parsed.error?.errors?.[0]?.reason ?? null;
+      parsedMessage = parsed.error?.message ?? null;
+    } catch {
+      // body wasn't JSON — leave reason null
+    }
+    console.error(
+      `[youtube-analytics] ${res.status} reason=${reason ?? 'unknown'} ` +
+      `message=${parsedMessage ?? body.slice(0, 200)}`,
+    );
+
     if (res.status === 403) {
-      throw new YouTubeScopeError(
-        `YouTube Analytics 403: ${body.slice(0, 200)}`,
+      // Only flip the reconnect banner when the 403 is actually a scope/
+      // permission problem. accessNotConfigured / quotaExceeded / etc.
+      // need different guidance, not a re-OAuth.
+      const SCOPE_REASONS = new Set([
+        'insufficientPermissions',
+        'forbidden',
+        'authError',
+      ]);
+      if (reason && SCOPE_REASONS.has(reason)) {
+        throw new YouTubeScopeError(
+          `YouTube Analytics 403 ${reason}: ${parsedMessage ?? body.slice(0, 200)}`,
+        );
+      }
+      throw new Error(
+        `YouTube Analytics 403 (non-scope) reason=${reason ?? 'unknown'}: ${parsedMessage ?? body.slice(0, 200)}`,
       );
     }
-    throw new Error(`YouTube Analytics ${res.status}: ${body.slice(0, 200)}`);
+    throw new Error(
+      `YouTube Analytics ${res.status} reason=${reason ?? 'unknown'}: ${parsedMessage ?? body.slice(0, 200)}`,
+    );
   }
   return res.json();
 }
