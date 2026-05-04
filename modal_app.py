@@ -4685,12 +4685,15 @@ def regen_single_clip(job_id: str) -> dict | None:
                 f"verify={verify_status}",
             )
 
-        # Upload regen'd clip mp4.
+        # Upload regen'd clip mp4. Bucket is "videos" — same as
+        # run_pipeline (line 774) and regen_smart (line 2345). The
+        # "clips" bucket has never existed; using it here was a silent
+        # bug that caused this whole code path to fail uploads.
         new_clip_storage_path = (
             f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
         )
         with open(local_path, "rb") as f:
-            sb.storage.from_("clips").upload(
+            sb.storage.from_("videos").upload(
                 new_clip_storage_path, f.read(),
                 file_options={
                     "content-type": "video/mp4",
@@ -5100,11 +5103,14 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         # set. Helper swap: _restitch_parent doesn't exist; we follow
         # the existing inline stitch pattern instead, producing a new
         # videos row for THIS regen job (same as regen_single_clip).
+        # Bucket is "videos" — same as run_pipeline / regen_smart.
+        # (regen_single_clip used to write to a non-existent "clips"
+        # bucket; that was a silent bug fixed in the same commit.)
         new_clip_storage_path = (
             f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
         )
         with open(local_path, "rb") as f:
-            sb.storage.from_("clips").upload(
+            sb.storage.from_("videos").upload(
                 new_clip_storage_path, f.read(),
                 file_options={
                     "content-type": "video/mp4",
