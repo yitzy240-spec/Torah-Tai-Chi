@@ -622,8 +622,8 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               marginBottom: '16px', flexWrap: 'wrap',
             }}
           >
-            <Link
-              href={`/videos/${parsha.slug}/edit`}
+            <a
+              href="#clips"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '8px',
                 fontFamily: 'var(--ff-body)', fontWeight: 500,
@@ -636,7 +636,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               }}
             >
               Edit clips →
-            </Link>
+            </a>
             <span
               style={{
                 fontFamily: 'var(--ff-display)',

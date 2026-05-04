@@ -26,8 +26,6 @@ export interface EditableClipCardProps {
   onSelectVersion: (clipId: string) => void;
   resolution: Resolution | null;
   modelTier: ModelTier | null;
-  /** Optional secondary path: opens the AI-feedback modal. */
-  onOpenAskAi?: (clipIndex: number) => void;
 }
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -42,7 +40,6 @@ export function EditableClipCard({
   onSelectVersion,
   resolution,
   modelTier,
-  onOpenAskAi,
 }: EditableClipCardProps) {
   const router = useRouter();
   const latest = versions[versions.length - 1];
@@ -355,25 +352,6 @@ export function EditableClipCard({
         >
           {renderLabel}
         </button>
-        {onOpenAskAi && !dbDirty && (
-          <button
-            type="button"
-            onClick={() => onOpenAskAi(index)}
-            style={{
-              fontFamily: 'var(--ff-body)',
-              fontSize: 12.5,
-              color: 'var(--ink-500)',
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              textDecoration: 'underline',
-              textUnderlineOffset: 3,
-              cursor: 'pointer',
-            }}
-          >
-            Ask AI to help instead
-          </button>
-        )}
       </div>
       {renderError && (
         <p style={{ fontSize: 12.5, color: 'var(--tassel)', marginTop: 8 }}>
@@ -381,62 +359,11 @@ export function EditableClipCard({
         </p>
       )}
 
-      {versions.length > 1 && (
-        <div style={{ marginTop: 16 }}>
-          <p
-            style={{
-              fontFamily: 'var(--ff-body)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              color: 'var(--cedar-600)',
-              margin: '0 0 6px 0',
-            }}
-          >
-            Versions
-          </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {versions.map((v, i) => {
-              const isSelected = v.clipId === selectedClipId;
-              return (
-                <button
-                  key={v.clipId}
-                  type="button"
-                  onClick={() => onSelectVersion(v.clipId)}
-                  style={{
-                    fontFamily: 'var(--ff-body)',
-                    fontSize: 12,
-                    padding: '6px 12px',
-                    minHeight: 36,
-                    borderRadius: '999px',
-                    border: isSelected
-                      ? '1.5px solid var(--navy-700)'
-                      : '1px solid var(--ink-200)',
-                    background: isSelected ? 'var(--navy-wash)' : 'white',
-                    color: isSelected ? 'var(--navy-800)' : 'var(--ink-700)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  v{i + 1}
-                </button>
-              );
-            })}
-          </div>
-          <p
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: 12,
-              color: 'var(--ink-500)',
-              margin: '6px 0 0',
-            }}
-          >
-            Pick the version you like best. The final video stitches the
-            selected version of each clip together.
-          </p>
-        </div>
-      )}
+      {/* Version chips intentionally hidden in this iteration —
+          VideoVersionsView already provides version selection via ?v=
+          URL param, and dual selectors disagree (this card's chips were
+          local-state only). Re-enable when cross-component version
+          selection is unified. */}
     </section>
   );
 }
