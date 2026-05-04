@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { generateCustomScript } from '@/app/actions/generate-custom-script';
 import { saveScriptDraft } from '@/app/actions/save-script-draft';
+import { updateScriptMeta } from '@/app/actions/update-script-meta';
 import { GenerateDialog } from '@/components/generate-dialog';
 import { TaiChiMovePicker, type TaiChiMove } from '@/components/tai-chi-move-picker';
 import { addMoveToScript } from '@/app/actions/add-move-to-script';
@@ -269,6 +270,92 @@ function ScriptCard({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [moveCache, setMoveCache] = useState<Record<string, TaiChiMove>>({});
 
+  // Inline-edit title/tldr — these update the scripts row's title/tldr
+  // (used by the dashboard card header AND torahtaichi.com video page).
+  // They do NOT affect Seedance generation.
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(script.title ?? '');
+  const [titleSaving, setTitleSaving] = useState(false);
+  const [titleSaved, setTitleSaved] = useState(false);
+
+  const [editingTldr, setEditingTldr] = useState(false);
+  const [tldrDraft, setTldrDraft] = useState(script.tldr ?? '');
+  const [tldrSaving, setTldrSaving] = useState(false);
+  const [tldrSaved, setTldrSaved] = useState(false);
+
+  // Tracked timers for the "saved ✓" indicators so we can clear before
+  // re-arming (rapid double-saves) and on unmount (carousel navigation
+  // within 1.8s of a save). Mirrors editable-clip-card's
+  // savedIndicatorTimerRef pattern landed in 96a486f.
+  const titleSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tldrSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending "saved ✓" timeouts on unmount.
+  useEffect(() => {
+    return () => {
+      if (titleSavedTimerRef.current) clearTimeout(titleSavedTimerRef.current);
+      if (tldrSavedTimerRef.current) clearTimeout(tldrSavedTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    setTitleDraft(script.title ?? '');
+    setTldrDraft(script.tldr ?? '');
+    setEditingTitle(false);
+    setEditingTldr(false);
+  }, [script.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Don't depend on script.title/script.tldr — a parent refresh after a
+  // successful save would otherwise clobber any new keystrokes the user
+  // typed during the round-trip. Resync only when navigating to a
+  // different script in the carousel (different script.id). Mirrors the
+  // pattern landed in 96a486f for editable-clip-card.
+
+  async function saveTitle() {
+    if (titleDraft === (script.title ?? '')) {
+      setEditingTitle(false);
+      return;
+    }
+    setTitleSaving(true);
+    const r = await updateScriptMeta({
+      scriptId: script.id,
+      title: titleDraft,
+      parshaSlug,
+    });
+    setTitleSaving(false);
+    if ('error' in r) {
+      alert(r.error);
+      return;
+    }
+    setEditingTitle(false);
+    setTitleSaved(true);
+    if (titleSavedTimerRef.current) clearTimeout(titleSavedTimerRef.current);
+    titleSavedTimerRef.current = setTimeout(() => setTitleSaved(false), 1800);
+    router.refresh();
+  }
+
+  async function saveTldr() {
+    if (tldrDraft === (script.tldr ?? '')) {
+      setEditingTldr(false);
+      return;
+    }
+    setTldrSaving(true);
+    const r = await updateScriptMeta({
+      scriptId: script.id,
+      tldr: tldrDraft,
+      parshaSlug,
+    });
+    setTldrSaving(false);
+    if ('error' in r) {
+      alert(r.error);
+      return;
+    }
+    setEditingTldr(false);
+    setTldrSaved(true);
+    if (tldrSavedTimerRef.current) clearTimeout(tldrSavedTimerRef.current);
+    tldrSavedTimerRef.current = setTimeout(() => setTldrSaved(false), 1800);
+    router.refresh();
+  }
+
   // Latest job for this script: drives the in-progress / video-ready UI
   // replacing the Generate button after the user submits a generation.
   type JobState = { id: string; status: string; statusMessage: string | null; videoId: string | null };
@@ -399,25 +486,95 @@ function ScriptCard({
           From {script.parsha_name}
         </div>
       )}
-      {/* Title */}
-      <h3
-        style={{
-          fontFamily: 'var(--ff-display)',
-          fontWeight: 500,
-          fontSize: '22px',
-          lineHeight: 1.2,
-          color: 'var(--ink-900)',
-          margin: '4px 0 6px 0',
-          letterSpacing: '-0.01em',
-          fontVariationSettings: '"opsz" 24, "SOFT" 30',
-        }}
-      >
-        {script.title ?? optionLabel(script.option)}
-      </h3>
+      {/* Title — click to edit. Saves on blur or Enter. */}
+      {editingTitle ? (
+        <input
+          autoFocus
+          value={titleDraft}
+          onChange={(e) => setTitleDraft(e.target.value)}
+          onBlur={saveTitle}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Escape') {
+              setTitleDraft(script.title ?? '');
+              setEditingTitle(false);
+            }
+          }}
+          disabled={titleSaving}
+          style={{
+            fontFamily: 'var(--ff-display)',
+            fontWeight: 500,
+            fontSize: 22,
+            lineHeight: 1.2,
+            color: 'var(--ink-900)',
+            letterSpacing: '-0.01em',
+            width: '100%',
+            padding: '4px 6px',
+            border: '1px solid var(--cedar-400)',
+            borderRadius: 'var(--r-sm)',
+            outline: 'none',
+            margin: '4px 0 6px 0',
+            boxSizing: 'border-box',
+          }}
+        />
+      ) : (
+        <h3
+          onClick={() => setEditingTitle(true)}
+          style={{
+            fontFamily: 'var(--ff-display)',
+            fontWeight: 500,
+            fontSize: '22px',
+            lineHeight: 1.2,
+            color: 'var(--ink-900)',
+            margin: '4px 0 6px 0',
+            letterSpacing: '-0.01em',
+            fontVariationSettings: '"opsz" 24, "SOFT" 30',
+            cursor: 'text',
+          }}
+        >
+          {script.title ?? optionLabel(script.option)}
+          {titleSaved && (
+            <span style={{ marginLeft: 8, fontStyle: 'italic', fontSize: 12, color: 'var(--jade)' }}>
+              saved ✓
+            </span>
+          )}
+        </h3>
+      )}
 
-      {/* TLDR */}
-      {script.tldr && (
+      {/* TLDR — click to edit. When empty, shows an "Add a teaser…" affordance. */}
+      {editingTldr ? (
+        <textarea
+          autoFocus
+          value={tldrDraft}
+          onChange={(e) => setTldrDraft(e.target.value)}
+          onBlur={saveTldr}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              setTldrDraft(script.tldr ?? '');
+              setEditingTldr(false);
+            }
+          }}
+          disabled={tldrSaving}
+          rows={2}
+          style={{
+            fontFamily: 'var(--ff-display)',
+            fontStyle: 'italic',
+            fontSize: 14,
+            color: 'var(--ink-500)',
+            lineHeight: 1.5,
+            width: '100%',
+            padding: '4px 6px',
+            border: '1px solid var(--cedar-400)',
+            borderRadius: 'var(--r-sm)',
+            outline: 'none',
+            margin: '0 0 14px 0',
+            resize: 'vertical',
+            boxSizing: 'border-box',
+          }}
+        />
+      ) : script.tldr ? (
         <p
+          onClick={() => setEditingTldr(true)}
           style={{
             fontFamily: 'var(--ff-display)',
             fontStyle: 'italic',
@@ -426,11 +583,50 @@ function ScriptCard({
             lineHeight: 1.5,
             margin: '0 0 14px 0',
             fontVariationSettings: '"opsz" 16, "SOFT" 60',
+            cursor: 'text',
           }}
         >
           {script.tldr}
+          {tldrSaved && (
+            <span style={{ marginLeft: 8, fontStyle: 'italic', fontSize: 12, color: 'var(--jade)' }}>
+              saved ✓
+            </span>
+          )}
         </p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditingTldr(true)}
+          style={{
+            fontFamily: 'var(--ff-display)',
+            fontStyle: 'italic',
+            fontSize: 14,
+            color: 'var(--ink-400)',
+            lineHeight: 1.5,
+            margin: '0 0 14px 0',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          Add a teaser…
+        </button>
       )}
+
+      {/* Always-visible explanatory caption — both edit and read modes. */}
+      <p
+        style={{
+          fontFamily: 'var(--ff-display)',
+          fontStyle: 'italic',
+          fontSize: 11.5,
+          color: 'var(--ink-400)',
+          margin: '0 0 14px 0',
+        }}
+      >
+        Title and teaser show on the dashboard script card and on torahtaichi.com. Click to edit. Does not affect video rendering.
+      </p>
 
       {/* Option + word count */}
       <p

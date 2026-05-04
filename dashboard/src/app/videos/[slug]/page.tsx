@@ -8,6 +8,9 @@ import { PublishToSiteToggle } from '@/components/publish-to-site-toggle';
 import { ScriptCarousel } from '@/components/script-carousel';
 import type { FeedbackClip } from '@/components/video-feedback';
 import { VideoVersionsView, type VersionInfo } from '@/components/video-versions-view';
+import type { EditableClipVersion } from '@/components/editable-clip-card';
+import { EditableClipList } from '@/components/editable-clip-list';
+import { EditingHelpModal } from '@/components/editing-help-modal';
 import { PLATFORMS, type Platform, type CaptionField } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
@@ -245,6 +248,39 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
     });
   }
 
+  // For the editable clip cards: gather all clip versions per-index
+  // across all done jobs for this parsha. Each clip is keyed by its
+  // `index` (clip position in the video). Within an index we list
+  // versions oldest-to-newest (matches the version-chip ordering in
+  // EditableClipCard).
+  const allJobIds = (doneJobsRaw ?? []).map((j) => j.id as string);
+  const editableClipsByIndex: Record<number, EditableClipVersion[]> = {};
+  const durationsByIndex: Record<number, number> = {};
+
+  if (allJobIds.length > 0) {
+    const { data: allClips } = await supabase
+      .from('clips')
+      .select('id, job_id, index, voiceover, visual_prompt, storage_path, duration_s, created_at')
+      .in('job_id', allJobIds)
+      .order('created_at', { ascending: true });
+    for (const c of (allClips ?? [])) {
+      const idx = c.index as number;
+      if (!editableClipsByIndex[idx]) editableClipsByIndex[idx] = [];
+      editableClipsByIndex[idx].push({
+        clipId: c.id as string,
+        jobId: c.job_id as string,
+        voiceover: (c.voiceover as string | null) ?? '',
+        visualPrompt: (c.visual_prompt as string | null) ?? '',
+        storagePath: (c.storage_path as string | null) ?? null,
+        storageUrl: c.storage_path ? publicVideoUrl(c.storage_path as string) : null,
+        createdAt: (c.created_at as string | null) ?? new Date(0).toISOString(),
+      });
+      if (durationsByIndex[idx] === undefined && c.duration_s) {
+        durationsByIndex[idx] = c.duration_s as number;
+      }
+    }
+  }
+
   // Latest drives display panels (captions, cost, distribution status).
   // SELECTED drives action controls (publish toggle, schedule sheets) so
   // that "publish now" and "schedule" act on the version the user is
@@ -433,6 +469,10 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const words = wordCount(aTight?.draft_text);
 
   const hasAnyVideo = !!latestVersionInfo?.videoUrl && (latestVersionInfo?.clips.length ?? 0) > 0;
+  // The Clips section (and therefore the jump-to-clips anchor in the
+  // header) only renders when there are clip plans AND a latest video.
+  // Mirrors the conditional on the <section id="clips"> below.
+  const hasEditableClips = Object.keys(editableClipsByIndex).length > 0 && !!latestVersionInfo?.videoUrl;
 
   return (
     <div className="stagger">
@@ -522,6 +562,20 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               thumbUrl={selectedThumbUrl}
             />
           )}
+          {hasEditableClips && (
+            <a
+              href="#clips"
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: 13,
+                color: 'var(--navy-700)',
+                textDecoration: 'underline',
+                textUnderlineOffset: 4,
+              }}
+            >
+              Edit clips ↓
+            </a>
+          )}
         </div>
       </header>
 
@@ -568,8 +622,8 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               marginBottom: '16px', flexWrap: 'wrap',
             }}
           >
-            <Link
-              href={`/videos/${parsha.slug}/edit`}
+            <a
+              href="#clips"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '8px',
                 fontFamily: 'var(--ff-body)', fontWeight: 500,
@@ -582,7 +636,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               }}
             >
               Edit clips →
-            </Link>
+            </a>
             <span
               style={{
                 fontFamily: 'var(--ff-display)',
@@ -608,6 +662,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             initialCompare={initialCompare}
             inFlightRegen={inFlightRegen}
             typicalRun={typicalRun}
+            hidePerClipFeedback={Object.keys(editableClipsByIndex).length > 0}
           />
           {/* Script carousel — full width below the feedback row when we
               already have a video, so Yonah can still flip through script
@@ -759,6 +814,60 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             />
           </div>
         </>
+      )}
+
+      {Object.keys(editableClipsByIndex).length > 0 && latestVersionInfo?.videoUrl && (
+        <section
+          id="clips"
+          style={{
+            marginBottom: 36,
+            scrollMarginTop: 80,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              margin: '0 0 6px 0',
+            }}
+          >
+            <h2
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontWeight: 500,
+                fontSize: 22,
+                color: 'var(--ink-900)',
+                margin: 0,
+              }}
+            >
+              Clips
+            </h2>
+            <EditingHelpModal />
+          </div>
+          <p
+            style={{
+              fontFamily: 'var(--ff-display)',
+              fontStyle: 'italic',
+              fontSize: 13.5,
+              color: 'var(--ink-500)',
+              margin: '0 0 20px 0',
+            }}
+          >
+            Edit each clip&apos;s words below — those affect what Seedance speaks.
+            Hit Re-render to apply your edits to that one clip. Each re-render
+            costs about $1.20 and takes about 30 seconds.
+          </p>
+
+          <EditableClipList
+            videoId={selectedRow?.videoId ?? latestVersionInfo.id}
+            clipsByIndex={editableClipsByIndex}
+            durationsByIndex={durationsByIndex}
+            resolution={(latest?.resolution as Resolution | null) ?? null}
+            modelTier={(latest?.modelTier as ModelTier | null) ?? null}
+          />
+        </section>
       )}
 
       {/* ROW 2: Captions + Distribution. Mirrors ROW 1's narrow|wide split

@@ -39,6 +39,10 @@ interface Props {
    * picks affected clips, only those re-render). False on legacy
    * videos where general feedback still triggers a full regen. */
   smartRegenAvailable: boolean;
+  /** When true, skip rendering the per-clip feedback list. Used when the
+   *  parent surface (e.g. /videos/<slug>) is rendering its own editable
+   *  clip cards above and the per-clip rows would be redundant. */
+  hidePerClipFeedback?: boolean;
 }
 
 export function VideoFeedback({
@@ -50,6 +54,7 @@ export function VideoFeedback({
   costEstimateUsd,
   resolutionLabel,
   smartRegenAvailable,
+  hidePerClipFeedback = false,
 }: Props) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -203,9 +208,10 @@ export function VideoFeedback({
           )}
         </div>
 
-        {/* Clip list — voiceover text only, no clip numbers. */}
+        {/* Clip list — voiceover text only, no clip numbers. Suppressed when
+            the parent renders its own editable clip cards (hidePerClipFeedback). */}
         <div>
-          {clips.length > 0 ? (
+          {hidePerClipFeedback ? null : clips.length > 0 ? (
             <div
               style={{
                 display: 'flex',
