@@ -104,28 +104,6 @@ export function EditableClipList({
   const [isComposing, startCompose] = useTransition();
   const [composeError, setComposeError] = useState<string | null>(null);
 
-  // True if the user picked at least one non-latest version somewhere.
-  // When everything is on latest, the compose would just re-stitch the
-  // current latest video — pointless, so the button is disabled.
-  const anyNonLatestSelected = indices.some((idx) => {
-    const versions = clipsByIndex[idx];
-    const latestId = versions[versions.length - 1].clipId;
-    const sel = selectedByIndex[idx] ?? latestId;
-    return sel !== latestId;
-  });
-
-  // Human-readable summary of the user's pick: "v2 of clip 2, latest of others".
-  const pickSummary = indices
-    .map((idx) => {
-      const versions = clipsByIndex[idx];
-      const sel = selectedByIndex[idx] ?? versions[versions.length - 1].clipId;
-      const selIdx = versions.findIndex((v) => v.clipId === sel);
-      const isLatest = selIdx === versions.length - 1;
-      return isLatest ? null : `clip ${idx + 1} → v${selIdx + 1}`;
-    })
-    .filter(Boolean)
-    .join(', ');
-
   function handleApply() {
     setComposeError(null);
     startCompose(async () => {
@@ -143,16 +121,27 @@ export function EditableClipList({
       const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
       if (result.status === 'failed') {
         setComposeError('Compose failed. Open the parsha page logs for details.');
-      } else if (result.status === 'timeout') {
+        return;
+      }
+      if (result.status === 'timeout') {
         setComposeError(
           'Compose is still running after 20 minutes. Refresh the page to check on it.',
         );
+        return;
       }
+      // Success: reset selections to latest. After router.refresh the
+      // versions arrays will include the new composed clips, and the
+      // user's "I picked v2 of clip 2" is now consumed — defaulting
+      // back to all-latest is the cleanest mental model.
+      const reset: Record<number, string> = {};
+      for (const idx of indices) {
+        const vs = clipsByIndex[idx];
+        reset[idx] = vs[vs.length - 1].clipId;
+      }
+      setSelectedByIndex(reset);
       router.refresh();
     });
   }
-
-  const applyDisabled = !anyNonLatestSelected || isComposing;
 
   return (
     <>
@@ -172,91 +161,33 @@ export function EditableClipList({
             }
             resolution={resolution}
             modelTier={modelTier}
+            onApply={handleApply}
+            applying={isComposing}
           />
         );
       })}
 
-      {/* Apply-selection bar — only really useful when at least one
-          clip is on a non-latest version. We always render the bar so
-          the user can see how the feature works, but the button is
-          disabled when there's nothing to compose. */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 16,
-          padding: '18px 22px',
-          marginTop: 8,
-          marginBottom: 24,
-          border: '1px solid var(--ink-100)',
-          borderRadius: 'var(--r-lg)',
-          background: 'var(--linen-100)',
-          flexWrap: 'wrap',
-        }}
-      >
-        <div style={{ flex: '1 1 280px', minWidth: 0 }}>
-          <div
-            style={{
-              fontFamily: 'var(--ff-body)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              color: 'var(--cedar-600)',
-              marginBottom: 6,
-            }}
-          >
-            Apply selection
-          </div>
-          <div
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: 13.5,
-              color: 'var(--ink-700)',
-              fontVariationSettings: '"opsz" 14, "SOFT" 50',
-            }}
-          >
-            {anyNonLatestSelected
-              ? `Stitch a new video using your picks: ${pickSummary}. Other clips use the latest version. ~30s, no Seedance cost (just a re-stitch).`
-              : 'Pick a non-latest version on any clip above to stitch a custom combination here. Useful when a recent re-render turned out worse than a previous version.'}
-          </div>
-          {composeError && (
-            <div
-              style={{
-                fontFamily: 'var(--ff-body)',
-                fontSize: 12.5,
-                color: 'var(--tassel)',
-                marginTop: 8,
-              }}
-            >
-              {composeError}
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={handleApply}
-          disabled={applyDisabled}
+      {/* Compose error surfaced once for the whole list — the per-card
+          buttons all share one in-flight compose, so a single error
+          banner here is the right placement. Only renders when there's
+          an error to show. */}
+      {composeError && (
+        <div
+          role="alert"
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
+            padding: '14px 18px',
+            marginBottom: 24,
+            border: '1px solid var(--tassel)',
+            borderRadius: 'var(--r-md)',
+            background: 'rgba(192,57,43,.06)',
             fontFamily: 'var(--ff-body)',
-            fontWeight: 500,
-            fontSize: 14,
-            padding: '11px 22px',
-            minHeight: 44,
-            borderRadius: '999px',
-            border: '1px solid var(--navy-800)',
-            background: applyDisabled ? 'var(--ink-200)' : 'var(--navy-800)',
-            color: 'var(--linen-50)',
-            cursor: applyDisabled ? 'not-allowed' : 'pointer',
-            opacity: applyDisabled ? 0.6 : 1,
+            fontSize: 13,
+            color: 'var(--tassel)',
           }}
         >
-          {isComposing ? 'Stitching…' : 'Apply selection · stitch new video'}
-        </button>
-      </div>
+          {composeError}
+        </div>
+      )}
     </>
   );
 }

@@ -98,6 +98,15 @@ export interface EditableClipCardProps {
   onSelectVersion: (clipId: string) => void;
   resolution: Resolution | null;
   modelTier: ModelTier | null;
+  /** Triggered when the user clicks "Apply" on this clip's selected
+   *  version. Owned by the parent (EditableClipList) since compose
+   *  uses the full selection map across all clips. The card just
+   *  surfaces the action — when ANY clip card's selection is non-
+   *  latest, that card's Apply button lights up. */
+  onApply?: () => void;
+  /** True while a compose is running. Disables the Apply button on
+   *  every card to prevent double-clicks from queuing two stitches. */
+  applying?: boolean;
 }
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -112,6 +121,8 @@ export function EditableClipCard({
   onSelectVersion,
   resolution,
   modelTier,
+  onApply,
+  applying = false,
 }: EditableClipCardProps) {
   const router = useRouter();
   const latest = versions[versions.length - 1];
@@ -524,64 +535,96 @@ export function EditableClipCard({
         </p>
       )}
 
-      {versions.length > 1 && (
-        <div style={{ marginTop: 16 }}>
-          <p
-            style={{
-              fontFamily: 'var(--ff-body)',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              color: 'var(--cedar-600)',
-              margin: '0 0 6px 0',
-            }}
-          >
-            Versions
-          </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {versions.map((v, i) => {
-              const isSelected = v.clipId === selectedClipId;
-              const isLatest = i === versions.length - 1;
-              return (
+      {versions.length > 1 && (() => {
+        const selIdx = versions.findIndex((v) => v.clipId === selectedClipId);
+        const isOnLatest = selIdx === versions.length - 1 || selIdx === -1;
+        const applyEnabled = !!onApply && !applying && !isOnLatest;
+        return (
+          <div style={{ marginTop: 16 }}>
+            <p
+              style={{
+                fontFamily: 'var(--ff-body)',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                color: 'var(--cedar-600)',
+                margin: '0 0 6px 0',
+              }}
+            >
+              Versions
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {versions.map((v, i) => {
+                const isSelected = v.clipId === selectedClipId;
+                const isLatest = i === versions.length - 1;
+                return (
+                  <button
+                    key={v.clipId}
+                    type="button"
+                    onClick={() => onSelectVersion(v.clipId)}
+                    style={{
+                      fontFamily: 'var(--ff-body)',
+                      fontSize: 12,
+                      padding: '6px 12px',
+                      minHeight: 36,
+                      borderRadius: '999px',
+                      border: isSelected
+                        ? '1.5px solid var(--navy-700)'
+                        : '1px solid var(--ink-200)',
+                      background: isSelected ? 'var(--navy-wash)' : 'white',
+                      color: isSelected ? 'var(--navy-800)' : 'var(--ink-700)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    v{i + 1}{isLatest ? ' (latest)' : ''}
+                  </button>
+                );
+              })}
+              {!isOnLatest && (
                 <button
-                  key={v.clipId}
                   type="button"
-                  onClick={() => onSelectVersion(v.clipId)}
+                  onClick={onApply}
+                  disabled={!applyEnabled}
                   style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     fontFamily: 'var(--ff-body)',
-                    fontSize: 12,
-                    padding: '6px 12px',
+                    fontWeight: 500,
+                    fontSize: 13,
+                    padding: '8px 16px',
                     minHeight: 36,
                     borderRadius: '999px',
-                    border: isSelected
-                      ? '1.5px solid var(--navy-700)'
-                      : '1px solid var(--ink-200)',
-                    background: isSelected ? 'var(--navy-wash)' : 'white',
-                    color: isSelected ? 'var(--navy-800)' : 'var(--ink-700)',
-                    cursor: 'pointer',
+                    border: '1px solid var(--navy-800)',
+                    background: applyEnabled ? 'var(--navy-800)' : 'var(--ink-200)',
+                    color: 'var(--linen-50)',
+                    cursor: applyEnabled ? 'pointer' : 'not-allowed',
+                    opacity: applyEnabled ? 1 : 0.6,
+                    marginLeft: 4,
                   }}
                 >
-                  v{i + 1}{isLatest ? ' (latest)' : ''}
+                  {applying
+                    ? 'Stitching…'
+                    : `Apply v${selIdx + 1} · stitch new video`}
                 </button>
-              );
-            })}
+              )}
+            </div>
+            <p
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+                fontSize: 12,
+                color: 'var(--ink-500)',
+                margin: '6px 0 0',
+              }}
+            >
+              {isOnLatest
+                ? 'Click a version to preview it here. The Apply button appears once you pick a non-latest version.'
+                : 'Apply stitches a new final video with this pick. Other clips keep their latest version unless you also picked something there. ~30s, no Seedance cost.'}
+            </p>
           </div>
-          <p
-            style={{
-              fontFamily: 'var(--ff-display)',
-              fontStyle: 'italic',
-              fontSize: 12,
-              color: 'var(--ink-500)',
-              margin: '6px 0 0',
-            }}
-          >
-            Click a version to preview it here. Use the &ldquo;Apply
-            selection&rdquo; button below the clip list to stitch a new
-            video using the picked versions.
-          </p>
-        </div>
-      )}
+        );
+      })()}
     </section>
   );
 }
