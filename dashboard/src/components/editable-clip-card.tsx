@@ -133,6 +133,32 @@ export function EditableClipCard({
         setRenderError(r.error);
         return;
       }
+
+      // Modal kicks the work off async — the action returned as soon as
+      // the job was queued. Poll until terminal so the button stays in
+      // "Re-rendering…" the whole time and the page only refreshes once
+      // the new mp4 + stitched video are actually ready. 5 min cap is a
+      // sanity bound; single-clip re-renders typically finish in 30-60s.
+      const jobId = r.jobId;
+      const TERMINAL = new Set(['done', 'failed']);
+      const start = Date.now();
+      while (Date.now() - start < 5 * 60 * 1000) {
+        await new Promise((res) => setTimeout(res, 5000));
+        try {
+          const statusRes = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
+          if (!statusRes.ok) continue;
+          const data = (await statusRes.json()) as { status?: string };
+          if (data.status && TERMINAL.has(data.status)) {
+            if (data.status === 'failed') {
+              setRenderError('Re-render failed. Open the parsha page logs for details.');
+            }
+            break;
+          }
+        } catch {
+          // Transient network blip — keep polling.
+        }
+      }
+
       router.refresh();
     });
   }
