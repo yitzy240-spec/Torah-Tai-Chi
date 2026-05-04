@@ -57,14 +57,14 @@ export function EditableClipCard({
   const [renderError, setRenderError] = useState<string | null>(null);
   const [isRendering, startRender] = useTransition();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Re-sync local state when a new version is added (e.g. after a re-render
-  // completes and `versions` grows). Without this, voiceover/visualPrompt
-  // stay pinned to the OLD latest version's text and the user sees stale
-  // edits, plus dbDirty/renderDirty become permanently true.
-  // Keyed on latest.clipId so we only resync when the latest version's
-  // identity actually changes — typing into the textarea doesn't trigger
-  // it, since latest is derived from `versions` (a prop), not local state.
+  // Re-sync local state only when a new version is added (latest.clipId
+  // changes — e.g. after a re-render completes and `versions` grows, or
+  // when the parent navigates between clips). We intentionally do NOT
+  // depend on latest.voiceover/.visualPrompt: a parent re-fetch after a
+  // successful save would otherwise clobber any new keystrokes the user
+  // typed during the round-trip.
   useEffect(() => {
     setVoiceover(latest.voiceover);
     setVisualPrompt(latest.visualPrompt);
@@ -72,7 +72,16 @@ export function EditableClipCard({
     setSavedVisualPrompt(latest.visualPrompt);
     setSavingState('idle');
     setSaveError(null);
-  }, [latest.clipId, latest.voiceover, latest.visualPrompt]);
+  }, [latest.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear any pending "Saved · Live" indicator timeout on unmount.
+  useEffect(() => {
+    return () => {
+      if (savedIndicatorTimerRef.current) {
+        clearTimeout(savedIndicatorTimerRef.current);
+      }
+    };
+  }, []);
 
   // Whether the saved-to-DB text has been rendered into the latest clip mp4.
   const renderedVoiceover = latest.voiceover;
@@ -101,12 +110,13 @@ export function EditableClipCard({
       setSavedVoiceover(voiceover);
       setSavedVisualPrompt(visualPrompt);
       setSavingState('saved');
-      setTimeout(() => setSavingState('idle'), 1500);
+      if (savedIndicatorTimerRef.current) clearTimeout(savedIndicatorTimerRef.current);
+      savedIndicatorTimerRef.current = setTimeout(() => setSavingState('idle'), 1500);
     }, SAVE_DEBOUNCE_MS);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [voiceover, visualPrompt, dbDirty, latest.clipId]);
+  }, [voiceover, visualPrompt, latest.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cost = resolution && modelTier
     ? estimateSeedanceCost(durationS, resolution, modelTier)
@@ -131,6 +141,8 @@ export function EditableClipCard({
   }
 
   const sel = versions.find((v) => v.clipId === selectedClipId) ?? latest;
+  const selectedIndex = versions.findIndex((v) => v.clipId === selectedClipId);
+  const displayedSelectedIndex = selectedIndex >= 0 ? selectedIndex : versions.length - 1;
 
   return (
     <section
@@ -171,7 +183,7 @@ export function EditableClipCard({
             color: 'var(--ink-500)',
           }}
         >
-          {durationS.toFixed(1)}s · v{versions.length} of {versions.length}
+          {durationS.toFixed(1)}s · v{displayedSelectedIndex + 1} of {versions.length}
         </span>
       </header>
 
@@ -179,7 +191,6 @@ export function EditableClipCard({
         <video
           controls
           src={sel.storageUrl}
-          poster={sel.storageUrl}
           style={{
             width: '100%',
             maxWidth: 280,
