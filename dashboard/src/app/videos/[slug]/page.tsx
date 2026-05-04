@@ -259,6 +259,15 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const durationsByIndex: Record<number, number> = {};
 
   if (allJobIds.length > 0) {
+    // Per-job tier lookup so each clip version can carry the tier it
+    // was rendered at — used by EditableClipCard for the header label
+    // ("9.0s · 720p Fast · v2 of 3") and as the default for the per-
+    // card tier picker.
+    const tierByJobId: Record<string, { resolution: Resolution | null; modelTier: ModelTier | null }> = {};
+    for (const r of versionRows) {
+      tierByJobId[r.jobId] = { resolution: r.resolution, modelTier: r.modelTier };
+    }
+
     const { data: allClips } = await supabase
       .from('clips')
       .select('id, job_id, index, voiceover, visual_prompt, storage_path, duration_s, created_at')
@@ -267,6 +276,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
     for (const c of (allClips ?? [])) {
       const idx = c.index as number;
       if (!editableClipsByIndex[idx]) editableClipsByIndex[idx] = [];
+      const t = tierByJobId[c.job_id as string];
       editableClipsByIndex[idx].push({
         clipId: c.id as string,
         jobId: c.job_id as string,
@@ -275,6 +285,8 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
         storagePath: (c.storage_path as string | null) ?? null,
         storageUrl: c.storage_path ? publicVideoUrl(c.storage_path as string) : null,
         createdAt: (c.created_at as string | null) ?? new Date(0).toISOString(),
+        resolution: t?.resolution ?? null,
+        modelTier: t?.modelTier ?? null,
       });
       if (durationsByIndex[idx] === undefined && c.duration_s) {
         durationsByIndex[idx] = c.duration_s as number;

@@ -4,7 +4,17 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateClipText } from '@/app/actions/update-clip-text';
 import { regenClipFromText } from '@/app/actions/regen-clip-from-text';
-import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
+import { estimateSeedanceCost, TIER_OPTIONS, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
+
+/** Label format like "720p Fast" / "1080p Standard". Used both for the
+ *  per-version header pill and for the tier-picker dropdown options. */
+function tierLabel(resolution: Resolution | null, tier: ModelTier | null): string | null {
+  if (!resolution && !tier) return null;
+  const parts: string[] = [];
+  if (resolution) parts.push(resolution);
+  if (tier) parts.push(tier === 'fast' ? 'Fast' : 'Standard');
+  return parts.join(' ');
+}
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
 
 const TERMINAL_JOB_STATUSES = new Set(['done', 'failed']);
@@ -71,6 +81,11 @@ export interface EditableClipVersion {
   storagePath: string | null;
   storageUrl: string | null;
   createdAt: string;
+  /** Tier this version was rendered at — pulled from this clip's job
+   *  (jobs.resolution + jobs.model_tier). Surfaced in the header label
+   *  so the user can see which version was rendered at which quality. */
+  resolution: Resolution | null;
+  modelTier: ModelTier | null;
 }
 
 export interface EditableClipCardProps {
@@ -172,20 +187,43 @@ export function EditableClipCard({
     };
   }, [voiceover, visualPrompt, latest.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cost = resolution && modelTier
-    ? estimateSeedanceCost(durationS, resolution, modelTier)
+  // Default the tier picker to whatever the latest version was rendered
+  // at; fall back to the page-level tier prop if the latest doesn't
+  // carry per-version tier (legacy clips). Picker state is per-card so
+  // each clip can be re-rendered at a different tier.
+  const initialPickedResolution = latest.resolution ?? resolution ?? null;
+  const initialPickedTier = latest.modelTier ?? modelTier ?? null;
+  const [pickedResolution, setPickedResolution] = useState<Resolution | null>(initialPickedResolution);
+  const [pickedTier, setPickedTier] = useState<ModelTier | null>(initialPickedTier);
+
+  // Re-sync the picker when a new version arrives (so default tracks
+  // the new latest's tier) — but only when latest.clipId actually
+  // changed, not on every prop pass.
+  useEffect(() => {
+    setPickedResolution(latest.resolution ?? resolution ?? null);
+    setPickedTier(latest.modelTier ?? modelTier ?? null);
+  }, [latest.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cost = pickedResolution && pickedTier
+    ? estimateSeedanceCost(durationS, pickedResolution, pickedTier)
     : null;
   const costStr = cost !== null ? `$${cost.toFixed(2)}` : null;
+  const pickedTierLabel = tierLabel(pickedResolution, pickedTier);
 
   const reRenderDisabled = !renderDirty || isRendering;
   const renderLabel = isRendering
     ? 'Re-rendering…'
-    : `Re-render this clip${costStr ? ` · ~${costStr}` : ''} · ~30s`;
+    : `Re-render this clip${pickedTierLabel ? ` · ${pickedTierLabel}` : ''}${costStr ? ` · ~${costStr}` : ''} · ~30s`;
 
   function handleReRender() {
     setRenderError(null);
     startRender(async () => {
-      const r = await regenClipFromText({ videoId, clipIndex: index });
+      const r = await regenClipFromText({
+        videoId,
+        clipIndex: index,
+        resolution: pickedResolution ?? undefined,
+        modelTier: pickedTier ?? undefined,
+      });
       if ('error' in r) {
         setRenderError(r.error);
         return;
@@ -254,7 +292,15 @@ export function EditableClipCard({
             color: 'var(--ink-500)',
           }}
         >
-          {durationS.toFixed(1)}s · v{displayedSelectedIndex + 1} of {versions.length}
+          {durationS.toFixed(1)}s
+          {(() => {
+            // Per-version tier label — shows what model rendered the
+            // currently-displayed version. When versions span multiple
+            // tiers the label updates as the user flips chips.
+            const selTier = tierLabel(sel.resolution, sel.modelTier);
+            return selTier ? ` · ${selTier}` : '';
+          })()}
+          {' · '}v{displayedSelectedIndex + 1} of {versions.length}
         </span>
       </header>
 
@@ -404,6 +450,40 @@ export function EditableClipCard({
       </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select
+          value={
+            pickedResolution && pickedTier
+              ? `${pickedResolution}|${pickedTier}`
+              : ''
+          }
+          onChange={(e) => {
+            const [r, t] = e.target.value.split('|') as [Resolution, ModelTier];
+            setPickedResolution(r);
+            setPickedTier(t);
+          }}
+          disabled={isRendering}
+          aria-label="Re-render quality"
+          style={{
+            fontFamily: 'var(--ff-body)',
+            fontSize: 13,
+            padding: '10px 14px',
+            minHeight: 44,
+            borderRadius: '999px',
+            border: '1px solid var(--ink-200)',
+            background: 'white',
+            color: 'var(--ink-800)',
+            cursor: isRendering ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {TIER_OPTIONS.map((opt) => (
+            <option
+              key={`${opt.resolution}|${opt.tier}`}
+              value={`${opt.resolution}|${opt.tier}`}
+            >
+              {opt.label}
+            </option>
+          ))}
+        </select>
         <button
           type="button"
           onClick={handleReRender}
@@ -427,6 +507,17 @@ export function EditableClipCard({
           {renderLabel}
         </button>
       </div>
+      <p
+        style={{
+          fontFamily: 'var(--ff-display)',
+          fontStyle: 'italic',
+          fontSize: 12,
+          color: 'var(--ink-400)',
+          margin: '6px 0 0 0',
+        }}
+      >
+        Pick the quality before re-rendering. Higher quality = sharper visuals + better lip-sync, more cost.
+      </p>
       {renderError && (
         <p style={{ fontSize: 12.5, color: 'var(--tassel)', marginTop: 8 }}>
           {renderError}

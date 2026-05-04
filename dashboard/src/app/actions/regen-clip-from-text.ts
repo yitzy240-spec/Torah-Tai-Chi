@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 
 // Mirrors trigger-generation.ts. Kept inline rather than imported so
 // this file stays self-contained — if the canonical list ever grows,
@@ -18,8 +19,16 @@ const IN_PROGRESS_STATUSES = [
 export async function regenClipFromText(opts: {
   videoId: string;
   clipIndex: number;
+  /** Optional override — re-render at a different resolution than the
+   *  parent job. Useful when bumping a clip from 720p Fast → 1080p
+   *  Standard (or going the other way for cheap drafts). When omitted,
+   *  falls through to the parent job's resolution. */
+  resolution?: Resolution;
+  /** Optional override — re-render at a different model tier than the
+   *  parent. Same fallthrough semantics as `resolution`. */
+  modelTier?: ModelTier;
 }): Promise<{ ok: true; jobId: string } | { error: string }> {
-  const { videoId, clipIndex } = opts;
+  const { videoId, clipIndex, resolution: resOverride, modelTier: tierOverride } = opts;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated' };
@@ -64,8 +73,8 @@ export async function regenClipFromText(opts: {
       topic: parentJob.topic ?? null,
       status: 'queued',
       triggered_by: user.id,
-      resolution: parentJob.resolution,
-      model_tier: parentJob.model_tier,
+      resolution: resOverride ?? parentJob.resolution,
+      model_tier: tierOverride ?? parentJob.model_tier,
       motion_ref_slug: parentJob.motion_ref_slug,
     })
     .select('id').single();
