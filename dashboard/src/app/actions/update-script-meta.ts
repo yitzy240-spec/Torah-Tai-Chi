@@ -41,7 +41,11 @@ export async function updateScriptMeta(opts: {
   const { error } = await supabase.from('scripts').update(update).eq('id', scriptId);
   if (error) return { error: error.message };
 
-  // Revalidate the parsha page so the public website also reflects the change.
+  // Revalidate the dashboard's own parsha page so the next render sees
+  // the updated title/tldr immediately. The PUBLIC website (separate
+  // Next.js project at website/) has its own ISR cache and is NOT
+  // invalidated by this call — it'll pick up the change on its next
+  // scheduled rebuild or via a manual purge.
   if (parshaSlug) {
     revalidatePath(`/videos/${parshaSlug}`);
   }

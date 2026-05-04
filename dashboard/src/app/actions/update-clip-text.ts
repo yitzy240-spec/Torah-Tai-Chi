@@ -25,12 +25,24 @@ export async function updateClipText(opts: {
 
   const update: Record<string, string> = {};
   if (voiceover !== undefined) {
+    // clips.voiceover is NOT NULL — empty/whitespace-only would either
+    // violate the constraint or, worse, succeed and have Modal render a
+    // silent clip. Reject before write. Don't trim before saving — the
+    // user may want trailing whitespace/punctuation preserved verbatim.
+    if (voiceover.trim().length === 0) {
+      return { error: 'Voiceover cannot be empty.' };
+    }
     if (voiceover.length > MAX_VOICEOVER_CHARS) {
       return { error: `Voiceover too long (max ${MAX_VOICEOVER_CHARS} chars)` };
     }
     update.voiceover = voiceover;
   }
   if (visualPrompt !== undefined) {
+    // Same reasoning as voiceover above — clips.visual_prompt is NOT
+    // NULL and an empty string would silently break the next regen.
+    if (visualPrompt.trim().length === 0) {
+      return { error: 'Scene direction cannot be empty.' };
+    }
     if (visualPrompt.length > MAX_VISUAL_PROMPT_CHARS) {
       return { error: `Scene direction too long (max ${MAX_VISUAL_PROMPT_CHARS} chars)` };
     }
