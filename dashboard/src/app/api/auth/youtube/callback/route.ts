@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { exchangeCode } from '@/lib/youtube';
+import { exchangeCode, YOUTUBE_SCOPES } from '@/lib/youtube';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 
@@ -38,10 +38,10 @@ export async function GET(request: Request) {
       access_token_expires_at: result.expiresAt,
       account_id: result.channelId,
       account_name: result.channelTitle,
-      scopes: [
-        'https://www.googleapis.com/auth/youtube.upload',
-        'https://www.googleapis.com/auth/youtube.readonly',
-      ],
+      // Persist whatever the consent flow actually requested so the row
+      // matches reality. Sourcing this from YOUTUBE_SCOPES means future
+      // scope additions automatically flow through.
+      scopes: YOUTUBE_SCOPES,
       connected_at: now,
       updated_at: now,
     }, { onConflict: 'service' });
