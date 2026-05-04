@@ -5,6 +5,63 @@ import { useRouter } from 'next/navigation';
 import { updateClipText } from '@/app/actions/update-clip-text';
 import { regenClipFromText } from '@/app/actions/regen-clip-from-text';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
+import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
+
+const TERMINAL_JOB_STATUSES = new Set(['done', 'failed']);
+
+/**
+ * Wait until a job hits a terminal status. Subscribes to Supabase
+ * Realtime on the jobs row for instant detection, plus a slower
+ * polling fallback in case Realtime drops a message. Times out at
+ * `timeoutMs` (returns 'timeout' status). Same pattern as
+ * regen-in-progress-banner.tsx.
+ */
+function waitForJobTerminal(
+  jobId: string,
+  timeoutMs: number,
+): Promise<{ status: string }> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const finish = (status: string) => {
+      if (resolved) return;
+      resolved = true;
+      try { void supabase.removeChannel(channel); } catch { /* noop */ }
+      clearInterval(pollTimer);
+      clearTimeout(timeoutTimer);
+      resolve({ status });
+    };
+
+    const supabase = createBrowserSupabase();
+    const channel = supabase
+      .channel(`regen-clip-${jobId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'jobs', filter: `id=eq.${jobId}` },
+        (payload) => {
+          const status = (payload.new as { status?: string } | null)?.status;
+          if (status && TERMINAL_JOB_STATUSES.has(status)) finish(status);
+        },
+      )
+      .subscribe();
+
+    // Polling fallback every 8s — slower than the prior 5s loop because
+    // Realtime is the primary path here. Catches the case where Realtime
+    // drops a message or is briefly disconnected.
+    const pollTimer = setInterval(async () => {
+      if (resolved) return;
+      try {
+        const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = (await res.json()) as { status?: string };
+        if (data.status && TERMINAL_JOB_STATUSES.has(data.status)) finish(data.status);
+      } catch {
+        // transient — keep waiting
+      }
+    }, 8000);
+
+    const timeoutTimer = setTimeout(() => finish('timeout'), timeoutMs);
+  });
+}
 
 export interface EditableClipVersion {
   clipId: string;
@@ -135,32 +192,19 @@ export function EditableClipCard({
       }
 
       // Modal kicks the work off async — the action returned as soon as
-      // the job was queued. Poll until terminal so the button stays in
-      // "Re-rendering…" the whole time and the page only refreshes once
-      // the new mp4 + stitched video are actually ready. Cap at 20 min
-      // because we observed real Seedance runs take 9-10 min in
-      // production (Kie queue + 720p Standard rendering + their internal
-      // verification pass). The earlier 5-min cap timed out before the
-      // regen finished, refreshed against stale data, and confused the
-      // user into thinking the regen had failed.
-      const jobId = r.jobId;
-      const TERMINAL = new Set(['done', 'failed']);
-      const start = Date.now();
-      while (Date.now() - start < 20 * 60 * 1000) {
-        await new Promise((res) => setTimeout(res, 5000));
-        try {
-          const statusRes = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
-          if (!statusRes.ok) continue;
-          const data = (await statusRes.json()) as { status?: string };
-          if (data.status && TERMINAL.has(data.status)) {
-            if (data.status === 'failed') {
-              setRenderError('Re-render failed. Open the parsha page logs for details.');
-            }
-            break;
-          }
-        } catch {
-          // Transient network blip — keep polling.
-        }
+      // the job was queued. Wait until the job hits a terminal status so
+      // the button stays in "Re-rendering…" the whole time and the page
+      // only refreshes once the new mp4 + stitched video are actually
+      // ready. Realtime is the primary path (instant on status update);
+      // 8s polling fallback handles dropped Realtime messages. 20-min
+      // cap accommodates the 9-10 min Seedance runs we've observed.
+      const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
+      if (result.status === 'failed') {
+        setRenderError('Re-render failed. Open the parsha page logs for details.');
+      } else if (result.status === 'timeout') {
+        setRenderError(
+          'Render is still running after 20 minutes. Refresh the page to check on it.',
+        );
       }
 
       router.refresh();

@@ -5067,6 +5067,56 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         local_path_dest = work_dir / f"clip_{target_index:02d}.mp4"
         clip_ref_video_url = target_parent_clip.get("motion_ref_url")
 
+        # Chain decision: when this clip has NO motion ref AND there's a
+        # prior clip in the same scene block on the parent, anchor the
+        # regen by passing the prior clip's last frame as
+        # first_frame_url. Without this, regenerated middle-of-scene
+        # clips start cold and Seedance has more room to drift mid-clip
+        # ("Rav Eli morphing"). When motion_ref_url is set we MUST skip
+        # this — first_frame_url and reference_video_urls are mutually
+        # exclusive in Seedance (commit 3d9274e earlier today).
+        first_frame_url: str | None = None
+        if target_index > 0 and clip_ref_video_url is None:
+            prev_parent_clip = next(
+                (c for c in parent_clips if c.get("index") == target_index - 1),
+                None,
+            )
+            if (
+                prev_parent_clip
+                and prev_parent_clip.get("storage_path")
+                and prev_parent_clip.get("setting_id") == clip.setting_id
+            ):
+                # Mirror the jewish-ref check from run_pipeline._can_chain:
+                # if the target adds a ritual keyword the prev didn't have,
+                # reference_image_urls must flow through and we can't chain.
+                prev_kws = _jewish_ref_ids_in_prompt(
+                    prev_parent_clip.get("visual_prompt") or ""
+                )
+                curr_kws = _jewish_ref_ids_in_prompt(clip.visual_prompt or "")
+                if not (curr_kws - prev_kws):
+                    try:
+                        prev_path = work_dir / f"prev_clip_{target_index - 1:02d}.mp4"
+                        prev_bytes = sb.storage.from_("videos").download(
+                            prev_parent_clip["storage_path"]
+                        )
+                        prev_path.write_bytes(prev_bytes)
+                        ff_png = work_dir / f"firstframe_{target_index:02d}.png"
+                        _extract_last_frame(prev_path, ff_png)
+                        first_frame_url = asyncio.run(
+                            _upload_first_frame(kie, ff_png)
+                        )
+                        print(
+                            f"[regen-chain] clip {target_index}: chained from "
+                            f"clip {target_index - 1} (setting={clip.setting_id})"
+                        )
+                    except Exception as ff_err:
+                        print(
+                            f"[regen-chain] clip {target_index}: extract/upload "
+                            f"failed ({type(ff_err).__name__}: {ff_err}); "
+                            f"falling through to ref-only"
+                        )
+                        first_frame_url = None
+
         set_status("generating_clips", f"Re-rendering clip {target_index}")
         local_path, kie_meta = asyncio.run(generate_clip_with_meta(
             kie, clip,
@@ -5076,6 +5126,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             resolution=resolution,
             model=seedance_model,
             reference_video_url=clip_ref_video_url,
+            first_frame_url=first_frame_url,
             jewish_ref_urls=clip_jewish_refs,
         ))
 
