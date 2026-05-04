@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { exchangeCode, YOUTUBE_SCOPES } from '@/lib/youtube';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
@@ -46,6 +47,13 @@ export async function GET(request: Request) {
       updated_at: now,
     }, { onConflict: 'service' });
     if (dbErr) throw new Error(`oauth_tokens upsert: ${dbErr.message}`);
+
+    // The /analytics page has revalidate=300 (5 min ISR cache). Without
+    // these calls, a re-consent with new scopes won't surface the new
+    // analytics sections until the cache naturally expires. /channels
+    // similarly caches connection state.
+    revalidatePath('/analytics');
+    revalidatePath('/channels');
 
     const res = NextResponse.redirect(`${origin}/channels?yt=connected`);
     res.cookies.delete('yt_oauth_state');
