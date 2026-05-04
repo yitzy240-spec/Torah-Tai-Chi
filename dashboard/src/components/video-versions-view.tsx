@@ -51,6 +51,10 @@ interface Props {
    *  /jobs/<id> for the verbose progress view. */
   inFlightRegen?: InFlightJob | null;
   typicalRun?: { lowMin: number; highMin: number } | null;
+  /** Forwarded to VideoFeedback. When true, the per-clip feedback list is
+   *  suppressed because the parent surface is rendering its own editable
+   *  clip cards (avoids duplicate UI). */
+  hidePerClipFeedback?: boolean;
 }
 
 export function VideoVersionsView({
@@ -59,6 +63,7 @@ export function VideoVersionsView({
   initialCompare,
   inFlightRegen,
   typicalRun,
+  hidePerClipFeedback = false,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -170,6 +175,7 @@ export function VideoVersionsView({
           costEstimateUsd={selected.costEstimateUsd}
           resolutionLabel={selected.resolutionLabel}
           smartRegenAvailable={selected.smartRegenAvailable}
+          hidePerClipFeedback={hidePerClipFeedback}
         />
       )}
     </div>
