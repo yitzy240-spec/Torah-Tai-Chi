@@ -136,7 +136,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // jobs come first so they're guaranteed present.
   const { data: doneJobsRaw } = await supabase
     .from('jobs')
-    .select('id, kind, script_id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, created_at)')
+    .select('id, kind, script_id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, composed_from_clip_ids, created_at)')
     .eq('parsha_id', parsha.id)
     .eq('status', 'done')
     .order('triggered_at', { ascending: true });
@@ -168,6 +168,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
       mp4Path: v.mp4_path as string | null,
       thumbPath: v.thumb_path as string | null,
       publishedToWebsite: !!v.published_to_website,
+      composedFromClipIds: (v.composed_from_clip_ids as string[] | null) ?? null,
       createdAt: (v.created_at as string | null) ?? (j.triggered_at as string | null) ?? new Date(0).toISOString(),
       resolution: (j.resolution as Resolution | null) ?? null,
       modelTier: (j.model_tier as ModelTier | null) ?? null,
@@ -910,6 +911,12 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
                 (j) => (j.kind ?? 'parsha') !== 'compose',
               )?.id ?? doneJobs[doneJobs.length - 1]?.id ?? ''
             }
+            // When the SELECTED video is composed, default the per-clip
+            // selection to the clips the compose stitched. Otherwise the
+            // card defaults to "latest of each", which after a rollback-
+            // compose can be a NEWER but UNUSED version — the previews
+            // and the top-of-page video would silently disagree.
+            composedFromClipIds={selectedRow?.composedFromClipIds ?? null}
           />
         </section>
       )}

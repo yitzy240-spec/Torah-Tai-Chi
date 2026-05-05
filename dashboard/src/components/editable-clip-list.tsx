@@ -17,6 +17,14 @@ interface Props {
    *  generation params (motion_ref_slug, resolution, etc.) onto the new
    *  compose job. Latest done parent is the natural choice. */
   referenceJobId: string;
+  /** When the displayed video is a compose, this is the ordered array
+   *  of clip UUIDs that compose stitched together (videos.composed_from_clip_ids).
+   *  We default the per-clip selection to these IDs so the inline
+   *  preview videos + textareas + Re-render all hit the same clip
+   *  the top-of-page composed video is showing — instead of defaulting
+   *  to the latest-ever clip per index, which after a rollback can be
+   *  a NEWER but UNUSED version. */
+  composedFromClipIds?: string[] | null;
 }
 
 const TERMINAL_JOB_STATUSES = new Set(['done', 'failed']);
@@ -85,17 +93,34 @@ export function EditableClipList({
   resolution,
   modelTier,
   referenceJobId,
+  composedFromClipIds,
 }: Props) {
   const router = useRouter();
   const indices = Object.keys(clipsByIndex).map(Number).sort((a, b) => a - b);
   const totalClips = indices.length;
 
+  // Default selection per index:
+  //  - If the displayed video is composed (composedFromClipIds is set),
+  //    use the clip the compose stitched at this slot. Keeps the per-
+  //    clip preview + edit textarea + re-render all aligned with what
+  //    the top-of-page video actually shows.
+  //  - Otherwise, use the latest version per index (legacy behavior).
   const [selectedByIndex, setSelectedByIndex] = useState<Record<number, string>>(
     () => {
       const m: Record<number, string> = {};
       for (const idx of indices) {
         const versions = clipsByIndex[idx];
-        m[idx] = versions[versions.length - 1].clipId;
+        const composedAtSlot =
+          composedFromClipIds && composedFromClipIds.length > idx
+            ? composedFromClipIds[idx]
+            : null;
+        const matchesComposed =
+          composedAtSlot
+            ? versions.some((v) => v.clipId === composedAtSlot)
+            : false;
+        m[idx] = matchesComposed
+          ? composedAtSlot!
+          : versions[versions.length - 1].clipId;
       }
       return m;
     },

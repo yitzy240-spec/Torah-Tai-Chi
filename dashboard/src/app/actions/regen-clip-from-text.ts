@@ -34,9 +34,27 @@ export async function regenClipFromText(opts: {
   if (!user) return { error: 'Not authenticated' };
 
   const { data: videoRow } = await supabase
-    .from('videos').select('id, job_id').eq('id', videoId).single();
+    .from('videos')
+    .select('id, job_id, composed_from_clip_ids')
+    .eq('id', videoId).single();
   if (!videoRow) return { error: 'Video not found' };
-  const parentJobId = videoRow.job_id as string;
+
+  // For a composed video, videos.job_id points at a compose job that
+  // has NO clip rows of its own (compose uses composed_from_clip_ids
+  // to reference existing clips by UUID). Walk to the source clip at
+  // this slot's job so Modal's regen_clip_from_text can read a real
+  // parent_clip_row. Without this we'd hit:
+  //   ValueError: parent job <compose_id> has no clips
+  const composedFrom = (videoRow.composed_from_clip_ids as string[] | null) ?? null;
+  let parentJobId = videoRow.job_id as string;
+  if (composedFrom && composedFrom.length > clipIndex) {
+    const sourceClipId = composedFrom[clipIndex];
+    const { data: sourceClip } = await supabase
+      .from('clips').select('job_id').eq('id', sourceClipId).maybeSingle();
+    if (sourceClip?.job_id) {
+      parentJobId = sourceClip.job_id as string;
+    }
+  }
 
   const { data: parentJob } = await supabase
     .from('jobs')
