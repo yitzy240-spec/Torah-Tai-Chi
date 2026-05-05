@@ -93,7 +93,24 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
         args += ["-map", "[aout]", "-c:a", "aac", "-b:a", "192k"]
     args.append(str(dest))
 
-    subprocess.run(args, check=True, capture_output=True)
+    result = subprocess.run(args, capture_output=True)
+    if result.returncode != 0:
+        # Surface ffmpeg's actual stderr — without this, the calling code
+        # (e.g. compose_video in modal_app.py) only sees CalledProcessError's
+        # generic "returned non-zero exit status 1" message and we can't
+        # diagnose. xfade-concat tends to fail on heterogeneous inputs
+        # (different fps, resolution, or codec params across clips from
+        # different generation runs), so the actual ffmpeg complaint is
+        # usually a one-line "Codec/format mismatch" or similar.
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        durations_str = ", ".join(f"{d:.2f}s" for d in durations)
+        raise RuntimeError(
+            f"concat ffmpeg failed (exit {result.returncode}). "
+            f"Inputs: {len(clips)} clips, durations [{durations_str}], "
+            f"crossfade={crossfade_s}s, has_audio={has_audio}. "
+            f"ffmpeg stderr (last 2000 chars):\n"
+            f"{stderr[-2000:]}"
+        )
     return dest
 
 
