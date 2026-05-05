@@ -125,13 +125,18 @@ export function EditableClipCard({
   applying = false,
 }: EditableClipCardProps) {
   const router = useRouter();
-  const latest = versions[versions.length - 1];
+  // The version the user is currently looking at + editing. Falls
+  // back to latest if selectedClipId doesn't match anything (rare
+  // — would only happen if the parent passes a stale id).
+  const selected =
+    versions.find((v) => v.clipId === selectedClipId)
+    ?? versions[versions.length - 1];
 
-  const [voiceover, setVoiceover] = useState(latest.voiceover);
-  const [visualPrompt, setVisualPrompt] = useState(latest.visualPrompt);
+  const [voiceover, setVoiceover] = useState(selected.voiceover);
+  const [visualPrompt, setVisualPrompt] = useState(selected.visualPrompt);
   const [showVisual, setShowVisual] = useState(false);
-  const [savedVoiceover, setSavedVoiceover] = useState(latest.voiceover);
-  const [savedVisualPrompt, setSavedVisualPrompt] = useState(latest.visualPrompt);
+  const [savedVoiceover, setSavedVoiceover] = useState(selected.voiceover);
+  const [savedVisualPrompt, setSavedVisualPrompt] = useState(selected.visualPrompt);
   const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
@@ -139,20 +144,20 @@ export function EditableClipCard({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Re-sync local state only when a new version is added (latest.clipId
-  // changes — e.g. after a re-render completes and `versions` grows, or
-  // when the parent navigates between clips). We intentionally do NOT
-  // depend on latest.voiceover/.visualPrompt: a parent re-fetch after a
-  // successful save would otherwise clobber any new keystrokes the user
-  // typed during the round-trip.
+  // Re-sync local state when the SELECTED version changes — either
+  // because the user clicked a different version chip, or because a
+  // re-render finished and the parent updated displayedClipIdByIndex.
+  // We intentionally do NOT depend on selected.voiceover/.visualPrompt:
+  // a parent re-fetch after a successful save would otherwise clobber
+  // any new keystrokes the user typed during the round-trip.
   useEffect(() => {
-    setVoiceover(latest.voiceover);
-    setVisualPrompt(latest.visualPrompt);
-    setSavedVoiceover(latest.voiceover);
-    setSavedVisualPrompt(latest.visualPrompt);
+    setVoiceover(selected.voiceover);
+    setVisualPrompt(selected.visualPrompt);
+    setSavedVoiceover(selected.voiceover);
+    setSavedVisualPrompt(selected.visualPrompt);
     setSavingState('idle');
     setSaveError(null);
-  }, [latest.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clear any pending "Saved · Live" indicator timeout on unmount.
   useEffect(() => {
@@ -163,14 +168,17 @@ export function EditableClipCard({
     };
   }, []);
 
-  // Whether the saved-to-DB text has been rendered into the latest clip mp4.
-  const renderedVoiceover = latest.voiceover;
-  const renderedVisualPrompt = latest.visualPrompt;
+  // Whether the saved-to-DB text has been rendered into the SELECTED
+  // version's mp4 (i.e. the version being previewed in this card).
+  const renderedVoiceover = selected.voiceover;
+  const renderedVisualPrompt = selected.visualPrompt;
   const dbDirty = savedVoiceover !== voiceover || savedVisualPrompt !== visualPrompt;
   const renderDirty =
     savedVoiceover !== renderedVoiceover || savedVisualPrompt !== renderedVisualPrompt;
 
-  // Debounced save on every change.
+  // Debounced save on every change. Writes to the SELECTED clip row's
+  // voiceover/visual_prompt so editing what you see edits what you'll
+  // re-render.
   useEffect(() => {
     if (!dbDirty) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -178,7 +186,7 @@ export function EditableClipCard({
       setSavingState('saving');
       setSaveError(null);
       const r = await updateClipText({
-        clipId: latest.clipId,
+        clipId: selected.clipId,
         voiceover,
         visualPrompt,
       });
@@ -196,24 +204,24 @@ export function EditableClipCard({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [voiceover, visualPrompt, latest.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [voiceover, visualPrompt, selected.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Default the tier picker to whatever the latest version was rendered
-  // at; fall back to the page-level tier prop if the latest doesn't
-  // carry per-version tier (legacy clips). Picker state is per-card so
-  // each clip can be re-rendered at a different tier.
-  const initialPickedResolution = latest.resolution ?? resolution ?? null;
-  const initialPickedTier = latest.modelTier ?? modelTier ?? null;
+  // Default the tier picker to whatever the SELECTED version was
+  // rendered at; fall back to the page-level tier prop if the version
+  // doesn't carry per-version tier (legacy clips). Picker state is
+  // per-card so each clip can be re-rendered at a different tier.
+  const initialPickedResolution = selected.resolution ?? resolution ?? null;
+  const initialPickedTier = selected.modelTier ?? modelTier ?? null;
   const [pickedResolution, setPickedResolution] = useState<Resolution | null>(initialPickedResolution);
   const [pickedTier, setPickedTier] = useState<ModelTier | null>(initialPickedTier);
 
-  // Re-sync the picker when a new version arrives (so default tracks
-  // the new latest's tier) — but only when latest.clipId actually
-  // changed, not on every prop pass.
+  // Re-sync the picker when the selected version changes (so default
+  // tracks the picked version's tier) — only when selected.clipId
+  // actually changed, not on every prop pass.
   useEffect(() => {
-    setPickedResolution(latest.resolution ?? resolution ?? null);
-    setPickedTier(latest.modelTier ?? modelTier ?? null);
-  }, [latest.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
+    setPickedResolution(selected.resolution ?? resolution ?? null);
+    setPickedTier(selected.modelTier ?? modelTier ?? null);
+  }, [selected.clipId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cost = pickedResolution && pickedTier
     ? estimateSeedanceCost(durationS, pickedResolution, pickedTier)
@@ -260,7 +268,10 @@ export function EditableClipCard({
     });
   }
 
-  const sel = versions.find((v) => v.clipId === selectedClipId) ?? latest;
+  // `selected` (computed at top) is the version this card's preview +
+  // textareas + Re-render all operate on. The aliases below preserve
+  // the existing JSX naming.
+  const sel = selected;
   const selectedIndex = versions.findIndex((v) => v.clipId === selectedClipId);
   const displayedSelectedIndex = selectedIndex >= 0 ? selectedIndex : versions.length - 1;
 
