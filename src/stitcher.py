@@ -29,6 +29,17 @@ def _has_audio_stream(mp4: Path) -> bool:
     return bool(result.stdout.strip())
 
 
+def _probe_resolution(mp4: Path) -> tuple[int, int]:
+    """Returns (width, height) of the video stream."""
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=s=x:p=0", str(mp4),
+    ], check=True, capture_output=True, text=True)
+    w, h = result.stdout.strip().split("x")
+    return int(w), int(h)
+
+
 def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Path:
     """Stitch clips end-to-end with crossfade transitions.
 
@@ -121,15 +132,44 @@ def loudnorm_then_concat(
     then concat with crossfade.
 
     Compose pulls clips from different generation runs which can have
-    different loudness profiles (varies by Seedance roll, sometimes 6+
-    LUFS apart). Loudnorm flattens them so cuts don't yank the volume.
+    different loudness profiles AND can have different video dimensions
+    (e.g. mixing a 480p version with newer 720p versions). xfade
+    requires all inputs to share the same width/height; loudnorm
+    previously used -c:v copy which preserved the heterogeneity and
+    caused a hard ffmpeg failure: "First input link main parameters
+    (size 496x864) do not match the corresponding second input link
+    xfade parameters (size 720x1280)".
 
-    First pass: per-clip loudnorm with -c:v copy (cheap — no video re-
-    encode). Second pass: standard concat_clips, which re-encodes to
-    H.264 + AAC. Total of one video encode.
+    First pass: per-clip loudnorm + video rescale to the LARGEST input
+    dimensions found across the batch (scaling smaller clips up;
+    scaling larger ones down would lose info). Output is libx264 +
+    yuv420p + 24fps so the second-pass concat_clips re-encode is on
+    fully homogeneous inputs.
+
+    Cost: full video re-encode per clip on this pass instead of -c:v
+    copy. Compute is cheap on Modal; correctness wins.
     """
     work_dir = dest.parent
     work_dir.mkdir(parents=True, exist_ok=True)
+
+    # Probe all inputs and pick the max dimensions as the target. Padding
+    # smaller clips up to this size preserves their aspect ratio without
+    # downsampling anything.
+    sizes = [_probe_resolution(src) for src in inputs]
+    target_w = max(w for w, _ in sizes)
+    target_h = max(h for _, h in sizes)
+
+    # Use a scale-then-pad chain: scale to fit within target maintaining
+    # aspect ratio, then center-pad to exactly target_w x target_h.
+    # Even target dims (h264 yuv420p constraint).
+    target_w = target_w if target_w % 2 == 0 else target_w + 1
+    target_h = target_h if target_h % 2 == 0 else target_h + 1
+    vfilter = (
+        f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
+        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black,"
+        f"setsar=1,fps=24"
+    )
+
     normalized: list[Path] = []
     for i, src in enumerate(inputs):
         norm_path = work_dir / f"_norm_{i:02d}.mp4"
@@ -137,14 +177,18 @@ def loudnorm_then_concat(
             [
                 "ffmpeg", "-y", "-i", str(src),
                 "-af", "loudnorm=I=-23:LRA=7:TP=-2",
-                "-c:v", "copy",
+                "-vf", vfilter,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-preset", "veryfast", "-crf", "18",
+                "-c:a", "aac", "-b:a", "192k",
                 str(norm_path),
             ],
             capture_output=True,
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"loudnorm failed for {src}: "
+                f"loudnorm+rescale failed for {src} "
+                f"(input {sizes[i][0]}x{sizes[i][1]} -> {target_w}x{target_h}): "
                 f"{result.stderr.decode('utf-8', errors='replace')[-500:]}"
             )
         normalized.append(norm_path)
