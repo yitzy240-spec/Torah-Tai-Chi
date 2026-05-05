@@ -468,11 +468,17 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // for places that still consume the per-platform shape (e.g. the old
   // schedule sheet preview before this refactor extends to it).
   const captions: Partial<Record<Platform, string>> = {};
-  if (latestJobId) {
+  if (latestJobId && allJobIds.length > 0) {
+    // Fall back across all done jobs for this parsha — only the original
+    // full-pipeline run inserts a clip_plan. Compose and regen jobs reuse
+    // the parent's plan and don't create their own row, so a strict
+    // eq('job_id', latestJobId) returns null whenever the latest job is
+    // a compose or single-clip regen, which is exactly when Yonah saw
+    // empty captions on the Behar page after rolling back.
     const { data: latestPlanRow } = await supabase
       .from('clip_plans')
       .select('plan_json')
-      .eq('job_id', latestJobId)
+      .in('job_id', allJobIds)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
