@@ -136,7 +136,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // jobs come first so they're guaranteed present.
   const { data: doneJobsRaw } = await supabase
     .from('jobs')
-    .select('id, kind, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, created_at)')
+    .select('id, kind, script_id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, created_at)')
     .eq('parsha_id', parsha.id)
     .eq('status', 'done')
     .order('triggered_at', { ascending: true });
@@ -146,6 +146,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   type DoneJobRow = {
     id: string;
     kind: string | null;
+    script_id: string | null;
     resolution: string | null;
     model_tier: string | null;
     total_cost_usd: number | null;
@@ -163,6 +164,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
     return [{
       jobId: j.id,
       videoId: v.id as string,
+      scriptId: (j.script_id as string | null) ?? null,
       mp4Path: v.mp4_path as string | null,
       thumbPath: v.thumb_path as string | null,
       publishedToWebsite: !!v.published_to_website,
@@ -305,6 +307,12 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   const selectedRow = pickActiveVersion(versionRows, initialSelectedId);
   const videoId: string | null = selectedRow?.videoId ?? null;
   const videoPublishedToSite: boolean = selectedRow?.publishedToWebsite ?? false;
+  // The script that produced the displayed video — passed to the
+  // ScriptCarousel so it pins to that script instead of defaulting to
+  // Script A. Yonah's complaint: after a video is generated the carousel
+  // was defaulting to A even when the displayed video was made from B
+  // or A-tight, which read as confusing/incorrect.
+  const pinnedScriptId: string | null = selectedRow?.scriptId ?? null;
   const videoCostUsd = latest?.totalCostUsd ?? null;
 
   // Best-effort: catch up Buffer-backed post URLs so videos.post_urls
@@ -698,6 +706,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               parshaName={parsha.name}
               defaultTierKey={defaultTierKey}
               scripts={parsha.scripts ?? []}
+              pinnedScriptId={pinnedScriptId}
             />
           </div>
         </>
@@ -836,6 +845,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
               parshaName={parsha.name}
               defaultTierKey={defaultTierKey}
               scripts={parsha.scripts ?? []}
+              pinnedScriptId={pinnedScriptId}
             />
           </div>
         </>

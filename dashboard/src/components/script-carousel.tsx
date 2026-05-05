@@ -37,6 +37,13 @@ interface ScriptCarouselProps {
    *  should both be tagged on any resulting job (primary + partner). When
    *  unset, jobs are recorded against the single host parsha as usual. */
   combinedParshaIds?: string[];
+  /** When the parsha already has a generated video, pin the carousel to
+   *  the script that produced the displayed video instead of defaulting
+   *  to Script A. The user wants to see what made the video they're
+   *  watching, not the original draft list. They can still chevron to
+   *  other scripts if they want to redo. Pass the script.id of the job
+   *  that produced selectedRow's video. */
+  pinnedScriptId?: string | null;
 }
 
 // Preferred display order so A lives left, then B, C, A-tight, then any
@@ -85,11 +92,28 @@ export function ScriptCarousel({
   scripts,
   defaultTierKey,
   combinedParshaIds,
+  pinnedScriptId,
 }: ScriptCarouselProps) {
   const router = useRouter();
   const ordered = useMemo(() => sortScripts(scripts), [scripts]);
   const totalSlides = ordered.length + 1; // + idea card
-  const [index, setIndex] = useState(0);
+  // When a pinnedScriptId is provided, start the carousel on that script
+  // instead of the default first slide. Yonah's complaint: after a video
+  // is generated the carousel was defaulting to Script A even when the
+  // displayed video was made from B or A-tight, which was confusing.
+  const initialIndex = useMemo(() => {
+    if (!pinnedScriptId) return 0;
+    const i = ordered.findIndex((s) => s.id === pinnedScriptId);
+    return i >= 0 ? i : 0;
+  }, [pinnedScriptId, ordered]);
+  const [index, setIndex] = useState(initialIndex);
+
+  // If pinnedScriptId changes after mount (e.g. user flips between
+  // versions via the player's ?v= selector and each version comes from
+  // a different script), re-pin the carousel.
+  useEffect(() => {
+    setIndex(initialIndex);
+  }, [initialIndex]);
 
   // Custom-idea card state
   const [idea, setIdea] = useState('');
