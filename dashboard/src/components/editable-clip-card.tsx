@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateClipText } from '@/app/actions/update-clip-text';
 import { regenClipFromText } from '@/app/actions/regen-clip-from-text';
@@ -140,7 +140,15 @@ export function EditableClipCard({
   const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
-  const [isRendering, startRender] = useTransition();
+  // Plain state instead of useTransition. The 20-min waitForJobTerminal
+  // wait used to live inside a startTransition() — but in Next.js 16 /
+  // React 19, navigation itself is a transition, and a long-running
+  // transition queues subsequent transitions behind it. Result: while
+  // a regen was in flight, clicking a sidebar link did nothing because
+  // the navigation transition was waiting for ours to finish. Plain
+  // useState keeps the in-flight render out of React's transition
+  // tracking so navigation stays responsive.
+  const [isRendering, setIsRendering] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -236,36 +244,42 @@ export function EditableClipCard({
 
   function handleReRender() {
     setRenderError(null);
-    startRender(async () => {
-      const r = await regenClipFromText({
-        videoId,
-        clipIndex: index,
-        resolution: pickedResolution ?? undefined,
-        modelTier: pickedTier ?? undefined,
-      });
-      if ('error' in r) {
-        setRenderError(r.error);
-        return;
-      }
+    setIsRendering(true);
+    (async () => {
+      try {
+        const r = await regenClipFromText({
+          videoId,
+          clipIndex: index,
+          resolution: pickedResolution ?? undefined,
+          modelTier: pickedTier ?? undefined,
+        });
+        if ('error' in r) {
+          setRenderError(r.error);
+          return;
+        }
 
-      // Modal kicks the work off async — the action returned as soon as
-      // the job was queued. Wait until the job hits a terminal status so
-      // the button stays in "Re-rendering…" the whole time and the page
-      // only refreshes once the new mp4 + stitched video are actually
-      // ready. Realtime is the primary path (instant on status update);
-      // 8s polling fallback handles dropped Realtime messages. 20-min
-      // cap accommodates the 9-10 min Seedance runs we've observed.
-      const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
-      if (result.status === 'failed') {
-        setRenderError('Re-render failed. Open the parsha page logs for details.');
-      } else if (result.status === 'timeout') {
-        setRenderError(
-          'Render is still running after 20 minutes. Refresh the page to check on it.',
-        );
-      }
+        // Modal kicks the work off async — the action returned as soon
+        // as the job was queued. Wait until the job hits a terminal
+        // status so the button stays in "Re-rendering…" the whole time
+        // and the page only refreshes once the new mp4 + stitched
+        // video are actually ready. Realtime is the primary path
+        // (instant on status update); 8s polling fallback handles
+        // dropped Realtime messages. 20-min cap accommodates the
+        // 9-10 min Seedance runs we've observed.
+        const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
+        if (result.status === 'failed') {
+          setRenderError('Re-render failed. Open the parsha page logs for details.');
+        } else if (result.status === 'timeout') {
+          setRenderError(
+            'Render is still running after 20 minutes. Refresh the page to check on it.',
+          );
+        }
 
-      router.refresh();
-    });
+        router.refresh();
+      } finally {
+        setIsRendering(false);
+      }
+    })();
   }
 
   // `selected` (computed at top) is the version this card's preview +

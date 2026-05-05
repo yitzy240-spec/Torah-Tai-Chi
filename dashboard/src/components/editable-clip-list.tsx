@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { EditableClipCard, type EditableClipVersion } from './editable-clip-card';
 import { composeVideo } from '@/app/actions/compose-video';
@@ -121,46 +121,55 @@ export function EditableClipList({
     },
   );
 
-  const [isComposing, startCompose] = useTransition();
+  // Plain state instead of useTransition — the 20-min compose wait
+  // would otherwise queue navigation transitions behind it (Next.js
+  // App Router treats Link clicks as transitions). See the matching
+  // comment in editable-clip-card.tsx.
+  const [isComposing, setIsComposing] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
 
   function handleApply() {
     setComposeError(null);
-    startCompose(async () => {
-      // Build clipIds in slot order: 0, 1, 2, ...
-      const clipIds = indices.map(
-        (idx) => selectedByIndex[idx] ?? clipsByIndex[idx][clipsByIndex[idx].length - 1].clipId,
-      );
-      const r = await composeVideo({ referenceJobId, clipIds });
-      if ('error' in r) {
-        setComposeError(r.error);
-        return;
-      }
-      // Wait for the compose job to finish before refreshing — same
-      // 20-min cap as EditableClipCard.handleReRender.
-      const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
-      if (result.status === 'failed') {
-        setComposeError('Compose failed. Open the parsha page logs for details.');
-        return;
-      }
-      if (result.status === 'timeout') {
-        setComposeError(
-          'Compose is still running after 20 minutes. Refresh the page to check on it.',
+    setIsComposing(true);
+    (async () => {
+      try {
+        // Build clipIds in slot order: 0, 1, 2, ...
+        const clipIds = indices.map(
+          (idx) => selectedByIndex[idx] ?? clipsByIndex[idx][clipsByIndex[idx].length - 1].clipId,
         );
-        return;
+        const r = await composeVideo({ referenceJobId, clipIds });
+        if ('error' in r) {
+          setComposeError(r.error);
+          return;
+        }
+        // Wait for the compose job to finish before refreshing — same
+        // 20-min cap as EditableClipCard.handleReRender.
+        const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
+        if (result.status === 'failed') {
+          setComposeError('Compose failed. Open the parsha page logs for details.');
+          return;
+        }
+        if (result.status === 'timeout') {
+          setComposeError(
+            'Compose is still running after 20 minutes. Refresh the page to check on it.',
+          );
+          return;
+        }
+        // Success: reset selections to latest. After router.refresh
+        // the versions arrays will include the new composed clips, and
+        // the user's "I picked v2 of clip 2" is now consumed —
+        // defaulting back to all-latest is the cleanest mental model.
+        const reset: Record<number, string> = {};
+        for (const idx of indices) {
+          const vs = clipsByIndex[idx];
+          reset[idx] = vs[vs.length - 1].clipId;
+        }
+        setSelectedByIndex(reset);
+        router.refresh();
+      } finally {
+        setIsComposing(false);
       }
-      // Success: reset selections to latest. After router.refresh the
-      // versions arrays will include the new composed clips, and the
-      // user's "I picked v2 of clip 2" is now consumed — defaulting
-      // back to all-latest is the cleanest mental model.
-      const reset: Record<number, string> = {};
-      for (const idx of indices) {
-        const vs = clipsByIndex[idx];
-        reset[idx] = vs[vs.length - 1].clipId;
-      }
-      setSelectedByIndex(reset);
-      router.refresh();
-    });
+    })();
   }
 
   return (
