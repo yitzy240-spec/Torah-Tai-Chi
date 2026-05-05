@@ -67,16 +67,46 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
         return dest
 
     durations = [_probe_duration(c) for c in clips]
+    sizes = [_probe_resolution(c) for c in clips]
     has_audio = all(_has_audio_stream(c) for c in clips)
+
+    # xfade requires every input to share the same width/height. Whenever
+    # we stitch clips from different generation runs (regen_clip_from_text,
+    # compose_video, regen_smart) the inputs can have different resolutions
+    # — Seedance output dims vary across tiers and across re-rolls. If
+    # any input differs from the others, prepend per-input scale+pad
+    # filters that normalize everyone to the LARGEST W×H found, then
+    # feed the normalized streams into xfade. Same dims everywhere → skip
+    # the rescale (no-op for the common single-tier case).
+    target_w = max(w for w, _ in sizes)
+    target_h = max(h for _, h in sizes)
+    if target_w % 2:
+        target_w += 1
+    if target_h % 2:
+        target_h += 1
+    needs_rescale = any(w != target_w or h != target_h for w, h in sizes)
+
+    video_filters: list[str] = []
+    audio_filters: list[str] = []
+
+    if needs_rescale:
+        for i in range(len(clips)):
+            video_filters.append(
+                f"[{i}:v]scale={target_w}:{target_h}:"
+                f"force_original_aspect_ratio=decrease,"
+                f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black,"
+                f"setsar=1[v{i}]"
+            )
+        v_input_label = lambda i: f"[v{i}]"  # noqa: E731
+    else:
+        v_input_label = lambda i: f"[{i}:v]"  # noqa: E731
 
     # Compute cumulative offsets. For clip pair (i, i+1):
     # offset_i = sum(durations[0..i]) - (i+1) * crossfade_s
-    video_filters: list[str] = []
-    audio_filters: list[str] = []
     for i in range(len(clips) - 1):
         offset = sum(durations[: i + 1]) - (i + 1) * crossfade_s
-        v_in_a = "[0:v]" if i == 0 else f"[vx{i - 1}]"
-        v_in_b = f"[{i + 1}:v]"
+        v_in_a = v_input_label(0) if i == 0 else f"[vx{i - 1}]"
+        v_in_b = v_input_label(i + 1)
         v_out = "[vout]" if i == len(clips) - 2 else f"[vx{i}]"
         video_filters.append(
             f"{v_in_a}{v_in_b}xfade=transition=fade:"
@@ -115,11 +145,13 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
         # usually a one-line "Codec/format mismatch" or similar.
         stderr = result.stderr.decode("utf-8", errors="replace")
         durations_str = ", ".join(f"{d:.2f}s" for d in durations)
+        sizes_str = ", ".join(f"{w}x{h}" for w, h in sizes)
         raise RuntimeError(
             f"concat ffmpeg failed (exit {result.returncode}). "
             f"Inputs: {len(clips)} clips, durations [{durations_str}], "
-            f"crossfade={crossfade_s}s, has_audio={has_audio}. "
-            f"ffmpeg stderr (last 2000 chars):\n"
+            f"sizes [{sizes_str}], target {target_w}x{target_h}, "
+            f"rescaled={needs_rescale}, crossfade={crossfade_s}s, "
+            f"has_audio={has_audio}. ffmpeg stderr (last 2000 chars):\n"
             f"{stderr[-2000:]}"
         )
     return dest
@@ -132,44 +164,16 @@ def loudnorm_then_concat(
     then concat with crossfade.
 
     Compose pulls clips from different generation runs which can have
-    different loudness profiles AND can have different video dimensions
-    (e.g. mixing a 480p version with newer 720p versions). xfade
-    requires all inputs to share the same width/height; loudnorm
-    previously used -c:v copy which preserved the heterogeneity and
-    caused a hard ffmpeg failure: "First input link main parameters
-    (size 496x864) do not match the corresponding second input link
-    xfade parameters (size 720x1280)".
+    different loudness profiles (varies by Seedance roll, sometimes 6+
+    LUFS apart). Loudnorm flattens them so cuts don't yank the volume.
 
-    First pass: per-clip loudnorm + video rescale to the LARGEST input
-    dimensions found across the batch (scaling smaller clips up;
-    scaling larger ones down would lose info). Output is libx264 +
-    yuv420p + 24fps so the second-pass concat_clips re-encode is on
-    fully homogeneous inputs.
-
-    Cost: full video re-encode per clip on this pass instead of -c:v
-    copy. Compute is cheap on Modal; correctness wins.
+    First pass: per-clip loudnorm with -c:v copy (cheap — no video re-
+    encode). Second pass: concat_clips, which probes dimensions and
+    rescales heterogeneous inputs inline before xfade (so we don't
+    need to rescale here too).
     """
     work_dir = dest.parent
     work_dir.mkdir(parents=True, exist_ok=True)
-
-    # Probe all inputs and pick the max dimensions as the target. Padding
-    # smaller clips up to this size preserves their aspect ratio without
-    # downsampling anything.
-    sizes = [_probe_resolution(src) for src in inputs]
-    target_w = max(w for w, _ in sizes)
-    target_h = max(h for _, h in sizes)
-
-    # Use a scale-then-pad chain: scale to fit within target maintaining
-    # aspect ratio, then center-pad to exactly target_w x target_h.
-    # Even target dims (h264 yuv420p constraint).
-    target_w = target_w if target_w % 2 == 0 else target_w + 1
-    target_h = target_h if target_h % 2 == 0 else target_h + 1
-    vfilter = (
-        f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease,"
-        f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black,"
-        f"setsar=1,fps=24"
-    )
-
     normalized: list[Path] = []
     for i, src in enumerate(inputs):
         norm_path = work_dir / f"_norm_{i:02d}.mp4"
@@ -177,18 +181,14 @@ def loudnorm_then_concat(
             [
                 "ffmpeg", "-y", "-i", str(src),
                 "-af", "loudnorm=I=-23:LRA=7:TP=-2",
-                "-vf", vfilter,
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-preset", "veryfast", "-crf", "18",
-                "-c:a", "aac", "-b:a", "192k",
+                "-c:v", "copy",
                 str(norm_path),
             ],
             capture_output=True,
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"loudnorm+rescale failed for {src} "
-                f"(input {sizes[i][0]}x{sizes[i][1]} -> {target_w}x{target_h}): "
+                f"loudnorm failed for {src}: "
                 f"{result.stderr.decode('utf-8', errors='replace')[-500:]}"
             )
         normalized.append(norm_path)
