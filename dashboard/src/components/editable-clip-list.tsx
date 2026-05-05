@@ -17,14 +17,15 @@ interface Props {
    *  generation params (motion_ref_slug, resolution, etc.) onto the new
    *  compose job. Latest done parent is the natural choice. */
   referenceJobId: string;
-  /** When the displayed video is a compose, this is the ordered array
-   *  of clip UUIDs that compose stitched together (videos.composed_from_clip_ids).
-   *  We default the per-clip selection to these IDs so the inline
-   *  preview videos + textareas + Re-render all hit the same clip
-   *  the top-of-page composed video is showing — instead of defaulting
-   *  to the latest-ever clip per index, which after a rollback can be
-   *  a NEWER but UNUSED version. */
-  composedFromClipIds?: string[] | null;
+  /** Per-index canonical clipId of the version currently visible in
+   *  the top-of-page video. Used as the DEFAULT selected version on
+   *  every clip card so changing one clip's pick (and hitting Apply)
+   *  doesn't silently pull in newer versions of the OTHER clips that
+   *  weren't part of the displayed video. Without this, a re-render
+   *  of clip 1 that happened AFTER a compose would silently replace
+   *  the user's prior compose work the next time they hit Apply on a
+   *  different clip. */
+  displayedClipIdByIndex: Record<number, string>;
 }
 
 const TERMINAL_JOB_STATUSES = new Set(['done', 'failed']);
@@ -93,33 +94,27 @@ export function EditableClipList({
   resolution,
   modelTier,
   referenceJobId,
-  composedFromClipIds,
+  displayedClipIdByIndex,
 }: Props) {
   const router = useRouter();
   const indices = Object.keys(clipsByIndex).map(Number).sort((a, b) => a - b);
   const totalClips = indices.length;
 
-  // Default selection per index:
-  //  - If the displayed video is composed (composedFromClipIds is set),
-  //    use the clip the compose stitched at this slot. Keeps the per-
-  //    clip preview + edit textarea + re-render all aligned with what
-  //    the top-of-page video actually shows.
-  //  - Otherwise, use the latest version per index (legacy behavior).
+  // Default each clip's selection to the version visible in the top-
+  // of-page video (composed or not). Falls back to latest only when
+  // the displayed-video map doesn't cover this index — should be rare
+  // and indicates a parsha with mismatched data, not a normal flow.
   const [selectedByIndex, setSelectedByIndex] = useState<Record<number, string>>(
     () => {
       const m: Record<number, string> = {};
       for (const idx of indices) {
         const versions = clipsByIndex[idx];
-        const composedAtSlot =
-          composedFromClipIds && composedFromClipIds.length > idx
-            ? composedFromClipIds[idx]
-            : null;
-        const matchesComposed =
-          composedAtSlot
-            ? versions.some((v) => v.clipId === composedAtSlot)
-            : false;
-        m[idx] = matchesComposed
-          ? composedAtSlot!
+        const displayedClipId = displayedClipIdByIndex[idx];
+        const matches = displayedClipId
+          ? versions.some((v) => v.clipId === displayedClipId)
+          : false;
+        m[idx] = matches
+          ? displayedClipId
           : versions[versions.length - 1].clipId;
       }
       return m;

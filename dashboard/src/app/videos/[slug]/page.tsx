@@ -277,8 +277,26 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
       .select('id, job_id, index, voiceover, visual_prompt, storage_path, duration_s, created_at')
       .in('job_id', allJobIds)
       .order('created_at', { ascending: true });
+
+    // Dedupe by storage_path within each index. Every regen (and every
+    // full pipeline run) inserts a fresh clip row for EVERY index — the
+    // index that actually got re-rendered gets a new mp4 path, while
+    // unchanged indices get rows that copy the parent's mp4 path
+    // verbatim. Without dedupe, Yonah's 7-job parsha showed 7 version
+    // chips per clip even though most clips only had 2-3 distinct
+    // renders. Keep the FIRST (oldest by created_at, since the query
+    // sorts ascending) row for each distinct storage_path so version
+    // chips reflect actual content changes, not regen-side-effects.
+    const seenPathPerIndex: Record<number, Set<string>> = {};
+
     for (const c of (allClips ?? [])) {
       const idx = c.index as number;
+      const path = c.storage_path as string | null;
+      if (!path) continue; // skip clips without checkpointed mp4
+      if (!seenPathPerIndex[idx]) seenPathPerIndex[idx] = new Set();
+      if (seenPathPerIndex[idx].has(path)) continue;
+      seenPathPerIndex[idx].add(path);
+
       if (!editableClipsByIndex[idx]) editableClipsByIndex[idx] = [];
       const t = tierByJobId[c.job_id as string];
       editableClipsByIndex[idx].push({
@@ -286,8 +304,8 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
         jobId: c.job_id as string,
         voiceover: (c.voiceover as string | null) ?? '',
         visualPrompt: (c.visual_prompt as string | null) ?? '',
-        storagePath: (c.storage_path as string | null) ?? null,
-        storageUrl: c.storage_path ? publicVideoUrl(c.storage_path as string) : null,
+        storagePath: path,
+        storageUrl: publicVideoUrl(path),
         createdAt: (c.created_at as string | null) ?? new Date(0).toISOString(),
         resolution: t?.resolution ?? null,
         modelTier: t?.modelTier ?? null,
@@ -315,6 +333,48 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // or A-tight, which read as confusing/incorrect.
   const pinnedScriptId: string | null = selectedRow?.scriptId ?? null;
   const videoCostUsd = latest?.totalCostUsd ?? null;
+
+  // Per-index canonical clipId of the version visible in the displayed
+  // video. Drives EditableClipList's default selection so changing one
+  // clip and hitting Apply doesn't silently pull in newer versions of
+  // OTHER clips that weren't part of the displayed video.
+  //
+  // Resolution rules:
+  //   - Composed video → walk composedFromClipIds[i] → its storage_path
+  //     → the canonical (first) clip in editableClipsByIndex[i] sharing
+  //     that path
+  //   - Non-composed video → find clips at this index whose job_id ==
+  //     displayed video's job_id → use that clip's storage_path → map
+  //     to canonical
+  const displayedClipIdByIndex: Record<number, string> = {};
+  if (selectedRow) {
+    const allClipsList = (await supabase
+      .from('clips')
+      .select('id, job_id, index, storage_path')
+      .in('job_id', allJobIds))
+      .data ?? [];
+    const findCanonicalByPath = (idx: number, p: string): string | null =>
+      editableClipsByIndex[idx]?.find((v) => v.storagePath === p)?.clipId ?? null;
+    if (selectedRow.composedFromClipIds && selectedRow.composedFromClipIds.length > 0) {
+      selectedRow.composedFromClipIds.forEach((origClipId, i) => {
+        const orig = allClipsList.find((c) => c.id === origClipId);
+        const path = orig?.storage_path as string | null;
+        if (path) {
+          const canonical = findCanonicalByPath(i, path);
+          if (canonical) displayedClipIdByIndex[i] = canonical;
+        }
+      });
+    } else {
+      for (const c of allClipsList) {
+        if ((c.job_id as string) !== selectedRow.jobId) continue;
+        const idx = c.index as number;
+        const path = c.storage_path as string | null;
+        if (!path) continue;
+        const canonical = findCanonicalByPath(idx, path);
+        if (canonical) displayedClipIdByIndex[idx] = canonical;
+      }
+    }
+  }
 
   // Best-effort: catch up Buffer-backed post URLs so videos.post_urls
   // (read by the public website to render 'Watch on TikTok' / etc.
@@ -911,12 +971,13 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
                 (j) => (j.kind ?? 'parsha') !== 'compose',
               )?.id ?? doneJobs[doneJobs.length - 1]?.id ?? ''
             }
-            // When the SELECTED video is composed, default the per-clip
-            // selection to the clips the compose stitched. Otherwise the
-            // card defaults to "latest of each", which after a rollback-
-            // compose can be a NEWER but UNUSED version — the previews
-            // and the top-of-page video would silently disagree.
-            composedFromClipIds={selectedRow?.composedFromClipIds ?? null}
+            // Defaults to the clips the displayed video actually uses
+            // (composed OR regen OR original). Without this, picking a
+            // non-latest version on one clip and hitting Apply would
+            // silently include the LATEST version of every other clip
+            // — overwriting prior compose work the user didn't ask to
+            // change.
+            displayedClipIdByIndex={displayedClipIdByIndex}
           />
         </section>
       )}
