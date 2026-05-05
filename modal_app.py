@@ -5019,6 +5019,42 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 "duration_s, motion_ref_slug, motion_ref_url, storage_path"
             ).eq("job_id", parent_job_id).order("index").execute().data
         ) or []
+        # Compose case: a compose job owns a videos row but no clip rows
+        # of its own. Its videos row carries composed_from_clip_ids — the
+        # exact per-slot clip UUIDs the user picked when composing. We
+        # MUST resolve to those rather than walking to a single source
+        # job, because the compose's slots can come from many different
+        # source jobs (regens, originals, prior composes). Walking to
+        # one source job and copying its full clip set was the bug that
+        # made regen-on-compose silently swap OTHER clips back to the
+        # source job's versions ("completely different clips throughout"
+        # after regenerating just one).
+        if not parent_clips:
+            parent_video = (
+                sb.table("videos")
+                .select("composed_from_clip_ids")
+                .eq("job_id", parent_job_id)
+                .maybe_single().execute()
+            )
+            composed_ids = (
+                (parent_video.data or {}).get("composed_from_clip_ids")
+                if parent_video else None
+            ) or []
+            if composed_ids:
+                rows = (
+                    sb.table("clips").select(
+                        "id, index, voiceover, visual_prompt, setting_id, "
+                        "duration_s, motion_ref_slug, motion_ref_url, storage_path"
+                    ).in_("id", composed_ids).execute().data
+                ) or []
+                clips_by_id = {r["id"]: r for r in rows}
+                synthetic: list[dict] = []
+                for slot_idx, clip_id in enumerate(composed_ids):
+                    if clip_id in clips_by_id:
+                        c = dict(clips_by_id[clip_id])
+                        c["index"] = slot_idx
+                        synthetic.append(c)
+                parent_clips = synthetic
         if not parent_clips:
             raise ValueError(f"parent job {parent_job_id} has no clips")
         missing = [c["index"] for c in parent_clips if not c.get("storage_path")]
