@@ -5278,17 +5278,31 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        inserted_video = (
-            sb.table("videos").insert(video_row).select("id").execute()
-        )
-        new_video_id = (
-            inserted_video.data[0]["id"]
-            if inserted_video and inserted_video.data
-            else None
-        )
+        sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Re-rendered clip")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
+
+        # Re-query the inserted videos row's id for the webhook payload.
+        # (Supabase Python's insert() doesn't accept a chained .select()
+        # like the JS client does — the earlier `.insert(...).select("id")`
+        # syntax raised AttributeError and crashed every regen on
+        # 2026-05-06 between commits d0bff94 and the fix here. Match the
+        # pattern regen_single_clip uses: separate SELECT after the insert.)
+        new_video_id: str | None = None
+        try:
+            video_lookup = (
+                sb.table("videos").select("id")
+                .eq("job_id", job_id)
+                .order("created_at", desc=True).limit(1)
+                .execute().data
+            )
+            new_video_id = video_lookup[0]["id"] if video_lookup else None
+        except Exception as lookup_err:
+            print(
+                f"[regen_clip_from_text] video_id lookup failed: "
+                f"{type(lookup_err).__name__}: {lookup_err}"
+            )
 
         # Success webhook → dashboard /api/pipeline/video-complete fires the
         # Resend "your render is ready" email. Without this Yonah never
