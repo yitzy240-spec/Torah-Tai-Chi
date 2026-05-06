@@ -121,6 +121,7 @@ async function loadAnalytics(): Promise<{
   countries: CountryViewShare[];
   ageGender: AgeGenderShare[];
   needsReconsent: boolean;
+  loadError: string | null;
 }> {
   try {
     const [watch, countries, ageGender] = await Promise.all([
@@ -128,14 +129,30 @@ async function loadAnalytics(): Promise<{
       getTopCountries(),
       getAgeGenderShare(),
     ]);
-    return { watch, countries, ageGender, needsReconsent: false };
+    return {
+      watch, countries, ageGender, needsReconsent: false, loadError: null,
+    };
   } catch (e) {
     if (e instanceof YouTubeScopeError) {
-      return { watch: null, countries: [], ageGender: [], needsReconsent: true };
+      return {
+        watch: null, countries: [], ageGender: [],
+        needsReconsent: true, loadError: null,
+      };
     }
-    // Non-fatal: log and let the rest of the page render.
+    // Non-scope failure (404 channel, 401 token, 5xx outage, missing
+    // YouTube Analytics activation, etc.) — surface it in the UI rather
+    // than silently rendering nothing. Without this, Yonah sees the
+    // basic totals and assumes "deeper analytics is broken" with no clue
+    // why. The message comes straight from analyticsQuery's thrown
+    // Error and includes the YouTube-supplied reason (insufficientData,
+    // youtubeSignupRequired, etc.) so we can diagnose remotely from a
+    // screenshot.
+    const msg = e instanceof Error ? e.message : String(e);
     console.error('[analytics] non-scope analytics error:', e);
-    return { watch: null, countries: [], ageGender: [], needsReconsent: false };
+    return {
+      watch: null, countries: [], ageGender: [],
+      needsReconsent: false, loadError: msg,
+    };
   }
 }
 
@@ -280,6 +297,97 @@ function ReconnectBanner() {
           fontFamily: 'var(--ff-body)',
           fontWeight: 500,
           fontSize: '14px',
+          padding: '10px 22px',
+          minHeight: '40px',
+          borderRadius: '999px',
+          border: '1px solid var(--cedar-700)',
+          background: 'var(--cedar-700)',
+          color: 'var(--linen-50)',
+          textDecoration: 'none',
+        }}
+      >
+        Reconnect YouTube →
+      </a>
+    </div>
+  );
+}
+
+/**
+ * Surfaced when loadAnalytics() catches a non-scope error from
+ * YouTube Analytics — e.g. youtubeSignupRequired (channel not yet
+ * activated in YouTube Studio), accessNotConfigured, quotaExceeded, or
+ * a 401 from a stale token. Without this banner the page silently hides
+ * the deeper analytics sections and the operator has no idea why.
+ *
+ * The reconnect link is offered as a last resort even though the error
+ * isn't strictly a scope problem — many of these resolve once the user
+ * goes through YouTube Studio's analytics setup, and a fresh OAuth
+ * round-trip clears stale tokens.
+ */
+function LoadErrorBanner({ message }: { message: string }) {
+  return (
+    <div
+      style={{
+        padding: '20px 22px',
+        border: '1px solid rgba(192,57,43,.25)',
+        borderRadius: 'var(--r-lg)',
+        background: 'rgba(192,57,43,.06)',
+        marginBottom: 36,
+      }}
+    >
+      <h3
+        style={{
+          fontFamily: 'var(--ff-display)',
+          fontWeight: 500,
+          fontSize: '18px',
+          letterSpacing: '-0.01em',
+          color: 'var(--ink-900)',
+          margin: '0 0 6px 0',
+          fontVariationSettings: '"opsz" 22, "SOFT" 30',
+        }}
+      >
+        Couldn&apos;t load deeper analytics
+      </h3>
+      <p
+        style={{
+          fontFamily: 'var(--ff-body)',
+          fontSize: '13px',
+          lineHeight: 1.55,
+          color: 'var(--ink-500)',
+          margin: '0 0 14px 0',
+          maxWidth: '720px',
+        }}
+      >
+        Watch-time, geography, and demographics couldn&apos;t be fetched from
+        YouTube. Reconnecting your channel often clears this — if it
+        doesn&apos;t, send the message below to Yitzy.
+      </p>
+      <code
+        style={{
+          display: 'block',
+          padding: '10px 12px',
+          background: 'var(--linen-100)',
+          border: '1px solid var(--ink-100)',
+          borderRadius: 'var(--r-sm)',
+          fontFamily: 'var(--ff-mono, ui-monospace, SFMono-Regular, monospace)',
+          fontSize: '12px',
+          color: 'var(--ink-700)',
+          marginBottom: '14px',
+          wordBreak: 'break-word',
+          whiteSpace: 'pre-wrap',
+        }}
+      >
+        {message}
+      </code>
+      <a
+        href="/api/auth/youtube/start"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontFamily: 'var(--ff-body)',
+          fontSize: '13px',
+          fontWeight: 500,
           padding: '10px 22px',
           minHeight: '40px',
           borderRadius: '999px',
@@ -685,9 +793,11 @@ function DemographicsCard({ ageGender }: { ageGender: AgeGenderShare[] }) {
  * so the rest of the page (totals + video list) can stream independently.
  */
 async function AnalyticsSections() {
-  const { watch, countries, ageGender, needsReconsent } = await loadAnalytics();
+  const { watch, countries, ageGender, needsReconsent, loadError } =
+    await loadAnalytics();
   if (needsReconsent) return <ReconnectBanner />;
-  if (!watch) return null; // non-scope failure — silent skip
+  if (loadError) return <LoadErrorBanner message={loadError} />;
+  if (!watch) return null;
   return (
     <>
       <WatchSummaryCards watch={watch} />
