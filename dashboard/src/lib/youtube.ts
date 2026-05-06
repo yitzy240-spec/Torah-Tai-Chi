@@ -633,3 +633,143 @@ export async function getAgeGenderShare(
     viewerPercentage,
   }));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Per-video Analytics — same dimensions as the channel-level cards but
+// scoped to a single videoId. Used by the expandable "drill-down" panel
+// on each row of the /analytics video list.
+//
+// All four queries hit the same /reports endpoint as the channel-level
+// versions; the only difference is `filters: video==<videoId>`. Quota
+// cost is identical to the channel-level queries (1 unit each).
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface RetentionPoint {
+  /** 0..1, where 0 = video start and 1 = video end. */
+  elapsedRatio: number;
+  /** 0..1 — fraction of the audience still watching at this point. */
+  audienceWatchRatio: number;
+  /**
+   * 0..1 — relative retention vs. comparable YouTube videos. >0.5 means
+   * "outperforming similar videos" at this timestamp. Can be omitted by
+   * the API for very small audiences; we render it only when present.
+   */
+  relativeRetentionPerformance: number | null;
+}
+
+export interface TrafficSourceShare {
+  /**
+   * YouTube's `insightTrafficSourceType` enum, e.g. "YT_SEARCH",
+   * "SUGGESTED_VIDEO", "EXT_URL", "SHORTS", "BROWSE", "PLAYLIST".
+   * We pretty-print these in the UI.
+   */
+  sourceType: string;
+  views: number;
+  watchTimeMinutes: number;
+}
+
+/**
+ * Top countries for ONE video over the last N days. Same shape as
+ * getTopCountries but filtered. YouTube applies the same small-channel
+ * privacy thresholds as the channel-level call — expect empty rows for
+ * Shorts under ~500 views.
+ */
+export async function getVideoCountries(
+  videoId: string,
+  windowDays: number = DEFAULT_WINDOW_DAYS,
+): Promise<CountryViewShare[]> {
+  const data = (await analyticsQuery({
+    ids: 'channel==MINE',
+    startDate: isoDaysAgo(windowDays),
+    endDate: todayIso(),
+    metrics: 'views,estimatedMinutesWatched',
+    dimensions: 'country',
+    filters: `video==${videoId}`,
+    sort: '-views',
+    maxResults: '10',
+  })) as { rows?: Array<[string, number, number]> };
+  return (data.rows ?? []).map(([countryCode, views, watchTimeMinutes]) => ({
+    countryCode,
+    views,
+    watchTimeMinutes,
+  }));
+}
+
+/**
+ * Age × gender viewer percentages for ONE video. Same threshold caveats
+ * as getAgeGenderShare — needs ~100+ views per cohort to populate.
+ */
+export async function getVideoAgeGender(
+  videoId: string,
+  windowDays: number = DEFAULT_WINDOW_DAYS,
+): Promise<AgeGenderShare[]> {
+  const data = (await analyticsQuery({
+    ids: 'channel==MINE',
+    startDate: isoDaysAgo(windowDays),
+    endDate: todayIso(),
+    metrics: 'viewerPercentage',
+    dimensions: 'ageGroup,gender',
+    filters: `video==${videoId}`,
+  })) as { rows?: Array<[string, string, number]> };
+  return (data.rows ?? []).map(([ageGroup, gender, viewerPercentage]) => ({
+    ageGroup,
+    gender: (gender as AgeGenderShare['gender']) ?? 'unknown',
+    viewerPercentage,
+  }));
+}
+
+/**
+ * Audience retention curve: 100 sample points across the video's
+ * runtime. YouTube returns elapsedVideoTimeRatio in 0.01 increments
+ * (so 101 rows). Reading: a flat curve at 1.0 means everyone watches
+ * to the end; a steep cliff at 0.05 means people drop off in the first
+ * 5%. The relativeRetentionPerformance dimension is supported only when
+ * the video has enough views — we treat it as optional.
+ */
+export async function getVideoRetention(
+  videoId: string,
+  windowDays: number = DEFAULT_WINDOW_DAYS,
+): Promise<RetentionPoint[]> {
+  // The two metrics are returned as separate columns in the same row.
+  const data = (await analyticsQuery({
+    ids: 'channel==MINE',
+    startDate: isoDaysAgo(windowDays),
+    endDate: todayIso(),
+    metrics: 'audienceWatchRatio,relativeRetentionPerformance',
+    dimensions: 'elapsedVideoTimeRatio',
+    filters: `video==${videoId}`,
+    sort: 'elapsedVideoTimeRatio',
+  })) as { rows?: Array<[number, number, number?]> };
+  return (data.rows ?? []).map(([elapsedRatio, awr, rrp]) => ({
+    elapsedRatio,
+    audienceWatchRatio: awr,
+    relativeRetentionPerformance: typeof rrp === 'number' ? rrp : null,
+  }));
+}
+
+/**
+ * Where the views came from. The `insightTrafficSourceType` enum is
+ * documented at https://developers.google.com/youtube/analytics/dimensions#Traffic_Source_Dimensions
+ * and includes "YT_SEARCH" (in-app search), "SUGGESTED_VIDEO" (sidebar/
+ * up-next), "BROWSE" (home/subscriptions feed), "EXT_URL" (external
+ * referrers), "SHORTS" (Shorts shelf), "PLAYLIST", "DIRECT_OR_UNKNOWN".
+ */
+export async function getVideoTrafficSources(
+  videoId: string,
+  windowDays: number = DEFAULT_WINDOW_DAYS,
+): Promise<TrafficSourceShare[]> {
+  const data = (await analyticsQuery({
+    ids: 'channel==MINE',
+    startDate: isoDaysAgo(windowDays),
+    endDate: todayIso(),
+    metrics: 'views,estimatedMinutesWatched',
+    dimensions: 'insightTrafficSourceType',
+    filters: `video==${videoId}`,
+    sort: '-views',
+  })) as { rows?: Array<[string, number, number]> };
+  return (data.rows ?? []).map(([sourceType, views, watchTimeMinutes]) => ({
+    sourceType,
+    views,
+    watchTimeMinutes,
+  }));
+}
