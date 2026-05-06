@@ -34,16 +34,26 @@ const TERMINAL_JOB_STATUSES = new Set(['done', 'failed']);
 function waitForJobTerminal(
   jobId: string,
   timeoutMs: number,
-): Promise<{ status: string }> {
+): Promise<{ status: string; errorMessage: string | null }> {
   return new Promise((resolve) => {
     let resolved = false;
-    const finish = (status: string) => {
+    const finish = async (status: string) => {
       if (resolved) return;
       resolved = true;
       try { void supabase.removeChannel(channel); } catch { /* noop */ }
       clearInterval(pollTimer);
       clearTimeout(timeoutTimer);
-      resolve({ status });
+      let errorMessage: string | null = null;
+      if (status === 'failed') {
+        try {
+          const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
+          if (res.ok) {
+            const data = (await res.json()) as { errorMessage?: string | null };
+            errorMessage = data.errorMessage ?? null;
+          }
+        } catch { /* best-effort */ }
+      }
+      resolve({ status, errorMessage });
     };
 
     const supabase = createBrowserSupabase();
@@ -54,7 +64,7 @@ function waitForJobTerminal(
         { event: 'UPDATE', schema: 'public', table: 'jobs', filter: `id=eq.${jobId}` },
         (payload) => {
           const status = (payload.new as { status?: string } | null)?.status;
-          if (status && TERMINAL_JOB_STATUSES.has(status)) finish(status);
+          if (status && TERMINAL_JOB_STATUSES.has(status)) void finish(status);
         },
       )
       .subscribe();
@@ -65,14 +75,33 @@ function waitForJobTerminal(
         const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
         if (!res.ok) return;
         const data = (await res.json()) as { status?: string };
-        if (data.status && TERMINAL_JOB_STATUSES.has(data.status)) finish(data.status);
+        if (data.status && TERMINAL_JOB_STATUSES.has(data.status)) void finish(data.status);
       } catch {
         // transient — keep waiting
       }
     }, 8000);
 
-    const timeoutTimer = setTimeout(() => finish('timeout'), timeoutMs);
+    const timeoutTimer = setTimeout(() => void finish('timeout'), timeoutMs);
   });
+}
+
+/** Mirror of friendlyRenderError in editable-clip-card.tsx — kept inline
+ *  rather than imported because that file is a client component and the
+ *  helper isn't large enough to warrant a shared util. */
+function friendlyComposeError(raw: string | null): string {
+  if (!raw) return 'Compose failed. Open the parsha page logs for details.';
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('credit') &&
+    (lower.includes('exhaust') || lower.includes('insufficient') || lower.includes('not enough'))
+  ) {
+    return 'Out of Kie credits. Top up at kie.ai/billing, then try again.';
+  }
+  if (lower.includes('quota')) {
+    return 'Kie quota hit. Wait a few minutes or top up at kie.ai/billing, then try again.';
+  }
+  const firstLine = raw.split('\n')[0]?.trim() ?? raw;
+  return `Compose failed: ${firstLine.slice(0, 220)}`;
 }
 
 /**
@@ -146,7 +175,7 @@ export function EditableClipList({
         // 20-min cap as EditableClipCard.handleReRender.
         const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
         if (result.status === 'failed') {
-          setComposeError('Compose failed. Open the parsha page logs for details.');
+          setComposeError(friendlyComposeError(result.errorMessage));
           return;
         }
         if (result.status === 'timeout') {

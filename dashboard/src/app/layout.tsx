@@ -3,6 +3,7 @@ import { Fraunces, Mona_Sans, Frank_Ruhl_Libre } from 'next/font/google';
 import { unstable_cache } from 'next/cache';
 import './globals.css';
 import { SidebarNav } from '@/components/sidebar-nav';
+import { KieLowBalanceBanner } from '@/components/kie-low-balance-banner';
 import { createClient } from '@/lib/supabase/server';
 
 /**
@@ -163,6 +164,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {userInitial}
                 </div>
               </div>
+
+              {/* Global low-credit banner. Renders only when Kie credits
+                  are below the threshold (or zero), so the layout is
+                  unchanged when there's nothing to warn about. Lives
+                  above all page content so it's visible everywhere
+                  Yonah might trigger a render — including mobile,
+                  where the sidebar's existing balance indicator is
+                  hidden by the tabbar layout. */}
+              <KieLowBalanceBanner />
 
               {children}
             </main>

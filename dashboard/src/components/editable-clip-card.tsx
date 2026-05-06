@@ -29,16 +29,32 @@ const TERMINAL_JOB_STATUSES = new Set(['done', 'failed']);
 function waitForJobTerminal(
   jobId: string,
   timeoutMs: number,
-): Promise<{ status: string }> {
+): Promise<{ status: string; errorMessage: string | null }> {
   return new Promise((resolve) => {
     let resolved = false;
-    const finish = (status: string) => {
+    const finish = async (status: string) => {
       if (resolved) return;
       resolved = true;
       try { void supabase.removeChannel(channel); } catch { /* noop */ }
       clearInterval(pollTimer);
       clearTimeout(timeoutTimer);
-      resolve({ status });
+      // On failure, do one final fetch to grab error_message so the
+      // caller can render an actionable error (e.g. credits exhausted)
+      // instead of a generic "Re-render failed" string.
+      let errorMessage: string | null = null;
+      if (status === 'failed') {
+        try {
+          const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
+          if (res.ok) {
+            const data = (await res.json()) as { errorMessage?: string | null };
+            errorMessage = data.errorMessage ?? null;
+          }
+        } catch {
+          // Best-effort — leave errorMessage null and the caller will
+          // fall back to the generic message.
+        }
+      }
+      resolve({ status, errorMessage });
     };
 
     const supabase = createBrowserSupabase();
@@ -49,7 +65,7 @@ function waitForJobTerminal(
         { event: 'UPDATE', schema: 'public', table: 'jobs', filter: `id=eq.${jobId}` },
         (payload) => {
           const status = (payload.new as { status?: string } | null)?.status;
-          if (status && TERMINAL_JOB_STATUSES.has(status)) finish(status);
+          if (status && TERMINAL_JOB_STATUSES.has(status)) void finish(status);
         },
       )
       .subscribe();
@@ -63,14 +79,38 @@ function waitForJobTerminal(
         const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
         if (!res.ok) return;
         const data = (await res.json()) as { status?: string };
-        if (data.status && TERMINAL_JOB_STATUSES.has(data.status)) finish(data.status);
+        if (data.status && TERMINAL_JOB_STATUSES.has(data.status)) void finish(data.status);
       } catch {
         // transient — keep waiting
       }
     }, 8000);
 
-    const timeoutTimer = setTimeout(() => finish('timeout'), timeoutMs);
+    const timeoutTimer = setTimeout(() => void finish('timeout'), timeoutMs);
   });
+}
+
+/**
+ * Translate a raw error_message from a failed regen into a friendly
+ * message Yonah can act on. Most importantly: when Kie returns
+ * "credits exhausted" (or similar phrasing), surface a clear "out of
+ * credits" line with a top-up CTA instead of the generic fallback.
+ */
+function friendlyRenderError(raw: string | null): string {
+  if (!raw) return 'Re-render failed. Open the parsha page logs for details.';
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('credit') &&
+    (lower.includes('exhaust') || lower.includes('insufficient') || lower.includes('not enough'))
+  ) {
+    return 'Out of Kie credits. Top up at kie.ai/billing, then try again.';
+  }
+  if (lower.includes('quota')) {
+    return 'Kie quota hit. Wait a few minutes or top up at kie.ai/billing, then try again.';
+  }
+  // Otherwise show the first line of the actual error so we can debug
+  // remotely from a screenshot. Truncate aggressively.
+  const firstLine = raw.split('\n')[0]?.trim() ?? raw;
+  return `Re-render failed: ${firstLine.slice(0, 220)}`;
 }
 
 export interface EditableClipVersion {
@@ -268,7 +308,7 @@ export function EditableClipCard({
         // 9-10 min Seedance runs we've observed.
         const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
         if (result.status === 'failed') {
-          setRenderError('Re-render failed. Open the parsha page logs for details.');
+          setRenderError(friendlyRenderError(result.errorMessage));
         } else if (result.status === 'timeout') {
           setRenderError(
             'Render is still running after 20 minutes. Refresh the page to check on it.',
