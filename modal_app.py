@@ -5278,10 +5278,50 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        sb.table("videos").insert(video_row).execute()
+        inserted_video = (
+            sb.table("videos").insert(video_row).select("id").execute()
+        )
+        new_video_id = (
+            inserted_video.data[0]["id"]
+            if inserted_video and inserted_video.data
+            else None
+        )
 
         set_status("done", "Re-rendered clip")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
+
+        # Success webhook → dashboard /api/pipeline/video-complete fires the
+        # Resend "your render is ready" email. Without this Yonah never
+        # gets notified that a per-clip re-render finished — every other
+        # render flow (run_pipeline, regen_smart, regen_single_clip,
+        # compose_video) hits this same endpoint, so we match the pattern.
+        try:
+            dashboard_url = os.environ.get("DASHBOARD_URL")
+            webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+            if dashboard_url and webhook_secret and new_video_id:
+                import httpx
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(
+                        f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
+                        headers={"x-pipeline-secret": webhook_secret},
+                        json={"jobId": job_id, "videoId": new_video_id},
+                    )
+                    print(
+                        f"[autopilot] regen_clip_from_text webhook "
+                        f"{resp.status_code} for job {job_id}"
+                    )
+            else:
+                print(
+                    f"[autopilot] regen_clip_from_text skipped webhook — "
+                    f"missing DASHBOARD_URL / PIPELINE_WEBHOOK_SECRET / "
+                    f"video_id (job {job_id})"
+                )
+        except Exception as hook_err:
+            print(
+                f"[autopilot] regen_clip_from_text webhook failed: "
+                f"{type(hook_err).__name__}: {hook_err}"
+            )
+
         return {
             "status": "done",
             "clip_index": target_index,
@@ -5307,6 +5347,40 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 "mode": "regen_clip_from_text",
             },
         )
+        # Failure webhook → dashboard /api/pipeline/video-failed fires the
+        # Resend "your render failed" email. Wrapped in its own try so a
+        # webhook outage doesn't mask the original exception.
+        try:
+            dashboard_url = os.environ.get("DASHBOARD_URL")
+            webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+            if dashboard_url and webhook_secret:
+                import httpx
+                with httpx.Client(timeout=5.0) as client:
+                    resp = client.post(
+                        f"{dashboard_url.rstrip('/')}/api/pipeline/video-failed",
+                        headers={"x-pipeline-secret": webhook_secret},
+                        json={
+                            "jobId": job_id,
+                            "errorMessage": f"{type(e).__name__}: {e}",
+                            "stage": "regen_clip_from_text",
+                        },
+                    )
+                    print(
+                        f"[fail-notify] regen_clip_from_text webhook "
+                        f"{resp.status_code} for job {job_id}: "
+                        f"{resp.text[:200]}"
+                    )
+            else:
+                print(
+                    f"[fail-notify] regen_clip_from_text skipped webhook — "
+                    f"missing DASHBOARD_URL / PIPELINE_WEBHOOK_SECRET "
+                    f"(job {job_id})"
+                )
+        except Exception as hook_err:
+            print(
+                f"[fail-notify] regen_clip_from_text webhook failed: "
+                f"{type(hook_err).__name__}: {hook_err}"
+            )
         raise
 
 
