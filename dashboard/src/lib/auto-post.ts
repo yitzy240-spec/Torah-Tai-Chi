@@ -162,6 +162,16 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
   for (const platform of BUFFER_PLATFORMS) {
     const caption = args.captions[platform];
     if (!caption) continue;
+    // Respect the user's per-post channel selection. The high-level
+    // `requested` array above filters by selectedSet to decide whether
+    // to load Buffer profiles AT ALL, but it never gated the actual
+    // fanout loop — so if Yonah picked only TikTok, he still got
+    // posts on Instagram + Twitter because they had captions and the
+    // loop only checked `if (!caption) continue`. (Yonah, 2026-05-07,
+    // twice tried to post to one channel and it went to all three.)
+    // When selectedSet is null (autopilot webhook, no user selection)
+    // the legacy "post everywhere with a caption" behavior is preserved.
+    if (selectedSet && !selectedSet.has(platform)) continue;
 
     const profile = profiles.find(
       (p) => p.service.toLowerCase() === platform || p.formatted_service?.toLowerCase().includes(platform),
