@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { logEvent } from '@/lib/events';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
+import { getCanonicalClipPlan } from '@/lib/clip-plan';
 
 export const dynamic = 'force-dynamic';
 
@@ -252,18 +253,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ state: 'pending', statusMessage: 'finalizing' });
   }
 
-  const { data: clipPlanRow } = await supabase
-    .from('clip_plans')
-    .select('plan_json')
-    .eq('job_id', jobId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
+  const clipPlan = await getCanonicalClipPlan(supabase, jobId);
 
   // plan_json.captions follows PlatformCaptions — tiktok/instagram/
   // youtube_title/youtube_description/facebook/twitter. We shape it into
   // the Partial<Record<Platform, string>> the schedule-all sheet expects.
-  const planJson = (clipPlanRow?.plan_json ?? {}) as {
+  const planJson = (clipPlan?.planJson ?? {}) as {
     captions?: {
       tiktok?: string;
       instagram?: string;

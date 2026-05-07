@@ -5,6 +5,7 @@ import { getStance } from '@/lib/stance';
 import { logEvent } from '@/lib/events';
 import { sendNotification } from '@/lib/email';
 import type { Platform } from '@/lib/platforms';
+import { getCanonicalClipPlan } from '@/lib/clip-plan';
 
 const DASHBOARD_BASE_URL =
   process.env.DASHBOARD_BASE_URL ?? 'https://admin.torahtaichi.com';
@@ -186,17 +187,13 @@ export async function POST(request: Request) {
       .maybeSingle();
   }
 
-  // Latest clip_plan for this job — its plan_json.captions is what
-  // the pipeline wrote during this run.
-  const { data: planRow } = await sb
-    .from('clip_plans')
-    .select('plan_json')
-    .eq('job_id', jobId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
-
-  const captions = shapeCaptions(planRow?.plan_json);
+  // Canonical clip_plan for this job's parsha. When jobId is a regen or
+  // compose, that job has no plan of its own; the parsha's original
+  // pipeline run holds the captions. Without the job-tree walk every
+  // autopilot post on a regen would fall back to "no captions" and
+  // skip scheduling.
+  const plan = await getCanonicalClipPlan(sb, jobId);
+  const captions = shapeCaptions(plan?.planJson);
 
   // Autopilot path: only runs if eligible AND there are captions to
   // post with. Otherwise we fall through to the success email so

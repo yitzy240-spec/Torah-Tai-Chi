@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import { createClient } from '@/lib/supabase/server';
+import { getCanonicalClipPlan } from '@/lib/clip-plan';
 import { StanceToggle } from '@/components/stance-toggle';
 import { Fab } from '@/components/fab';
 import { getThisWeekParsha, getUpcomingHolidays, HEBCAL_TO_SLUG } from '@/lib/hebcal';
@@ -108,17 +109,13 @@ async function computeProductionArc(parshaId: string | undefined): Promise<Produ
   const video = (Array.isArray(videoRel) ? videoRel[0] : videoRel) ?? null;
   const videoId: string | null = video?.id ?? null;
 
-  // Captions presence — pulled from the latest clip_plan
+  // Captions presence — pulled from the canonical clip_plan for the
+  // parsha (job-tree walk so regen/compose jobs see the original
+  // pipeline run's captions).
   let captionsPresent = false;
   if (latestJob?.id) {
-    const { data: planRow } = await supabase
-      .from('clip_plans')
-      .select('plan_json')
-      .eq('job_id', latestJob.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const planJson = (planRow?.plan_json ?? {}) as { captions?: Record<string, string> };
+    const plan = await getCanonicalClipPlan(supabase, latestJob.id);
+    const planJson = (plan?.planJson ?? {}) as { captions?: Record<string, string> };
     captionsPresent = !!(planJson.captions && Object.keys(planJson.captions).length > 0);
   }
 
@@ -220,16 +217,10 @@ async function loadPostingData(parshaId: string): Promise<PostingData | null> {
   const scriptRow = (Array.isArray(scriptRel) ? scriptRel[0] : scriptRel) ?? null;
   const chosenScriptOption: string | null = scriptRow?.option ?? null;
 
-  // Captions live in the latest clip_plan's plan_json. Same shape /videos/[slug]
-  // already parses — keep this in sync if that ever moves.
-  const { data: planRow } = await supabase
-    .from('clip_plans')
-    .select('plan_json')
-    .eq('job_id', latestJob.id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const planJson = (planRow?.plan_json ?? {}) as {
+  // Captions live in the canonical clip_plan's plan_json. Job-tree walk
+  // so regen/compose jobs find the original pipeline run's plan.
+  const plan = await getCanonicalClipPlan(supabase, latestJob.id);
+  const planJson = (plan?.planJson ?? {}) as {
     captions?: {
       tiktok?: string;
       instagram?: string;

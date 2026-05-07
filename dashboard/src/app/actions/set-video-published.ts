@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { revalidatePath } from 'next/cache';
+import { getCanonicalClipPlan } from '@/lib/clip-plan';
 
 /**
  * Toggle whether a video is visible on the public website. Backed by
@@ -83,22 +84,16 @@ export async function setVideoPublished(
       }
     }
 
-    // Snapshot the clean script from the latest clip_plan for this
-    // job. We use plan_json.full_script — the un-phonetized version
-    // Yonah authored — instead of concatenating clips[].voiceover,
+    // Snapshot the clean script from the canonical clip_plan for this
+    // job's parsha. We use plan_json.full_script — the un-phonetized
+    // version Yonah authored — instead of concatenating clips[].voiceover,
     // which has Seedance pronunciation guides like "ha-SHEM" and
     // "Mah Boo" baked in. Those guides help the TTS but read as
-    // typos to a human reader on the public site.
-    const { data: planRow } = await sb
-      .from('clip_plans')
-      .select('plan_json')
-      .eq('job_id', jobId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const planJson = (planRow?.plan_json ?? {}) as {
-      full_script?: string;
-    };
+    // typos to a human reader on the public site. Job-tree walk via
+    // getCanonicalClipPlan handles the case where jobId is a regen or
+    // compose (no clip_plan of its own).
+    const plan = await getCanonicalClipPlan(sb, jobId);
+    const planJson = (plan?.planJson ?? {}) as { full_script?: string };
     const cleanScript = (planJson.full_script ?? '').trim();
     if (cleanScript) {
       await sb

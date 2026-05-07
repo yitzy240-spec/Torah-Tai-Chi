@@ -20,6 +20,7 @@ import { createUpdate, listProfiles } from '@/lib/buffer';
 import { getConnection as getYouTubeConnection, uploadVideo as uploadToYouTube } from '@/lib/youtube';
 import { PLATFORMS, BUFFER_PLATFORMS, type Platform } from '@/lib/platforms';
 import { logEvent, type EventActor } from '@/lib/events';
+import { getCanonicalClipPlan } from '@/lib/clip-plan';
 
 function actorForPlatform(platform: Platform): EventActor {
   return platform === 'youtube' ? 'youtube' : 'buffer';
@@ -279,15 +280,11 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
       // structured fields; only fall back when no plan exists.
       const { data: vJob } = await supabase
         .from('videos').select('job_id').eq('id', args.videoId).single();
-      const { data: planRow } = await supabase
-        .from('clip_plans')
-        .select('plan_json')
-        .eq('job_id', vJob?.job_id ?? '')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const plan = vJob?.job_id
+        ? await getCanonicalClipPlan(supabase, vJob.job_id)
+        : null;
       const planCaptions = (
-        (planRow?.plan_json as { captions?: Record<string, string> } | null)
+        (plan?.planJson as { captions?: Record<string, string> } | null)
           ?.captions ?? {}
       );
       const planTitle = (planCaptions.youtube_title ?? '').trim();
