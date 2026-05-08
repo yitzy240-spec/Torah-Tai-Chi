@@ -197,6 +197,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         text: caption,
         mediaUrl,
         mediaType: 'video',
+        thumbnailUrl: thumbUrl,
         scheduledAt: args.shareNow ? undefined : args.scheduledAt,
         shareNow: args.shareNow,
         channelService: platform,

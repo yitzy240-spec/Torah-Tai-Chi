@@ -141,6 +141,13 @@ export type CreateUpdateArgs = {
   mediaUrl?: string;
   /** Whether mediaUrl is a video or an image. Defaults to video. */
   mediaType?: 'video' | 'image';
+  /** Publicly reachable thumbnail URL for the cover frame on video posts.
+   *  Buffer's GraphQL accepts `assets.videos[0].thumbnailUrl` but doesn't
+   *  document which platforms honor it. We pass our pre-extracted thumb
+   *  whenever we have one — no harm if a network ignores it, and IG/FB
+   *  Reels typically use it for the grid cover. Verified against the
+   *  Buffer schema: VideoAssetInput.thumbnailUrl: String. */
+  thumbnailUrl?: string;
   /** If set + not shareNow, Buffer schedules the post at this time. */
   scheduledAt?: Date;
   /** If true, publish immediately instead of queuing/scheduling. */
@@ -184,12 +191,19 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
   const assets = a.mediaUrl
     ? a.mediaType === 'image'
       ? { images: [{ url: a.mediaUrl }] }
-      : { videos: [{ url: a.mediaUrl }] }
+      : {
+          videos: [{
+            url: a.mediaUrl,
+            ...(a.thumbnailUrl ? { thumbnailUrl: a.thumbnailUrl } : {}),
+          }],
+        }
     : undefined;
 
-  // Per-network metadata. Instagram rejects createPost with media unless a
-  // post type is specified (post / story / reel); use 'post' for images,
-  // 'reel' for videos since Shorts-style vertical videos are our default.
+  // Per-network metadata. Instagram and Facebook both require a post-type
+  // hint (post / reel / story). TikTok and Twitter accept additional
+  // optional metadata, but Buffer's API surface for those is sparse —
+  // see CreateUpdateArgs JSDoc and the audit note in commit 00b88d4 for
+  // why deeper TikTok controls (privacy, duet, stitch) aren't reachable.
   const metadata: Record<string, unknown> = {};
   if (a.channelService === 'instagram' && assets) {
     // Buffer requires BOTH `type` and `shouldShareToFeed` — the latter controls
@@ -198,6 +212,17 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
     metadata.instagram = {
       type: a.mediaType === 'video' ? 'reel' : 'post',
       shouldShareToFeed: true,
+    };
+  }
+  if (a.channelService === 'facebook' && assets) {
+    // PostTypeFacebook is non-nullable on FacebookPostMetadataInput per
+    // Buffer's schema. Mirror our IG behavior: 'reel' for video, 'post'
+    // for image. Without this Buffer was either picking a default type
+    // or silently dropping FB posts (Yonah's Buffer setup didn't show any
+    // FB posts in the recent posts table — channel may not be wired up,
+    // but the metadata needs to be correct for when it is).
+    metadata.facebook = {
+      type: a.mediaType === 'video' ? 'reel' : 'post',
     };
   }
 
