@@ -197,7 +197,15 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         text: caption,
         mediaUrl,
         mediaType: 'video',
-        thumbnailUrl: thumbUrl,
+        // thumbnailUrl removed: shipping a 720×1280 PNG via
+        // assets.videos[0].thumbnailUrl caused Buffer-accepted-but-
+        // IG-rejected ("issue with the media attached") on Yonah's
+        // 2026-05-08 10:30 UTC post (buffer_update_id 69fdbb3cb671…).
+        // Meta's Reels cover_url spec wants JPG at 1080×1920; our
+        // pipeline produces PNG at the source resolution (720p).
+        // Add this back only after the thumbnail generator is updated
+        // to output 1080×1920 JPG (separate change to modal_app.py
+        // extract_thumbnail).
         scheduledAt: args.shareNow ? undefined : args.scheduledAt,
         shareNow: args.shareNow,
         channelService: platform,
