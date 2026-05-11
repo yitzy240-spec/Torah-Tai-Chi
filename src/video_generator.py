@@ -54,6 +54,20 @@ def build_seedance_input(
     jewish_ref_urls: Optional[list[str]] = None,
 ) -> dict:
     voice_clause = "Voice matches @Audio1 in timbre and delivery. " if audio_url else ""
+    # Per-clip delivery direction. Seedance is multimodal — the prompt
+    # text influences BOTH the visual generation and the TTS delivery,
+    # so a tone note like "speaks with rising warmth" or "measured,
+    # patient teacher cadence" actually shifts the speech, not just the
+    # visuals. Without this line, Seedance defaults to its flat reading
+    # voice and Yonah's audience hears the same monotone every clip.
+    # The note also tells the model to vary delivery across the video
+    # so adjacent clips don't sound identical.
+    emotive_clause = (
+        f'Delivery: {clip.emotive_note.strip()}. '
+        f'Speak with natural rise and fall — not a flat reading voice.\n'
+        if getattr(clip, "emotive_note", None) and clip.emotive_note.strip()
+        else 'Speak with natural rise and fall, like a teacher who cares about the words — not a flat reading voice.\n'
+    )
     motion_addendum = (
         "\n\nUse the reference video as a motion study — mirror the tempo, "
         "trajectory, and stance of the core tai chi motion precisely, adapted "
@@ -67,6 +81,7 @@ def build_seedance_input(
     prompt = (
         f"{clip.visual_prompt}\n\n"
         f'Character speaks: "{clip.voiceover}"\n'
+        f"{emotive_clause}"
         f"{voice_clause}"
         f"{STYLE_LOCK}"
         f"{motion_addendum}"

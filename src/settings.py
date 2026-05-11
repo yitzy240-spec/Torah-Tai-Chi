@@ -120,10 +120,19 @@ STYLE_LOCK = (
     "lighting. Character identity must match references exactly. "
     "Voice timbre: warm and weathered, an experienced elder teacher in his "
     "late 50s, calm authority not booming. "
-    "SPEECH CADENCE: measured and contemplative, with natural pauses between "
-    "phrases like a meditation teacher in mid-thought. Never rushed. Each "
-    "phrase lands, then a small breath, then the next. This is wisdom being "
-    "shared, not information being delivered."
+    # Speech cadence: the previous version was "measured and contemplative,
+    # never rushed, each phrase lands then a small breath then the next" —
+    # which produced exactly the monotone meditation-tape voice Yonah's
+    # audience complained about. Replaced with brisker, varied delivery
+    # guidance. The per-clip emotive_note (added 2026-05-11) layers on
+    # top of this baseline for per-beat tone shifts.
+    "SPEECH CADENCE: brisk and engaging — a confident teacher mid-class, "
+    "not a meditation guide. Natural rise and fall in pitch, energy in "
+    "the voice, varying pace within a phrase (slowing on the weighty word, "
+    "moving through the connectives). Keep it warm and human, never flat "
+    "or sing-songy. Pauses only where punctuation demands them; otherwise "
+    "the line flows. This is a teacher who's excited about what they're "
+    "teaching."
 )
 
 

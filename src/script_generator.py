@@ -49,14 +49,16 @@ VIDEO STRUCTURE:
   rushes speech on long dense clips, producing garbled Hebrew. Split long
   Hebrew-dense beats into two clips at a natural pause instead.
 - Decide clip count and per-clip duration by reading the script at natural
-  sage-teacher pace (~2.3 words per second average). Do not force short
-  durations on text-dense beats; do not pad sparse beats. Let it breathe.
-- **HARD WPS CAP: 2.8 words/sec per clip.** After you've assigned voiceover
+  sage-teacher pace (~2.6 words per second average — slightly brisker than a
+  flat reading; the previous 2.3 wps target came across as monotone in
+  production). Do not force short durations on text-dense beats; do not
+  pad sparse beats. Let it breathe.
+- **HARD WPS CAP: 3.0 words/sec per clip.** After you've assigned voiceover
   to a clip, count the words and divide by duration_s. If the result
-  exceeds 2.8, the clip is over budget — Seedance will rush the speech
+  exceeds 3.0, the clip is over budget — Seedance will rush the speech
   and swallow syllables, especially on Hebrew-dense beats. You MUST
   either (a) extend duration_s up to the 15s cap, or (b) split the clip
-  at a natural pause. Never accept >2.8 wps. This is the single most
+  at a natural pause. Never accept >3.0 wps. This is the single most
   common failure mode in production videos.
 
 VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
@@ -64,7 +66,7 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
   the core point, the Torah citations (Baal HaTurim, specific parshas,
   specific psukim), the key analogies, and the application/CTA. You MAY
   shorten, rephrase, drop secondary examples, or reorder to fit a 40-55s
-  total voiceover budget at ~2.3 wps (target ~100 voice words across all
+  total voiceover budget at ~2.6 wps (target ~100 voice words across all
   clips combined).
 - Keep Yonah's voice: sage, calm, patient teacher — not copywriter, not
   clever. Match his cadence and register. If a sentence is poetic and
@@ -366,10 +368,29 @@ CAPTION_POSITION per clip — choose based on where Rav Eli sits in frame:
 - "middle" = rarely; only when the upper and lower thirds both have
   important content.
 
-EMOTIVE_NOTE per clip (optional, one short line):
-A directorial tone cue for this clip, e.g., "speak this reverently",
-"this lands with a pause before the next line", "voice lifts with wonder".
-Omit the field (or set null) if no special direction needed.
+EMOTIVE_NOTE per clip (REQUIRED, one short line):
+A directorial tone cue for this clip. THIS FIELD IS NOT OPTIONAL — the
+note is now passed verbatim into the Seedance prompt as a "Delivery:"
+instruction, which is what actually shifts the TTS away from the flat
+reading voice. Omit it and the clip will sound monotone.
+
+Pick a delivery direction that matches the line's emotional weight, AND
+vary across clips so adjacent clips don't sound identical. Yonah's
+audience complained about a uniformly flat delivery — that's the bug
+this field fixes. Examples of good variation across a 4-clip video:
+  clip 1 (hook):       "speak with held stillness, like opening a secret"
+  clip 2 (teaching):   "measured, patient; teacher tone, slight warmth"
+  clip 3 (analogy):    "voice lifts with wonder on the analogy, brighter"
+  clip 4 (CTA):        "intimate and direct, lowering on the final phrase"
+
+Do NOT use the same emotive note on two consecutive clips. Reach for
+contrasts: held vs. lifting, intimate vs. expansive, measured vs.
+declarative. The goal is a video that breathes through changes in
+delivery, not a single tone repeated 4 times.
+
+If Yonah's DIRECTION section includes tone direction (e.g., "start in
+a vibrant tone, deliver the meditation line slowly"), map that to the
+appropriate clip's emotive_note — that override wins.
 
 PLATFORM CAPTIONS (the "captions" field in output):
 Generate all SIX in one pass. Not for on-screen use — these are the
@@ -408,7 +429,7 @@ OUTPUT SCHEMA (JSON only, no markdown fences, no commentary):
   "clips": [
     {{"index": 0, "voiceover": "...", "visual_prompt": "...",
       "duration_s": <int 4-15>, "setting_id": "DOJO",
-      "caption_position": "bottom", "emotive_note": "..." or null}},
+      "caption_position": "bottom", "emotive_note": "..."}},
     ... (3-8 clips total, dojo block first, outdoor block second)
   ]
 }}
@@ -538,7 +559,7 @@ def build_prompt(parsha_name: str, book: str, option: str,
             "video. Apply feedback minimally and surgically.\n"
             "\n"
             "If the notes are direction (no PREVIOUS VERSION PLAN block),\n"
-            "they contain two kinds of guidance; treat each accordingly:\n"
+            "they contain three kinds of guidance; treat each accordingly:\n"
             "\n"
             "  • SCRIPT DIRECTION — specific phrasings, opening words,\n"
             "    lines that should appear in the voiceover. Reproduce these\n"
@@ -555,6 +576,20 @@ def build_prompt(parsha_name: str, book: str, option: str,
             "    a creative reinterpretation. Same for named objects (covered\n"
             "    challah, kiddush cup, place settings) — copy them through.\n"
             "\n"
+            "  • TONE / DELIVERY DIRECTION — how a line should be spoken,\n"
+            "    not what it says. Phrases like 'start in a vibrant tone',\n"
+            "    'deliver the meditation line slowly and mindfully', 'land\n"
+            "    the CTA with quiet authority', 'this beat should sound\n"
+            "    surprised'. Route every such phrase into the `emotive_note`\n"
+            "    of the clip whose voiceover matches that line. Yonah's\n"
+            "    tone direction OVERRIDES your default tone choice for\n"
+            "    that clip — copy his wording in if it fits the one-line\n"
+            "    format, or paraphrase tightly if it's verbose. Adjacent\n"
+            "    clips without explicit tone direction from Yonah still\n"
+            "    need to VARY (see EMOTIVE_NOTE rules) — Yonah's direction\n"
+            "    is a per-clip override, not a license to make the rest\n"
+            "    monotone.\n"
+            "\n"
             "What you STILL can't change to fit these notes: clip count\n"
             "(3-8), ordering (dojo first, then outdoor), camera-verb list,\n"
             "archetype menu, or words-per-second caps. If a note conflicts\n"
@@ -566,7 +601,8 @@ def build_prompt(parsha_name: str, book: str, option: str,
         )
     tail = (
         "Produce the ClipPlan JSON now. Remember: 3-8 clips, dojo first then "
-        "outdoor, total 28-90 seconds based on natural sage pace (~2.3 wps). "
+        "outdoor, total 28-90 seconds based on natural sage pace (~2.6 wps). "
+        "Every clip MUST have an emotive_note that varies from its neighbors. "
         "Include the full 'captions' object with all six platform variants "
         "(tiktok, instagram, youtube_title, youtube_description, facebook, "
         "twitter)."
