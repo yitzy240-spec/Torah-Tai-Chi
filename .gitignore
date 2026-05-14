@@ -26,6 +26,15 @@ Gemini_Generated_Image_*.png
 WhatsApp Image*.jpeg
 grok-video-*.mp4
 
+# Local scratch for one-shot recovery operations (downloaded mp4s,
+# ffmpeg intermediates, etc.). Not part of the project.
+tmp/
+
+# QA / debug screenshots saved to repo root during sessions.
+qa-*.png
+qa-screenshots/
+seo-top.png
+
 # Local-only reference scratch (too large for git; kept on disk)
 references.zip
 references/_backup_brown_kippah/
@@ -62,3 +71,5 @@ tests/qa/qa-*.log
 references/tai_chi_moves/*.mp4
 references/tai_chi_moves/.candidates/
 references/tai_chi_moves/.downloads/
+# Per-run scratch logs (dated, recreated each library/describe run).
+references/tai_chi_moves/.*_run_*.log
