@@ -277,7 +277,12 @@ export function EditableClipCard({
   const costStr = cost !== null ? `$${cost.toFixed(2)}` : null;
   const pickedTierLabel = tierLabel(pickedResolution, pickedTier);
 
-  const reRenderDisabled = !renderDirty || isRendering;
+  // Disable when (a) nothing to render, (b) already rendering, or (c) a
+  // save is in flight. (c) is defensive — handleReRender flushes a
+  // pending debounce inline before dispatching, but if savingState is
+  // already 'saving' (debounce fired naturally) the click would race
+  // with the in-progress write.
+  const reRenderDisabled = !renderDirty || isRendering || savingState === 'saving';
   const renderLabel = isRendering
     ? 'Re-rendering…'
     : `Re-render this clip${pickedTierLabel ? ` · ${pickedTierLabel}` : ''}${costStr ? ` · ~${costStr}` : ''} · ~30s`;
@@ -287,6 +292,49 @@ export function EditableClipCard({
     setIsRendering(true);
     (async () => {
       try {
+        // Flush any pending debounced save BEFORE dispatching the render.
+        // Without this, a user who types in the textarea and clicks
+        // Re-render within the 800ms debounce window sends the OLD text
+        // to Seedance — the save hadn't yet fired when the regen action
+        // hit Modal, so Modal read stale voiceover/visual_prompt from
+        // the clip row. Yonah's 2026-05-14 complaint: "it didn't even
+        // keep the text changes I made in the script and the scene
+        // direction... it's literally stealing." Cause was this race.
+        //
+        // dbDirty=true means the textarea diverges from the last saved
+        // value. Cancel any pending debounce and run the save inline.
+        if (dbDirty) {
+          if (debounceRef.current) {
+            clearTimeout(debounceRef.current);
+            debounceRef.current = null;
+          }
+          setSavingState('saving');
+          setSaveError(null);
+          const saveR = await updateClipText({
+            clipId: selected.clipId,
+            voiceover,
+            visualPrompt,
+          });
+          if ('error' in saveR) {
+            setSavingState('error');
+            setSaveError(saveR.error);
+            setRenderError(
+              `Couldn't save your edits before rendering: ${saveR.error}. ` +
+              `Render not started — try again.`,
+            );
+            return;
+          }
+          setSavedVoiceover(voiceover);
+          setSavedVisualPrompt(visualPrompt);
+          setSavingState('saved');
+          if (savedIndicatorTimerRef.current) {
+            clearTimeout(savedIndicatorTimerRef.current);
+          }
+          savedIndicatorTimerRef.current = setTimeout(
+            () => setSavingState('idle'), 1500,
+          );
+        }
+
         const r = await regenClipFromText({
           videoId,
           clipIndex: index,
