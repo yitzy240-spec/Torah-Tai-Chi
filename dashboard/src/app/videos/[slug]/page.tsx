@@ -310,9 +310,16 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
         resolution: t?.resolution ?? null,
         modelTier: t?.modelTier ?? null,
       });
-      if (durationsByIndex[idx] === undefined && c.duration_s) {
-        durationsByIndex[idx] = c.duration_s as number;
-      }
+      // Always take the LATEST distinct version's duration, not the
+      // first. Earlier this guarded `=== undefined`, which froze the
+      // displayed duration to whatever the original pipeline run
+      // produced — so a regen that lengthened a clip (e.g. the
+      // 2026-05-14 Bamidbar recovery where clip 0 was time-stretched
+      // from 10s to 11.4s) showed the old "10s" label even though the
+      // actual mp4 played at the new length. The query orders ASC by
+      // created_at, so this assignment ends with the newest distinct
+      // version's value.
+      if (c.duration_s) durationsByIndex[idx] = c.duration_s as number;
     }
   }
 
