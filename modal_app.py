@@ -5073,11 +5073,63 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 f"clip index {target_index} not found on parent {parent_job_id}"
             )
 
+        # Auto-extend duration to fit the (possibly-edited) voiceover.
+        #
+        # The WPS cap (3.0 wps hard / 2.6 wps target) is enforced by the
+        # script-generator prompt during initial generation, but NOT on
+        # per-clip re-renders. So when Yonah edits a clip's voiceover
+        # to add more words without touching duration_s, the regen used
+        # to dispatch with the original duration_s — and Seedance had
+        # to cram the speech to fit. On 2026-05-14 he hit this on a
+        # Bamidbar clip where 42 words went into a 10s render = 4.2 wps,
+        # well above the 3.0 cap; the result was rushed speech that no
+        # amount of post-processing could fully rescue.
+        #
+        # Fix: count words, compute the minimum duration that keeps WPS
+        # at our 2.6 target, and bump duration_s up if needed. Never
+        # shrink (a slow-paced clip stays slow-paced). Cap at the 15s
+        # Seedance hard limit; if even that's not enough we log a
+        # warning and let Seedance render at 15s — the user can see
+        # the message and trim the text on the next pass.
+        WPS_HARD_CAP = 3.0
+        TARGET_WPS = 2.6
+        MAX_DURATION_S = 15
+        MIN_DURATION_S = 4
+        voiceover_text = target_parent_clip["voiceover"] or ""
+        word_count = len(voiceover_text.split())
+        current_duration = int(target_parent_clip["duration_s"] or 0)
+        current_wps = (
+            word_count / current_duration if current_duration > 0 else float("inf")
+        )
+        if current_wps > WPS_HARD_CAP and word_count > 0:
+            import math as _math
+            needed = _math.ceil(word_count / TARGET_WPS)
+            new_duration = min(needed, MAX_DURATION_S)
+            new_duration = max(new_duration, current_duration, MIN_DURATION_S)
+            if needed > MAX_DURATION_S:
+                print(
+                    f"[regen_clip_from_text] clip {target_index}: voiceover "
+                    f"is {word_count} words; needs ~{needed}s at target "
+                    f"{TARGET_WPS} wps but capped at {MAX_DURATION_S}s — "
+                    f"resulting WPS will be {word_count / MAX_DURATION_S:.2f} "
+                    f"(still above {WPS_HARD_CAP} cap). Consider trimming "
+                    f"the voiceover."
+                )
+            print(
+                f"[regen_clip_from_text] clip {target_index}: auto-extended "
+                f"duration {current_duration}s → {new_duration}s for "
+                f"{word_count} words (was {current_wps:.2f} wps, now "
+                f"{word_count / new_duration:.2f} wps)"
+            )
+            effective_duration = new_duration
+        else:
+            effective_duration = current_duration
+
         clip = Clip(
             index=target_index,
-            voiceover=target_parent_clip["voiceover"],
+            voiceover=voiceover_text,
             visual_prompt=target_parent_clip["visual_prompt"],
-            duration_s=target_parent_clip["duration_s"],
+            duration_s=effective_duration,
             setting_id=target_parent_clip["setting_id"],
             motion_ref_slug=target_parent_clip.get("motion_ref_slug"),
         )
