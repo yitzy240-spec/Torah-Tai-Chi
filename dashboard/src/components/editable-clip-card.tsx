@@ -476,6 +476,80 @@ export function EditableClipCard({
           outline: 'none',
         }}
       />
+      {(() => {
+        // Live words-per-second indicator. Mirrors the same constants the
+        // backend uses (WPS_HARD_CAP=3.0, TARGET_WPS=2.6, MAX_DURATION_S=15)
+        // in modal_app.py's regen_clip_from_text. If you type past the cap,
+        // the indicator turns red and tells you how long the auto-extend
+        // backstop will make the clip — so you see the consequence before
+        // hitting Re-render.
+        const WPS_TARGET = 2.6;
+        const WPS_CAP = 3.0;
+        const MAX_DURATION = 15;
+        const wordCount = voiceover.trim() === ''
+          ? 0
+          : voiceover.trim().split(/\s+/).length;
+        const wps = durationS > 0 ? wordCount / durationS : 0;
+        const overCap = wps > WPS_CAP;
+        const nearCap = !overCap && wps > WPS_TARGET;
+        const color = overCap
+          ? 'var(--tassel)'
+          : nearCap
+          ? 'var(--cedar-600)'
+          : 'var(--ink-400)';
+        const projectedDuration = wordCount > 0
+          ? Math.min(MAX_DURATION, Math.max(durationS, Math.ceil(wordCount / WPS_TARGET)))
+          : durationS;
+        const willAutoExtend = overCap && projectedDuration > durationS;
+        const stillOverAtCap = overCap && wordCount / MAX_DURATION > WPS_CAP;
+        return (
+          <p
+            style={{
+              fontFamily: 'var(--ff-body)',
+              fontVariantNumeric: 'tabular-nums',
+              fontSize: 12,
+              color,
+              margin: '4px 0 10px',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>
+              <strong style={{ fontWeight: 600 }}>
+                {wps.toFixed(1)} words/sec
+              </strong>
+              {' · '}
+              {wordCount} word{wordCount === 1 ? '' : 's'} in {durationS.toFixed(1)}s
+            </span>
+            {willAutoExtend && (
+              <span
+                style={{
+                  fontStyle: 'italic',
+                  fontFamily: 'var(--ff-display)',
+                  fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                }}
+              >
+                {stillOverAtCap
+                  ? `Re-render will use the 15s cap (${(wordCount / MAX_DURATION).toFixed(1)} wps — still tight). Trim text or split this clip.`
+                  : `Re-render will extend to ~${projectedDuration}s to fit at ${WPS_TARGET} wps.`}
+              </span>
+            )}
+            {nearCap && (
+              <span
+                style={{
+                  fontStyle: 'italic',
+                  fontFamily: 'var(--ff-display)',
+                  fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                }}
+              >
+                Above the {WPS_TARGET} target but below the {WPS_CAP} cap.
+              </span>
+            )}
+          </p>
+        );
+      })()}
       <p
         style={{
           fontFamily: 'var(--ff-display)',
