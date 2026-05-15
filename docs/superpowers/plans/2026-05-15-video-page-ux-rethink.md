@@ -117,3 +117,35 @@ Until this lands, ship small fixes when these come up:
   "any version."
 
 These are bandaids. The real fix is the rethink above.
+
+## Additional bugs to clean up during the rework
+
+Surfaced 2026-05-15 (afternoon, after Yonah's Bamidbar publishing
+flow):
+
+1. **Inline-edit reload reverts changes.** Yonah edited the script
+   title via the inline-edit on the script carousel, hit save, the
+   page reloaded and the change was lost. He reported the same thing
+   happened on a social-media caption earlier. Likely cause: the
+   inline-edit's optimistic update doesn't survive a `router.refresh()`
+   the action triggers — the save returns OK, but the page re-fetches
+   from the DB before the write is durable / before the cache
+   invalidates. Needs investigation. Workaround: edit via direct DB
+   update (service-role) until fixed.
+
+2. **Anon RLS on `jobs` blocks the website's chain-walk for title
+   resolution.** The website's `getParshaBySlug` and `getAllParshiot`
+   walk `videos.job_id → jobs.script_id` to find the script that
+   produced a published video. Anon can't read `jobs` (deliberate
+   per existing comment — internal data). The walk silently returns
+   null and falls back to A-tight's title. Two clean fixes:
+     - **Snapshot `videos.title` at stitch time** (preferred): set-video-
+       published.ts or modal_app.py stores the source script's title
+       on the video row directly. Website reads `videos.title`. No anon
+       RLS hole needed.
+     - **Add an anon RLS policy** allowing SELECT of (id, script_id,
+       regen_of_job_id) only. Smaller change but creates a precedent
+       of poking holes for read-only fields.
+   Until either lands, the workaround is: keep A-tight's title in
+   sync with whatever the published video's actual source script title
+   should be (manual or scripted).
