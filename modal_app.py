@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import os
+import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -1090,6 +1091,60 @@ def _ensure_local(sb, work_dir: Path, storage_path: str) -> Path:
     data = sb.storage.from_("videos").download(storage_path)
     local.write_bytes(data)
     return local
+
+
+# Phonetic tokens in voiceovers look like "Ba-MID-bar", "Vah-yeek-RAH",
+# "MOH-sheh" — hyphenated words where at least one segment is 2+ uppercase
+# letters. Those are reading guides for Seedance TTS, not the form Yonah
+# wants displayed on torahtaichi.com. Strip them by joining the segments
+# and normalizing to title-case. Hyphenated words WITHOUT a caps segment
+# (e.g. "self-aware") are left alone.
+_HYPHENATED_PHONETIC_RE = re.compile(r"[A-Za-z’']+(?:-[A-Za-z’']+)+")
+
+
+def _strip_phonetics(text: str) -> str:
+    """Convert phonetic spellings back to readable form.
+
+    Example: "Ba-MID-bar" → "Bamidbar". Yonah's voiceovers contain these
+    so Seedance pronounces Hebrew terms correctly; the website should
+    show the clean reading form, not the phonetic.
+    """
+    def _replace(match: "re.Match[str]") -> str:
+        word = match.group(0)
+        parts = word.split("-")
+        has_caps_segment = any(
+            len(p) >= 2 and any(c.isalpha() for c in p) and p == p.upper()
+            for p in parts
+        )
+        if not has_caps_segment:
+            return word
+        joined = "".join(parts)
+        if not joined:
+            return word
+        return joined[0].upper() + joined[1:].lower()
+    return _HYPHENATED_PHONETIC_RE.sub(_replace, text)
+
+
+def _build_spoken_script(clips_in_order: list[dict]) -> str:
+    """Build the un-phonetized full script from the current clip voiceovers.
+
+    Called at every stitch point so videos.spoken_script always reflects
+    the clips that produced the final mp4 — not the original clip_plan's
+    full_script which is stale after per-clip edits. Each clip's voiceover
+    becomes its own paragraph; phonetic guides are stripped.
+
+    Tracks Yonah's 2026-05-15 ask: "the script should always reflect the
+    current full video selected on screen." Setting it at stitch (not at
+    publish) means the website's text matches whatever was just rendered.
+    """
+    sorted_clips = sorted(clips_in_order, key=lambda c: c.get("index") or 0)
+    paragraphs: list[str] = []
+    for c in sorted_clips:
+        vo = (c.get("voiceover") or "").strip()
+        if not vo:
+            continue
+        paragraphs.append(_strip_phonetics(vo))
+    return "\n\n".join(paragraphs)
 
 
 def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:
@@ -5327,7 +5382,33 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 f"[thumb] regen_clip_from_text skipped: "
                 f"{type(thumb_err).__name__}: {thumb_err}"
             )
-        video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
+        # Compute spoken_script from the actual clip set that's about
+        # to be stitched: the freshly-rendered target clip plus all
+        # parent clips at their other indices. The new clip's voiceover
+        # is from `clip` (the in-memory model we just rendered); the
+        # rest come from parent_clips. spoken_script is what the public
+        # website renders below the player — keep it tied to what was
+        # JUST stitched, not the original clip_plan.full_script (which
+        # goes stale the moment Yonah edits any voiceover text).
+        stitched_clips: list[dict] = []
+        for parent_c in parent_clips:
+            if parent_c["index"] == target_index:
+                stitched_clips.append({
+                    "index": target_index,
+                    "voiceover": clip.voiceover,
+                })
+            else:
+                stitched_clips.append({
+                    "index": parent_c["index"],
+                    "voiceover": parent_c.get("voiceover"),
+                })
+        spoken_script = _build_spoken_script(stitched_clips)
+
+        video_row: dict = {
+            "job_id": job_id,
+            "mp4_path": final_storage_path,
+            "spoken_script": spoken_script,
+        }
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         sb.table("videos").insert(video_row).execute()
@@ -5608,10 +5689,13 @@ def compose_video(compose_job_id: str) -> dict | None:
                 f"composed_from_clip_ids"
             )
 
-        # Resolve each clip_id to its storage_path. Order matters —
-        # clip_ids is already in slot order (0..N-1).
+        # Resolve each clip_id to its storage_path + voiceover. Order
+        # matters — clip_ids is already in slot order (0..N-1).
+        # Pulling voiceover here so we can compute spoken_script from
+        # the actual clip set being stitched (not from the original
+        # clip_plan.full_script which goes stale after per-clip edits).
         clip_rows = (
-            sb.table("clips").select("id, storage_path, index")
+            sb.table("clips").select("id, storage_path, index, voiceover")
             .in_("id", clip_ids).execute().data
         ) or []
         by_id = {c["id"]: c for c in clip_rows}
@@ -5660,8 +5744,27 @@ def compose_video(compose_job_id: str) -> dict | None:
                 f"{type(thumb_err).__name__}: {thumb_err}"
             )
 
+        # Compute spoken_script from the clips actually composed in
+        # slot order. Phonetic guides ("Ba-MID-bar" etc.) stripped so
+        # the website reads clean. Mirrors regen_clip_from_text — every
+        # stitch point keeps spoken_script in sync with what was just
+        # rendered. (Yonah, 2026-05-15: "the script should always
+        # reflect the current full video selected on screen.")
+        # Re-pulling voiceovers with index in case clip_rows ordering
+        # doesn't match slot order from clip_ids.
+        spoken_clips: list[dict] = []
+        for slot, row in enumerate(ordered):
+            spoken_clips.append({
+                "index": slot,
+                "voiceover": row.get("voiceover"),
+            })
+        spoken_script = _build_spoken_script(spoken_clips)
+
         # Update the pre-existing videos row with the final mp4 path.
-        update: dict = {"mp4_path": final_storage_path}
+        update: dict = {
+            "mp4_path": final_storage_path,
+            "spoken_script": spoken_script,
+        }
         if thumb_storage_path:
             update["thumb_path"] = thumb_storage_path
         sb.table("videos").update(update).eq(
