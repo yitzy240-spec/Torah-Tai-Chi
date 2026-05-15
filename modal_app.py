@@ -1093,22 +1093,122 @@ def _ensure_local(sb, work_dir: Path, storage_path: str) -> Path:
     return local
 
 
-# Phonetic tokens in voiceovers look like "Ba-MID-bar", "Vah-yeek-RAH",
-# "MOH-sheh" — hyphenated words where at least one segment is 2+ uppercase
-# letters. Those are reading guides for Seedance TTS, not the form Yonah
-# wants displayed on torahtaichi.com. Strip them by joining the segments
-# and normalizing to title-case. Hyphenated words WITHOUT a caps segment
-# (e.g. "self-aware") are left alone.
+# Known phonetic → canonical-transliteration map. Pulled from the
+# safe list in src/script_generator.py (which is what Claude is told
+# to use when laying out phonetics) plus tai-chi terms Yonah commonly
+# uses. Match is whole-word + case-insensitive (so "Ba-MID-bar",
+# "Bah-mid-BAR", and "Ba-Mid-Bar" all map to "Bamidbar"). Multi-word
+# entries (e.g. "Baal HaTurim") use literal spaces.
+#
+# Add to this dict when Yonah hits an awkward dephonetization in the
+# wild — that's faster than re-architecting and gives us a curated
+# voice for the website.
+_HEBREW_PHONETIC_MAP: dict[str, str] = {
+    # Books of the Torah
+    "beh-ray-sheet": "Bereishit",
+    "sheh-mote": "Shemot",
+    "vah-yeek-rah": "Vayikra",
+    "bah-mid-bar": "Bamidbar",
+    "ba-mid-bar": "Bamidbar",
+    "bamid-bar": "Bamidbar",
+    "b’mid-bar": "B'Midbar",
+    "b'mid-bar": "B'Midbar",
+    "deh-vah-reem": "Devarim",
+    # Patriarchs / matriarchs / biblical figures
+    "moh-sheh": "Moshe",
+    "ah-ha-rone": "Aharon",
+    "ahv-rah-hahm": "Avraham",
+    "yits-hahk": "Yitzchak",
+    "yah-ah-kov": "Yaakov",
+    "yo-sef": "Yosef",
+    "sah-rah": "Sarah",
+    "riv-kah": "Rivka",
+    "rah-hel": "Rachel",
+    "leh-ah": "Leah",
+    "doh-veed": "Dovid",
+    "shlo-mo": "Shlomo",
+    "el-i-yah-hoo": "Eliyahu",
+    # Holy concepts
+    "hah-shem": "Hashem",
+    "toh-rah": "Torah",
+    "shab-bat": "Shabbat",
+    "shab-bos": "Shabbos",
+    "mish-kahn": "Mishkan",
+    "mish-kan": "Mishkan",
+    "mish kan": "Mishkan",
+    "ye-tzee-aht mits-RAY-eem": "Yetziat Mitzrayim",
+    "mits-RAY-eem": "Mitzrayim",
+    "mitz-RAY-eem": "Mitzrayim",
+    "har sin-eye": "Har Sinai",
+    "har see-NIGH": "Har Sinai",
+    "ko-hen": "Kohen",
+    "ko-hane": "Kohen",
+    "le-vi": "Levi",
+    "le-VEE": "Levi",
+    "tzitz-it": "Tzitzit",
+    "tef-illin": "Tefillin",
+    "kee-doosh": "Kiddush",
+    "chal-lah": "Challah",
+    "men-or-AH": "Menorah",
+    "shma": "Shema",
+    "shmah": "Shema",
+    "ah-mein": "Amen",
+    # Compound: multi-word phonetics. Must come BEFORE single-word
+    # entries that overlap (Python dicts preserve insertion order;
+    # we iterate longest-first below to be safe).
+    "bah-ahl hah-too-reem": "Baal HaTurim",
+    "rash-ee": "Rashi",
+    "ram-bam": "Rambam",
+    "tal-mood": "Talmud",
+    "ge-mar-ah": "Gemara",
+    "mish-nah": "Mishnah",
+    # Tai chi terms (English-language transliterations of Chinese).
+    "ma boo": "Ma Bu",
+    "ma booh": "Ma Bu",
+    "mah boo": "Ma Bu",
+    "dan-ti-yen": "Dan Tien",
+    "dan ti-yen": "Dan Tien",
+    "dan tee-yen": "Dan Tien",
+    "dan teeyen": "Dan Tien",
+    "dahn-tee-en": "Dan Tien",
+    "qi": "Qi",
+    "chi": "Qi",
+    "tai chi": "Tai Chi",
+    "tai-chi": "Tai Chi",
+    "yin-yang": "Yin-Yang",
+}
+
+
+# Regex fallback for hyphenated phonetics not in the dictionary.
+# Hyphenated words where at least one segment is 2+ uppercase letters.
 _HYPHENATED_PHONETIC_RE = re.compile(r"[A-Za-z’']+(?:-[A-Za-z’']+)+")
 
 
 def _strip_phonetics(text: str) -> str:
-    """Convert phonetic spellings back to readable form.
+    """Convert phonetic spellings back to readable Hebrew/tai-chi form.
 
-    Example: "Ba-MID-bar" → "Bamidbar". Yonah's voiceovers contain these
-    so Seedance pronounces Hebrew terms correctly; the website should
-    show the clean reading form, not the phonetic.
+    Two-pass:
+      1. Known map: exact (case-insensitive, whole-word) replacements
+         for the phonetics Claude is taught to use in script_generator.
+         Produces correct transliterations like "Vah-yeek-RAH" → "Vayikra".
+      2. Generic fallback: hyphenated words with an ALL-CAPS segment get
+         their hyphens stripped and case normalized. Catches phonetics
+         not in the dictionary (e.g. one-off names) with a readable
+         approximation rather than leaving the phonetic visible.
+
+    Words without a caps segment AND not in the map (e.g. "self-aware",
+    "well-being") are left as-is.
     """
+    # Pass 1: known map, longest entries first so multi-word phonetics
+    # ("bah-ahl hah-too-reem") match before single-word ones.
+    for phonetic in sorted(_HEBREW_PHONETIC_MAP.keys(), key=len, reverse=True):
+        clean = _HEBREW_PHONETIC_MAP[phonetic]
+        # Word-boundary regex, case-insensitive. re.escape handles the
+        # hyphens/apostrophes literally.
+        pattern = r"(?<![A-Za-z])" + re.escape(phonetic) + r"(?![A-Za-z])"
+        text = re.sub(pattern, clean, text, flags=re.IGNORECASE)
+
+    # Pass 2: generic fallback for unknown hyphenated phonetics.
     def _replace(match: "re.Match[str]") -> str:
         word = match.group(0)
         parts = word.split("-")
