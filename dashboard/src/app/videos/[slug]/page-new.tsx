@@ -3,9 +3,9 @@
 // Redesigned video detail page (spec §3 — 4-state architecture).
 // Dispatched from page.tsx when video_page_v2 flag is on or ?v2=1.
 //
-// Milestone 3 scope: renders Phase 1 (script editor) and Phase 2
-// (plan review). Phases 3-5 and live states are stubbed with a
-// "Phase N — coming in milestone X" placeholder.
+// Milestone 4 scope: renders Phase 1 (script editor), Phase 2
+// (plan review), Phase 3 (clips), and Phase 4 (stitched video).
+// Phase 5 and live states are stubbed for future milestones.
 
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -13,11 +13,14 @@ import { selectPageState } from '@/lib/page-state';
 import { listTaiChiMoves } from '@/lib/tai-chi-moves';
 import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
+import { buildClipPayload } from '@/lib/clip-payload';
 import { BilingualHeader } from './_components/bilingual-header';
 import { CompressedStepper } from './_components/compressed-stepper';
 import { PersistentLiveStrip } from './_components/persistent-live-strip';
 import { Phase1ScriptConnected } from './_components/phase-1-script-connected';
 import { Phase2PlanReviewConnected } from './_components/phase-2-plan-review-connected';
+import { Phase3ClipsConnected } from './_components/phase-3-clips-connected';
+import { Phase4StitchedConnected } from './_components/phase-4-stitched-connected';
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -351,14 +354,173 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
   }
 
   // ---------------------------------------------------------------------------
-  // Phases 3-5 and live states — stubs for future milestones
+  // Phase 3: Clips
+  // ---------------------------------------------------------------------------
+  if (
+    (state.kind === 'draft-in-progress' || state.kind === 'live-and-draft') &&
+    state.phase === 3
+  ) {
+    const draftJobId =
+      state.kind === 'draft-in-progress' ? state.draftJobId : state.draftJobId;
+
+    // Need videoId for regenClipFromText — find the video for this draft job
+    const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
+    const draftVideoId = draftJobForState?.videoId ?? null;
+
+    // Fetch clips for this job (with created_at for version deduplication)
+    let phase3Clips: Array<{
+      id: string;
+      index: number;
+      storage_path: string | null;
+      duration_s: number | null;
+      voiceover: string;
+      visual_prompt: string;
+      motion_ref_slug: string | null;
+      created_at: string;
+    }> = [];
+
+    if (draftJobId) {
+      const { data: clipRows } = await supabase
+        .from('clips')
+        .select('id, index, storage_path, duration_s, voiceover, visual_prompt, motion_ref_slug, created_at')
+        .eq('job_id', draftJobId)
+        .order('index');
+      phase3Clips = (clipRows ?? []).map((c) => ({
+        id: c.id as string,
+        index: c.index as number,
+        storage_path: (c.storage_path as string | null) ?? null,
+        duration_s: (c.duration_s as number | null) ?? null,
+        voiceover: (c.voiceover as string | null) ?? '',
+        visual_prompt: (c.visual_prompt as string | null) ?? '',
+        motion_ref_slug: (c.motion_ref_slug as string | null) ?? null,
+        created_at: (c.created_at as string | null) ?? new Date(0).toISOString(),
+      }));
+    }
+
+    const moves = await listTaiChiMoves();
+
+    // videoId is required for regenClipFromText. If for some reason the video
+    // row doesn't exist yet (edge case: clips rendered but no compose yet),
+    // we fall back to a placeholder — the action will return an error gracefully.
+    if (!draftVideoId || !draftJobId) {
+      return (
+        <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
+          <BilingualHeader
+            hebrewName={parsha.hebrew_name}
+            book={parsha.book}
+            name={parsha.name}
+          />
+          {liveStripProps && <PersistentLiveStrip {...liveStripProps} />}
+          <CompressedStepper currentPhase={3} />
+          <p style={{ color: 'var(--ink-500)' }}>
+            Clips are generating… check back in a moment.
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
+        <BilingualHeader
+          hebrewName={parsha.hebrew_name}
+          book={parsha.book}
+          name={parsha.name}
+        />
+        {liveStripProps && <PersistentLiveStrip {...liveStripProps} />}
+        <CompressedStepper currentPhase={3} />
+        <Phase3ClipsConnected
+          videoId={draftVideoId}
+          jobId={draftJobId}
+          parshaSlug={parsha.slug}
+          initialClips={phase3Clips}
+          moves={moves}
+        />
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 4: Stitched video
+  // ---------------------------------------------------------------------------
+  if (
+    (state.kind === 'draft-in-progress' || state.kind === 'live-and-draft') &&
+    state.phase === 4
+  ) {
+    const draftJobId =
+      state.kind === 'draft-in-progress' ? state.draftJobId : state.draftJobId;
+    const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
+    const draftVideoId = draftJobForState?.videoId ?? null;
+
+    // Fetch the video row for mp4_path + thumb_path
+    let videoMp4Path: string | null = null;
+    let thumbPath: string | null = null;
+
+    if (draftVideoId) {
+      const { data: vRow } = await supabase
+        .from('videos')
+        .select('mp4_path, thumb_path')
+        .eq('id', draftVideoId)
+        .single();
+      videoMp4Path = (vRow?.mp4_path as string | null) ?? null;
+      thumbPath = (vRow?.thumb_path as string | null) ?? null;
+    }
+
+    // Fetch the clip plan for captions + boundaries
+    const clipPlanId = draftJobForState?.clipPlanId ?? null;
+    let planJson: unknown = null;
+    if (clipPlanId) {
+      const { data: planRow } = await supabase
+        .from('clip_plans')
+        .select('plan_json')
+        .eq('id', clipPlanId)
+        .single();
+      planJson = planRow?.plan_json ?? null;
+    }
+
+    // Fetch clip rows for boundary building
+    let clipRowsForBoundaries: Array<{ id: string; index: number }> = [];
+    if (draftJobId) {
+      const { data: clipRows } = await supabase
+        .from('clips')
+        .select('id, index')
+        .eq('job_id', draftJobId)
+        .order('index');
+      clipRowsForBoundaries = (clipRows ?? []).map((c) => ({
+        id: c.id as string,
+        index: c.index as number,
+      }));
+    }
+
+    const { captionsVttDataUrl, clipBoundariesS, totalDurationS } = buildClipPayload(
+      planJson,
+      clipRowsForBoundaries,
+    );
+
+    return (
+      <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
+        <BilingualHeader
+          hebrewName={parsha.hebrew_name}
+          book={parsha.book}
+          name={parsha.name}
+        />
+        {liveStripProps && <PersistentLiveStrip {...liveStripProps} />}
+        <CompressedStepper currentPhase={4} />
+        <Phase4StitchedConnected
+          videoMp4Path={videoMp4Path}
+          thumbPath={thumbPath}
+          captionsVttDataUrl={captionsVttDataUrl}
+          clipBoundariesS={clipBoundariesS}
+          totalDurationS={totalDurationS}
+        />
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 5 and live states — stubs for future milestones
   // ---------------------------------------------------------------------------
   const phaseLabel =
-    phase === 3
-      ? 'Clips (milestone 4)'
-      : phase === 4
-      ? 'Stitched video (milestone 5)'
-      : phase === 5
+    phase === 5
       ? 'Post (milestone 5)'
       : null;
 
