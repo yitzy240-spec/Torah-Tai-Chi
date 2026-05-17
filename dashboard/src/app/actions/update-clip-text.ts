@@ -50,7 +50,17 @@ export async function updateClipText(opts: {
   }
   if (Object.keys(update).length === 0) return { ok: true };
 
-  const { error } = await supabase.from('clips').update(update).eq('id', clipId);
+  // `.select().single()` so a 0-row update raises PGRST116 instead of
+  // returning ok with nothing written. Without this, RLS-shaped silent
+  // failures (or a stale clipId) report success to the textbox while
+  // the DB stays untouched — and the next re-render reads the old text.
+  // Same shape as the scripts inline-edit fix in 1f038cd.
+  const { error } = await supabase
+    .from('clips')
+    .update(update)
+    .eq('id', clipId)
+    .select('id')
+    .single();
   if (error) return { error: error.message };
   return { ok: true };
 }

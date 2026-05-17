@@ -5298,6 +5298,16 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         MAX_DURATION_S = 15
         MIN_DURATION_S = 4
         voiceover_text = target_parent_clip["voiceover"] or ""
+        # Audit log: pin down the exact row + text the regen is about to
+        # render. Caught the 2026-05-17 Shavuot bug where the user's
+        # edits saved to a row Modal didn't read (chip-vs-parent-job
+        # clip_id mismatch). Keep this log line until we have telemetry.
+        print(
+            f"[regen_clip_from_text] reading target_parent_clip "
+            f"id={target_parent_clip['id']} (parent_job={parent_job_id}, "
+            f"index={target_index}) voiceover[:80]="
+            f"{voiceover_text[:80]!r}"
+        )
         word_count = len(voiceover_text.split())
         current_duration = int(target_parent_clip["duration_s"] or 0)
         current_wps = (

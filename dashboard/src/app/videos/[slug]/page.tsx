@@ -278,28 +278,28 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
       .in('job_id', allJobIds)
       .order('created_at', { ascending: true });
 
-    // Dedupe by storage_path within each index. Every regen (and every
-    // full pipeline run) inserts a fresh clip row for EVERY index — the
-    // index that actually got re-rendered gets a new mp4 path, while
-    // unchanged indices get rows that copy the parent's mp4 path
-    // verbatim. Without dedupe, Yonah's 7-job parsha showed 7 version
-    // chips per clip even though most clips only had 2-3 distinct
-    // renders. Keep the FIRST (oldest by created_at, since the query
-    // sorts ascending) row for each distinct storage_path so version
-    // chips reflect actual content changes, not regen-side-effects.
-    const seenPathPerIndex: Record<number, Set<string>> = {};
+    // Dedupe by storage_path within each index, but bind each chip to the
+    // LATEST clip_id sharing the path (not the oldest). Every regen copies
+    // its non-target clips' rows from the parent verbatim — sharing the
+    // parent's storage_path under a fresh clip_id. The chip the user edits
+    // must point at the row Modal will read on the next re-render — i.e.
+    // the latest job's clip_id at this slot — otherwise updateClipText
+    // writes to a shadowed row Modal never reads, and edits silently
+    // vanish. Yonah hit this on 2026-05-17 Shavuot: edits saved
+    // successfully but every subsequent re-render produced parent-
+    // unchanged text. Query orders ASC, so iterating and overwriting
+    // ends each (idx, path) bucket on its newest entry.
+    const pathSlotPerIndex: Record<number, Record<string, number>> = {};
 
     for (const c of (allClips ?? [])) {
       const idx = c.index as number;
       const path = c.storage_path as string | null;
       if (!path) continue; // skip clips without checkpointed mp4
-      if (!seenPathPerIndex[idx]) seenPathPerIndex[idx] = new Set();
-      if (seenPathPerIndex[idx].has(path)) continue;
-      seenPathPerIndex[idx].add(path);
-
+      if (!pathSlotPerIndex[idx]) pathSlotPerIndex[idx] = {};
       if (!editableClipsByIndex[idx]) editableClipsByIndex[idx] = [];
+
       const t = tierByJobId[c.job_id as string];
-      editableClipsByIndex[idx].push({
+      const entry: EditableClipVersion = {
         clipId: c.id as string,
         jobId: c.job_id as string,
         voiceover: (c.voiceover as string | null) ?? '',
@@ -309,7 +309,16 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
         createdAt: (c.created_at as string | null) ?? new Date(0).toISOString(),
         resolution: t?.resolution ?? null,
         modelTier: t?.modelTier ?? null,
-      });
+      };
+      const existingSlot = pathSlotPerIndex[idx][path];
+      if (existingSlot !== undefined) {
+        // Replace the older entry at this slot — keeps chip count stable
+        // while updating the chip's backing clip_id to the latest row.
+        editableClipsByIndex[idx][existingSlot] = entry;
+      } else {
+        pathSlotPerIndex[idx][path] = editableClipsByIndex[idx].length;
+        editableClipsByIndex[idx].push(entry);
+      }
       // Always take the LATEST distinct version's duration, not the
       // first. Earlier this guarded `=== undefined`, which froze the
       // displayed duration to whatever the original pipeline run
