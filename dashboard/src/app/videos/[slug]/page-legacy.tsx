@@ -111,7 +111,7 @@ function buildClipPayload(
 }
 
 
-export default async function VideoDetailPage({ params, searchParams }: PageProps) {
+export async function VideoDetailPageLegacy({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const sp = await searchParams;
   const supabase = await createClient();
@@ -1385,3 +1385,7 @@ function PostedStatusPill({ anyPublished, anyScheduled }: { anyPublished: boolea
     </span>
   );
 }
+
+// Default export keeps Next.js happy if this file is ever rendered
+// directly (e.g. during development before the dispatcher is in place).
+export default VideoDetailPageLegacy;
