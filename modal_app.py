@@ -916,9 +916,40 @@ def run_pipeline(job_id: str) -> dict | None:
         raise
 
 
+# Character refs prioritized to the front of the upload order. The
+# canonical Rav Eli kippah (navy knitted sruga, locked 2026-04-16 in
+# commit e077d05) is the least-consistent element in Seedance renders —
+# size, shape, and band color drift mid-video. Reason: on DOJO clips
+# with multiple Jewish-ritual refs, MAX_REFS=9 truncates the char
+# refs to ~3 slots, and alphabetical sort puts the kippah-revealing
+# angles (05_profile_right, 10_closeup_thoughtful, 13_overshoulder_back)
+# AFTER non-kippah-critical speaking poses. The model never sees the
+# back / side / closeup of the kippah and invents them.
+#
+# Promoting these 4 angles to the front of char_ref_urls guarantees
+# them across truncation. Files at these basenames must show the
+# canonical knitted kippah; if Yonah regenerates the reference pack,
+# update this list to match.
+_CHAR_KIPPAH_PRIORITY: tuple[str, ...] = (
+    "01_front_neutral.png",         # front view — canonical
+    "10_closeup_thoughtful.png",    # closeup — highest detail
+    "05_profile_right.png",         # side — shows how it sits
+    "13_overshoulder_back.png",     # back/top — least-seen angle
+)
+
+
 async def _upload_dir(kie: "KieClient", dir_path: Path, label: str) -> list[str]:  # noqa: F821
+    pngs = sorted(dir_path.glob("*.png"))
+    if label == "char":
+        priority_index = {
+            name: i for i, name in enumerate(_CHAR_KIPPAH_PRIORITY)
+        }
+        pngs.sort(key=lambda p: (
+            priority_index.get(p.name, len(_CHAR_KIPPAH_PRIORITY)),
+            p.name,
+        ))
     urls: list[str] = []
-    for img in sorted(dir_path.glob("*.png")):
+    for img in pngs:
         url = await kie.upload_file(img, remote_dir=f"torah-tai-chi/refs/{label}")
         urls.append(url)
     return urls
