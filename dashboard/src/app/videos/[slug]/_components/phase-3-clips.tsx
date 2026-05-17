@@ -11,7 +11,7 @@
 // in-place when Modal completes.
 
 'use client';
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { useRealtimeRow } from '@/hooks/use-realtime-row';
