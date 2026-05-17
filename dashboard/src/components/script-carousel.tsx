@@ -301,11 +301,20 @@ function ScriptCard({
   const [titleDraft, setTitleDraft] = useState(script.title ?? '');
   const [titleSaving, setTitleSaving] = useState(false);
   const [titleSaved, setTitleSaved] = useState(false);
+  // Optimistic display value. Set the moment a save succeeds so the
+  // displayed title flips to the new value WITHOUT waiting for
+  // router.refresh() to round-trip the server (Yonah, 2026-05-17:
+  // "the second I click out, it should be showing my new edit; it
+  // shouldn't take a few seconds to refresh"). Cleared when the
+  // user navigates to a different script (handled in the useEffect
+  // below) so a stale optimistic doesn't bleed across cards.
+  const [committedTitle, setCommittedTitle] = useState<string | null>(null);
 
   const [editingTldr, setEditingTldr] = useState(false);
   const [tldrDraft, setTldrDraft] = useState(script.tldr ?? '');
   const [tldrSaving, setTldrSaving] = useState(false);
   const [tldrSaved, setTldrSaved] = useState(false);
+  const [committedTldr, setCommittedTldr] = useState<string | null>(null);
 
   // Tracked timers for the "saved ✓" indicators so we can clear before
   // re-arming (rapid double-saves) and on unmount (carousel navigation
@@ -327,6 +336,8 @@ function ScriptCard({
     setTldrDraft(script.tldr ?? '');
     setEditingTitle(false);
     setEditingTldr(false);
+    setCommittedTitle(null);
+    setCommittedTldr(null);
   }, [script.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Don't depend on script.title/script.tldr — a parent refresh after a
   // successful save would otherwise clobber any new keystrokes the user
@@ -334,8 +345,25 @@ function ScriptCard({
   // different script in the carousel (different script.id). Mirrors the
   // pattern landed in 96a486f for editable-clip-card.
 
+  // Effective values for display. Optimistic state wins over the prop
+  // so a successful save paints the new value instantly — without
+  // waiting for router.refresh() to round-trip the server. Falls back
+  // to the prop when no save has happened on this card yet (the
+  // committed*-clearing useEffect runs on script.id change so optimistic
+  // state never bleeds across cards in the carousel).
+  const effectiveTitle = committedTitle ?? script.title;
+  // tldr: empty string is a legitimate "user cleared the teaser"
+  // state — treat exactly like null so the "Add a teaser…" affordance
+  // shows when cleared via optimistic too.
+  const effectiveTldr = committedTldr !== null ? committedTldr : (script.tldr ?? '');
+
   async function saveTitle() {
-    if (titleDraft === (script.title ?? '')) {
+    // Compare against the effective (optimistic-or-prop) value, not
+    // just script.title — after an optimistic save, script.title is
+    // still the stale prop. Without this check the user re-saving the
+    // SAME value would trigger a redundant API call (no DB change but
+    // round-trip cost + UI flicker).
+    if (titleDraft === (effectiveTitle ?? '')) {
       setEditingTitle(false);
       return;
     }
@@ -351,6 +379,13 @@ function ScriptCard({
       return;
     }
     setEditingTitle(false);
+    // Optimistic: flip the displayed value RIGHT NOW so the user
+    // sees their edit the moment the editor closes. router.refresh()
+    // still fires in the background so SSR caches eventually catch
+    // up, but the visible value doesn't wait on it. Cleared when
+    // the carousel navigates to a different script (see useEffect
+    // on script.id above).
+    setCommittedTitle(titleDraft);
     setTitleSaved(true);
     if (titleSavedTimerRef.current) clearTimeout(titleSavedTimerRef.current);
     titleSavedTimerRef.current = setTimeout(() => setTitleSaved(false), 1800);
@@ -358,7 +393,7 @@ function ScriptCard({
   }
 
   async function saveTldr() {
-    if (tldrDraft === (script.tldr ?? '')) {
+    if (tldrDraft === effectiveTldr) {
       setEditingTldr(false);
       return;
     }
@@ -374,6 +409,7 @@ function ScriptCard({
       return;
     }
     setEditingTldr(false);
+    setCommittedTldr(tldrDraft);
     setTldrSaved(true);
     if (tldrSavedTimerRef.current) clearTimeout(tldrSavedTimerRef.current);
     tldrSavedTimerRef.current = setTimeout(() => setTldrSaved(false), 1800);
@@ -520,7 +556,7 @@ function ScriptCard({
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             if (e.key === 'Escape') {
-              setTitleDraft(script.title ?? '');
+              setTitleDraft(effectiveTitle ?? '');
               setEditingTitle(false);
             }
           }}
@@ -556,7 +592,7 @@ function ScriptCard({
             cursor: 'text',
           }}
         >
-          {script.title ?? optionLabel(script.option)}
+          {effectiveTitle ?? optionLabel(script.option)}
           {titleSaved && (
             <span style={{ marginLeft: 8, fontStyle: 'italic', fontSize: 12, color: 'var(--jade)' }}>
               saved ✓
@@ -574,7 +610,7 @@ function ScriptCard({
           onBlur={saveTldr}
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
-              setTldrDraft(script.tldr ?? '');
+              setTldrDraft(effectiveTldr);
               setEditingTldr(false);
             }
           }}
@@ -596,7 +632,7 @@ function ScriptCard({
             boxSizing: 'border-box',
           }}
         />
-      ) : script.tldr ? (
+      ) : effectiveTldr ? (
         <p
           onClick={() => setEditingTldr(true)}
           style={{
@@ -610,7 +646,7 @@ function ScriptCard({
             cursor: 'text',
           }}
         >
-          {script.tldr}
+          {effectiveTldr}
           {tldrSaved && (
             <span style={{ marginLeft: 8, fontStyle: 'italic', fontSize: 12, color: 'var(--jade)' }}>
               saved ✓
