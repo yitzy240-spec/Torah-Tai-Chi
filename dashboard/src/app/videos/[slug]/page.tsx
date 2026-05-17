@@ -272,26 +272,42 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
       tierByJobId[r.jobId] = { resolution: r.resolution, modelTier: r.modelTier };
     }
 
-    const { data: allClips } = await supabase
+    const { data: allClipsRaw } = await supabase
       .from('clips')
       .select('id, job_id, index, voiceover, visual_prompt, storage_path, duration_s, created_at')
       .in('job_id', allJobIds)
       .order('created_at', { ascending: true });
 
+    // Re-sort by OWNING JOB's triggered_at (matches versionRows ordering),
+    // not row created_at. Concurrent regens can finish DB inserts in a
+    // different order than they were triggered (Yonah hit this on the
+    // 2026-05-17 Shavuot 18:48 / 18:47 pair), so sorting by row created_at
+    // makes the "latest" chip diverge from the "latest video" the user is
+    // viewing. We want them on the same ordering so the chip binds to the
+    // same clip_id the displayed video's job has at this index.
+    const triggeredAtByJobId: Record<string, string> = {};
+    for (const j of doneJobsRaw ?? []) {
+      triggeredAtByJobId[j.id as string] = (j.triggered_at as string | null) ?? new Date(0).toISOString();
+    }
+    const allClips = [...(allClipsRaw ?? [])].sort((a, b) => {
+      const aT = triggeredAtByJobId[a.job_id as string] ?? '';
+      const bT = triggeredAtByJobId[b.job_id as string] ?? '';
+      if (aT !== bT) return aT.localeCompare(bT);
+      // Tiebreaker: clip created_at ASC (deterministic for same-job rows).
+      return ((a.created_at as string) ?? '').localeCompare((b.created_at as string) ?? '');
+    });
+
     // Dedupe by storage_path within each index, but bind each chip to the
-    // LATEST clip_id sharing the path (not the oldest). Every regen copies
-    // its non-target clips' rows from the parent verbatim — sharing the
-    // parent's storage_path under a fresh clip_id. The chip the user edits
-    // must point at the row Modal will read on the next re-render — i.e.
-    // the latest job's clip_id at this slot — otherwise updateClipText
-    // writes to a shadowed row Modal never reads, and edits silently
-    // vanish. Yonah hit this on 2026-05-17 Shavuot: edits saved
-    // successfully but every subsequent re-render produced parent-
-    // unchanged text. Query orders ASC, so iterating and overwriting
-    // ends each (idx, path) bucket on its newest entry.
+    // LATEST clip_id sharing the path (by owning-job triggered_at). Every
+    // regen copies its non-target clips' rows from the parent verbatim —
+    // sharing the parent's storage_path under a fresh clip_id. The chip
+    // the user edits must point at the row Modal will read on the next
+    // re-render — i.e. the latest job's clip_id at this slot — otherwise
+    // updateClipText writes to a shadowed row Modal never reads, and
+    // edits silently vanish.
     const pathSlotPerIndex: Record<number, Record<string, number>> = {};
 
-    for (const c of (allClips ?? [])) {
+    for (const c of allClips) {
       const idx = c.index as number;
       const path = c.storage_path as string | null;
       if (!path) continue; // skip clips without checkpointed mp4
