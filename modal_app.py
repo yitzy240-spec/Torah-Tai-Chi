@@ -916,25 +916,41 @@ def run_pipeline(job_id: str) -> dict | None:
         raise
 
 
-# Character refs prioritized to the front of the upload order. The
-# canonical Rav Eli kippah (navy knitted sruga, locked 2026-04-16 in
-# commit e077d05) is the least-consistent element in Seedance renders —
-# size, shape, and band color drift mid-video. Reason: on DOJO clips
-# with multiple Jewish-ritual refs, MAX_REFS=9 truncates the char
-# refs to ~3 slots, and alphabetical sort puts the kippah-revealing
-# angles (05_profile_right, 10_closeup_thoughtful, 13_overshoulder_back)
-# AFTER non-kippah-critical speaking poses. The model never sees the
-# back / side / closeup of the kippah and invents them.
+# Character refs prioritized to the front of the upload order. Goal
+# is to guarantee that EVERY clip Seedance renders sees the critical
+# anchors for Rav Eli identity, regardless of how MAX_REFS=9 truncates
+# when DOJO + Jewish ritual refs eat the budget. Worst-case slot
+# count for char refs on a DOJO clip with 2 Jewish refs is 3 (=
+# 9 - 4 dojo - 2 jewish), so the first 3 entries here MUST cover
+# Rav Eli's defining features holistically.
 #
-# Promoting these 4 angles to the front of char_ref_urls guarantees
-# them across truncation. Files at these basenames must show the
-# canonical knitted kippah; if Yonah regenerates the reference pack,
-# update this list to match.
-_CHAR_KIPPAH_PRIORITY: tuple[str, ...] = (
-    "01_front_neutral.png",         # front view — canonical
-    "10_closeup_thoughtful.png",    # closeup — highest detail
-    "05_profile_right.png",         # side — shows how it sits
-    "13_overshoulder_back.png",     # back/top — least-seen angle
+# Balance: kippah (the most-drifty element per Yonah 2026-05-17)
+# needs explicit angles, but we can't over-rotate and lose the
+# body / posture / logo / shirt anchors. Each of the first 3 entries
+# pulls double-duty:
+#
+#   01_front_neutral       — kippah front + Torah-Tai-Chi LOGO on chest
+#                            + navy mandarin-collar shirt + face + beard.
+#                            One image, every "what's the character"
+#                            feature. Canonical.
+#   07_fullbody_yinyang    — full body, yin-yang pose; the original
+#                            "continuity anchor" from the reference
+#                            pack generation. Body proportions +
+#                            hand positioning + posture.
+#   10_closeup_thoughtful  — kippah + face high-detail; the angle
+#                            that anchors fine kippah size/shape/band.
+#
+# Adding 05_profile_right at slot 4 covers the side-view kippah seat
+# and side body. Slots 5+ are best-effort additional poses.
+#
+# If Yonah regenerates the reference pack, update these filenames to
+# match — otherwise sort falls through to alphabetical and only the
+# canonical 01_front_neutral is guaranteed.
+_CHAR_PRIORITY: tuple[str, ...] = (
+    "01_front_neutral.png",          # kippah + logo + shirt + face
+    "07_fullbody_yinyang_pose.png",  # body + posture continuity anchor
+    "10_closeup_thoughtful.png",     # kippah + face high detail
+    "05_profile_right.png",          # kippah profile + side body
 )
 
 
@@ -942,10 +958,10 @@ async def _upload_dir(kie: "KieClient", dir_path: Path, label: str) -> list[str]
     pngs = sorted(dir_path.glob("*.png"))
     if label == "char":
         priority_index = {
-            name: i for i, name in enumerate(_CHAR_KIPPAH_PRIORITY)
+            name: i for i, name in enumerate(_CHAR_PRIORITY)
         }
         pngs.sort(key=lambda p: (
-            priority_index.get(p.name, len(_CHAR_KIPPAH_PRIORITY)),
+            priority_index.get(p.name, len(_CHAR_PRIORITY)),
             p.name,
         ))
     urls: list[str] = []
