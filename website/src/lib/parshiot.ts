@@ -64,9 +64,9 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   // Anon RLS on videos already filters to published_to_website = true,
   // which is the publish gate Yonah controls per-video on the dashboard.
   const [scriptsResult, videosResult] = await Promise.all([
-    // A-tight kept as a defensive fallback (see getParshaBySlug). The
-    // real title source is now the script that produced each published
-    // video, resolved via the job chain below.
+    // A-tight script kept for spoken_script fallback (draft_text) only.
+    // Title now comes directly from videos.title (snapshotted at stitch
+    // time — spec §11.6). A-tight title is no longer the primary source.
     client
       .from("scripts")
       .select("parsha_id, title, draft_text")
@@ -74,7 +74,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       .eq("option", "A-tight"),
     client
       .from("videos")
-      .select("parsha_id, job_id, thumb_path, mp4_path, website_caption, spoken_script, post_urls")
+      .select("parsha_id, thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description")
       .in("parsha_id", parshaIds),
   ]);
 
@@ -88,18 +88,19 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   const captionMap = new Map<string, string | null>();
   const spokenScriptMap = new Map<string, string | null>();
   const postUrlsMap = new Map<string, Parsha["postUrls"]>();
-  const jobIdMap = new Map<string, string | null>();
+  const titleMap = new Map<string, string | null>();
   for (const v of (videosResult.data ?? []) as Array<{
     parsha_id: string | null;
-    job_id: string | null;
     thumb_path: string | null;
     mp4_path: string | null;
     website_caption: string | null;
     spoken_script: string | null;
     post_urls: Record<string, string> | null;
+    title: string | null;
+    subtitle: string | null;
+    description: string | null;
   }>) {
     if (!v.parsha_id) continue;
-    if (v.job_id) jobIdMap.set(v.parsha_id, v.job_id);
     if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
     if (v.mp4_path) videoMap.set(v.parsha_id, v.mp4_path);
     if (v.website_caption) captionMap.set(v.parsha_id, v.website_caption);
@@ -107,36 +108,10 @@ export async function getAllParshiot(): Promise<Parsha[]> {
     if (v.post_urls && Object.keys(v.post_urls).length > 0) {
       postUrlsMap.set(v.parsha_id, v.post_urls as Parsha["postUrls"]);
     }
-  }
-
-  // Resolve the source-script title for each parsha by walking its
-  // published video's job chain. Same reasoning as getParshaBySlug:
-  // the title shown on the homepage / videos index should match the
-  // script that ACTUALLY produced the live video, not a hardcoded
-  // A-tight pick. Done sequentially per parsha — fine for ~50 parshiot
-  // on an ISR-cached page. If we ever need to optimize: snapshot the
-  // title onto videos.title at publish time (see set-video-published).
-  const sourceTitleMap = new Map<string, string>();
-  for (const [parshaId, jobId] of jobIdMap) {
-    if (!jobId) continue;
-    let current: string | null = jobId;
-    for (let i = 0; i < 25 && current; i++) {
-      const { data: j }: { data: { script_id: string | null; regen_of_job_id: string | null } | null } = await client
-        .from("jobs")
-        .select("script_id, regen_of_job_id")
-        .eq("id", current)
-        .maybeSingle();
-      if (j?.script_id) {
-        const { data: src } = await client
-          .from("scripts")
-          .select("title")
-          .eq("id", j.script_id)
-          .maybeSingle();
-        if (src?.title) sourceTitleMap.set(parshaId, src.title as string);
-        break;
-      }
-      current = (j?.regen_of_job_id as string | null) ?? null;
-    }
+    // videos.title is the snapshot written at stitch time (spec §11.6).
+    // Fall back to parsha.name (from parshiotData below) for old rows
+    // where the snapshot wasn't yet written.
+    titleMap.set(v.parsha_id, v.title ?? null);
   }
 
   return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string }) => {
@@ -144,7 +119,9 @@ export async function getAllParshiot(): Promise<Parsha[]> {
     const thumbPath = thumbMap.get(row.id) ?? null;
     const mp4Path = videoMap.get(row.id) ?? null;
     const spoken = spokenScriptMap.get(row.id) ?? null;
-    const resolvedTitle = sourceTitleMap.get(row.id) ?? script?.title;
+    // Read title directly from videos.title snapshot; fall back to A-tight
+    // for old rows where the snapshot wasn't written yet.
+    const resolvedTitle = titleMap.get(row.id) ?? script?.title;
     return {
       id: row.id,
       order: row.order,
@@ -179,10 +156,9 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
   }
 
   const [atightFallback, videoResult] = await Promise.all([
-    // Kept as a defensive fallback: if the published video's job chain
-    // doesn't reveal a source script (rare — only happens when something
-    // upstream loses script_id), we fall back to the A-tight script for
-    // this parsha so the page still has SOME title to show.
+    // A-tight kept for two fallback roles:
+    //   1. atightScript (draft_text) when no published video exists yet.
+    //   2. atightTitle when videos.title is NULL (old rows pre-spec §11.6).
     client
       .from("scripts")
       .select("title, draft_text")
@@ -192,53 +168,33 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     // Anon RLS already filters to published_to_website=true. No qa_seed
     // filter needed — that column was for the old seed flow and isn't
     // public-readable anyway.
+    // title/subtitle/description are snapshotted at stitch time (spec §11.6)
+    // so this query never needs to walk jobs → scripts anymore.
     client
       .from("videos")
-      .select("job_id, thumb_path, mp4_path, website_caption, spoken_script, post_urls")
+      .select("thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description")
       .eq("parsha_id", parshaData.id)
       .maybeSingle(),
   ]);
 
-  // Resolve the title from the script that ACTUALLY produced the
-  // published video, not from a hardcoded A-tight pick. Yonah's
-  // workflow: pick one of the 4 script options (A / A-tight / B / C),
-  // edit clip by clip, then publish. The published video's title
-  // shown below the player should match the script he picked.
-  //
-  // Walk: videos.job_id → jobs.script_id (regens/composes have
-  // script_id NULL, so follow regen_of_job_id until we hit a job
-  // with script_id set). Bounded depth 25 to defend against any
-  // pathological cycle in the data.
-  let sourceTitle: string | null = null;
-  if (videoResult.data?.job_id) {
-    let jobId: string | null = videoResult.data.job_id as string;
-    for (let i = 0; i < 25 && jobId; i++) {
-      const { data: j }: { data: { script_id: string | null; regen_of_job_id: string | null } | null } = await client
-        .from("jobs")
-        .select("script_id, regen_of_job_id")
-        .eq("id", jobId)
-        .maybeSingle();
-      if (j?.script_id) {
-        const { data: src } = await client
-          .from("scripts")
-          .select("title")
-          .eq("id", j.script_id)
-          .maybeSingle();
-        if (src?.title) {
-          sourceTitle = src.title as string;
-        }
-        break;
-      }
-      jobId = (j?.regen_of_job_id as string | null) ?? null;
-    }
-  }
+  const videoData = videoResult.data as {
+    thumb_path?: string | null;
+    mp4_path?: string | null;
+    website_caption?: string | null;
+    spoken_script?: string | null;
+    post_urls?: Record<string, string> | null;
+    title?: string | null;
+    subtitle?: string | null;
+    description?: string | null;
+  } | null;
 
-  const thumbPath = videoResult.data?.thumb_path ?? null;
-  const mp4Path = videoResult.data?.mp4_path ?? null;
-  const spoken = (videoResult.data as { spoken_script?: string | null } | null)
-    ?.spoken_script ?? null;
-  const postUrlsRaw = (videoResult.data as { post_urls?: Record<string, string> | null } | null)
-    ?.post_urls ?? null;
+  const thumbPath = videoData?.thumb_path ?? null;
+  const mp4Path = videoData?.mp4_path ?? null;
+  const spoken = videoData?.spoken_script ?? null;
+  const postUrlsRaw = videoData?.post_urls ?? null;
+  // Read title directly from videos.title snapshot; fall back to A-tight
+  // for old rows where the snapshot wasn't yet written (spec §11.6).
+  const resolvedTitle = videoData?.title ?? atightFallback.data?.title ?? null;
 
   return {
     id: parshaData.id,
@@ -248,10 +204,10 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     book: parshaData.book,
     hebrewName: HEBREW_NAMES[parshaData.slug] ?? "",
     atightScript: spoken ?? atightFallback.data?.draft_text,
-    atightTitle: sourceTitle ?? atightFallback.data?.title,
+    atightTitle: resolvedTitle,
     thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
     videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
-    websiteCaption: videoResult.data?.website_caption ?? null,
+    websiteCaption: videoData?.website_caption ?? null,
     postUrls: postUrlsRaw && Object.keys(postUrlsRaw).length > 0
       ? (postUrlsRaw as Parsha["postUrls"])
       : undefined,

@@ -791,6 +791,10 @@ def run_pipeline(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
+        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
+        # video_row["description"] from the source script + parsha here (spec §11.6).
+        # Mirror the TypeScript logic in compose-video.ts: look up jobs.script_id,
+        # fetch scripts.title + scripts.tldr + parshiot.name, write onto video_row.
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Video ready")
@@ -2632,6 +2636,8 @@ def regen_smart(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
+        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
+        # video_row["description"] from the source script + parsha here (spec §11.6).
         sb.table("videos").insert(video_row).execute()
 
         # 13. Mark done.
@@ -3066,6 +3072,8 @@ def regen_clip(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
+        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
+        # video_row["description"] from the source script + parsha here (spec §11.6).
         sb.table("videos").insert(video_row).execute()
 
         # 11. Mark done.
@@ -4406,6 +4414,8 @@ def regen_agent(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
+        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
+        # video_row["description"] from the source script + parsha here (spec §11.6).
         sb.table("videos").insert(video_row).execute()
 
         # 13. Mark done.
@@ -4980,6 +4990,8 @@ def regen_single_clip(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
+        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
+        # video_row["description"] from the source script + parsha here (spec §11.6).
         sb.table("videos").insert(video_row).execute()
 
         # Mark done + webhook (parsha kind only).
@@ -5558,6 +5570,8 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         }
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
+        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
+        # video_row["description"] from the source script + parsha here (spec §11.6).
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Re-rendered clip")

@@ -66,6 +66,20 @@ export async function composeVideo(opts: {
     topic: string | null;
   };
 
+  // Snapshot title/subtitle/description from the source script + parsha
+  // so the website can read them directly without walking the job chain
+  // (anon RLS blocks jobs reads). Same pattern as videos.spoken_script.
+  const [scriptSnap, parshaSnap] = await Promise.all([
+    refJob.script_id
+      ? supabase.from('scripts').select('title, tldr').eq('id', refJob.script_id).single()
+      : Promise.resolve({ data: null }),
+    refJob.parsha_id
+      ? supabase.from('parshiot').select('name').eq('id', refJob.parsha_id).single()
+      : Promise.resolve({ data: null }),
+  ]);
+  const scriptForTitle = scriptSnap.data as { title: string | null; tldr: string | null } | null;
+  const parshaForTitle = parshaSnap.data as { name: string | null } | null;
+
   const { data: composeJob } = await supabase
     .from('jobs').insert({
       parsha_id: refJob.parsha_id,
@@ -84,11 +98,16 @@ export async function composeVideo(opts: {
 
   // Insert videos row up front so compose_video can read clip_ids
   // off it. mp4_path is a placeholder until stitch finishes.
+  // title/subtitle/description are snapshotted here (spec §11.6) so the
+  // website doesn't have to walk the job chain under anon RLS.
   const { data: videoRow } = await supabase
     .from('videos').insert({
       job_id: composeJob.id,
       mp4_path: '',
       composed_from_clip_ids: clipIds,
+      title: parshaForTitle?.name ?? null,
+      subtitle: scriptForTitle?.title ?? null,
+      description: scriptForTitle?.tldr ?? null,
     }).select('id').single();
   if (!videoRow) return { error: 'Could not create video record.' };
 
