@@ -44,19 +44,15 @@ Total elapsed time: ~17–20 minutes.
 
 ## How to run
 
-From the **repo root** (so `.env` / `dashboard/.env.local` path conventions hold):
+From the **repo root**:
 
 ```bash
-# 1. Source your env (adjust for your setup)
-#    If you have a root .env:
-set -a && source .env && set +a
-#    Plus the dashboard-specific vars (BUFFER_ACCESS_TOKEN, TEST_MP4_URL):
-set -a && source dashboard/.env.local && set +a
-
-# 2. Run from dashboard/ so the import path resolves
-cd dashboard
-npx tsx ../tools/test_buffer_edit_post.ts
+tsx --env-file=.env tools/test_buffer_edit_post.ts
 ```
+
+`tsx`'s `--env-file` flag loads `.env` natively — no `dotenv` package required.
+If your Buffer token lives in `dashboard/.env.local`, copy `BUFFER_ACCESS_TOKEN`
+and `TEST_MP4_URL` into the root `.env` before running.
 
 ## After the run — update the spec
 
@@ -99,3 +95,9 @@ should be promoted into `buffer.ts` and covered by types.
 - [`test_buffer_edit_post.README.md`](test_buffer_edit_post.README.md) — this file
 - [`../dashboard/src/lib/buffer.ts`](../dashboard/src/lib/buffer.ts) — Buffer GraphQL client (reused)
 - [`../docs/superpowers/plans/2026-05-22-video-page-redesign-kickoff.md`](../docs/superpowers/plans/2026-05-22-video-page-redesign-kickoff.md) — redesign plan
+
+## Repeat for Instagram + Facebook
+
+After TikTok, change `tiktok` → `instagram` then `facebook` in the
+script's `find()` call, re-run. The action handler can be per-platform
+if behavior differs.

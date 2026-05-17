@@ -21,8 +21,7 @@
  *   7. Delete the test post via deletePost.
  *
  * Usage (from repo root):
- *   # Load env, then:
- *   cd dashboard && npx tsx ../tools/test_buffer_edit_post.ts
+ *   tsx --env-file=.env tools/test_buffer_edit_post.ts
  *
  * Required env vars (from .env / dashboard/.env.local):
  *   BUFFER_ACCESS_TOKEN  — Buffer personal-access token
@@ -33,8 +32,6 @@
  * It will post a real (briefly visible) video to your TikTok account.
  */
 
-import * as path from 'path';
-import * as fs from 'fs';
 import { listProfiles, createUpdate, getPostExternalLinks } from '../dashboard/src/lib/buffer';
 
 // ---------------------------------------------------------------------------
@@ -94,10 +91,10 @@ async function gqlRaw<T>(query: string, variables?: object): Promise<T> {
 }
 
 const EDIT_POST_MUTATION = /* GraphQL */ `
-  mutation EditPost($postId: PostId!, $input: EditPostInput!) {
-    editPost(postId: $postId, input: $input) {
+  mutation EditPost($input: EditPostInput!) {
+    editPost(input: $input) {
       __typename
-      ... on PostActionSuccess { post { id status text } }
+      ... on PostActionSuccess { post { id status } }
       ... on NotFoundError    { message }
       ... on UnauthorizedError { message }
       ... on UnexpectedError  { message }
@@ -106,12 +103,11 @@ const EDIT_POST_MUTATION = /* GraphQL */ `
 `;
 
 const DELETE_POST_MUTATION = /* GraphQL */ `
-  mutation DeletePost($postId: PostId!) {
-    deletePost(postId: $postId) {
+  mutation DeletePost($id: PostId!) {
+    deletePost(input: { id: $id }) {
       __typename
-      ... on PostActionSuccess { post { id status } }
+      ... on PostActionSuccess { post { id } }
       ... on NotFoundError    { message }
-      ... on UnauthorizedError { message }
       ... on UnexpectedError  { message }
     }
   }
@@ -129,15 +125,14 @@ type PostActionResult = PostActionSuccess | PostActionError;
 
 async function editPost(postId: string, newText: string): Promise<PostActionResult> {
   const data = await gqlRaw<{ editPost: PostActionResult }>(EDIT_POST_MUTATION, {
-    postId,
-    input: { text: newText },
+    input: { id: postId, text: newText },
   });
   return data.editPost;
 }
 
 async function deletePost(postId: string): Promise<PostActionResult> {
   const data = await gqlRaw<{ deletePost: PostActionResult }>(DELETE_POST_MUTATION, {
-    postId,
+    id: postId,
   });
   return data.deletePost;
 }
@@ -225,25 +220,14 @@ async function main(): Promise<void> {
   // ------------------------------------------------------------------
   console.log('Step 4: Checking for externalLink (confirms publication on TikTok)...');
 
-  let externalLink: string | null = null;
-  for (let attempt = 1; attempt <= 6; attempt++) {
-    const links = await getPostExternalLinks(TOKEN!, [created.id]);
-    externalLink = links[created.id] ?? null;
-    if (externalLink) {
-      console.log(`  Confirmed published! TikTok URL: ${externalLink}`);
-      break;
-    }
-    console.log(`  Attempt ${attempt}/6: externalLink not yet resolved. Waiting 1 more minute...`);
-    await sleep(minutes(1));
-  }
+  const links = await getPostExternalLinks(TOKEN!, [created.id]);
+  const externalLink: string | null = links[created.id] ?? null;
 
   if (!externalLink) {
-    console.warn(
-      'WARNING: externalLink did not resolve after 16 minutes total.\n' +
-        '  Proceeding to editPost anyway (the post may still be processing on TikTok).\n' +
-        `  Post id: ${created.id}`,
-    );
+    console.error(`   externalLink not resolved — TikTok may still be processing. Aborting.`);
+    process.exit(2);
   }
+  console.log(`  Confirmed published! TikTok URL: ${externalLink}`);
   console.log();
 
   // ------------------------------------------------------------------
@@ -283,37 +267,16 @@ async function main(): Promise<void> {
     console.log();
     console.log();
 
-    if (externalLink) {
-      console.log('='.repeat(70));
-      console.log('ACTION REQUIRED: manually check the TikTok post');
-      console.log('='.repeat(70));
-      console.log(`  URL: ${externalLink}`);
-      console.log('  Does the caption now read the EDITED text? (not the original)');
-      console.log();
-      console.log('  If YES → BRANCH DECISION: editPost WORKS → use Branch A (true edits)');
-      console.log('  If NO  → BRANCH DECISION: editPost NO-OPS → use Branch B (delete + repost)');
-      console.log();
-      console.log(
-        'Press ENTER after you have checked the URL to proceed to cleanup (delete post)...',
-      );
-
-      // In a terminal this would wait for stdin. In a non-interactive environment
-      // (CI / piped input) we wait a fixed 2 minutes instead.
-      const isInteractive = process.stdin.isTTY;
-      if (isInteractive) {
-        await new Promise<void>((resolve) => {
-          process.stdin.once('data', () => resolve());
-        });
-      } else {
-        console.log('  (Non-interactive mode — waiting 2 minutes before cleanup)');
-        await sleep(minutes(2));
-      }
-    } else {
-      console.log(
-        'NOTE: externalLink was not resolved, so there is no URL to manually verify.\n' +
-          '  Check your TikTok account directly to see if the caption changed.',
-      );
-    }
+    console.log('='.repeat(70));
+    console.log('ACTION REQUIRED: manually check the TikTok post');
+    console.log('='.repeat(70));
+    console.log(`  URL: ${externalLink}`);
+    console.log('  Does the caption now read the EDITED text? (not the original)');
+    console.log();
+    console.log('  If YES → BRANCH DECISION: editPost WORKS → use Branch A (true edits)');
+    console.log('  If NO  → BRANCH DECISION: editPost NO-OPS → use Branch B (delete + repost)');
+    console.log();
+    console.log('MANUAL CHECK REQUIRED: open the URL above. Does the caption show EDITED text?');
   } else {
     const errMsg = 'message' in editResult ? editResult.message : editResult.__typename;
     console.log(`editPost returned an error typename "${editResult.__typename}": ${errMsg}`);
