@@ -142,11 +142,10 @@ export type CreateUpdateArgs = {
   /** Whether mediaUrl is a video or an image. Defaults to video. */
   mediaType?: 'video' | 'image';
   /** Publicly reachable thumbnail URL for the cover frame on video posts.
-   *  Buffer's GraphQL accepts `assets.videos[0].thumbnailUrl` but doesn't
-   *  document which platforms honor it. We pass our pre-extracted thumb
-   *  whenever we have one — no harm if a network ignores it, and IG/FB
-   *  Reels typically use it for the grid cover. Verified against the
-   *  Buffer schema: VideoAssetInput.thumbnailUrl: String. */
+   *  Buffer's May 2026 schema uses assets[i].video.thumbnailUrl (array
+   *  of asset objects, not the old {videos:[...]} shape). We pass our
+   *  pre-extracted thumb whenever we have one — no harm if a network
+   *  ignores it, and IG/FB Reels typically use it for the grid cover. */
   thumbnailUrl?: string;
   /** If set + not shareNow, Buffer schedules the post at this time. */
   scheduledAt?: Date;
@@ -188,15 +187,18 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
     ? 'customScheduled'
     : 'addToQueue';
 
+  // Buffer May 2026 schema overhaul: assets is now an array of typed
+  // asset objects rather than a keyed object ({videos:[...]} is gone).
+  // New shape: [{image:{url}}, ...] or [{video:{url, thumbnailUrl?}}, ...].
   const assets = a.mediaUrl
     ? a.mediaType === 'image'
-      ? { images: [{ url: a.mediaUrl }] }
-      : {
-          videos: [{
+      ? [{ image: { url: a.mediaUrl } }]
+      : [{
+          video: {
             url: a.mediaUrl,
             ...(a.thumbnailUrl ? { thumbnailUrl: a.thumbnailUrl } : {}),
-          }],
-        }
+          },
+        }]
     : undefined;
 
   // Per-network metadata. Instagram and Facebook both require a post-type
