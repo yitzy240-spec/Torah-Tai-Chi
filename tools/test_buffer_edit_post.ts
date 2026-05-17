@@ -225,6 +225,8 @@ async function main(): Promise<void> {
 
   if (!externalLink) {
     console.error(`   externalLink not resolved — TikTok may still be processing. Aborting.`);
+    // Clean up the queued Buffer post before exiting.
+    await attemptCleanup(created.id);
     process.exit(2);
   }
   console.log(`  Confirmed published! TikTok URL: ${externalLink}`);
