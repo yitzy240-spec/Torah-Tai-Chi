@@ -2,7 +2,6 @@ import Link from "next/link";
 import { getAllParshiot } from "@/lib/parshiot";
 import { getAllArticles } from "@/lib/articles";
 import { getSiteContent, splitEm } from "@/lib/site-content";
-import { getThisWeekParsha } from "@/lib/hebcal";
 import RecentTeachingsCarousel, { type CarouselCard } from "@/components/RecentTeachingsCarousel";
 import ArticleCard from "@/components/ArticleCard";
 import Announcement from "@/components/Announcement";
@@ -36,28 +35,15 @@ export default async function HomePage() {
   }
   const withScript = parshiot.filter((p) => p.atightScript);
 
-  // Hero selection: prefer the parsha for THIS Shabbat (per Hebcal) when it
-  // has a published video AND isn't a holiday. Otherwise fall through to
-  // the most-recently-published non-holiday parsha video — never an empty
-  // hero, and never a holiday (Shavuot etc.) since those aren't the
-  // weekly-teaching format the homepage represents. Yonah hit both on
-  // 2026-05-18: Shavuot week → Hebcal returned Naso → Naso had no video
-  // yet → hero rendered empty.
-  const hebcalParsha = await getThisWeekParsha();
-  const hebcalMatch = hebcalParsha
-    ? (parshiot.find((p) => p.slug === hebcalParsha.slug) ?? null)
-    : null;
-  const isHebcalUsable = hebcalMatch
-    && hebcalMatch.kind === 'parsha'
-    && !!hebcalMatch.videoUrl;
-  const latestPublishedParsha = parshiot
-    .filter((p) => p.kind === 'parsha' && !!p.videoUrl && !!p.videoPublishedAt)
+  // Hero is whatever was most recently published. No "this week" /
+  // calendar logic — the homepage is "here's the latest teaching,"
+  // not "here's a calendar app." Holidays count too: if Yonah just
+  // published Shavuot, that's the latest, show it.
+  const thisWeek = parshiot
+    .filter((p) => !!p.videoUrl && !!p.videoPublishedAt)
     .sort((a, b) =>
       (b.videoPublishedAt ?? '').localeCompare(a.videoPublishedAt ?? '')
     )[0]
-    ?? null;
-  const thisWeek = (isHebcalUsable ? hebcalMatch : null)
-    ?? latestPublishedParsha
     ?? withScript[0]
     ?? parshiot[0];
 
