@@ -182,6 +182,14 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // Latest = canonical "live" version: drives captions, distribution, cost.
   const latest = versionRows.length > 0 ? versionRows[versionRows.length - 1] : null;
 
+  // The version currently live on torahtaichi.com (if any). When set,
+  // the top-of-page module switches from "script carousel + draft player"
+  // to "live video + live teaching-text editor" — the page becomes a
+  // display+edit surface for the published state, not a work-in-progress
+  // composer. There's at most one published version per parsha
+  // (enforced by set-video-published).
+  const livePublishedVersion = versionRows.find((v) => v.publishedToWebsite) ?? null;
+
   // Resolve which version is "selected": `?v=<videoId>` if it matches
   // a known version; otherwise the version currently live on the
   // website (if any); otherwise the latest. Once a video is published
@@ -798,17 +806,28 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             typicalRun={typicalRun}
             hidePerClipFeedback={Object.keys(editableClipsByIndex).length > 0}
           />
-          {/* Script carousel — full width below the feedback row when we
-              already have a video, so Yonah can still flip through script
-              variants without losing the player + feedback context. */}
+          {/* Once a version is published, the top module's right side
+              switches from "script options to choose from" to "the live
+              teaching text — edit and update the public page." The
+              script carousel is for picking a script that will produce
+              a video; once a video IS live, that's done. */}
           <div style={{ marginBottom: '32px' }}>
-            <ScriptCarousel
-              parshaId={parsha.id}
-              parshaName={parsha.name}
-              defaultTierKey={defaultTierKey}
-              scripts={parsha.scripts ?? []}
-              pinnedScriptId={pinnedScriptId}
-            />
+            {livePublishedVersion ? (
+              <TeachingTextEditor
+                videoId={livePublishedVersion.videoId}
+                initialText={livePublishedVersion.spokenScript ?? ''}
+                parshaSlug={parsha.slug}
+                isPublished
+              />
+            ) : (
+              <ScriptCarousel
+                parshaId={parsha.id}
+                parshaName={parsha.name}
+                defaultTierKey={defaultTierKey}
+                scripts={parsha.scripts ?? []}
+                pinnedScriptId={pinnedScriptId}
+              />
+            )}
           </div>
         </>
       ) : (
@@ -941,29 +960,24 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
                 </div>
               )}
             </div>
-            <ScriptCarousel
-              parshaId={parsha.id}
-              parshaName={parsha.name}
-              defaultTierKey={defaultTierKey}
-              scripts={parsha.scripts ?? []}
-              pinnedScriptId={pinnedScriptId}
-            />
+            {livePublishedVersion ? (
+              <TeachingTextEditor
+                videoId={livePublishedVersion.videoId}
+                initialText={livePublishedVersion.spokenScript ?? ''}
+                parshaSlug={parsha.slug}
+                isPublished
+              />
+            ) : (
+              <ScriptCarousel
+                parshaId={parsha.id}
+                parshaName={parsha.name}
+                defaultTierKey={defaultTierKey}
+                scripts={parsha.scripts ?? []}
+                pinnedScriptId={pinnedScriptId}
+              />
+            )}
           </div>
         </>
-      )}
-
-      {/* Teaching text editor — public "THE TEACHING" text shown under
-          the video on torahtaichi.com. Rendered outside the hasAnyVideo
-          branch because compose/regen videos have no clip_plan of their
-          own, which sends them down the "pre-video" UI branch even
-          though a rendered mp4 exists. Bound to the selected version. */}
-      {selectedRow && latestVersionInfo?.videoUrl && (
-        <TeachingTextEditor
-          videoId={selectedRow.videoId}
-          initialText={selectedRow.spokenScript ?? ''}
-          parshaSlug={parsha.slug}
-          isPublished={selectedRow.publishedToWebsite}
-        />
       )}
 
       {Object.keys(editableClipsByIndex).length > 0 && latestVersionInfo?.videoUrl && (
