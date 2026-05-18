@@ -135,14 +135,21 @@ export interface EditableClipCardProps {
   durationS: number;
   versions: EditableClipVersion[]; // oldest -> newest
   selectedClipId: string;
+  /** Which clip_id the current stitched video uses at this slot. The
+   *  Apply button surfaces when selectedClipId ≠ displayedClipId — i.e.
+   *  when the user has picked a version that DIFFERS from what the
+   *  displayed video is built from. Previously this was hard-coded to
+   *  "not on latest," which broke the case where the displayed video
+   *  was stitched with a non-latest version: picking the latest then
+   *  showed no Apply button (Yonah hit this on 2026-05-18 wanting v12
+   *  when the stitched video used v11). */
+  displayedClipId: string;
   onSelectVersion: (clipId: string) => void;
   resolution: Resolution | null;
   modelTier: ModelTier | null;
   /** Triggered when the user clicks "Apply" on this clip's selected
    *  version. Owned by the parent (EditableClipList) since compose
-   *  uses the full selection map across all clips. The card just
-   *  surfaces the action — when ANY clip card's selection is non-
-   *  latest, that card's Apply button lights up. */
+   *  uses the full selection map across all clips. */
   onApply?: () => void;
   /** True while a compose is running. Disables the Apply button on
    *  every card to prevent double-clicks from queuing two stitches. */
@@ -158,6 +165,7 @@ export function EditableClipCard({
   durationS,
   versions,
   selectedClipId,
+  displayedClipId,
   onSelectVersion,
   resolution,
   modelTier,
@@ -730,8 +738,12 @@ export function EditableClipCard({
 
       {versions.length > 1 && (() => {
         const selIdx = versions.findIndex((v) => v.clipId === selectedClipId);
-        const isOnLatest = selIdx === versions.length - 1 || selIdx === -1;
-        const applyEnabled = !!onApply && !applying && !isOnLatest;
+        // Apply surfaces when the user's pick differs from what's in the
+        // displayed stitched video at this slot — not just "not on
+        // latest." The stitched video might be built with a non-latest
+        // version (e.g. Yonah wanted v12 when the current stitch used v11).
+        const differsFromDisplayed = selectedClipId !== displayedClipId;
+        const applyEnabled = !!onApply && !applying && differsFromDisplayed;
         return (
           <div style={{ marginTop: 16 }}>
             <p
@@ -774,7 +786,7 @@ export function EditableClipCard({
                   </button>
                 );
               })}
-              {!isOnLatest && (
+              {differsFromDisplayed && (
                 <button
                   type="button"
                   onClick={onApply}
@@ -811,9 +823,9 @@ export function EditableClipCard({
                 margin: '6px 0 0',
               }}
             >
-              {isOnLatest
-                ? 'Click a version to preview it here. The Apply button appears once you pick a non-latest version.'
-                : 'Apply stitches a new final video with this pick. Other clips keep their latest version unless you also picked something there. ~30s, no Seedance cost.'}
+              {differsFromDisplayed
+                ? 'Apply stitches a new final video with this pick. Other clips keep their currently-used version unless you also picked something different there. ~30s, no Seedance cost.'
+                : 'This version is what the current video uses. Pick a different one to stitch a new final video.'}
             </p>
           </div>
         );
