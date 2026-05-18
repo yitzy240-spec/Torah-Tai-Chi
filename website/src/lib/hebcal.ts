@@ -112,7 +112,11 @@ function parshaFromItem(item: HebcalItem, holidays: HebcalItem[]): ShabbatParsha
   };
 }
 
-/** Fetch this Shabbat's parsha from Hebcal. Returns null on any failure. */
+/** Fetch this Shabbat's parsha from Hebcal. Returns null on any failure.
+ *  When this Shabbat is a holiday (e.g. Shavuot II, Sukkot, Pesach I/VII)
+ *  Hebcal returns no parashat entry — fall through to the next upcoming
+ *  parashat so callers don't fall back to "first parsha by torah order"
+ *  (= Bereshit) and display the wrong week. */
 export async function getThisWeekParsha(): Promise<ShabbatParsha | null> {
   try {
     const res = await fetch(
@@ -123,9 +127,15 @@ export async function getThisWeekParsha(): Promise<ShabbatParsha | null> {
     const data = await res.json();
     const items: HebcalItem[] = data.items ?? [];
     const parshaItem = items.find((i) => i.category === "parashat");
-    if (!parshaItem) return null;
-    const holidays = items.filter((i) => i.category !== "parashat" && i.category !== "candles" && i.category !== "havdalah");
-    return parshaFromItem(parshaItem, holidays);
+    if (parshaItem) {
+      const holidays = items.filter((i) => i.category !== "parashat" && i.category !== "candles" && i.category !== "havdalah");
+      return parshaFromItem(parshaItem, holidays);
+    }
+    // Holiday week — defer to the year-view endpoint to find the next
+    // upcoming parashat. This is what the dashboard does too; both
+    // surfaces want "the parsha to highlight," not literally-this-week.
+    const upcoming = await getUpcomingWeeks(1);
+    return upcoming[0] ?? null;
   } catch {
     return null;
   }
@@ -135,7 +145,11 @@ export async function getThisWeekParsha(): Promise<ShabbatParsha | null> {
 export async function getUpcomingWeeks(n = 6): Promise<ShabbatParsha[]> {
   try {
     const res = await fetch(
-      "https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=off&nx=on&year=now&month=x&ss=on&mf=on&c=on&geo=none&geonameid=5128581",
+      // `s=on` is the Sedrot/Parashiyot flag — without it Hebcal returns
+      // candles/holidays but zero parashat entries (mirrors the dashboard
+      // fix in commit f8ecace area). Without this the holiday-fallthrough
+      // path above silently returns null and we fall back to Bereshit.
+      "https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=off&nx=on&year=now&month=x&ss=on&mf=on&c=on&s=on&geo=none&geonameid=5128581",
       { next: { revalidate: 3600 } }
     );
     if (!res.ok) return [];

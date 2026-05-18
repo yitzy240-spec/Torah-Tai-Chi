@@ -162,11 +162,21 @@ async function _fetchThisWeekParsha(): Promise<ShabbatParsha | null> {
     const data = await res.json();
     const items: HebcalItem[] = data.items ?? [];
     const parshaItem = items.find((i) => i.category === "parashat");
-    if (!parshaItem) return null;
-    const holidays = items.filter(
-      (i) => i.category !== "parashat" && i.category !== "candles" && i.category !== "havdalah"
-    );
-    return parshaFromItem(parshaItem, holidays);
+    if (parshaItem) {
+      const holidays = items.filter(
+        (i) => i.category !== "parashat" && i.category !== "candles" && i.category !== "havdalah"
+      );
+      return parshaFromItem(parshaItem, holidays);
+    }
+    // Holiday week — no parashat is read this Shabbat (e.g. Shavuot II
+    // falling on Shabbat, Sukkot, Pesach I/VII, etc.). Hebcal returns
+    // only the holiday items. Callers want "the parsha to highlight as
+    // current/upcoming," not literally-this-week — so fall through to
+    // the next upcoming parashat. Without this, the dashboard/website
+    // fallback chain returns the FIRST parsha by torah order (= Bereshit),
+    // which is what Yonah saw during Shavuot week 2026-05-18.
+    const upcoming = await _fetchUpcomingWeeks(1);
+    return upcoming[0] ?? null;
   } catch {
     return null;
   }
