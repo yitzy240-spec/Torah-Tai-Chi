@@ -11,6 +11,7 @@ import { VideoVersionsView, type VersionInfo } from '@/components/video-versions
 import type { EditableClipVersion } from '@/components/editable-clip-card';
 import { EditableClipList } from '@/components/editable-clip-list';
 import { EditingHelpModal } from '@/components/editing-help-modal';
+import { TeachingTextEditor } from '@/components/teaching-text-editor';
 import { PLATFORMS, type Platform, type CaptionField } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
@@ -136,7 +137,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // jobs come first so they're guaranteed present.
   const { data: doneJobsRaw } = await supabase
     .from('jobs')
-    .select('id, kind, script_id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, composed_from_clip_ids, created_at)')
+    .select('id, kind, script_id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, composed_from_clip_ids, spoken_script, created_at)')
     .eq('parsha_id', parsha.id)
     .eq('status', 'done')
     .order('triggered_at', { ascending: true });
@@ -169,6 +170,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
       thumbPath: v.thumb_path as string | null,
       publishedToWebsite: !!v.published_to_website,
       composedFromClipIds: (v.composed_from_clip_ids as string[] | null) ?? null,
+      spokenScript: (v.spoken_script as string | null) ?? '',
       createdAt: (v.created_at as string | null) ?? (j.triggered_at as string | null) ?? new Date(0).toISOString(),
       resolution: (j.resolution as Resolution | null) ?? null,
       modelTier: (j.model_tier as ModelTier | null) ?? null,
@@ -796,6 +798,19 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             typicalRun={typicalRun}
             hidePerClipFeedback={Object.keys(editableClipsByIndex).length > 0}
           />
+          {/* Teaching text editor — the public-facing "THE TEACHING" text
+              shown on torahtaichi.com under the video. Bound to the
+              SELECTED version (= top player). Save updates that video's
+              spoken_script and busts the website's ISR cache. Yonah's
+              fast path for post-publish typo fixes without re-rendering. */}
+          {selectedRow && (
+            <TeachingTextEditor
+              videoId={selectedRow.videoId}
+              initialText={selectedRow.spokenScript ?? ''}
+              parshaSlug={parsha.slug}
+              isPublished={selectedRow.publishedToWebsite}
+            />
+          )}
           {/* Script carousel — full width below the feedback row when we
               already have a video, so Yonah can still flip through script
               variants without losing the player + feedback context. */}
