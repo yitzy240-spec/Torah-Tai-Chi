@@ -338,6 +338,12 @@ export function EditableClipCard({
         const r = await regenClipFromText({
           videoId,
           clipIndex: index,
+          // Pass the chip's clip_id so the regen parents off the version
+          // the user is actually viewing/editing, not the top-player
+          // video's job. Without this, editing a non-latest chip's text
+          // and hitting Re-render sends the OTHER version's text to
+          // Seedance — Yonah's 2026-05-17 Shavuot V8/V9 bug.
+          clipId: selected.clipId,
           resolution: pickedResolution ?? undefined,
           modelTier: pickedTier ?? undefined,
         });
