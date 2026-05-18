@@ -1218,8 +1218,11 @@ _HEBREW_PHONETIC_MAP: dict[str, str] = {
     "dan tee-yen": "Dan Tien",
     "dan teeyen": "Dan Tien",
     "dahn-tee-en": "Dan Tien",
-    "qi": "Qi",
-    "chi": "Qi",
+    # Standalone "chi" / "qi" are intentionally omitted: in this corpus
+    # they always appear in the "Tai Chi" compound, which the next entry
+    # handles. Including the singletons re-matches the "Chi" inside the
+    # already-replaced "Tai Chi" and produces "Tai Qi" on the public
+    # site. Yonah's 2026-05-18 Shavuot publish hit this in passing.
     "tai chi": "Tai Chi",
     "tai-chi": "Tai Chi",
     "yin-yang": "Yin-Yang",

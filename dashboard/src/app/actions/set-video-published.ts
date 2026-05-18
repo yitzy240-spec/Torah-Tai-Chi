@@ -84,22 +84,29 @@ export async function setVideoPublished(
       }
     }
 
-    // Snapshot the clean script from the canonical clip_plan for this
-    // job's parsha. We use plan_json.full_script — the un-phonetized
-    // version Yonah authored — instead of concatenating clips[].voiceover,
-    // which has Seedance pronunciation guides like "ha-SHEM" and
-    // "Mah Boo" baked in. Those guides help the TTS but read as
-    // typos to a human reader on the public site. Job-tree walk via
-    // getCanonicalClipPlan handles the case where jobId is a regen or
-    // compose (no clip_plan of its own).
-    const plan = await getCanonicalClipPlan(sb, jobId);
-    const planJson = (plan?.planJson ?? {}) as { full_script?: string };
-    const cleanScript = (planJson.full_script ?? '').trim();
-    if (cleanScript) {
-      await sb
-        .from('videos')
-        .update({ spoken_script: cleanScript })
-        .eq('id', videoId);
+    // Only snapshot a spoken_script if the video doesn't already have
+    // one. Modal sets videos.spoken_script at every stitch point from
+    // the clips actually composed (via _build_spoken_script, which
+    // already strips phonetic guides per clip). Overwriting that with
+    // plan_json.full_script silently discarded every per-clip edit
+    // Yonah made via the editor — Yonah hit this on 2026-05-18 Shavuot:
+    // the public site showed the original A-tight script instead of
+    // his cleaned-up clip text. Legacy videos (pre-stitch-time
+    // spoken_script) still need the snapshot from clip_plan, so we
+    // only fill in when null/empty.
+    const { data: existing } = await sb
+      .from('videos').select('spoken_script').eq('id', videoId).single();
+    const hasSpoken = !!(existing?.spoken_script as string | null | undefined)?.trim();
+    if (!hasSpoken) {
+      const plan = await getCanonicalClipPlan(sb, jobId);
+      const planJson = (plan?.planJson ?? {}) as { full_script?: string };
+      const cleanScript = (planJson.full_script ?? '').trim();
+      if (cleanScript) {
+        await sb
+          .from('videos')
+          .update({ spoken_script: cleanScript })
+          .eq('id', videoId);
+      }
     }
   }
 
