@@ -190,6 +190,38 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
   // (enforced by set-video-published).
   const livePublishedVersion = versionRows.find((v) => v.publishedToWebsite) ?? null;
 
+  // Source script for the live published version. Title + tldr live on
+  // scripts.title / scripts.tldr — these are what the public website
+  // renders as the video's title and teaser. Walk regen_of_job_id back
+  // to the root job (regens/composes carry script_id=null) until we
+  // hit one with script_id set. Mirrors the chain-walk pattern in
+  // website/src/lib/parshiot.ts and set-video-published.ts.
+  let liveScriptId: string | null = null;
+  let liveScriptTitle: string = '';
+  let liveScriptTldr: string = '';
+  if (livePublishedVersion) {
+    let cursor: string | null = livePublishedVersion.jobId;
+    for (let i = 0; i < 25 && cursor; i++) {
+      const { data: j }: { data: { script_id: string | null; regen_of_job_id: string | null } | null } = await supabase
+        .from('jobs')
+        .select('script_id, regen_of_job_id')
+        .eq('id', cursor)
+        .maybeSingle();
+      if (j?.script_id) {
+        liveScriptId = j.script_id as string;
+        const { data: s } = await supabase
+          .from('scripts')
+          .select('title, tldr')
+          .eq('id', liveScriptId)
+          .maybeSingle();
+        liveScriptTitle = (s?.title as string | null) ?? '';
+        liveScriptTldr = (s?.tldr as string | null) ?? '';
+        break;
+      }
+      cursor = (j?.regen_of_job_id as string | null) ?? null;
+    }
+  }
+
   // Resolve which version is "selected": `?v=<videoId>` if it matches
   // a known version; otherwise the version currently live on the
   // website (if any); otherwise the latest. Once a video is published
@@ -815,9 +847,11 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             {livePublishedVersion ? (
               <TeachingTextEditor
                 videoId={livePublishedVersion.videoId}
+                scriptId={liveScriptId}
+                initialTitle={liveScriptTitle}
+                initialTldr={liveScriptTldr}
                 initialText={livePublishedVersion.spokenScript ?? ''}
                 parshaSlug={parsha.slug}
-                isPublished
               />
             ) : (
               <ScriptCarousel
@@ -963,9 +997,11 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             {livePublishedVersion ? (
               <TeachingTextEditor
                 videoId={livePublishedVersion.videoId}
+                scriptId={liveScriptId}
+                initialTitle={liveScriptTitle}
+                initialTldr={liveScriptTldr}
                 initialText={livePublishedVersion.spokenScript ?? ''}
                 parshaSlug={parsha.slug}
-                isPublished
               />
             ) : (
               <ScriptCarousel
