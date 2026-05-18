@@ -798,19 +798,6 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             typicalRun={typicalRun}
             hidePerClipFeedback={Object.keys(editableClipsByIndex).length > 0}
           />
-          {/* Teaching text editor — the public-facing "THE TEACHING" text
-              shown on torahtaichi.com under the video. Bound to the
-              SELECTED version (= top player). Save updates that video's
-              spoken_script and busts the website's ISR cache. Yonah's
-              fast path for post-publish typo fixes without re-rendering. */}
-          {selectedRow && (
-            <TeachingTextEditor
-              videoId={selectedRow.videoId}
-              initialText={selectedRow.spokenScript ?? ''}
-              parshaSlug={parsha.slug}
-              isPublished={selectedRow.publishedToWebsite}
-            />
-          )}
           {/* Script carousel — full width below the feedback row when we
               already have a video, so Yonah can still flip through script
               variants without losing the player + feedback context. */}
@@ -963,6 +950,20 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             />
           </div>
         </>
+      )}
+
+      {/* Teaching text editor — public "THE TEACHING" text shown under
+          the video on torahtaichi.com. Rendered outside the hasAnyVideo
+          branch because compose/regen videos have no clip_plan of their
+          own, which sends them down the "pre-video" UI branch even
+          though a rendered mp4 exists. Bound to the selected version. */}
+      {selectedRow && latestVersionInfo?.videoUrl && (
+        <TeachingTextEditor
+          videoId={selectedRow.videoId}
+          initialText={selectedRow.spokenScript ?? ''}
+          parshaSlug={parsha.slug}
+          isPublished={selectedRow.publishedToWebsite}
+        />
       )}
 
       {Object.keys(editableClipsByIndex).length > 0 && latestVersionInfo?.videoUrl && (
