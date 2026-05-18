@@ -36,12 +36,30 @@ export default async function HomePage() {
   }
   const withScript = parshiot.filter((p) => p.atightScript);
 
-  // Feature A: Hebcal live parsha — fall back to first-with-script if Hebcal fails
+  // Hero selection: prefer the parsha for THIS Shabbat (per Hebcal) when it
+  // has a published video AND isn't a holiday. Otherwise fall through to
+  // the most-recently-published non-holiday parsha video — never an empty
+  // hero, and never a holiday (Shavuot etc.) since those aren't the
+  // weekly-teaching format the homepage represents. Yonah hit both on
+  // 2026-05-18: Shavuot week → Hebcal returned Naso → Naso had no video
+  // yet → hero rendered empty.
   const hebcalParsha = await getThisWeekParsha();
   const hebcalMatch = hebcalParsha
     ? (parshiot.find((p) => p.slug === hebcalParsha.slug) ?? null)
     : null;
-  const thisWeek = hebcalMatch ?? withScript[0] ?? parshiot[0];
+  const isHebcalUsable = hebcalMatch
+    && hebcalMatch.kind === 'parsha'
+    && !!hebcalMatch.videoUrl;
+  const latestPublishedParsha = parshiot
+    .filter((p) => p.kind === 'parsha' && !!p.videoUrl && !!p.videoPublishedAt)
+    .sort((a, b) =>
+      (b.videoPublishedAt ?? '').localeCompare(a.videoPublishedAt ?? '')
+    )[0]
+    ?? null;
+  const thisWeek = (isHebcalUsable ? hebcalMatch : null)
+    ?? latestPublishedParsha
+    ?? withScript[0]
+    ?? parshiot[0];
 
   // Carousel data: only parshiot that have a rendered video. Empty
   // placeholder cards looked like "everything's coming soon" — better
