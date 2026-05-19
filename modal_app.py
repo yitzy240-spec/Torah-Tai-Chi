@@ -186,8 +186,41 @@ def trigger(payload: dict, request: Request) -> dict:
                     f"status={status}"
                 )
 
-    # Spawn the work async so we return 200 to Vercel quickly
-    run_pipeline.spawn(job_id)
+    # Dispatch to the appropriate worker based on the job kind.
+    # kind is read from the payload (the TS server actions always send it)
+    # and used to route to the correct Modal function. Unrecognised kinds
+    # fall through to run_pipeline (legacy behaviour for parsha / topic /
+    # compose — those have their own endpoints but some callers still hit
+    # the main trigger URL with those kinds).
+    kind = (payload.get("kind") or "parsha").lower()
+    if kind == "plan-only":
+        plan_only_job.spawn(job_id)
+    elif kind == "clips-only":
+        # Best-effort: store clip_plan_id + clip_indexes onto the job row
+        # so clips_only_job can resolve them without needing the payload.
+        # These columns may not exist in early deployments (pre-migration);
+        # clips_only_job falls back via regen_of_job_id if they're absent.
+        clip_plan_id = payload.get("clip_plan_id")
+        clip_indexes = payload.get("clip_indexes")  # None or list[int]
+        if clip_plan_id or clip_indexes is not None:
+            _col_update: dict = {}
+            if clip_plan_id:
+                _col_update["clip_plan_id"] = clip_plan_id
+            if clip_indexes is not None:
+                _col_update["clip_indexes"] = clip_indexes
+            if _col_update:
+                try:
+                    sb.table("jobs").update(_col_update).eq("id", job_id).execute()
+                except Exception as _col_err:
+                    print(
+                        f"[trigger] clips-only payload column write failed "
+                        f"job_id={job_id} err={_col_err} "
+                        f"(columns may not exist yet — clips_only_job will "
+                        f"fall back via regen_of_job_id)"
+                    )
+        clips_only_job.spawn(job_id)
+    else:
+        run_pipeline.spawn(job_id)
     return {"ok": True, "job_id": job_id}
 
 
@@ -791,10 +824,7 @@ def run_pipeline(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
-        # video_row["description"] from the source script + parsha here (spec §11.6).
-        # Mirror the TypeScript logic in compose-video.ts: look up jobs.script_id,
-        # fetch scripts.title + scripts.tldr + parshiot.name, write onto video_row.
+        video_row.update(_resolve_video_title_fields(sb, job_id))
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Video ready")
@@ -1296,6 +1326,81 @@ def _build_spoken_script(clips_in_order: list[dict]) -> str:
             continue
         paragraphs.append(_strip_phonetics(vo))
     return "\n\n".join(paragraphs)
+
+
+def _resolve_video_title_fields(sb, job_id: str) -> dict:
+    """Return {title, subtitle, description} for the videos row at stitch time.
+
+    Resolution order (spec §11.6):
+    1. Look up jobs.script_id + jobs.parsha_id on the given job.
+    2. If script_id is NULL (regen job), walk the regen_of_job_id chain
+       (bounded at 25 hops, matching the website chain-walk depth) until
+       we find a job with a non-NULL script_id.
+    3. Fetch scripts.title + scripts.tldr for the resolved script_id.
+    4. Fetch parshiot.name for the resolved parsha_id.
+    5. If anything fails (row missing, chain exhausted), return nulls so
+       the videos insert still succeeds and the website falls back to
+       A-tight gracefully.
+    """
+    try:
+        current_id = job_id
+        script_id: str | None = None
+        parsha_id: str | None = None
+        for _ in range(25):
+            row = (
+                sb.table("jobs")
+                .select("script_id, parsha_id, regen_of_job_id")
+                .eq("id", current_id)
+                .maybe_single()
+                .execute()
+                .data
+            )
+            if not row:
+                break
+            parsha_id = parsha_id or row.get("parsha_id")
+            if row.get("script_id"):
+                script_id = row["script_id"]
+                break
+            parent = row.get("regen_of_job_id")
+            if not parent:
+                break
+            current_id = parent
+
+        if not script_id:
+            return {"title": None, "subtitle": None, "description": None}
+
+        script_row = (
+            sb.table("scripts")
+            .select("title, tldr")
+            .eq("id", script_id)
+            .maybe_single()
+            .execute()
+            .data
+        ) or {}
+
+        parsha_name: str | None = None
+        if parsha_id:
+            parsha_row = (
+                sb.table("parshiot")
+                .select("name")
+                .eq("id", parsha_id)
+                .maybe_single()
+                .execute()
+                .data
+            ) or {}
+            parsha_name = parsha_row.get("name")
+
+        return {
+            "title": parsha_name,
+            "subtitle": script_row.get("title"),
+            "description": script_row.get("tldr"),
+        }
+    except Exception as e:
+        print(
+            f"[_resolve_video_title_fields] failed for job {job_id}: "
+            f"{type(e).__name__}: {e}; title/subtitle/description will be NULL"
+        )
+        return {"title": None, "subtitle": None, "description": None}
 
 
 def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:
@@ -2636,8 +2741,7 @@ def regen_smart(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
-        # video_row["description"] from the source script + parsha here (spec §11.6).
+        video_row.update(_resolve_video_title_fields(sb, job_id))
         sb.table("videos").insert(video_row).execute()
 
         # 13. Mark done.
@@ -3072,8 +3176,7 @@ def regen_clip(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
-        # video_row["description"] from the source script + parsha here (spec §11.6).
+        video_row.update(_resolve_video_title_fields(sb, job_id))
         sb.table("videos").insert(video_row).execute()
 
         # 11. Mark done.
@@ -4414,8 +4517,7 @@ def regen_agent(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
-        # video_row["description"] from the source script + parsha here (spec §11.6).
+        video_row.update(_resolve_video_title_fields(sb, job_id))
         sb.table("videos").insert(video_row).execute()
 
         # 13. Mark done.
@@ -4990,8 +5092,7 @@ def regen_single_clip(job_id: str) -> dict | None:
         video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
-        # video_row["description"] from the source script + parsha here (spec §11.6).
+        video_row.update(_resolve_video_title_fields(sb, job_id))
         sb.table("videos").insert(video_row).execute()
 
         # Mark done + webhook (parsha kind only).
@@ -5140,6 +5241,604 @@ def regen_single_clip_endpoint(payload: dict, request: Request) -> dict:
 
     regen_single_clip.spawn(job_id)
     return {"ok": True, "job_id": job_id, "mode": "regen_single_clip"}
+
+
+# --- Plan-only job (new for video-page redesign Phase 2) ------------
+# Generates the clip_plan + stub clips rows, then exits as 'done' so
+# the operator can review and assign per-clip Tai Chi moves before
+# paying for clip rendering. No Seedance calls, no stitch.
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=60 * 60,
+)
+def plan_only_job(job_id: str) -> dict | None:
+    """Generate the clip plan and stub clips rows for a plan-only job.
+
+    Status transitions: queued → generating_plan → done.
+    No clip rendering, no stitching. The dashboard's Phase 2 UI binds
+    to the clips rows (voiceover / visual_prompt edits, motion-ref
+    picker, per-card Generate button) and then triggers a clips-only
+    job when the operator is ready to render.
+
+    Pre-conditions (set by trigger-plan-only.ts before calling trigger):
+      - job row exists with kind='plan-only', status='queued'
+      - parsha_id + script_id both set on the job
+    """
+    sys.path.insert(0, "/root")
+    from supabase import create_client
+    from src.script_generator import transform_draft_to_clip_plan
+    from src.models import ClipPlan
+    from src.events import log_event
+
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+
+    pre = (
+        sb.table("jobs").select("status").eq("id", job_id)
+        .maybe_single().execute()
+    )
+    if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
+        return {"status": "already_done"}
+
+    def set_status(status: str, message: str | None = None) -> None:
+        update = {"status": status}
+        if message is not None:
+            update["status_message"] = message
+        sb.table("jobs").update(update).eq("id", job_id).execute()
+        log_event(
+            sb, actor="modal", level="info",
+            event=f"pipeline.status.{status}",
+            subject_type="job", subject_id=job_id,
+            message=message or status,
+            details={"status": status, "mode": "plan_only"},
+        )
+
+    try:
+        set_status("generating_plan", "Claude is writing the clip plan")
+
+        job = (
+            sb.table("jobs")
+            .select("parsha_id, script_id, motion_ref_slug, director_notes")
+            .eq("id", job_id)
+            .single()
+            .execute()
+            .data
+        )
+        parsha_id = job["parsha_id"]
+        script_id = job["script_id"]
+
+        parsha = (
+            sb.table("parshiot").select("name, book")
+            .eq("id", parsha_id).single().execute().data
+        )
+        script = (
+            sb.table("scripts").select("option, title, style_note, draft_text")
+            .eq("id", script_id).single().execute().data
+        )
+
+        selected_move, _ = _load_selected_move(sb, job.get("motion_ref_slug"))
+
+        # Resume short-circuit: if a prior attempt already wrote a
+        # clip_plan for this job_id, reuse it rather than paying Claude
+        # again. Mirrors run_pipeline's resume logic.
+        existing_plan_row = (
+            sb.table("clip_plans")
+            .select("plan_json")
+            .eq("job_id", job_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+        if existing_plan_row and existing_plan_row.data:
+            print(
+                f"[plan_only_job] reusing clip_plan for job {job_id} — "
+                "skipping transform_draft_to_clip_plan"
+            )
+            plan = ClipPlan(**existing_plan_row.data["plan_json"])
+        else:
+            plan = asyncio.run(transform_draft_to_clip_plan(
+                parsha_name=parsha["name"],
+                book=parsha["book"],
+                option=script["option"],
+                style_note=script["style_note"] or "",
+                title=script["title"],
+                draft=script["draft_text"],
+                api_key=os.environ["KIE_AI_API_KEY"],
+                openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
+                selected_move=selected_move,
+                director_notes=job.get("director_notes"),
+            ))
+            sb.table("clip_plans").insert({
+                "job_id": job_id,
+                "plan_json": plan.model_dump(mode="json"),
+                "claude_cost_usd": 0.10,
+            }).execute()
+
+        # Insert one clips row per planned clip. motion_ref_slug is
+        # intentionally NULL — spec §6.5 says the AI does NOT suggest
+        # moves; the operator picks per-clip in Phase 2.
+        # On resume the clips rows may already exist; upsert on
+        # (job_id, index) so a retry doesn't double-insert.
+        clip_rows = [
+            {
+                "job_id": job_id,
+                "index": c.index,
+                "voiceover": c.voiceover,
+                "visual_prompt": c.visual_prompt,
+                "setting_id": c.setting_id,
+                "duration_s": c.duration_s,
+                "motion_ref_slug": None,   # operator assigns in Phase 2
+                "status": "pending",
+            }
+            for c in plan.clips
+        ]
+        if clip_rows:
+            sb.table("clips").upsert(
+                clip_rows, on_conflict="job_id,index"
+            ).execute()
+
+        set_status("done", "Plan ready for review")
+        sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
+
+        return {"status": "done", "clip_count": len(plan.clips)}
+
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        sb.table("jobs").update({
+            "status": "failed",
+            "error_message": f"{type(e).__name__}: {e}\n{tb}",
+        }).eq("id", job_id).execute()
+        log_event(
+            sb, actor="modal", level="error",
+            event="pipeline.failed",
+            subject_type="job", subject_id=job_id,
+            message=f"plan_only_job {type(e).__name__}: {e}",
+            details={
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": tb,
+                "mode": "plan_only",
+            },
+        )
+        raise
+
+
+# --- Clips-only job (new for video-page redesign Phase 3) -----------
+# Renders clips for an existing clip_plan and stitches the final video.
+# clip_indexes=None renders all clips; a non-empty list renders only
+# the specified indexes (single-clip or subset re-render from Phase 3).
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=60 * 60,
+)
+def clips_only_job(job_id: str) -> dict | None:
+    """Render clips for an existing plan then stitch the final video.
+
+    Status transitions: queued → generating_clips → stitching → done.
+
+    Per-clip motion-ref resolution (spec §6.5, §11.7):
+      clips.motion_ref_slug for each clip (operator's per-clip pick)
+      → scripts.motion_ref_slug on the parent plan's script (legacy)
+      → None (no motion reference passed to Seedance)
+
+    Pre-conditions (set by trigger-clips.ts before calling trigger):
+      - job row exists with kind='clips-only', status='queued'
+      - regen_of_job_id points at the plan-only job that owns the plan
+      - the Modal payload carries clip_plan_id + optional clip_indexes
+    """
+    sys.path.insert(0, "/root")
+    from supabase import create_client
+    from src.video_generator import generate_clip_with_meta
+    from src.stitcher import concat_clips
+    from src.kie_client import KieClient
+    from src.thumbnails import extract_thumbnail, upload_thumbnail
+    from src.events import log_event
+    from src.models import Clip
+
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+
+    pre = (
+        sb.table("jobs").select("status").eq("id", job_id)
+        .maybe_single().execute()
+    )
+    if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
+        return {"status": "already_done"}
+
+    def set_status(status: str, message: str | None = None) -> None:
+        update = {"status": status}
+        if message is not None:
+            update["status_message"] = message
+        sb.table("jobs").update(update).eq("id", job_id).execute()
+        log_event(
+            sb, actor="modal", level="info",
+            event=f"pipeline.status.{status}",
+            subject_type="job", subject_id=job_id,
+            message=message or status,
+            details={"status": status, "mode": "clips_only"},
+        )
+
+    def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
+        sb.table("cost_events").insert({
+            "job_id": job_id, "action": action, "vendor": vendor,
+            "cost_usd": cost_usd, "notes": notes,
+        }).execute()
+        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+
+    try:
+        # Load this job's metadata — regen_of_job_id is the plan-only
+        # job that owns the clip_plan. clip_plan_id and clip_indexes are
+        # stored in the job's status_message (piggyback) or we fall back
+        # to reading from the payload stored in status_message JSON. In
+        # practice, the trigger() dispatch below reads these from the HTTP
+        # payload and stores them onto the job row via the new
+        # plan_clip_id + clip_indexes columns (to be added when the
+        # dashboard migration ships). For now, we resolve via
+        # regen_of_job_id → clip_plans.
+        this_job = (
+            sb.table("jobs")
+            .select(
+                "regen_of_job_id, resolution, model_tier, "
+                "clip_plan_id, clip_indexes"
+            )
+            .eq("id", job_id)
+            .single()
+            .execute()
+            .data
+        )
+        plan_job_id = this_job.get("regen_of_job_id")
+
+        # Resolve clip_plan_id: prefer the column (set by trigger()),
+        # fall back to the most recent plan for the parent job.
+        clip_plan_id = this_job.get("clip_plan_id")
+        if clip_plan_id:
+            plan_row = (
+                sb.table("clip_plans")
+                .select("id, plan_json, job_id")
+                .eq("id", clip_plan_id)
+                .single()
+                .execute()
+                .data
+            )
+        else:
+            plan_row = (
+                sb.table("clip_plans")
+                .select("id, plan_json, job_id")
+                .eq("job_id", plan_job_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .single()
+                .execute()
+                .data
+            )
+        clip_plan_id = plan_row["id"]
+        plan_owner_job_id = plan_row["job_id"]
+
+        # Resolve clip_indexes: prefer the column (supports subset
+        # renders), fall back to None (= all clips).
+        clip_indexes: list[int] | None = this_job.get("clip_indexes")
+
+        # Load the plan and parent job settings.
+        from src.models import ClipPlan as _ClipPlan
+        plan = _ClipPlan(**plan_row["plan_json"])
+        parent_job = (
+            sb.table("jobs")
+            .select("parsha_id, script_id, resolution, model_tier")
+            .eq("id", plan_owner_job_id)
+            .single()
+            .execute()
+            .data
+        )
+
+        # Legacy motion fallback: scripts.motion_ref_slug from the
+        # original plan job's script. Used when clips.motion_ref_slug
+        # is NULL (operator hasn't picked a move for this clip).
+        script_motion: str | None = None
+        if parent_job.get("script_id"):
+            script_row = (
+                sb.table("scripts")
+                .select("motion_ref_slug")
+                .eq("id", parent_job["script_id"])
+                .maybe_single()
+                .execute()
+                .data
+            ) or {}
+            script_motion = script_row.get("motion_ref_slug")
+
+        resolution = (
+            (this_job.get("resolution") or parent_job.get("resolution") or "720p")
+            .lower()
+        )
+        model_tier = (
+            this_job.get("model_tier") or parent_job.get("model_tier") or "standard"
+        )
+        seedance_model = (
+            "bytedance/seedance-2-fast" if model_tier == "fast"
+            else "bytedance/seedance-2"
+        )
+
+        # Determine which clips to render.
+        all_planned = plan.clips
+        if clip_indexes is not None:
+            target_planned = [c for c in all_planned if c.index in clip_indexes]
+        else:
+            target_planned = list(all_planned)
+
+        if not target_planned:
+            raise ValueError(
+                f"clips_only_job: no clips matched clip_indexes={clip_indexes} "
+                f"in plan with {len(all_planned)} clips"
+            )
+
+        # Per-clip motion resolution: read clips.motion_ref_slug for
+        # each target clip (operator's per-clip pick from Phase 2 UI),
+        # fall back to scripts.motion_ref_slug if NULL.
+        target_indexes = [c.index for c in target_planned]
+        clip_db_rows = (
+            sb.table("clips")
+            .select("index, motion_ref_slug")
+            .eq("job_id", plan_owner_job_id)
+            .in_("index", target_indexes)
+            .execute()
+            .data
+        ) or []
+        per_clip_motion: dict[int, str | None] = {
+            r["index"]: (r.get("motion_ref_slug") or script_motion)
+            for r in clip_db_rows
+        }
+        # Clips not yet in DB (edge case): fall back to script motion.
+        for c in target_planned:
+            if c.index not in per_clip_motion:
+                per_clip_motion[c.index] = script_motion
+
+        set_status("generating_clips", f"Generating 0 of {len(target_planned)} clips")
+
+        kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
+        dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
+        jewish_refs = asyncio.run(_upload_jewish_refs(kie))
+
+        work_dir = Path(f"/tmp/job-{job_id}")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        completed_count = 0
+        clip_paths_by_index: dict[int, Path] = {}
+
+        async def _render_one(c):
+            nonlocal completed_count
+            slug = per_clip_motion.get(c.index)
+            _, motion_url = _load_selected_move(sb, slug)
+            dest = work_dir / f"clip_{c.index:02d}.mp4"
+            clip_jewish_refs = _jewish_refs_for_clip(c, jewish_refs)
+            _, kie_meta = await generate_clip_with_meta(
+                kie, c,
+                character_ref_urls=char_refs,
+                dojo_ref_urls=dojo_refs,
+                dest=dest,
+                resolution=resolution,
+                model=seedance_model,
+                reference_video_url=motion_url,
+                jewish_ref_urls=clip_jewish_refs,
+            )
+            credits = (
+                kie_meta.get("credits_consumed")
+                or kie_meta.get("creditsConsumed")
+                or kie_meta.get("costCredits")
+                or 0
+            )
+            cost_usd = float(credits) * KIE_CREDITS_TO_USD if credits else 0.0
+
+            clip_storage_path = (
+                f"jobs/{job_id}/clips/clip_{c.index:02d}.mp4"
+            )
+            with open(dest, "rb") as f:
+                sb.storage.from_("videos").upload(
+                    clip_storage_path, f.read(),
+                    file_options={
+                        "content-type": "video/mp4", "upsert": "true",
+                    },
+                )
+            # Upsert the clip row so this job owns a full clips set.
+            sb.table("clips").upsert({
+                "job_id": job_id,
+                "index": c.index,
+                "voiceover": c.voiceover,
+                "visual_prompt": c.visual_prompt,
+                "setting_id": c.setting_id,
+                "duration_s": c.duration_s,
+                "motion_ref_slug": slug,
+                "motion_ref_url": motion_url,
+                "storage_path": clip_storage_path,
+                "mp4_path": clip_storage_path,
+                "status": "done",
+                "cost_usd": cost_usd,
+                "completed_at": "now()",
+            }, on_conflict="job_id,index").execute()
+
+            if cost_usd:
+                log_cost(
+                    "clip", "kie", cost_usd,
+                    f"clips_only clip {c.index} ({credits} credits)",
+                )
+
+            completed_count += 1
+            set_status(
+                "generating_clips",
+                f"Generating {completed_count} of {len(target_planned)} clips",
+            )
+            return c.index, dest
+
+        results = asyncio.run(
+            asyncio.gather(*(_render_one(c) for c in target_planned))
+        )
+        for idx, path in results:
+            clip_paths_by_index[idx] = path
+
+        # For the stitch we need ALL clips in the plan, not just the
+        # rendered subset. Download any that belong to the plan-owner
+        # job but weren't re-rendered this run.
+        for c in all_planned:
+            if c.index in clip_paths_by_index:
+                continue
+            existing = (
+                sb.table("clips")
+                .select("storage_path")
+                .eq("job_id", plan_owner_job_id)
+                .eq("index", c.index)
+                .maybe_single()
+                .execute()
+                .data
+            ) or {}
+            sp = existing.get("storage_path")
+            if sp:
+                clip_paths_by_index[c.index] = _ensure_local(
+                    sb, work_dir, sp
+                )
+                # Copy the plan-owner clip row into this job's clips set
+                # so the job has a complete clip set for future regens.
+                parent_clip_full = (
+                    sb.table("clips")
+                    .select(
+                        "voiceover, visual_prompt, setting_id, duration_s, "
+                        "motion_ref_slug, motion_ref_url, cost_usd"
+                    )
+                    .eq("job_id", plan_owner_job_id)
+                    .eq("index", c.index)
+                    .maybe_single()
+                    .execute()
+                    .data
+                ) or {}
+                sb.table("clips").upsert({
+                    "job_id": job_id,
+                    "index": c.index,
+                    "voiceover": parent_clip_full.get("voiceover", c.voiceover),
+                    "visual_prompt": parent_clip_full.get("visual_prompt", c.visual_prompt),
+                    "setting_id": parent_clip_full.get("setting_id", c.setting_id),
+                    "duration_s": parent_clip_full.get("duration_s", c.duration_s),
+                    "motion_ref_slug": parent_clip_full.get("motion_ref_slug"),
+                    "motion_ref_url": parent_clip_full.get("motion_ref_url"),
+                    "storage_path": sp,
+                    "mp4_path": sp,
+                    "status": "done",
+                    "cost_usd": parent_clip_full.get("cost_usd", 0),
+                }, on_conflict="job_id,index").execute()
+
+        # Stitch all clips in plan order.
+        set_status("stitching", "Stitching final video")
+        ordered_paths = [
+            clip_paths_by_index[c.index]
+            for c in sorted(all_planned, key=lambda x: x.index)
+            if c.index in clip_paths_by_index
+        ]
+        if not ordered_paths:
+            raise ValueError("clips_only_job: no clip paths resolved for stitch")
+
+        final_mp4 = work_dir / "final.mp4"
+        concat_clips(ordered_paths, final_mp4)
+
+        final_storage_path = f"jobs/{job_id}/final.mp4"
+        with open(final_mp4, "rb") as f:
+            sb.storage.from_("videos").upload(
+                final_storage_path, f.read(),
+                file_options={"content-type": "video/mp4", "upsert": "true"},
+            )
+
+        thumb_storage_path: str | None = None
+        try:
+            thumb_local = work_dir / "thumb.png"
+            extract_thumbnail(final_mp4, thumb_local, percent=20.0)
+            thumb_storage_path = upload_thumbnail(
+                thumb_local, f"jobs/{job_id}/thumb.png"
+            )
+        except Exception as thumb_err:
+            print(
+                f"[thumb] clips_only_job skipped: "
+                f"{type(thumb_err).__name__}: {thumb_err}"
+            )
+
+        # spoken_script from the stitched clips.
+        spoken_clips = [
+            {"index": c.index, "voiceover": c.voiceover}
+            for c in sorted(all_planned, key=lambda x: x.index)
+        ]
+        spoken_script = _build_spoken_script(spoken_clips)
+
+        video_row: dict = {
+            "job_id": job_id,
+            "mp4_path": final_storage_path,
+            "spoken_script": spoken_script,
+        }
+        if thumb_storage_path:
+            video_row["thumb_path"] = thumb_storage_path
+        video_row.update(_resolve_video_title_fields(sb, job_id))
+        sb.table("videos").insert(video_row).execute()
+
+        set_status("done", "Video ready")
+        sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
+
+        # Success webhook (same endpoint as run_pipeline).
+        try:
+            video_lookup = (
+                sb.table("videos").select("id")
+                .eq("job_id", job_id)
+                .order("created_at", desc=True).limit(1)
+                .execute().data
+            )
+            video_id = video_lookup[0]["id"] if video_lookup else None
+            dashboard_url = os.environ.get("DASHBOARD_URL")
+            webhook_secret = os.environ.get("PIPELINE_WEBHOOK_SECRET")
+            if dashboard_url and webhook_secret and video_id:
+                import httpx
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(
+                        f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
+                        headers={"x-pipeline-secret": webhook_secret},
+                        json={"jobId": job_id, "videoId": video_id},
+                    )
+                    print(
+                        f"[autopilot] clips_only_job webhook "
+                        f"{resp.status_code} for job {job_id}"
+                    )
+        except Exception as hook_err:
+            print(
+                f"[autopilot] clips_only_job webhook failed: "
+                f"{type(hook_err).__name__}: {hook_err}"
+            )
+
+        return {"status": "done", "clip_count": len(target_planned)}
+
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        sb.table("jobs").update({
+            "status": "failed",
+            "error_message": f"{type(e).__name__}: {e}\n{tb}",
+        }).eq("id", job_id).execute()
+        log_event(
+            sb, actor="modal", level="error",
+            event="pipeline.failed",
+            subject_type="job", subject_id=job_id,
+            message=f"clips_only_job {type(e).__name__}: {e}",
+            details={
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": tb,
+                "mode": "clips_only",
+            },
+        )
+        raise
 
 
 # --- Regen from edited text (no AI) ---------------------------------
@@ -5339,13 +6038,60 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         else:
             effective_duration = current_duration
 
+        # Per-clip motion-ref resolution (EXECUTION-NOTES + spec §11.7):
+        #   1. clips.motion_ref_slug for THIS clip (operator's per-clip pick
+        #      in the Phase 2/3 UI — the most specific and freshest value).
+        #   2. scripts.motion_ref_slug from the job chain (legacy per-script
+        #      fallback for plans created before the redesign).
+        #   3. None — no motion reference passed to Seedance.
+        # We resolve to a URL here so _load_selected_move is called exactly
+        # once and the URL is available to both the Clip model and the chain
+        # decision below.
+        _per_clip_slug = target_parent_clip.get("motion_ref_slug")
+        if not _per_clip_slug:
+            # Fall back to the script-level motion slug via the job chain.
+            _parent_job_row = (
+                sb.table("jobs")
+                .select("script_id, regen_of_job_id")
+                .eq("id", parent_job_id)
+                .maybe_single()
+                .execute()
+                .data
+            ) or {}
+            _script_id = _parent_job_row.get("script_id")
+            if not _script_id:
+                # Walk one level up (regen job → original job).
+                _grandparent_id = _parent_job_row.get("regen_of_job_id")
+                if _grandparent_id:
+                    _gp_row = (
+                        sb.table("jobs")
+                        .select("script_id")
+                        .eq("id", _grandparent_id)
+                        .maybe_single()
+                        .execute()
+                        .data
+                    ) or {}
+                    _script_id = _gp_row.get("script_id")
+            if _script_id:
+                _script_row = (
+                    sb.table("scripts")
+                    .select("motion_ref_slug")
+                    .eq("id", _script_id)
+                    .maybe_single()
+                    .execute()
+                    .data
+                ) or {}
+                _per_clip_slug = _script_row.get("motion_ref_slug")
+        _resolved_motion_slug = _per_clip_slug  # None if both sources are NULL
+        _, _resolved_motion_url = _load_selected_move(sb, _resolved_motion_slug)
+
         clip = Clip(
             index=target_index,
             voiceover=voiceover_text,
             visual_prompt=target_parent_clip["visual_prompt"],
             duration_s=effective_duration,
             setting_id=target_parent_clip["setting_id"],
-            motion_ref_slug=target_parent_clip.get("motion_ref_slug"),
+            motion_ref_slug=_resolved_motion_slug,
         )
 
         # Resolve refs.
@@ -5367,7 +6113,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         work_dir = Path(f"/tmp/job-{job_id}")
         work_dir.mkdir(parents=True, exist_ok=True)
         local_path_dest = work_dir / f"clip_{target_index:02d}.mp4"
-        clip_ref_video_url = target_parent_clip.get("motion_ref_url")
+        clip_ref_video_url = _resolved_motion_url
 
         # Chain decision: when this clip has NO motion ref AND there's a
         # prior clip in the same scene block on the parent, anchor the
@@ -5570,8 +6316,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         }
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        # TODO(milestone-1b): populate video_row["title"], video_row["subtitle"],
-        # video_row["description"] from the source script + parsha here (spec §11.6).
+        video_row.update(_resolve_video_title_fields(sb, job_id))
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Re-rendered clip")
