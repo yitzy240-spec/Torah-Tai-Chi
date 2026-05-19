@@ -2,10 +2,17 @@
 //
 // Thin client wrapper that provides navigation callbacks to Phase5Post.
 // Keeps the server/client boundary clean — all data serialized from page-new.tsx server component.
+//
+// M6: onSiteReplace now calls the real replaceVersion server action and navigates to Phase 1.
+// parshaId + sourceScriptId are passed in from the server so the client doesn't need to know
+// the internal IDs independently.
 
 'use client';
+import { useTransition, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Phase5Post } from './phase-5-post';
 import type { Platform } from '@/lib/platforms';
+import { replaceVersion } from '@/app/actions/video-page/replace-version';
 
 interface PostRow {
   id: string;
@@ -25,6 +32,9 @@ interface SocialMeta {
 interface Props {
   videoId: string;
   parshaSlug: string;
+  /** parshaId and sourceScriptId are needed by the Replace flow (M6). */
+  parshaId: string;
+  sourceScriptId: string;
   isLive: boolean;
   liveSince: string | null;
   liveVersionLabel: string | null;
@@ -44,21 +54,40 @@ interface Props {
 }
 
 export function Phase5PostConnected(props: Props) {
+  const [, startTransition] = useTransition();
+  const [replaceError, setReplaceError] = useState<string | null>(null);
+  const router = useRouter();
+
   function handleBack() {
-    window.location.reload();
+    // Navigate back to Phase 4 via URL param so the server re-renders.
+    router.push(`/videos/${props.parshaSlug}?continue=1&phase=4`);
   }
 
   function handleSiteReplace() {
-    // Full Replace flow is M6 scope. For now reload — page state will detect
-    // the new draft and route to Phase 1 once Replace flow creates the draft.
-    window.location.reload();
+    // Call replaceVersion to clone the current script into a fresh draft,
+    // then navigate to Phase 1 to start the review flow.
+    setReplaceError(null);
+    startTransition(async () => {
+      try {
+        await replaceVersion(props.parshaId, props.sourceScriptId, props.parshaSlug);
+        router.push(`/videos/${props.parshaSlug}?phase=1`);
+        router.refresh();
+      } catch (e) {
+        setReplaceError((e as Error).message);
+      }
+    });
   }
 
   return (
-    <Phase5Post
-      {...props}
-      onBack={handleBack}
-      onSiteReplace={handleSiteReplace}
-    />
+    <>
+      {replaceError && (
+        <p style={{ fontSize: 13, color: 'var(--tassel)', marginBottom: 8 }}>{replaceError}</p>
+      )}
+      <Phase5Post
+        {...props}
+        onBack={handleBack}
+        onSiteReplace={handleSiteReplace}
+      />
+    </>
   );
 }
