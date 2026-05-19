@@ -171,7 +171,7 @@ async function fetchPageShellData(
       ? supabase.from('videos').select('id, job_id, published_to_website').in('id', videoIds)
       : Promise.resolve({ data: [] }),
     videoIds.length > 0
-      ? supabase.from('posts').select('video_id, status').in('video_id', videoIds)
+      ? supabase.from('posts').select('video_id, status, platform').in('video_id', videoIds)
       : Promise.resolve({ data: [] }),
     allJobIds.length > 0
       ? supabase.from('clips').select('job_id, storage_path').in('job_id', allJobIds)
@@ -186,10 +186,11 @@ async function fetchPageShellData(
     publishedToWebsite: !!(v.published_to_website as boolean | null),
   }));
 
-  const postsForState: Array<{ videoId: string; status: string }> = (postsResult.data ?? []).map(
+  const postsForState: Array<{ videoId: string; status: string; platform: string }> = (postsResult.data ?? []).map(
     (p) => ({
       videoId: p.video_id as string,
       status: p.status as string,
+      platform: p.platform as string,
     }),
   );
 
@@ -214,7 +215,7 @@ async function fetchPageShellData(
     const liveVideo = videosForState.find((v) => v.id === state.liveVideoId);
     const livePosts = postsForState
       .filter((p) => p.videoId === state.liveVideoId && p.status === 'published')
-      .map((p) => ({ platform: p.status, url: null }));
+      .map((p) => ({ platform: p.platform, url: null }));
     const liveIdx = videosForState.findIndex((v) => v.id === state.liveVideoId) + 1;
     liveStripProps = {
       liveVersionLabel: `v${liveIdx}`,
@@ -684,7 +685,7 @@ async function PhaseBody({
     const [liveVRowResult, livePostsResult] = await Promise.all([
       supabase
         .from('videos')
-        .select('id, mp4_path, thumb_path, title, subtitle, published_to_website, post_urls')
+        .select('id, mp4_path, thumb_path, title, subtitle, published_to_website, post_urls, created_at')
         .eq('id', liveVideoId)
         .single(),
       supabase
@@ -734,10 +735,13 @@ async function PhaseBody({
     }
 
     const isPublishedToWebsite = !!(liveVRow?.published_to_website as boolean | null);
+    const liveVideoCreatedAt = (liveVRow?.created_at as string | null) ?? null;
     const platformStatusList: PlatformStatus[] = [
       {
         platform: 'torahtaichi.com',
-        postedAt: isPublishedToWebsite ? null : null, // TODO: surface actual published_at
+        // Use videos.created_at as the "live since" date for the site row.
+        // This is a stand-in until we add an explicit videos.published_at column.
+        postedAt: isPublishedToWebsite ? liveVideoCreatedAt : null,
         postUrl: isPublishedToWebsite ? `https://torahtaichi.com/${parsha.slug}` : null,
         viewsLabel: null,
       },

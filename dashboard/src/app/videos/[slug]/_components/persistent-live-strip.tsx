@@ -39,10 +39,11 @@ export function PersistentLiveStrip({
 
   livePosts.forEach((p) => {
     const platformName = p.platform as 'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'twitter' | 'website';
+    const displayName = p.platform === 'twitter' ? 'X' : p.platform.charAt(0).toUpperCase() + p.platform.slice(1);
     channels.push(
       <span key={p.platform} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
         <PlatformIcon name={platformName} size={14} />
-        {p.platform.charAt(0).toUpperCase() + p.platform.slice(1)}
+        {displayName}
       </span>,
     );
   });

@@ -130,6 +130,9 @@ export function LiveAtRest(p: Props) {
           >
             {p.platforms.map((pl, i) => {
               const isPosted = pl.postedAt !== null;
+              const isSite = pl.platform === 'torahtaichi.com';
+              const displayName = pl.platform === 'twitter' ? 'X' : pl.platform;
+              const verb = isSite ? 'live since' : 'posted';
               return (
                 <li
                   key={pl.platform}
@@ -146,9 +149,9 @@ export function LiveAtRest(p: Props) {
                   }}
                 >
                   <span>
-                    {pl.platform}
+                    {displayName}
                     {isPosted
-                      ? ` · posted ${new Date(pl.postedAt!).toLocaleDateString()}`
+                      ? ` · ${verb} ${new Date(pl.postedAt!).toLocaleDateString()}`
                       : ' · not posted'}
                   </span>
                   {pl.postUrl && (
