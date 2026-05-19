@@ -13,17 +13,24 @@ export interface ScriptFeedback {
   wps: number; // assumes the script will be spoken at TARGET_WPS
   fits60s: boolean;
   warning: 'tight' | null;
+  /** Rough estimate of how many Seedance clips the script will require. */
+  clipCountEstimate: number;
 }
+
+/** ~25 words per Torah Tai Chi clip (matching typical clip duration at 2.6 wps). */
+export const WORDS_PER_CLIP = 25;
 
 export function analyzeScript(text: string | null | undefined): ScriptFeedback {
   const words = countWords(text);
   const estimatedSeconds = words / TARGET_WPS;
+  const clipCountEstimate = Math.max(2, Math.round(words / WORDS_PER_CLIP));
   return {
     words,
     estimatedSeconds,
     wps: TARGET_WPS,
     fits60s: estimatedSeconds <= 60,
     warning: null,
+    clipCountEstimate,
   };
 }
 
