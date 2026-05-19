@@ -335,7 +335,7 @@ def run_pipeline(job_id: str) -> dict | None:
         work_dir = Path(f"/tmp/job-{job_id}")
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        if kind == "topic":
+        if kind in ("topic", "video_topic"):
             topic_text = (job.get("topic") or "").strip()
             if not topic_text:
                 raise ValueError("topic job has no topic text")
