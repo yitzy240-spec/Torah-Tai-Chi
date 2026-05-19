@@ -128,11 +128,15 @@ async function fetchPageShellData(
   };
 
   // Step 2a: jobs (needs parsha.id; must complete before we can derive videoIds/jobIds)
+  // NOTE: clip_plans embed is disambiguated to the legacy clip_plans.job_id FK.
+  // Migration 20260519 added jobs.clip_plan_id (the reverse direction) — without
+  // the !clip_plans_job_id_fkey hint, PostgREST sees two relationships and errors
+  // out with PGRST201 ("more than one relationship was found").
   const { data: jobsRaw } = await supabase
     .from('jobs')
     .select(
       'id, status, kind, triggered_at, completed_at, regen_of_job_id, ' +
-        'videos(id, published_to_website), clip_plans(id)',
+        'videos(id, published_to_website), clip_plans!clip_plans_job_id_fkey(id)',
     )
     .eq('parsha_id', parsha.id)
     .order('triggered_at', { ascending: false });
