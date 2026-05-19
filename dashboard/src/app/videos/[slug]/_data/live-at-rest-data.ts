@@ -3,10 +3,28 @@
 // Data preparation for the LiveAtRest / live-and-draft landing view.
 // Fetches the live video row + its posts in parallel, then derives the
 // per-channel platform status list.
+//
+// B2 expansion: also fetches all 5 site CMS fields + canonical clip plan
+// captions/social_metadata/youtube_tags + connected platforms so the
+// live page can render per-platform posted cards.
 
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
+import { getCanonicalClipPlan } from '@/lib/clip-plan';
+import { getConnectedPlatforms } from '@/lib/connected-platforms';
 import type { PlatformStatus } from '../_components/live-at-rest';
 import type { ShellData } from './shell-data';
+import type { Platform } from '@/lib/platforms';
+
+export type LiveAtRestPost = {
+  id: string;
+  platform: string;
+  status: string;
+  created_at: string;
+  scheduled_at: string | null;
+  buffer_update_id: string | null;
+  caption: string | null;
+};
 
 export type LiveAtRestProps = {
   parshaName: string;
@@ -27,6 +45,28 @@ export type LiveAtRestProps = {
   draftJobId: string | null;
   clipsRendered: number;
   clipsTotal: number | null;
+
+  // B2: site CMS fields (all 5 fields the public website renders)
+  siteTitle: string;
+  siteSubtitle: string;
+  siteDescription: string;
+  siteWebsiteCaption: string;
+  siteSpokenScript: string;
+
+  // B2: per-platform posted cards data
+  liveJobId: string | null;
+  captions: Record<string, string>;
+  youtubeTags: string[];
+  socialMetadata: {
+    instagram?: { type: 'reel' | 'post'; firstComment?: string };
+    facebook?: { type: 'reel' | 'post'; firstComment?: string };
+  } | null;
+  /** All posts for the live video (status='published') */
+  livePosts: LiveAtRestPost[];
+  /** Platform URL map from videos.post_urls */
+  postUrls: Record<string, string>;
+  connectedPlatforms: Platform[];
+  videoId: string;
 };
 
 export async function getLiveAtRestProps(
@@ -40,20 +80,34 @@ export async function getLiveAtRestProps(
   draftJobId: string | null,
 ): Promise<LiveAtRestProps> {
   const supabase = await createClient();
+  const supabaseSvc = createServiceClient();
 
-  // Parallelize: live video row + live posts — independent
-  const [liveVRowResult, livePostsResult] = await Promise.all([
-    supabase
-      .from('videos')
-      .select('id, mp4_path, thumb_path, title, subtitle, published_to_website, post_urls, created_at')
-      .eq('id', liveVideoId)
-      .single(),
-    supabase
-      .from('posts')
-      .select('platform, status, created_at')
-      .eq('video_id', liveVideoId)
-      .order('created_at', { ascending: false }),
-  ]);
+  // Find the job that produced the live video (needed for canonical plan lookup)
+  const liveVideoJobEntry = videosForState.find((v) => v.id === liveVideoId);
+  const liveJobId = liveVideoJobEntry?.jobId ?? null;
+
+  // Parallelize: live video row + live posts + canonical clip plan + connected platforms
+  const [liveVRowResult, livePostsResult, canonicalPlan, connectedPlatforms, jobDetailResult] =
+    await Promise.all([
+      supabase
+        .from('videos')
+        .select(
+          'id, mp4_path, thumb_path, title, subtitle, description, website_caption, spoken_script, published_to_website, post_urls, created_at',
+        )
+        .eq('id', liveVideoId)
+        .single(),
+      supabase
+        .from('posts')
+        .select('id, platform, status, created_at, scheduled_at, buffer_update_id, caption')
+        .eq('video_id', liveVideoId)
+        .order('created_at', { ascending: false }),
+      liveJobId ? getCanonicalClipPlan(supabaseSvc, liveJobId) : Promise.resolve(null),
+      getConnectedPlatforms(),
+      // Also resolve the script_id for the replace-version flow
+      liveJobId
+        ? supabase.from('jobs').select('script_id').eq('id', liveJobId).single()
+        : Promise.resolve({ data: null }),
+    ]);
 
   const liveVRow = liveVRowResult.data;
 
@@ -73,7 +127,7 @@ export async function getLiveAtRestProps(
     liveThumbUrl = u?.publicUrl ?? null;
   }
 
-  // Build per-channel status list
+  // Build per-channel status list (for the simple status display in the hero)
   const postsByPlatform = new Map<string, { postedAt: string | null; postUrl: string | null }>();
   for (const p of livePostsResult.data ?? []) {
     if (p.status === 'published' && !postsByPlatform.has(p.platform as string)) {
@@ -114,24 +168,46 @@ export async function getLiveAtRestProps(
   const liveIdx = videosForState.findIndex((v) => v.id === liveVideoId) + 1;
   const versionLabel = `v${liveIdx}`;
 
-  // Fetch script_id from the live job (needed for DraftCalloutStrip replace flow)
-  const liveVideoJobEntry = videosForState.find((v) => v.id === liveVideoId);
-  const liveJobId = liveVideoJobEntry?.jobId ?? null;
-  let liveScriptId: string | null = null;
-  if (liveJobId) {
-    const { data: liveJobDetail } = await supabase
-      .from('jobs')
-      .select('script_id')
-      .eq('id', liveJobId)
-      .single();
-    liveScriptId = (liveJobDetail?.script_id as string | null) ?? null;
-  }
+  const liveScriptId = (jobDetailResult.data?.script_id as string | null) ?? null;
 
   const draftClips = draftJobId ? (clipsByJobId[draftJobId] ?? []) : [];
   const clipsRendered = draftClips.filter((c) => c.storagePath !== null).length;
   const clipsTotal = draftClips.length > 0 ? draftClips.length : null;
 
+  // B2: clip plan captions + social meta + youtube tags
+  let clipPlanMeta: {
+    social_metadata: Record<string, unknown> | null;
+    youtube_tags: string[];
+    captions: Record<string, string>;
+  } = { social_metadata: null, youtube_tags: [], captions: {} };
+
+  if (canonicalPlan) {
+    const { data: cpRow } = await supabase
+      .from('clip_plans')
+      .select('social_metadata, youtube_tags')
+      .eq('id', canonicalPlan.id)
+      .maybeSingle();
+    const planJson = (canonicalPlan.planJson ?? {}) as Record<string, unknown>;
+    clipPlanMeta = {
+      social_metadata: (cpRow?.social_metadata as Record<string, unknown> | null) ?? null,
+      youtube_tags: (cpRow?.youtube_tags as string[] | null) ?? [],
+      captions: (planJson.captions as Record<string, string> | undefined) ?? {},
+    };
+  }
+
+  // B2: all published posts (for per-platform cards)
+  const livePosts: LiveAtRestPost[] = (livePostsResult.data ?? []).map((p) => ({
+    id: p.id as string,
+    platform: p.platform as string,
+    status: p.status as string,
+    created_at: (p.created_at as string | null) ?? new Date(0).toISOString(),
+    scheduled_at: (p.scheduled_at as string | null) ?? null,
+    buffer_update_id: (p.buffer_update_id as string | null) ?? null,
+    caption: (p.caption as string | null) ?? null,
+  }));
+
   return {
+    videoId: liveVideoId,
     parshaName,
     parshaId,
     sourceScriptId: liveScriptId ?? '',
@@ -150,5 +226,21 @@ export async function getLiveAtRestProps(
     draftJobId,
     clipsRendered,
     clipsTotal,
+
+    // B2: site CMS fields
+    siteTitle: (liveVRow?.title as string | null) ?? parshaName,
+    siteSubtitle: (liveVRow?.subtitle as string | null) ?? '',
+    siteDescription: (liveVRow?.description as string | null) ?? '',
+    siteWebsiteCaption: (liveVRow?.website_caption as string | null) ?? '',
+    siteSpokenScript: (liveVRow?.spoken_script as string | null) ?? '',
+
+    // B2: per-platform posted cards data
+    liveJobId,
+    captions: clipPlanMeta.captions,
+    youtubeTags: clipPlanMeta.youtube_tags,
+    socialMetadata: clipPlanMeta.social_metadata as LiveAtRestProps['socialMetadata'],
+    livePosts,
+    postUrls,
+    connectedPlatforms,
   };
 }
