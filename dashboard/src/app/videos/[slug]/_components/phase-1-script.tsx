@@ -9,7 +9,7 @@
 // Per spec §4 Phase 1 (B3 milestone).
 
 'use client';
-import { useState, useRef, useCallback } from 'react';
+import { useState } from 'react';
 import { diffWords } from 'diff';
 import type { Change } from 'diff';
 import { toast } from 'sonner';
@@ -31,7 +31,7 @@ interface Script {
 
 type TabKind = 'pick' | 'write' | 'from-idea' | 'polish';
 
-type FromIdeaStatus = 'idle' | 'recording' | 'transcribing' | 'generating' | 'done';
+type FromIdeaStatus = 'idle' | 'generating' | 'done';
 type PolishStatus = 'idle' | 'polishing' | 'reviewing';
 
 interface PolishState {
@@ -382,80 +382,6 @@ function FromIdeaMode({ parshaSlug }: { parshaSlug: string }) {
   const [status, setStatus] = useState<FromIdeaStatus>('idle');
   const [draftText, setDraftText] = useState('');
   const [draftTitle, setDraftTitle] = useState('');
-  const [micSupported, setMicSupported] = useState<boolean | null>(null); // null = unknown
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-
-  // Detect mic support on first render (client only)
-  const checkMicSupport = useCallback(() => {
-    if (micSupported !== null) return;
-    if (
-      typeof window === 'undefined' ||
-      !navigator?.mediaDevices?.getUserMedia ||
-      typeof MediaRecorder === 'undefined'
-    ) {
-      setMicSupported(false);
-    } else {
-      setMicSupported(true);
-    }
-  }, [micSupported]);
-
-  // Call once to set the support flag
-  if (micSupported === null && typeof window !== 'undefined') {
-    checkMicSupport();
-  }
-
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        await transcribeBlob(blob);
-      };
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setStatus('recording');
-    } catch (e) {
-      // Permission denied or hardware unavailable — degrade gracefully
-      setMicSupported(false);
-      toast.error('Microphone not available. Type your idea instead.', {
-        description: (e as Error).message,
-      });
-    }
-  }
-
-  function stopRecording() {
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      setStatus('transcribing');
-    }
-  }
-
-  async function transcribeBlob(blob: Blob) {
-    setStatus('transcribing');
-    const form = new FormData();
-    form.append('audio', blob, 'recording.webm');
-    try {
-      const res = await fetch('/api/transcribe', { method: 'POST', body: form });
-      const json = (await res.json()) as { text?: string; error?: string };
-      if (!res.ok || json.error) {
-        toast.error('Transcription failed.', { description: json.error ?? `HTTP ${res.status}` });
-        setStatus('idle');
-        return;
-      }
-      setIdea(json.text ?? '');
-      setStatus('idle');
-    } catch (e) {
-      toast.error('Transcription request failed.', { description: (e as Error).message });
-      setStatus('idle');
-    }
-  }
 
   async function generateScript() {
     if (!idea.trim()) return;
@@ -484,78 +410,31 @@ function FromIdeaMode({ parshaSlug }: { parshaSlug: string }) {
   }
 
   const isGenerating = status === 'generating';
-  const isTranscribing = status === 'transcribing';
-  const isRecording = status === 'recording';
   const isDone = status === 'done';
 
   return (
     <div>
       {!isDone ? (
         <>
-          <p style={{ fontSize: 13, color: 'var(--ink-500)', marginTop: 0, marginBottom: 12 }}>
+          <p style={{ fontSize: 13, color: 'var(--ink-500)', marginTop: 0, marginBottom: 6 }}>
             Share a thought or Torah idea and AI will draft a ~60s script.
           </p>
+          <p style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 0, marginBottom: 12 }}>
+            Tip: on iPhone, tap the microphone on your keyboard to dictate instead of typing.
+          </p>
 
-          <div style={{ position: 'relative' }}>
-            <textarea
-              placeholder="e.g. The idea that chesed starts from within, that we can&apos;t give what we don&apos;t have…"
-              value={idea}
-              onChange={(e) => setIdea(e.target.value)}
-              disabled={isGenerating || isTranscribing || isRecording}
-              style={{
-                ...textareaStyle,
-                minHeight: 140,
-                paddingRight: micSupported ? 52 : 12,
-              }}
-            />
-            {/* Microphone button — only shown if browser supports MediaRecorder */}
-            {micSupported && (
-              <button
-                type="button"
-                aria-label={isRecording ? 'Stop recording' : 'Record idea with microphone'}
-                onClick={isRecording ? stopRecording : startRecording}
-                disabled={isGenerating || isTranscribing}
-                style={{
-                  position: 'absolute',
-                  right: 10,
-                  bottom: 10,
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
-                  border: 'none',
-                  background: isRecording ? 'var(--tassel)' : 'var(--navy-700)',
-                  color: 'white',
-                  fontSize: 18,
-                  cursor: isGenerating || isTranscribing ? 'not-allowed' : 'pointer',
-                  opacity: isGenerating || isTranscribing ? 0.5 : 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  animation: isRecording ? 'pulse-navy 1.8s ease-in-out infinite' : 'none',
-                }}
-              >
-                {isRecording ? '⏹' : '\u{1F3A4}'}
-              </button>
-            )}
-          </div>
-
-          {isTranscribing && (
-            <p
-              style={{
-                fontSize: 13,
-                color: 'var(--ink-500)',
-                marginTop: 8,
-                animation: 'pulse-navy 1.8s ease-in-out infinite',
-              }}
-            >
-              Transcribing recording…
-            </p>
-          )}
+          <textarea
+            placeholder="e.g. The idea that chesed starts from within, that we can&apos;t give what we don&apos;t have…"
+            value={idea}
+            onChange={(e) => setIdea(e.target.value)}
+            disabled={isGenerating}
+            style={{ ...textareaStyle, minHeight: 140 }}
+          />
 
           <button
             type="button"
             onClick={generateScript}
-            disabled={!idea.trim() || isGenerating || isTranscribing || isRecording}
+            disabled={!idea.trim() || isGenerating}
             style={{
               marginTop: 12,
               width: '100%',
@@ -566,11 +445,8 @@ function FromIdeaMode({ parshaSlug }: { parshaSlug: string }) {
               color: 'var(--linen-50)',
               border: 'none',
               borderRadius: 8,
-              cursor:
-                !idea.trim() || isGenerating || isTranscribing || isRecording
-                  ? 'not-allowed'
-                  : 'pointer',
-              opacity: !idea.trim() || isGenerating || isTranscribing || isRecording ? 0.6 : 1,
+              cursor: !idea.trim() || isGenerating ? 'not-allowed' : 'pointer',
+              opacity: !idea.trim() || isGenerating ? 0.6 : 1,
               animation: isGenerating ? 'pulse-navy 1.8s ease-in-out infinite' : 'none',
             }}
           >
