@@ -3,17 +3,18 @@
 // Redesigned video detail page (spec §3 — 4-state architecture).
 // Dispatched from page.tsx when video_page_v2 flag is on or ?v2=1.
 //
-// Milestone 4 scope: renders Phase 1 (script editor), Phase 2
-// (plan review), Phase 3 (clips), and Phase 4 (stitched video).
-// Phase 5 and live states are stubbed for future milestones.
+// Milestone 5 adds Phase 5 (posting) rendering.
 
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
 import { selectPageState } from '@/lib/page-state';
 import { listTaiChiMoves } from '@/lib/tai-chi-moves';
 import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import { buildClipPayload } from '@/lib/clip-payload';
+import { getCanonicalClipPlan } from '@/lib/clip-plan';
+import { getConnectedPlatforms } from '@/lib/connected-platforms';
 import { BilingualHeader } from './_components/bilingual-header';
 import { CompressedStepper } from './_components/compressed-stepper';
 import { PersistentLiveStrip } from './_components/persistent-live-strip';
@@ -21,6 +22,7 @@ import { Phase1ScriptConnected } from './_components/phase-1-script-connected';
 import { Phase2PlanReviewConnected } from './_components/phase-2-plan-review-connected';
 import { Phase3ClipsConnected } from './_components/phase-3-clips-connected';
 import { Phase4StitchedConnected } from './_components/phase-4-stitched-connected';
+import { Phase5PostConnected } from './_components/phase-5-post-connected';
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -517,13 +519,148 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
   }
 
   // ---------------------------------------------------------------------------
-  // Phase 5 and live states — stubs for future milestones
+  // Phase 5: Posting
   // ---------------------------------------------------------------------------
-  const phaseLabel =
-    phase === 5
-      ? 'Post (milestone 5)'
-      : null;
+  if (
+    (state.kind === 'draft-in-progress' || state.kind === 'live-and-draft') &&
+    state.phase === 5
+  ) {
+    const draftJobId =
+      state.kind === 'draft-in-progress' ? state.draftJobId : state.draftJobId;
+    const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
+    const draftVideoId = draftJobForState?.videoId ?? null;
 
+    // Fetch the video row for site fields + mp4 + thumb
+    let videoRow: { id: string; mp4_path: string | null; thumb_path: string | null; title: string | null; subtitle: string | null; description: string | null; published_to_website: boolean; post_urls: Record<string, string> | null } | null = null;
+    if (draftVideoId) {
+      const { data: vRow } = await supabase
+        .from('videos')
+        .select('id, mp4_path, thumb_path, title, subtitle, description, published_to_website, post_urls')
+        .eq('id', draftVideoId)
+        .single();
+      if (vRow) {
+        videoRow = {
+          id: vRow.id as string,
+          mp4_path: (vRow.mp4_path as string | null) ?? null,
+          thumb_path: (vRow.thumb_path as string | null) ?? null,
+          title: (vRow.title as string | null) ?? null,
+          subtitle: (vRow.subtitle as string | null) ?? null,
+          description: (vRow.description as string | null) ?? null,
+          published_to_website: !!(vRow.published_to_website as boolean | null),
+          post_urls: (vRow.post_urls as Record<string, string> | null) ?? null,
+        };
+      }
+    }
+
+    // Fetch canonical clip plan for captions + social_metadata + youtube_tags
+    const supabaseSvc = createServiceClient();
+    const canonicalPlan = draftJobId
+      ? await getCanonicalClipPlan(supabaseSvc, draftJobId)
+      : null;
+    const planJson = (canonicalPlan?.planJson ?? {}) as Record<string, unknown>;
+    const captions = ((planJson.captions as Record<string, string> | undefined) ?? {});
+
+    // Fetch top-level clip_plan columns (social_metadata + youtube_tags live outside plan_json)
+    let clipPlanMeta: { social_metadata: Record<string, unknown> | null; youtube_tags: string[] } = { social_metadata: null, youtube_tags: [] };
+    if (canonicalPlan) {
+      const { data: cpRow } = await supabase
+        .from('clip_plans')
+        .select('social_metadata, youtube_tags')
+        .eq('id', canonicalPlan.id)
+        .maybeSingle();
+      clipPlanMeta = {
+        social_metadata: (cpRow?.social_metadata as Record<string, unknown> | null) ?? null,
+        youtube_tags: (cpRow?.youtube_tags as string[] | null) ?? [],
+      };
+    }
+
+    // Fetch posts for this video (last 30 days, latest per platform)
+    let initialPosts: Array<{
+      id: string;
+      platform: string;
+      status: string;
+      created_at: string;
+      scheduled_at: string | null;
+      buffer_update_id: string | null;
+      caption: string | null;
+    }> = [];
+    if (draftVideoId) {
+      const { data: pRows } = await supabase
+        .from('posts')
+        .select('id, platform, status, created_at, scheduled_at, buffer_update_id, caption')
+        .eq('video_id', draftVideoId)
+        .order('created_at', { ascending: false });
+      initialPosts = (pRows ?? []).map((p) => ({
+        id: p.id as string,
+        platform: p.platform as string,
+        status: p.status as string,
+        created_at: (p.created_at as string | null) ?? new Date(0).toISOString(),
+        scheduled_at: (p.scheduled_at as string | null) ?? null,
+        buffer_update_id: (p.buffer_update_id as string | null) ?? null,
+        caption: (p.caption as string | null) ?? null,
+      }));
+    }
+
+    // Connected platforms
+    const connectedPlatforms = await getConnectedPlatforms();
+
+    // Public MP4 URL for the frame picker
+    let videoMp4Url: string | null = null;
+    if (videoRow?.mp4_path) {
+      const { data: urlData } = supabase.storage.from('videos').getPublicUrl(videoRow.mp4_path);
+      videoMp4Url = urlData?.publicUrl ?? null;
+    }
+    let thumbPublicUrl: string | null = null;
+    if (videoRow?.thumb_path) {
+      const { data: urlData } = supabase.storage.from('videos').getPublicUrl(videoRow.thumb_path);
+      thumbPublicUrl = urlData?.publicUrl ?? null;
+    }
+
+    // Live state for site card
+    const siteIsLive = videoRow?.published_to_website ?? false;
+    // Use the video's published_at as liveSince — fall back to null (column may not exist)
+    // We'll just use null for now since we don't have a published_at column tracked separately
+    const liveSince = siteIsLive ? null : null; // TODO: surface actual published_at when added
+
+    const liveVideoIndex = videosForState.findIndex((v) => v.id === draftVideoId) + 1;
+    const liveVersionLabel = siteIsLive ? `v${liveVideoIndex}` : null;
+
+    return (
+      <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
+        <BilingualHeader
+          hebrewName={parsha.hebrew_name}
+          book={parsha.book}
+          name={parsha.name}
+        />
+        {liveStripProps && <PersistentLiveStrip {...liveStripProps} />}
+        <CompressedStepper currentPhase={5} />
+        <Phase5PostConnected
+          videoId={draftVideoId ?? ''}
+          parshaSlug={parsha.slug}
+          isLive={siteIsLive}
+          liveSince={liveSince}
+          liveVersionLabel={liveVersionLabel}
+          siteTitle={videoRow?.title ?? parsha.name}
+          siteSubtitle={videoRow?.subtitle ?? ''}
+          siteDescription={videoRow?.description ?? ''}
+          websiteUrl={`https://torahtaichi.com/${parsha.slug}`}
+          jobId={draftJobId ?? ''}
+          captions={captions}
+          youtubeTags={clipPlanMeta.youtube_tags}
+          socialMetadata={clipPlanMeta.social_metadata as { instagram?: { type: 'reel' | 'post'; firstComment?: string }; facebook?: { type: 'reel' | 'post'; firstComment?: string } } | null}
+          initialPosts={initialPosts}
+          postUrls={(videoRow?.post_urls ?? {}) as Record<string, string>}
+          connectedPlatforms={connectedPlatforms}
+          videoMp4Url={videoMp4Url}
+          thumbPath={thumbPublicUrl}
+        />
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Live-at-rest and remaining stubs — future milestones
+  // ---------------------------------------------------------------------------
   return (
     <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
       <BilingualHeader
@@ -551,7 +688,7 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
             </span>
           </>
         ) : (
-          <>{phaseLabel ?? `Phase ${phase ?? '?'}`} — coming in a future milestone.</>
+          <>Phase {phase ?? '?'} — coming in a future milestone.</>
         )}
       </div>
     </div>
