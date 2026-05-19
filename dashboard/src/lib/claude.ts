@@ -5,7 +5,9 @@
 // through this single helper — do not call OpenRouter directly from routes.
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-5';
+// Verified against https://openrouter.ai/api/v1/models on 2026-05-19.
+// Opus 4.7 is the strongest Claude model currently on OpenRouter.
+const DEFAULT_MODEL = 'anthropic/claude-opus-4.7';
 
 interface CallClaudeOpts {
   systemPrompt: string;
