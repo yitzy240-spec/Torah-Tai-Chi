@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/reconcile-posts",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/purge-old-clips",
+      "schedule": "0 3 * * *"
     }
   ]
 }
