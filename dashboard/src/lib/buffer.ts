@@ -244,3 +244,75 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
   const reason = 'message' in r ? r.message : r.__typename;
   throw new Error(`Buffer createUpdate (${a.channelId}): ${reason}`);
 }
+
+// ── editPost + deletePost mutations (for edit-posted.ts Branch A and Branch B) ────────────────
+
+interface EditPostResponse {
+  editPost:
+    | { __typename: 'PostActionSuccess'; post: { id: string; status: string } }
+    | { __typename: string; message?: string };
+}
+
+interface DeletePostResponse {
+  deletePost:
+    | { __typename: 'PostActionSuccess'; post: { id: string } }
+    | { __typename: string; message?: string };
+}
+
+const EDIT_POST_MUTATION = `
+  mutation EditPost($input: EditPostInput!) {
+    editPost(input: $input) {
+      __typename
+      ... on PostActionSuccess { post { id status } }
+      ... on NotFoundError { message }
+      ... on UnauthorizedError { message }
+      ... on UnexpectedError { message }
+    }
+  }
+`;
+
+const DELETE_POST_MUTATION = `
+  mutation DeletePost($id: PostId!) {
+    deletePost(input: { id: $id }) {
+      __typename
+      ... on PostActionSuccess { post { id } }
+      ... on NotFoundError { message }
+      ... on UnexpectedError { message }
+    }
+  }
+`;
+
+/**
+ * Edit an existing Buffer post in-place (Branch A of the editPost spec §13).
+ * Only valid if Buffer's editPost mutation accepts already-published posts.
+ * Verification is gated on tools/test_buffer_edit_post.ts being run.
+ */
+export async function editPostBuffer(args: {
+  token: string;
+  postId: string;
+  text: string;
+}): Promise<{ id: string; status: string }> {
+  const data = await gql<EditPostResponse>(args.token, EDIT_POST_MUTATION, {
+    input: { id: args.postId, text: args.text },
+  });
+  const r = data.editPost;
+  if (r.__typename === 'PostActionSuccess' && 'post' in r) return r.post as { id: string; status: string };
+  const reason = 'message' in r ? r.message : r.__typename;
+  throw new Error(`Buffer editPost (${args.postId}): ${reason}`);
+}
+
+/**
+ * Delete an existing Buffer post (Branch B of the editPost spec §13 — used before reposting).
+ */
+export async function deletePostBuffer(args: {
+  token: string;
+  postId: string;
+}): Promise<void> {
+  const data = await gql<DeletePostResponse>(args.token, DELETE_POST_MUTATION, {
+    id: args.postId,
+  });
+  const r = data.deletePost;
+  if (r.__typename === 'PostActionSuccess') return;
+  const reason = 'message' in r ? r.message : r.__typename;
+  throw new Error(`Buffer deletePost (${args.postId}): ${reason}`);
+}
