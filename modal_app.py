@@ -1447,6 +1447,119 @@ async def _upload_first_frame(kie: "KieClient", png_path: Path) -> str:  # noqa:
     )
 
 
+async def _resolve_regen_first_frame(
+    sb,
+    parent_job_id: str,
+    clip_index: int,
+    clip_visual_prompt: str,
+    clip_setting_id: str | None,
+    motion_ref_slug: str | None,
+    kie: "KieClient",  # noqa: F821
+    work_dir: Path,
+) -> "str | None":
+    """Return a first_frame_url to anchor clip N's regen to clip N-1's last
+    frame, or None if the regen should fall back to reference images.
+
+    This mirrors the initial-generation chaining logic in run_pipeline
+    (_can_chain + _run_group) but works against PARENT JOB clips so
+    that a per-clip regen opens exactly where the previous clip ended.
+
+    Eligibility gates (same as initial chaining):
+      - clip_index > 0  (clip 0 has no predecessor)
+      - motion_ref_slug is None  (first_frame_url and reference_video_urls
+        are mutually exclusive in Seedance)
+      - clip N-1 exists in parent_job_id's clips table with a storage_path
+      - clip N-1 shares the same setting_id as clip N
+      - clip N does NOT introduce a Jewish ritual keyword that clip N-1
+        didn't have (first_frame_url and reference_image_urls are also
+        mutually exclusive — new ritual refs must flow through)
+
+    On any extraction / upload failure the function degrades silently to
+    None (fall-through to reference-image-only re-roll). Callers should
+    NOT raise on a None return; treat it as "no chain available".
+    """
+    # Gate 1: clip 0 has no predecessor.
+    if clip_index <= 0:
+        print(
+            f"[firstframe] regen clip {clip_index}: clip 0 — no chain"
+        )
+        return None
+
+    # Gate 2: motion ref is mutex with first_frame_url in Seedance.
+    if motion_ref_slug:
+        print(
+            f"[firstframe] regen clip {clip_index}: motion_ref present "
+            f"({motion_ref_slug}) — skip chain"
+        )
+        return None
+
+    # Look up clip N-1 on the parent job.
+    prev_row = (
+        sb.table("clips")
+        .select("index, visual_prompt, setting_id, storage_path")
+        .eq("job_id", parent_job_id)
+        .eq("index", clip_index - 1)
+        .maybe_single()
+        .execute()
+        .data
+    ) or {}
+
+    prev_storage_path = prev_row.get("storage_path")
+
+    # Gate 3: clip N-1 must exist and be fully rendered.
+    if not prev_row or not prev_storage_path:
+        print(
+            f"[firstframe] regen clip {clip_index}: clip {clip_index - 1} "
+            f"not found or has no storage_path — no chain"
+        )
+        return None
+
+    # Gate 4: same scene (setting_id).
+    prev_setting = prev_row.get("setting_id")
+    if prev_setting != clip_setting_id:
+        print(
+            f"[firstframe] regen clip {clip_index}: different setting "
+            f"({prev_setting!r} vs {clip_setting_id!r}) — no chain"
+        )
+        return None
+
+    # Gate 5: no new Jewish ritual keyword introduced.
+    prev_kws = _jewish_ref_ids_in_prompt(prev_row.get("visual_prompt") or "")
+    curr_kws = _jewish_ref_ids_in_prompt(clip_visual_prompt or "")
+    if curr_kws - prev_kws:
+        new_kws = ", ".join(sorted(curr_kws - prev_kws))
+        print(
+            f"[firstframe] regen clip {clip_index}: new ritual keyword(s) "
+            f"introduced ({new_kws}); refs must flow — no chain"
+        )
+        return None
+
+    # All gates passed — extract the last frame from clip N-1's mp4 and
+    # upload it as the anchor for clip N's regen.
+    png_path = work_dir / f"firstframe_{clip_index:02d}.png"
+    try:
+        prev_local = _ensure_local(sb, work_dir, prev_storage_path)
+        _extract_last_frame(prev_local, png_path)
+        first_frame_url = await _upload_first_frame(kie, png_path)
+        print(
+            f"[firstframe] regen clip {clip_index}: chained from clip "
+            f"{clip_index - 1} (setting={clip_setting_id})"
+        )
+        return first_frame_url
+    except Exception as ff_err:
+        print(
+            f"[firstframe] regen clip {clip_index}: extract/upload failed "
+            f"({type(ff_err).__name__}: {ff_err}); falling through to no-chain"
+        )
+        return None
+    finally:
+        try:
+            if png_path.exists():
+                png_path.unlink()
+        except Exception:
+            pass
+
+
 # ====================================================================
 # PER-CLIP GEMINI VISUAL VERIFICATION
 # ====================================================================
@@ -2612,12 +2725,25 @@ def regen_smart(job_id: str) -> dict | None:
             clip_jewish_refs = _jewish_refs_for_clip(
                 target_clip_pydantic, jewish_refs
             )
+            # First-frame chaining: anchor regen to clip N-1's last frame
+            # for visual continuity (same logic as the initial pipeline chain).
+            first_frame_url = await _resolve_regen_first_frame(
+                sb=sb,
+                parent_job_id=parent_job_id,
+                clip_index=target_idx,
+                clip_visual_prompt=target_clip_pydantic.visual_prompt or "",
+                clip_setting_id=target_clip_pydantic.setting_id,
+                motion_ref_slug=target_clip_pydantic.motion_ref_slug,
+                kie=kie,
+                work_dir=work_dir,
+            )
             _, kie_meta = await generate_clip_with_meta(
                 kie, target_clip_pydantic,
                 character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
                 dest=local_path, resolution=resolution,
                 model=seedance_model,
                 reference_video_url=clip_ref_video_url,
+                first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
             )
             credits = (
@@ -3058,6 +3184,21 @@ def regen_clip(job_id: str) -> dict | None:
             target_clip_pydantic, jewish_refs
         )
 
+        # First-frame chaining: anchor regen to clip N-1's last frame for
+        # visual continuity (same logic as the initial pipeline chain).
+        first_frame_url: str | None = asyncio.run(
+            _resolve_regen_first_frame(
+                sb=sb,
+                parent_job_id=parent_job_id,
+                clip_index=target_index,
+                clip_visual_prompt=target_clip_pydantic.visual_prompt or "",
+                clip_setting_id=target_clip_pydantic.setting_id,
+                motion_ref_slug=target_clip_pydantic.motion_ref_slug,
+                kie=kie,
+                work_dir=work_dir,
+            )
+        )
+
         async def _regen_one():
             return await generate_clip_with_meta(
                 kie, target_clip_pydantic,
@@ -3065,6 +3206,7 @@ def regen_clip(job_id: str) -> dict | None:
                 dest=new_local_path, resolution=resolution,
                 model=seedance_model,
                 reference_video_url=clip_ref_video_url,
+                first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
             )
 
@@ -4271,72 +4413,20 @@ def regen_agent(job_id: str) -> dict | None:
                 motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
             )
 
-            # First-frame chaining for regen: chain only when (a) parent
-            # clip at (target_idx - 1) exists with same setting_id AND
-            # has a checkpointed storage_path AND (b) the regen target's
-            # visual_prompt doesn't introduce a Jewish ritual keyword the
-            # parent didn't have. Same constraint as full-pipeline chain
-            # logic — first_frame_url and reference_image_urls are
-            # mutually exclusive in Seedance, so introducing a ritual
-            # ref means we MUST use refs (not first_frame).
-            first_frame_url: str | None = None
-            prev_parent = parent_by_index.get(target_idx - 1)
-            curr_kws = _jewish_ref_ids_in_prompt(
-                target_clip_pydantic.visual_prompt or ""
+            # First-frame chaining: anchor regen to clip N-1's last frame
+            # for visual continuity. Delegates to _resolve_regen_first_frame
+            # which applies all eligibility gates (index > 0, no motion ref,
+            # same setting, no new ritual keyword) and degrades gracefully.
+            first_frame_url = await _resolve_regen_first_frame(
+                sb=sb,
+                parent_job_id=parent_job_id,
+                clip_index=target_idx,
+                clip_visual_prompt=target_clip_pydantic.visual_prompt or "",
+                clip_setting_id=target_clip_pydantic.setting_id,
+                motion_ref_slug=target_clip_pydantic.motion_ref_slug,
+                kie=kie,
+                work_dir=work_dir,
             )
-            prev_kws = _jewish_ref_ids_in_prompt(
-                (prev_parent or {}).get("visual_prompt") or ""
-            )
-            new_ritual_introduced = bool(curr_kws - prev_kws)
-            if (
-                prev_parent
-                and prev_parent.get("setting_id")
-                == target_clip_pydantic.setting_id
-                and prev_parent.get("storage_path")
-                and not new_ritual_introduced
-            ):
-                try:
-                    prev_local = _ensure_local(
-                        sb, work_dir, prev_parent["storage_path"]
-                    )
-                    png_path = (
-                        work_dir / f"firstframe_{target_idx:02d}.png"
-                    )
-                    try:
-                        _extract_last_frame(prev_local, png_path)
-                        first_frame_url = await _upload_first_frame(
-                            kie, png_path
-                        )
-                        print(
-                            f"[firstframe] regen clip {target_idx}: "
-                            f"chained to parent clip {target_idx - 1} "
-                            f"in same scene "
-                            f"(setting={target_clip_pydantic.setting_id})"
-                        )
-                    finally:
-                        try:
-                            if png_path.exists():
-                                png_path.unlink()
-                        except Exception:
-                            pass
-                except Exception as ff_err:
-                    print(
-                        f"[firstframe] regen clip {target_idx}: "
-                        f"extract/upload failed "
-                        f"({type(ff_err).__name__}: {ff_err}); "
-                        f"falling through to no-chain"
-                    )
-                    first_frame_url = None
-            else:
-                # No previous-in-scene clip available. Either this is
-                # clip 0, or the prior clip is in a different setting,
-                # or we don't have the parent's mp4 cached.
-                print(
-                    f"[firstframe] regen clip {target_idx}: no "
-                    f"previous-in-scene parent "
-                    f"(setting={target_clip_pydantic.setting_id}) "
-                    f"— no chain"
-                )
 
             # Wrap Seedance in the verify loop. Unlike run_pipeline
             # we have feedback_text + diagnosis here, so the checks
@@ -4915,41 +5005,21 @@ def regen_single_clip(job_id: str) -> dict | None:
             motion_ref_mp4_url if target_clip_pydantic.motion_ref_slug else None
         )
 
-        # First-frame chain: chain to parent's previous-clip last frame
-        # when same setting + no new ritual. Same logic as regen_agent.
-        first_frame_url: str | None = None
-        prev_parent = next(
-            (c for c in parent_clips if c["index"] == target_index - 1),
-            None,
+        # First-frame chaining: anchor regen to clip N-1's last frame for
+        # visual continuity. Delegates to _resolve_regen_first_frame which
+        # applies all eligibility gates and degrades gracefully to None.
+        first_frame_url: str | None = asyncio.run(
+            _resolve_regen_first_frame(
+                sb=sb,
+                parent_job_id=parent_job_id,
+                clip_index=target_index,
+                clip_visual_prompt=target_clip_pydantic.visual_prompt or "",
+                clip_setting_id=target_clip_pydantic.setting_id,
+                motion_ref_slug=target_clip_pydantic.motion_ref_slug,
+                kie=kie,
+                work_dir=work_dir,
+            )
         )
-        curr_kws = _jewish_ref_ids_in_prompt(
-            target_clip_pydantic.visual_prompt or ""
-        )
-        prev_kws = _jewish_ref_ids_in_prompt(
-            (prev_parent or {}).get("visual_prompt") or ""
-        )
-        new_ritual_introduced = bool(curr_kws - prev_kws)
-        if (
-            prev_parent
-            and prev_parent.get("setting_id") == target_clip_pydantic.setting_id
-            and prev_parent.get("storage_path")
-            and not new_ritual_introduced
-        ):
-            try:
-                prev_local = _ensure_local(
-                    sb, work_dir, prev_parent["storage_path"]
-                )
-                png_path = work_dir / f"firstframe_{target_index:02d}.png"
-                _extract_last_frame(prev_local, png_path)
-                first_frame_url = asyncio.run(
-                    _upload_first_frame(kie, png_path)
-                )
-            except Exception as ff_err:
-                print(
-                    f"[firstframe] regen_single_clip {target_index}: "
-                    f"{type(ff_err).__name__}: {ff_err}; no chain"
-                )
-                first_frame_url = None
 
         set_status("generating_clips", f"Regenerating clip {target_index}")
         clip_jewish_refs = _jewish_refs_for_clip(
@@ -5622,6 +5692,20 @@ def clips_only_job(job_id: str) -> dict | None:
             _, motion_url = _load_selected_move(sb, slug)
             dest = work_dir / f"clip_{c.index:02d}.mp4"
             clip_jewish_refs = _jewish_refs_for_clip(c, jewish_refs)
+            # First-frame chaining: anchor each clip render to the previous
+            # clip's last frame for visual continuity, same as the initial
+            # pipeline. For clips_only, the "parent" clips live on
+            # plan_owner_job_id (the plan-only job that owns the clip_plan).
+            first_frame_url = await _resolve_regen_first_frame(
+                sb=sb,
+                parent_job_id=plan_owner_job_id,
+                clip_index=c.index,
+                clip_visual_prompt=c.visual_prompt or "",
+                clip_setting_id=c.setting_id,
+                motion_ref_slug=slug,
+                kie=kie,
+                work_dir=work_dir,
+            )
             _, kie_meta = await generate_clip_with_meta(
                 kie, c,
                 character_ref_urls=char_refs,
@@ -5630,6 +5714,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 resolution=resolution,
                 model=seedance_model,
                 reference_video_url=motion_url,
+                first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
             )
             credits = (
@@ -6115,55 +6200,21 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         local_path_dest = work_dir / f"clip_{target_index:02d}.mp4"
         clip_ref_video_url = _resolved_motion_url
 
-        # Chain decision: when this clip has NO motion ref AND there's a
-        # prior clip in the same scene block on the parent, anchor the
-        # regen by passing the prior clip's last frame as
-        # first_frame_url. Without this, regenerated middle-of-scene
-        # clips start cold and Seedance has more room to drift mid-clip
-        # ("Rav Eli morphing"). When motion_ref_url is set we MUST skip
-        # this — first_frame_url and reference_video_urls are mutually
-        # exclusive in Seedance (commit 3d9274e earlier today).
-        first_frame_url: str | None = None
-        if target_index > 0 and clip_ref_video_url is None:
-            prev_parent_clip = next(
-                (c for c in parent_clips if c.get("index") == target_index - 1),
-                None,
+        # First-frame chaining: anchor regen to clip N-1's last frame for
+        # visual continuity. Delegates to _resolve_regen_first_frame which
+        # applies all eligibility gates and degrades gracefully to None.
+        first_frame_url: str | None = asyncio.run(
+            _resolve_regen_first_frame(
+                sb=sb,
+                parent_job_id=parent_job_id,
+                clip_index=target_index,
+                clip_visual_prompt=clip.visual_prompt or "",
+                clip_setting_id=clip.setting_id,
+                motion_ref_slug=_resolved_motion_slug,
+                kie=kie,
+                work_dir=work_dir,
             )
-            if (
-                prev_parent_clip
-                and prev_parent_clip.get("storage_path")
-                and prev_parent_clip.get("setting_id") == clip.setting_id
-            ):
-                # Mirror the jewish-ref check from run_pipeline._can_chain:
-                # if the target adds a ritual keyword the prev didn't have,
-                # reference_image_urls must flow through and we can't chain.
-                prev_kws = _jewish_ref_ids_in_prompt(
-                    prev_parent_clip.get("visual_prompt") or ""
-                )
-                curr_kws = _jewish_ref_ids_in_prompt(clip.visual_prompt or "")
-                if not (curr_kws - prev_kws):
-                    try:
-                        prev_path = work_dir / f"prev_clip_{target_index - 1:02d}.mp4"
-                        prev_bytes = sb.storage.from_("videos").download(
-                            prev_parent_clip["storage_path"]
-                        )
-                        prev_path.write_bytes(prev_bytes)
-                        ff_png = work_dir / f"firstframe_{target_index:02d}.png"
-                        _extract_last_frame(prev_path, ff_png)
-                        first_frame_url = asyncio.run(
-                            _upload_first_frame(kie, ff_png)
-                        )
-                        print(
-                            f"[regen-chain] clip {target_index}: chained from "
-                            f"clip {target_index - 1} (setting={clip.setting_id})"
-                        )
-                    except Exception as ff_err:
-                        print(
-                            f"[regen-chain] clip {target_index}: extract/upload "
-                            f"failed ({type(ff_err).__name__}: {ff_err}); "
-                            f"falling through to ref-only"
-                        )
-                        first_frame_url = None
+        )
 
         set_status("generating_clips", f"Re-rendering clip {target_index}")
         local_path, kie_meta = asyncio.run(generate_clip_with_meta(
