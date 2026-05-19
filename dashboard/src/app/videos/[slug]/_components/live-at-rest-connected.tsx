@@ -21,8 +21,10 @@ interface Props {
   videoMp4Url: string;
   thumbPath: string | null;
   websiteUrl: string;
-  title: string;
-  subtitle: string;
+  /** The BIG heading — the creative script title ("In the Desert…") */
+  displayTitle: string;
+  /** The smaller attribution line — the parsha name ("Bamidbar") */
+  attribution: string;
   publishedToWebsiteSince: string | null;
   platforms: PlatformStatus[];
   parshaSlug: string;
@@ -36,8 +38,8 @@ export function LiveAtRestConnected({
   videoMp4Url,
   thumbPath,
   websiteUrl,
-  title,
-  subtitle,
+  displayTitle,
+  attribution,
   publishedToWebsiteSince,
   platforms,
   parshaSlug,
@@ -76,8 +78,8 @@ export function LiveAtRestConnected({
         videoMp4Url={videoMp4Url}
         thumbPath={thumbPath}
         websiteUrl={websiteUrl}
-        title={title}
-        subtitle={subtitle}
+        displayTitle={displayTitle}
+        attribution={attribution}
         publishedToWebsiteSince={publishedToWebsiteSince}
         platforms={platforms}
         onReplace={handleReplace}

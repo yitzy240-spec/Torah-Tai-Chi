@@ -21,14 +21,16 @@ export interface PlatformStatus {
 
 interface Props {
   parshaName: string;
-  versionLabel: string;         // e.g. "v2"
+  versionLabel: string;             // e.g. "v2"
   videoMp4Url: string;
   thumbPath: string | null;
   websiteUrl: string;
-  title: string;
-  subtitle: string;
+  /** The BIG heading — the creative script title ("In the Desert…") */
+  displayTitle: string;
+  /** The smaller attribution line — the parsha name ("Bamidbar") */
+  attribution: string;
   publishedToWebsiteSince: string | null;
-  platforms: PlatformStatus[];  // includes website row + social rows
+  platforms: PlatformStatus[];      // includes website row + social rows
   onReplace: () => void;
 }
 
@@ -94,7 +96,7 @@ export function LiveAtRest(p: Props) {
               : ''}
           </span>
 
-          {/* Title + subtitle */}
+          {/* Headline (creative title) + attribution (parsha name) */}
           <h2
             style={{
               margin: '0 0 4px',
@@ -104,7 +106,7 @@ export function LiveAtRest(p: Props) {
               color: 'var(--ink-900)',
             }}
           >
-            {p.subtitle || p.parshaName}
+            {p.displayTitle || p.parshaName}
           </h2>
           <p
             style={{
@@ -114,7 +116,7 @@ export function LiveAtRest(p: Props) {
               lineHeight: 1.4,
             }}
           >
-            {p.title}
+            {p.attribution}
           </p>
 
           {/* Per-channel status list */}
