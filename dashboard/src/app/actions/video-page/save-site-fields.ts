@@ -1,7 +1,8 @@
 'use server';
 
-// Writes videos.{title|subtitle|description} for the Site card.
-// These columns were added in migration 0099_video_page_redesign.sql.
+// Writes videos.{title|subtitle|description|website_caption|spoken_script} for the Site card.
+// These columns were added in migration 0099_video_page_redesign.sql (title/subtitle/description)
+// and already existed (website_caption, spoken_script).
 
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
@@ -9,7 +10,7 @@ import { revalidatePath } from 'next/cache';
 
 export async function saveSiteField(
   videoId: string,
-  field: 'title' | 'subtitle' | 'description',
+  field: 'title' | 'subtitle' | 'description' | 'website_caption' | 'spoken_script',
   value: string,
 ): Promise<void> {
   const userClient = await createClient();
