@@ -3,12 +3,17 @@
 // Redesigned video detail page (spec §3 — 4-state architecture).
 // Dispatched from page.tsx when video_page_v2 flag is on or ?v2=1.
 //
-// Milestone 5 adds Phase 5 (posting) rendering.
+// Milestone 6 wires all four top-level states:
+//   empty           → EmptyState
+//   draft-in-progress → 5-phase stepper (M3-M5)
+//   live-at-rest    → LiveAtRest (M6)
+//   live-and-draft  → DraftCalloutStrip + LiveAtRest (landing) or draft phase (continue=1)
 
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { selectPageState } from '@/lib/page-state';
+import type { DraftPhase } from '@/lib/page-state';
 import { listTaiChiMoves } from '@/lib/tai-chi-moves';
 import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
@@ -23,6 +28,10 @@ import { Phase2PlanReviewConnected } from './_components/phase-2-plan-review-con
 import { Phase3ClipsConnected } from './_components/phase-3-clips-connected';
 import { Phase4StitchedConnected } from './_components/phase-4-stitched-connected';
 import { Phase5PostConnected } from './_components/phase-5-post-connected';
+import { EmptyState } from './_components/empty-state';
+import { LiveAtRestConnected } from './_components/live-at-rest-connected';
+import type { PlatformStatus } from './_components/live-at-rest';
+import { DraftCalloutStrip } from './_components/draft-callout-strip';
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -49,8 +58,17 @@ type JobRow = {
   clip_plans: any;
 };
 
-export default async function VideoDetailPageNew({ params }: PageProps) {
+export default async function VideoDetailPageNew({ params, searchParams }: PageProps) {
   const { slug } = await params;
+  const sp = await searchParams;
+  // ?continue=1 means "show the draft phase view" from the live+draft landing.
+  // ?phase=N overrides the state machine's phase (used by DraftCalloutStrip links
+  // and Phase 4 → Phase 5 "Continue to posting" navigation).
+  const continueParam = sp.continue === '1';
+  const phaseParam = Number.isInteger(Number(sp.phase)) && Number(sp.phase) >= 1 && Number(sp.phase) <= 5
+    ? (Number(sp.phase) as DraftPhase)
+    : null;
+
   const supabase = await createClient();
 
   // 1. Fetch parsha + scripts
@@ -173,13 +191,17 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
     };
   }
 
-  const phase =
+  // The effective phase for rendering draft views.
+  // phaseParam overrides the state machine (used by DraftCalloutStrip links and
+  // Phase 4 → Phase 5 manual navigation via "Continue to posting →").
+  const statePhase =
     state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
       ? state.phase
       : null;
+  const phase = phaseParam ?? statePhase;
 
   // ---------------------------------------------------------------------------
-  // State: empty — stub (full impl in M6)
+  // State: empty — no scripts, no video, nothing live.
   // ---------------------------------------------------------------------------
   if (state.kind === 'empty') {
     return (
@@ -189,43 +211,27 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
           book={parsha.book}
           name={parsha.name}
         />
-        <p style={{ color: 'var(--ink-700)' }}>
-          {parsha.name} doesn&apos;t have a video yet. The script generates automatically — review
-          it, then we&apos;ll make the clips.
-        </p>
-        <button
-          type="button"
-          disabled
-          style={{
-            width: '100%',
-            minHeight: 48,
-            fontSize: 15,
-            fontWeight: 500,
-            background: 'var(--navy-700)',
-            color: 'var(--linen-50)',
-            border: 'none',
-            borderRadius: 10,
-            padding: 14,
-            cursor: 'not-allowed',
-            opacity: 0.5,
-          }}
-        >
-          Start scripting
-        </button>
-        <p style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 8, textAlign: 'center' }}>
-          Empty state full implementation coming in milestone 6.
-        </p>
+        <EmptyState
+          parshaName={parsha.name}
+          parshaId={parsha.id}
+          parshaSlug={parsha.slug}
+        />
       </div>
     );
   }
 
   // ---------------------------------------------------------------------------
+  // For live-and-draft: check if we should render the draft view or the landing.
+  // When continueParam is not set, live-and-draft renders the landing (strip + live-at-rest).
+  // When continueParam=1 (or phaseParam is set), render the draft phase view.
+  const showDraftView =
+    state.kind === 'draft-in-progress' ||
+    (state.kind === 'live-and-draft' && (continueParam || phaseParam !== null));
+
+  // ---------------------------------------------------------------------------
   // Phase 1: Script editor
   // ---------------------------------------------------------------------------
-  if (
-    (state.kind === 'draft-in-progress' || state.kind === 'live-and-draft') &&
-    state.phase === 1
-  ) {
+  if (showDraftView && phase === 1) {
     const scripts = parsha.scripts;
     const defaultScript =
       scripts.find((s) => s.option === 'A-tight') ??
@@ -272,12 +278,11 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
   // ---------------------------------------------------------------------------
   // Phase 2: Plan review
   // ---------------------------------------------------------------------------
-  if (
-    (state.kind === 'draft-in-progress' || state.kind === 'live-and-draft') &&
-    state.phase === 2
-  ) {
+  if (showDraftView && phase === 2) {
     const draftJobId =
-      state.kind === 'draft-in-progress' ? state.draftJobId : state.draftJobId;
+      state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
+        ? state.draftJobId
+        : null;
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const clipPlanId = draftJobForState?.clipPlanId ?? null;
 
@@ -358,12 +363,11 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
   // ---------------------------------------------------------------------------
   // Phase 3: Clips
   // ---------------------------------------------------------------------------
-  if (
-    (state.kind === 'draft-in-progress' || state.kind === 'live-and-draft') &&
-    state.phase === 3
-  ) {
+  if (showDraftView && phase === 3) {
     const draftJobId =
-      state.kind === 'draft-in-progress' ? state.draftJobId : state.draftJobId;
+      state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
+        ? state.draftJobId
+        : null;
 
     // Need videoId for regenClipFromText — find the video for this draft job
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
@@ -444,12 +448,11 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
   // ---------------------------------------------------------------------------
   // Phase 4: Stitched video
   // ---------------------------------------------------------------------------
-  if (
-    (state.kind === 'draft-in-progress' || state.kind === 'live-and-draft') &&
-    state.phase === 4
-  ) {
+  if (showDraftView && phase === 4) {
     const draftJobId =
-      state.kind === 'draft-in-progress' ? state.draftJobId : state.draftJobId;
+      state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
+        ? state.draftJobId
+        : null;
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const draftVideoId = draftJobForState?.videoId ?? null;
 
@@ -521,12 +524,11 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
   // ---------------------------------------------------------------------------
   // Phase 5: Posting
   // ---------------------------------------------------------------------------
-  if (
-    (state.kind === 'draft-in-progress' || state.kind === 'live-and-draft') &&
-    state.phase === 5
-  ) {
+  if (showDraftView && phase === 5) {
     const draftJobId =
-      state.kind === 'draft-in-progress' ? state.draftJobId : state.draftJobId;
+      state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
+        ? state.draftJobId
+        : null;
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const draftVideoId = draftJobForState?.videoId ?? null;
 
@@ -625,6 +627,17 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
     const liveVideoIndex = videosForState.findIndex((v) => v.id === draftVideoId) + 1;
     const liveVersionLabel = siteIsLive ? `v${liveVideoIndex}` : null;
 
+    // Fetch the script_id for this draft job so onSiteReplace can clone it.
+    let draftScriptId: string | null = null;
+    if (draftJobId) {
+      const { data: jobDetail } = await supabase
+        .from('jobs')
+        .select('script_id')
+        .eq('id', draftJobId)
+        .single();
+      draftScriptId = (jobDetail?.script_id as string | null) ?? null;
+    }
+
     return (
       <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
         <BilingualHeader
@@ -637,6 +650,8 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
         <Phase5PostConnected
           videoId={draftVideoId ?? ''}
           parshaSlug={parsha.slug}
+          parshaId={parsha.id}
+          sourceScriptId={draftScriptId ?? ''}
           isLive={siteIsLive}
           liveSince={liveSince}
           liveVersionLabel={liveVersionLabel}
@@ -659,38 +674,143 @@ export default async function VideoDetailPageNew({ params }: PageProps) {
   }
 
   // ---------------------------------------------------------------------------
-  // Live-at-rest and remaining stubs — future milestones
+  // State: live-at-rest — has live version, no draft.
+  // State: live-and-draft landing — has both, but no continue/phase param set.
+  // Both render LiveAtRest. live-and-draft also prepends DraftCalloutStrip.
   // ---------------------------------------------------------------------------
-  return (
-    <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
-      <BilingualHeader
-        hebrewName={parsha.hebrew_name}
-        book={parsha.book}
-        name={parsha.name}
-      />
-      {liveStripProps && <PersistentLiveStrip {...liveStripProps} />}
-      {phase && <CompressedStepper currentPhase={phase} />}
-      <div
-        style={{
-          padding: '24px 16px',
-          border: '1px solid var(--ink-100)',
-          borderRadius: 10,
-          textAlign: 'center',
-          color: 'var(--ink-500)',
-          fontSize: 14,
-        }}
-      >
-        {state.kind === 'live-at-rest' ? (
-          <>
-            <strong>{parsha.name}</strong> is live.{' '}
-            <span style={{ color: 'var(--ink-400)', fontSize: 12 }}>
-              Live-at-rest view coming in milestone 6.
-            </span>
-          </>
-        ) : (
-          <>Phase {phase ?? '?'} — coming in a future milestone.</>
+  if (state.kind === 'live-at-rest' || state.kind === 'live-and-draft') {
+    const liveVideoId =
+      state.kind === 'live-at-rest' ? state.liveVideoId : state.liveVideoId;
+
+    // Fetch the live video row for player + metadata.
+    const { data: liveVRow } = await supabase
+      .from('videos')
+      .select('id, mp4_path, thumb_path, title, subtitle, published_to_website, post_urls')
+      .eq('id', liveVideoId)
+      .single();
+
+    let liveVideoMp4Url: string | null = null;
+    let liveThumbUrl: string | null = null;
+    if (liveVRow?.mp4_path) {
+      const { data: u } = supabase.storage.from('videos').getPublicUrl(liveVRow.mp4_path as string);
+      liveVideoMp4Url = u?.publicUrl ?? null;
+    }
+    if (liveVRow?.thumb_path) {
+      const { data: u } = supabase.storage.from('videos').getPublicUrl(liveVRow.thumb_path as string);
+      liveThumbUrl = u?.publicUrl ?? null;
+    }
+
+    // Fetch posts for the live video to build the per-channel status list.
+    const { data: livePosts } = await supabase
+      .from('posts')
+      .select('platform, status, created_at')
+      .eq('video_id', liveVideoId)
+      .order('created_at', { ascending: false });
+
+    // Build per-channel status list. Website is always first; then social platforms.
+    // Only show platforms that are connected or have been posted to.
+    const postsByPlatform = new Map<string, { postedAt: string | null; postUrl: string | null }>();
+    for (const p of livePosts ?? []) {
+      if (p.status === 'published' && !postsByPlatform.has(p.platform as string)) {
+        postsByPlatform.set(p.platform as string, {
+          postedAt: (p.created_at as string | null) ?? null,
+          postUrl: null, // post_urls is on videos row
+        });
+      }
+    }
+
+    const postUrls = (liveVRow?.post_urls as Record<string, string> | null) ?? {};
+    // Merge post URLs into the platform map
+    for (const [platform, url] of Object.entries(postUrls)) {
+      if (postsByPlatform.has(platform)) {
+        postsByPlatform.set(platform, {
+          ...(postsByPlatform.get(platform)!),
+          postUrl: url,
+        });
+      }
+    }
+
+    const isPublishedToWebsite = !!(liveVRow?.published_to_website as boolean | null);
+    const platformStatusList: PlatformStatus[] = [
+      // Website row — always first
+      {
+        platform: 'torahtaichi.com',
+        postedAt: isPublishedToWebsite ? null : null, // TODO: surface actual published_at
+        postUrl: isPublishedToWebsite ? `https://torahtaichi.com/${parsha.slug}` : null,
+        viewsLabel: null,
+      },
+      // Social platforms that have been posted to
+      ...Array.from(postsByPlatform.entries()).map(([platform, info]) => ({
+        platform,
+        postedAt: info.postedAt,
+        postUrl: info.postUrl,
+        viewsLabel: null,
+      })),
+    ];
+
+    // Version label for the live video ("v2", etc.)
+    const liveIdx = videosForState.findIndex((v) => v.id === liveVideoId) + 1;
+    const versionLabel = `v${liveIdx}`;
+
+    // For live-and-draft: the script to clone when user hits Replace.
+    // We need the source script from the LIVE video's job.
+    const liveVideoJobEntry = videosForState.find((v) => v.id === liveVideoId);
+    const liveJobId = liveVideoJobEntry?.jobId ?? null;
+    let liveScriptId: string | null = null;
+    if (liveJobId) {
+      const { data: liveJobDetail } = await supabase
+        .from('jobs')
+        .select('script_id')
+        .eq('id', liveJobId)
+        .single();
+      liveScriptId = (liveJobDetail?.script_id as string | null) ?? null;
+    }
+
+    // For DraftCalloutStrip: compute landingPhase per spec §3.2.
+    // This is the "most recent completed phase" = statePhase (phaseFor already returns this).
+    const draftStripPhase = statePhase;
+    const draftJobId = state.kind === 'live-and-draft' ? state.draftJobId : null;
+    const draftClips = draftJobId ? (clipsByJobId[draftJobId] ?? []) : [];
+    const clipsRendered = draftClips.filter((c) => c.storagePath !== null).length;
+    const clipsTotal = draftClips.length > 0 ? draftClips.length : null;
+
+    return (
+      <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
+        <BilingualHeader
+          hebrewName={parsha.hebrew_name}
+          book={parsha.book}
+          name={parsha.name}
+        />
+
+        {/* Draft callout strip above the live status display — live-and-draft only */}
+        {state.kind === 'live-and-draft' && draftStripPhase && (
+          <DraftCalloutStrip
+            parshaSlug={parsha.slug}
+            landingPhase={draftStripPhase}
+            phase={draftStripPhase}
+            clipsRendered={clipsRendered}
+            clipsTotal={clipsTotal}
+          />
         )}
+
+        <LiveAtRestConnected
+          parshaName={parsha.name}
+          parshaId={parsha.id}
+          sourceScriptId={liveScriptId ?? ''}
+          versionLabel={versionLabel}
+          videoMp4Url={liveVideoMp4Url ?? ''}
+          thumbPath={liveThumbUrl}
+          websiteUrl={`https://torahtaichi.com/${parsha.slug}`}
+          title={(liveVRow?.title as string | null) ?? parsha.name}
+          subtitle={(liveVRow?.subtitle as string | null) ?? ''}
+          publishedToWebsiteSince={null}
+          platforms={platformStatusList}
+          parshaSlug={parsha.slug}
+        />
       </div>
-    </div>
-  );
+    );
+  }
+
+  // Should never reach here — all 4 states are handled above.
+  notFound();
 }
