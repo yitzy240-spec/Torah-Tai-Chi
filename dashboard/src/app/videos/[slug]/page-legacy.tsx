@@ -18,6 +18,7 @@ import { pickActiveVersion, resolveInitialSelectedId } from '@/lib/active-versio
 import { getConnectedPlatforms } from '@/lib/connected-platforms';
 import { refreshVideoPostUrls } from '@/lib/refresh-post-urls';
 import { YouTubeComments } from '@/components/youtube-comments';
+import { dedupeClipsByStoragePath } from '@/lib/dedupe-clips';
 
 interface Script {
   id: string;
@@ -278,48 +279,50 @@ export async function VideoDetailPageLegacy({ params, searchParams }: PageProps)
       .in('job_id', allJobIds)
       .order('created_at', { ascending: true });
 
-    // Dedupe by storage_path within each index. Every regen (and every
-    // full pipeline run) inserts a fresh clip row for EVERY index — the
-    // index that actually got re-rendered gets a new mp4 path, while
-    // unchanged indices get rows that copy the parent's mp4 path
-    // verbatim. Without dedupe, Yonah's 7-job parsha showed 7 version
-    // chips per clip even though most clips only had 2-3 distinct
-    // renders. Keep the FIRST (oldest by created_at, since the query
-    // sorts ascending) row for each distinct storage_path so version
-    // chips reflect actual content changes, not regen-side-effects.
-    const seenPathPerIndex: Record<number, Set<string>> = {};
+    // Dedupe by storage_path within each index via shared helper.
+    // See dashboard/src/lib/dedupe-clips.ts for the full rationale.
+    // The helper returns the FIRST (oldest by created_at) row for each
+    // distinct storage_path, matching the legacy behavior exactly.
+    const rawClips = (allClips ?? []).map((c) => ({
+      id: c.id as string,
+      index: c.index as number,
+      storage_path: c.storage_path as string | null,
+      created_at: (c.created_at as string | null) ?? new Date(0).toISOString(),
+      job_id: c.job_id as string,
+      voiceover: c.voiceover as string | null,
+      visual_prompt: c.visual_prompt as string | null,
+      duration_s: c.duration_s as number | null,
+    }));
+    const dedupedByIndex = dedupeClipsByStoragePath(rawClips);
 
-    for (const c of (allClips ?? [])) {
-      const idx = c.index as number;
-      const path = c.storage_path as string | null;
-      if (!path) continue; // skip clips without checkpointed mp4
-      if (!seenPathPerIndex[idx]) seenPathPerIndex[idx] = new Set();
-      if (seenPathPerIndex[idx].has(path)) continue;
-      seenPathPerIndex[idx].add(path);
-
+    for (const [idxStr, dedupedClips] of Object.entries(dedupedByIndex)) {
+      const idx = Number(idxStr);
       if (!editableClipsByIndex[idx]) editableClipsByIndex[idx] = [];
-      const t = tierByJobId[c.job_id as string];
-      editableClipsByIndex[idx].push({
-        clipId: c.id as string,
-        jobId: c.job_id as string,
-        voiceover: (c.voiceover as string | null) ?? '',
-        visualPrompt: (c.visual_prompt as string | null) ?? '',
-        storagePath: path,
-        storageUrl: publicVideoUrl(path),
-        createdAt: (c.created_at as string | null) ?? new Date(0).toISOString(),
-        resolution: t?.resolution ?? null,
-        modelTier: t?.modelTier ?? null,
-      });
+      for (const c of dedupedClips) {
+        const path = c.storage_path!; // dedupe helper only includes clips with a path
+        const t = tierByJobId[c.job_id];
+        editableClipsByIndex[idx].push({
+          clipId: c.id,
+          jobId: c.job_id,
+          voiceover: c.voiceover ?? '',
+          visualPrompt: c.visual_prompt ?? '',
+          storagePath: path,
+          storageUrl: publicVideoUrl(path),
+          createdAt: c.created_at,
+          resolution: t?.resolution ?? null,
+          modelTier: t?.modelTier ?? null,
+        });
+      }
       // Always take the LATEST distinct version's duration, not the
       // first. Earlier this guarded `=== undefined`, which froze the
       // displayed duration to whatever the original pipeline run
       // produced — so a regen that lengthened a clip (e.g. the
       // 2026-05-14 Bamidbar recovery where clip 0 was time-stretched
       // from 10s to 11.4s) showed the old "10s" label even though the
-      // actual mp4 played at the new length. The query orders ASC by
-      // created_at, so this assignment ends with the newest distinct
-      // version's value.
-      if (c.duration_s) durationsByIndex[idx] = c.duration_s as number;
+      // actual mp4 played at the new length. dedupedClips is ordered
+      // oldest→newest, so the last entry holds the newest distinct value.
+      const lastClip = dedupedClips[dedupedClips.length - 1];
+      if (lastClip?.duration_s) durationsByIndex[idx] = lastClip.duration_s;
     }
   }
 

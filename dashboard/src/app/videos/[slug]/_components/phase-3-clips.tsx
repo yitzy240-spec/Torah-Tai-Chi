@@ -19,6 +19,7 @@ import { regenClipFromText } from '@/app/actions/regen-clip-from-text';
 import { savePlanClipMotion } from '@/app/actions/video-page/save-plan-clip-motion';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
 import { publicVideoUrl } from '@/lib/storage-url';
+import { dedupeClipsByStoragePath } from '@/lib/dedupe-clips';
 import { MotionPickerSheet } from './_shared/motion-picker-sheet';
 
 // ---------------------------------------------------------------------------
@@ -63,35 +64,22 @@ interface Props {
 }
 
 // ---------------------------------------------------------------------------
-// Dedupe helper (mirrors page-legacy.tsx:290-323 logic)
+// Dedupe helper — thin mapper over the shared dedupeClipsByStoragePath util.
 // ---------------------------------------------------------------------------
 
 /**
- * Given a flat list of clip rows for a single index, dedupes by storage_path
- * (oldest row per distinct path wins, matching legacy behavior). Returns
- * versions ordered oldest → newest so v1 is the original render.
+ * Converts deduplicated ClipRow[] for a single index into ClipVersion[]
+ * (oldest-to-newest, matching legacy behavior).
  */
-function dedupeVersions(rows: ClipRow[]): ClipVersion[] {
-  const seen = new Set<string>();
-  const versions: ClipVersion[] = [];
-  // Sort ascending by created_at so the first (oldest) row per path wins
-  const sorted = [...rows].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-  );
-  for (const r of sorted) {
-    const path = r.storage_path;
-    if (!path || seen.has(path)) continue;
-    seen.add(path);
-    versions.push({
-      id: r.id,
-      storagePath: path,
-      videoUrl: publicVideoUrl(path),
-      duration_s: r.duration_s,
-      motion_ref_slug: r.motion_ref_slug,
-      createdAt: r.created_at,
-    });
-  }
-  return versions;
+function toClipVersions(dedupedRows: ClipRow[]): ClipVersion[] {
+  return dedupedRows.map((r) => ({
+    id: r.id,
+    storagePath: r.storage_path!,
+    videoUrl: publicVideoUrl(r.storage_path!),
+    duration_s: r.duration_s,
+    motion_ref_slug: r.motion_ref_slug,
+    createdAt: r.created_at,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -102,23 +90,25 @@ export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, o
   // Realtime subscription on clips for this job so re-renders appear in-place
   const clips = useRealtimeRows<ClipRow>('clips', 'job_id', jobId, initialClips);
 
-  // Group clips by index
+  // Dedupe all clips by storage_path within each index, then build per-index
+  // structures for rendering. The shared helper handles sorting + deduping.
+  const dedupedByIndex = dedupeClipsByStoragePath(clips);
+  const indexes = Object.keys(dedupedByIndex).map(Number).sort((a, b) => a - b);
+
+  // We still need the full (non-deduped) rows per index to find the latestRow.
   const byIndex = new Map<number, ClipRow[]>();
   for (const c of clips) {
     if (!byIndex.has(c.index)) byIndex.set(c.index, []);
     byIndex.get(c.index)!.push(c);
   }
 
-  // Sorted unique indexes
-  const indexes = [...byIndex.keys()].sort((a, b) => a - b);
-
   return (
     <section>
       {indexes.map((idx) => {
-        const rows = byIndex.get(idx)!;
-        const versions = dedupeVersions(rows);
+        const versions = toClipVersions(dedupedByIndex[idx] ?? []);
         // The "latest" clip row (most recent created_at with a storage_path)
-        const latestRow = rows
+        const allRowsForIdx = byIndex.get(idx) ?? [];
+        const latestRow = allRowsForIdx
           .filter((r) => r.storage_path)
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
 
