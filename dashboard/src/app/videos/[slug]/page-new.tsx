@@ -269,6 +269,19 @@ async function PhaseBody({
           publishedToWebsiteSince={props.publishedToWebsiteSince}
           platforms={props.platforms}
           parshaSlug={props.parshaSlug}
+          videoId={props.videoId}
+          siteTitle={props.siteTitle}
+          siteSubtitle={props.siteSubtitle}
+          siteDescription={props.siteDescription}
+          siteWebsiteCaption={props.siteWebsiteCaption}
+          siteSpokenScript={props.siteSpokenScript}
+          liveJobId={props.liveJobId}
+          captions={props.captions}
+          youtubeTags={props.youtubeTags}
+          socialMetadata={props.socialMetadata}
+          initialPosts={props.livePosts}
+          postUrls={props.postUrls}
+          connectedPlatforms={props.connectedPlatforms}
         />
       </>
     );

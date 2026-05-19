@@ -3,20 +3,46 @@
 // Renders the calm status display per spec §5.1 when a live version exists
 // and no draft is in progress ("live-at-rest" state).
 //
-// Layout: video player on the left (~200px wide on desktop; full width on
-// mobile), LIVE pill + per-channel status list on the right. Footer has
-// "Download mp4" (≥44pt) and outlined "Replace with a new version" button.
+// B2 expansion — layout top-to-bottom:
+//   1. Hero strip: video player + LIVE pill + display title + parsha attribution.
+//   2. Site CMS card: 5 editable fields + "Publish changes" + "Unpublish".
+//   3. Per-platform cards (Phase 5 cards in their "posted" state — published only).
+//   4. Footer: "Download mp4" + "Replace with a new version".
+//
 // "Replace" opens a BottomSheet confirm per spec §5.4; confirm calls onReplace.
 
 'use client';
 import { useState } from 'react';
+import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { BottomSheet } from './bottom-sheet';
+import { LiveSiteCmsCard } from './live-site-cms-card';
+import { TikTokCard } from './posting-cards/tiktok-card';
+import { InstagramCard } from './posting-cards/instagram-card';
+import { YouTubeCard } from './posting-cards/youtube-card';
+import { FacebookCard } from './posting-cards/facebook-card';
+import { XCard } from './posting-cards/x-card';
+import type { Platform } from '@/lib/platforms';
 
 export interface PlatformStatus {
   platform: string;
   postedAt: string | null;
   postUrl: string | null;
   viewsLabel: string | null;
+}
+
+export interface LiveAtRestPost {
+  id: string;
+  platform: string;
+  status: string;
+  created_at: string;
+  scheduled_at: string | null;
+  buffer_update_id: string | null;
+  caption: string | null;
+}
+
+interface SocialMeta {
+  instagram?: { type: 'reel' | 'post'; firstComment?: string };
+  facebook?: { type: 'reel' | 'post'; firstComment?: string };
 }
 
 interface Props {
@@ -32,20 +58,66 @@ interface Props {
   publishedToWebsiteSince: string | null;
   platforms: PlatformStatus[];      // includes website row + social rows
   onReplace: () => void;
+
+  // B2: video ID (for Realtime subscription + CMS card)
+  videoId: string;
+  parshaSlug: string;
+
+  // B2: site CMS fields
+  siteTitle: string;
+  siteSubtitle: string;
+  siteDescription: string;
+  siteWebsiteCaption: string;
+  siteSpokenScript: string;
+
+  // B2: per-platform cards
+  liveJobId: string | null;
+  captions: Record<string, string>;
+  youtubeTags: string[];
+  socialMetadata: SocialMeta | null;
+  initialPosts: LiveAtRestPost[];
+  postUrls: Record<string, string>;
+  connectedPlatforms: Platform[];
 }
 
 export function LiveAtRest(p: Props) {
   const [confirmReplace, setConfirmReplace] = useState(false);
 
+  // Live-update posts from Supabase Realtime (same pattern as Phase5Post)
+  const posts = useRealtimeRows<LiveAtRestPost>('posts', 'video_id', p.videoId, p.initialPosts);
+
+  // Dedupe: keep the latest post per platform
+  const latestPostByPlatform: Record<string, LiveAtRestPost> = {};
+  for (const post of [...posts].sort((a, b) => (a.created_at < b.created_at ? -1 : 1))) {
+    latestPostByPlatform[post.platform] = post;
+  }
+
+  // Only show cards for platforms that have a published post
+  const postedPlatforms = new Set(
+    Object.entries(latestPostByPlatform)
+      .filter(([, post]) => post.status === 'published')
+      .map(([platform]) => platform),
+  );
+
+  const isConnectedAndPosted = (pl: Platform | 'twitter') =>
+    p.connectedPlatforms.includes(pl as Platform) && postedPlatforms.has(pl);
+
+  const captionFor = (key: string): string => p.captions[key] ?? '';
+
+  const jobId = p.liveJobId ?? '';
+
   return (
     <section style={{ width: '100%' }}>
-      {/* Two-column layout: video left, info right (stacks on mobile) */}
+      {/* ------------------------------------------------------------ */}
+      {/* 1. Hero strip: video left, LIVE pill + title + attribution right */}
+      {/* ------------------------------------------------------------ */}
       <div
         style={{
           display: 'flex',
           gap: 18,
           flexWrap: 'wrap',
           alignItems: 'flex-start',
+          marginBottom: 20,
         }}
       >
         {/* Video player */}
@@ -119,7 +191,7 @@ export function LiveAtRest(p: Props) {
             {p.attribution}
           </p>
 
-          {/* Per-channel status list */}
+          {/* Quick status list (compact, for at-a-glance) */}
           <ul
             style={{
               listStyle: 'none',
@@ -176,54 +248,151 @@ export function LiveAtRest(p: Props) {
               );
             })}
           </ul>
+        </div>
+      </div>
 
-          {/* Footer: download + replace */}
+      {/* ------------------------------------------------------------ */}
+      {/* 2. Site CMS card — 5 editable fields + Publish changes / Unpublish */}
+      {/* ------------------------------------------------------------ */}
+      <LiveSiteCmsCard
+        videoId={p.videoId}
+        parshaSlug={p.parshaSlug}
+        websiteUrl={p.websiteUrl}
+        liveSince={p.publishedToWebsiteSince}
+        title={p.siteTitle}
+        subtitle={p.siteSubtitle}
+        description={p.siteDescription}
+        websiteCaption={p.siteWebsiteCaption}
+        spokenScript={p.siteSpokenScript}
+      />
+
+      {/* ------------------------------------------------------------ */}
+      {/* 3. Per-platform posted cards (Phase 5 cards, posted state only) */}
+      {/* ------------------------------------------------------------ */}
+      {jobId && (
+        <div style={{ marginBottom: 20 }}>
           <div
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginTop: 18,
-              paddingTop: 14,
-              borderTop: '1px solid var(--ink-100)',
-              gap: 10,
-              flexWrap: 'wrap',
+              fontSize: 11,
+              color: 'var(--ink-500)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+              marginBottom: 10,
             }}
           >
-            <a
-              href={p.videoMp4Url}
-              download
-              style={{
-                minHeight: 44,
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '0 14px',
-                fontSize: 13,
-                color: 'var(--ink-500)',
-                textDecoration: 'underline',
-              }}
-            >
-              Download mp4
-            </a>
-            <button
-              type="button"
-              onClick={() => setConfirmReplace(true)}
-              style={{
-                minHeight: 44,
-                fontSize: 13,
-                fontWeight: 500,
-                background: 'white',
-                color: 'var(--navy-700)',
-                border: '1px solid var(--navy-700)',
-                borderRadius: 8,
-                padding: '0 16px',
-                cursor: 'pointer',
-              }}
-            >
-              Replace with a new version
-            </button>
+            Social platforms
           </div>
+
+          {isConnectedAndPosted('tiktok') && (
+            <TikTokCard
+              jobId={jobId}
+              videoId={p.videoId}
+              parshaSlug={p.parshaSlug}
+              caption={captionFor('tiktok')}
+              post={latestPostByPlatform['tiktok'] ?? null}
+              postUrl={p.postUrls['tiktok'] ?? null}
+            />
+          )}
+
+          {isConnectedAndPosted('instagram') && (
+            <InstagramCard
+              jobId={jobId}
+              videoId={p.videoId}
+              parshaSlug={p.parshaSlug}
+              caption={captionFor('instagram')}
+              post={latestPostByPlatform['instagram'] ?? null}
+              postUrl={p.postUrls['instagram'] ?? null}
+              socialMetadata={p.socialMetadata}
+            />
+          )}
+
+          {isConnectedAndPosted('youtube') && (
+            <YouTubeCard
+              jobId={jobId}
+              videoId={p.videoId}
+              parshaSlug={p.parshaSlug}
+              youtubeTitle={captionFor('youtube_title')}
+              youtubeDescription={captionFor('youtube_description')}
+              youtubeTags={p.youtubeTags}
+              post={latestPostByPlatform['youtube'] ?? null}
+              postUrl={p.postUrls['youtube'] ?? null}
+              videoMp4Url={p.videoMp4Url}
+              initialThumbUrl={p.thumbPath}
+            />
+          )}
+
+          {isConnectedAndPosted('facebook') && (
+            <FacebookCard
+              jobId={jobId}
+              videoId={p.videoId}
+              parshaSlug={p.parshaSlug}
+              caption={captionFor('facebook')}
+              post={latestPostByPlatform['facebook'] ?? null}
+              postUrl={p.postUrls['facebook'] ?? null}
+              socialMetadata={p.socialMetadata}
+            />
+          )}
+
+          {/* X platform key is 'twitter' in the DB */}
+          {isConnectedAndPosted('twitter') && (
+            <XCard
+              jobId={jobId}
+              videoId={p.videoId}
+              parshaSlug={p.parshaSlug}
+              caption={captionFor('twitter')}
+              post={latestPostByPlatform['twitter'] ?? null}
+              postUrl={p.postUrls['twitter'] ?? null}
+            />
+          )}
         </div>
+      )}
+
+      {/* ------------------------------------------------------------ */}
+      {/* 4. Footer: download + replace */}
+      {/* ------------------------------------------------------------ */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingTop: 14,
+          borderTop: '1px solid var(--ink-100)',
+          gap: 10,
+          flexWrap: 'wrap',
+        }}
+      >
+        <a
+          href={p.videoMp4Url}
+          download
+          style={{
+            minHeight: 44,
+            display: 'inline-flex',
+            alignItems: 'center',
+            padding: '0 14px',
+            fontSize: 13,
+            color: 'var(--ink-500)',
+            textDecoration: 'underline',
+          }}
+        >
+          Download mp4
+        </a>
+        <button
+          type="button"
+          onClick={() => setConfirmReplace(true)}
+          style={{
+            minHeight: 44,
+            fontSize: 13,
+            fontWeight: 500,
+            background: 'white',
+            color: 'var(--navy-700)',
+            border: '1px solid var(--navy-700)',
+            borderRadius: 8,
+            padding: '0 16px',
+            cursor: 'pointer',
+          }}
+        >
+          Replace with a new version
+        </button>
       </div>
 
       {/* Replace confirm bottom-sheet per spec §5.4 */}

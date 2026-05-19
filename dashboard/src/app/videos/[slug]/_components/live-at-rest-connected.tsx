@@ -4,14 +4,21 @@
 // The server component (page-new.tsx) passes parshaId + sourceScriptId as props
 // so this component can call replaceVersion then navigate to Phase 1.
 //
+// B2 expansion: also threads through the site CMS fields + per-platform card data.
 // Mirrors the Phase5PostConnected pattern: data in from server, callbacks out to client.
 
 'use client';
 import { useTransition, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { LiveAtRest } from './live-at-rest';
-import type { PlatformStatus } from './live-at-rest';
+import type { PlatformStatus, LiveAtRestPost } from './live-at-rest';
 import { replaceVersion } from '@/app/actions/video-page/replace-version';
+import type { Platform } from '@/lib/platforms';
+
+interface SocialMeta {
+  instagram?: { type: 'reel' | 'post'; firstComment?: string };
+  facebook?: { type: 'reel' | 'post'; firstComment?: string };
+}
 
 interface Props {
   parshaName: string;
@@ -28,6 +35,25 @@ interface Props {
   publishedToWebsiteSince: string | null;
   platforms: PlatformStatus[];
   parshaSlug: string;
+
+  // B2: video ID
+  videoId: string;
+
+  // B2: site CMS fields
+  siteTitle: string;
+  siteSubtitle: string;
+  siteDescription: string;
+  siteWebsiteCaption: string;
+  siteSpokenScript: string;
+
+  // B2: per-platform cards
+  liveJobId: string | null;
+  captions: Record<string, string>;
+  youtubeTags: string[];
+  socialMetadata: SocialMeta | null;
+  initialPosts: LiveAtRestPost[];
+  postUrls: Record<string, string>;
+  connectedPlatforms: Platform[];
 }
 
 export function LiveAtRestConnected({
@@ -43,6 +69,19 @@ export function LiveAtRestConnected({
   publishedToWebsiteSince,
   platforms,
   parshaSlug,
+  videoId,
+  siteTitle,
+  siteSubtitle,
+  siteDescription,
+  siteWebsiteCaption,
+  siteSpokenScript,
+  liveJobId,
+  captions,
+  youtubeTags,
+  socialMetadata,
+  initialPosts,
+  postUrls,
+  connectedPlatforms,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -83,6 +122,20 @@ export function LiveAtRestConnected({
         publishedToWebsiteSince={publishedToWebsiteSince}
         platforms={platforms}
         onReplace={handleReplace}
+        videoId={videoId}
+        parshaSlug={parshaSlug}
+        siteTitle={siteTitle}
+        siteSubtitle={siteSubtitle}
+        siteDescription={siteDescription}
+        siteWebsiteCaption={siteWebsiteCaption}
+        siteSpokenScript={siteSpokenScript}
+        liveJobId={liveJobId}
+        captions={captions}
+        youtubeTags={youtubeTags}
+        socialMetadata={socialMetadata}
+        initialPosts={initialPosts}
+        postUrls={postUrls}
+        connectedPlatforms={connectedPlatforms}
       />
     </>
   );
