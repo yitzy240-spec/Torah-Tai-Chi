@@ -3,19 +3,23 @@
 // Phase 5 assembly: stacks platform cards in fixed order (Site, TikTok, Instagram, YouTube, Facebook, X).
 // Hides any platform NOT in connectedPlatforms (except Site, which is always shown).
 // Top: "Posted X of Y" progress strip with useRealtimeRows so the count updates live.
+// Includes "Post all" button for platforms with draft captions.
 // Bottom: "← Back to stitched video" link.
 //
 // Receives serializable props from the server component wrapper (phase-5-post-connected.tsx).
 
 'use client';
+import { useState } from 'react';
 import { useRealtimeRows } from '@/hooks/use-realtime-rows';
+import { postAllPlatforms } from '@/app/actions/video-page/post-all-platforms';
+import { BottomSheet } from './bottom-sheet';
 import { SiteCard } from './posting-cards/site-card';
 import { TikTokCard } from './posting-cards/tiktok-card';
 import { InstagramCard } from './posting-cards/instagram-card';
 import { YouTubeCard } from './posting-cards/youtube-card';
 import { FacebookCard } from './posting-cards/facebook-card';
 import { XCard } from './posting-cards/x-card';
-import type { Platform } from '@/lib/platforms';
+import { PLATFORM_DISPLAY, type Platform } from '@/lib/platforms';
 
 interface PostRow {
   id: string;
@@ -67,6 +71,9 @@ interface Props {
 }
 
 export function Phase5Post(p: Props) {
+  const [postAllOpen, setPostAllOpen] = useState(false);
+  const [postAllLoading, setPostAllLoading] = useState(false);
+
   // Live-update posts from Supabase Realtime (filtered by video_id).
   const posts = useRealtimeRows<PostRow>('posts', 'video_id', p.videoId, p.initialPosts);
 
@@ -85,14 +92,42 @@ export function Phase5Post(p: Props) {
   ).length;
   const totalPosted = sitePosted + socialPosted;
 
+  // Platforms with draft captions that haven't been posted yet
+  const remaining = socialPlatforms.filter(
+    (pl) => p.captions[pl] && !latestPostByPlatform[pl]?.status?.startsWith('publish'),
+  );
+
   const isConnected = (pl: Platform) => p.connectedPlatforms.includes(pl);
 
   const captionFor = (key: string): string =>
     p.captions[key] ?? '';
 
+  const handlePostAll = async () => {
+    setPostAllLoading(true);
+    try {
+      const result = await postAllPlatforms({
+        videoId: p.videoId,
+        captions: p.captions,
+        platforms: remaining,
+        shareNow: true,
+      });
+
+      if (result.errors && result.errors.length > 0 && (!result.results || result.results.length === 0)) {
+        // All platforms failed
+        console.error('Post all failed:', result.errors);
+      }
+      // Realtime will update the posts; no explicit state update needed
+    } catch (e) {
+      console.error('Error posting all platforms:', e);
+    } finally {
+      setPostAllLoading(false);
+      setPostAllOpen(false);
+    }
+  };
+
   return (
     <section>
-      {/* Progress strip */}
+      {/* Progress strip with Post all button */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -103,14 +138,62 @@ export function Phase5Post(p: Props) {
         borderRadius: 10,
         fontSize: 13,
         marginBottom: 16,
+        gap: 12,
       }}>
         <span>
           <strong>Posted: {totalPosted} of {totalPlatforms}</strong>
         </span>
-        <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>
-          {totalPosted >= totalPlatforms ? 'All done!' : `${totalPlatforms - totalPosted} remaining`}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {remaining.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPostAllOpen(true)}
+              disabled={postAllLoading}
+              style={{
+                minHeight: 32,
+                minWidth: 120,
+                fontSize: 13,
+                fontWeight: 500,
+                background: postAllLoading ? 'var(--ink-300)' : 'var(--navy-700)',
+                color: 'var(--linen-50)',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 12px',
+                cursor: postAllLoading ? 'not-allowed' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {postAllLoading ? 'Posting...' : `Post all (${remaining.length})`}
+            </button>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>
+            {totalPosted >= totalPlatforms ? 'All done!' : `${totalPlatforms - totalPosted} remaining`}
+          </span>
+        </div>
       </div>
+
+      {/* Post all confirmation sheet */}
+      <BottomSheet
+        open={postAllOpen}
+        onOpenChange={setPostAllOpen}
+        title={`Post to all ${remaining.length} platform${remaining.length === 1 ? '' : 's'}?`}
+        primaryAction={{
+          label: 'Post now',
+          onClick: handlePostAll,
+        }}
+        secondaryAction={{
+          label: 'Cancel',
+          onClick: () => setPostAllOpen(false),
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {remaining.map((pl) => (
+            <div key={pl} style={{ fontSize: 14, color: 'var(--ink-700)' }}>
+              {PLATFORM_DISPLAY[pl]}
+            </div>
+          ))}
+        </div>
+      </BottomSheet>
 
       {/* Site card — always shown */}
       <SiteCard
