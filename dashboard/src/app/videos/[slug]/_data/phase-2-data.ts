@@ -5,9 +5,11 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { listTaiChiMoves } from '@/lib/tai-chi-moves';
+import { getRefImageLibrary } from '@/lib/ref-image-library';
 import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
+import type { RefImage } from '@/app/videos/[slug]/_components/_shared/reference-image-picker-sheet';
 
 export type Phase2Clip = {
   id: string;
@@ -17,6 +19,8 @@ export type Phase2Clip = {
   duration_s: number | null;
   storage_path: string | null;
   motion_ref_slug: string | null;
+  reference_image_paths: string[] | null;
+  chain_broken: boolean;
 };
 
 export type Phase2Props = {
@@ -27,6 +31,7 @@ export type Phase2Props = {
   totalCostEstimateUsd: number | null;
   tierLabel: string;
   moves: TaiChiMove[];
+  refImageLibrary: RefImage[];
 };
 
 export async function getPhase2Props(
@@ -40,7 +45,7 @@ export async function getPhase2Props(
   const [clipsResult, jobDetailsResult, moves] = await Promise.all([
     supabase
       .from('clips')
-      .select('id, index, voiceover, visual_prompt, duration_s, storage_path, motion_ref_slug')
+      .select('id, index, voiceover, visual_prompt, duration_s, storage_path, motion_ref_slug, reference_image_paths, chain_broken')
       .eq('job_id', draftJobId)
       .order('index'),
     supabase.from('jobs').select('resolution, model_tier').eq('id', draftJobId).single(),
@@ -55,6 +60,8 @@ export async function getPhase2Props(
     duration_s: (c.duration_s as number | null) ?? null,
     storage_path: (c.storage_path as string | null) ?? null,
     motion_ref_slug: (c.motion_ref_slug as string | null) ?? null,
+    reference_image_paths: (c.reference_image_paths as string[] | null) ?? null,
+    chain_broken: (c.chain_broken as boolean | null) ?? false,
   }));
 
   const draftJobDetails = jobDetailsResult.data;
@@ -73,5 +80,6 @@ export async function getPhase2Props(
     totalCostEstimateUsd,
     tierLabel,
     moves,
+    refImageLibrary: getRefImageLibrary(),
   };
 }

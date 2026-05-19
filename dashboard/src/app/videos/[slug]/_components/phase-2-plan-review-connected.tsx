@@ -8,6 +8,7 @@
 
 'use client';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
+import type { RefImage } from './_shared/reference-image-picker-sheet';
 import { Phase2PlanReview } from './phase-2-plan-review';
 
 interface Clip {
@@ -18,6 +19,8 @@ interface Clip {
   duration_s: number | null;
   storage_path: string | null;
   motion_ref_slug: string | null;
+  reference_image_paths: string[] | null;
+  chain_broken: boolean;
 }
 
 interface Props {
@@ -28,6 +31,7 @@ interface Props {
   totalCostEstimateUsd: number | null;
   tierLabel: string;
   moves: TaiChiMove[];
+  refImageLibrary: RefImage[];
 }
 
 export function Phase2PlanReviewConnected(props: Props) {
@@ -45,6 +49,7 @@ export function Phase2PlanReviewConnected(props: Props) {
   return (
     <Phase2PlanReview
       {...props}
+      refImageLibrary={props.refImageLibrary}
       onAdvance={handleAdvance}
       onBack={handleBack}
     />

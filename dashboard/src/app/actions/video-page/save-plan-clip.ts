@@ -12,7 +12,7 @@ import { revalidatePath } from 'next/cache';
  */
 export async function savePlanClip(
   clipId: string,
-  patch: { voiceover?: string; visual_prompt?: string },
+  patch: { voiceover?: string; visual_prompt?: string; duration_s?: number },
 ): Promise<void> {
   const supabase = await createClient();
   const {
