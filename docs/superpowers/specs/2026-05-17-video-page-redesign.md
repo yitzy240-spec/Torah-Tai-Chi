@@ -253,6 +253,10 @@ Today the page does ~12 sequential Supabase queries (parsha → defaultTier → 
 3. **Stream the shell** via Next.js `Suspense` boundaries. First paint shows the header + stepper + live-status strip immediately; per-phase body streams in.
 4. **Target:** first paint <500ms on a 4G iPhone, full data <1.5s.
 
+**Implementation status (Milestone 7):** Implemented in `page-new.tsx`. Shell fetch (parsha + jobs) runs in 2 serial round-trips; videos/posts/clips inside the shell fetch run in parallel via `Promise.all`. Per-phase data fetches moved to `<PhaseBody>` (async server component) behind a `<Suspense>` boundary so the shell (header + live-strip + stepper) renders on first paint.
+
+<!-- TODO(milestone-8): measure first-paint / LCP / TTI numbers via Lighthouse mobile against a real published parsha after the flag is flipped. Document numbers here. Target: first paint <500ms, LCP <1.5s. -->
+
 ## 9. Cross-cutting pillar — honest labels
 
 Per `feedback_no_estimates_in_action_labels.md`:
