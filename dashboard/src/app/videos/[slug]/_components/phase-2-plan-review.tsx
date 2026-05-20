@@ -1,22 +1,22 @@
 // dashboard/src/app/videos/[slug]/_components/phase-2-plan-review.tsx
 //
-// Phase 2: Plan review. Per-clip cards with:
-//   - Voiceover + scene direction text editing
-//   - Duration control (3-15s)
-//   - Tai Chi move picker
-//   - Reference image picker (9-slot meter, chain-broken banner)
-//   - Per-card remove action (bottom sheet confirm)
-//   - Inline help text per feature
-//   - Per-card "Generate this clip" (outlined secondary)
+// Phase 2: Plan review. Each clip is a compact card:
+//   - Header: clip label + duration input + remove (×)
+//   - Voiceover textarea (primary surface, auto-sized, no label)
+//   - WPS indicator
+//   - Action chip row: ▸ Scene direction · + Move · + Refs
+//     · Scene direction expands inline within the card
+//     · Move opens MotionPickerSheet (bottom sheet)
+//     · Refs opens ReferenceImagePickerSheet (bottom sheet)
+//   - Chain-broken note (compact, only when relevant)
 //
-// Sticky bottom "Generate all N clips →" (filled primary). Realtime
-// subscription on clips via useRealtimeRows.
+// One CTA per view (Von Restorff): the sticky bottom "Generate all N
+// clips →" is the only primary action. Per-card generate was removed
+// from the card head — it competed with the bottom CTA and added
+// cognitive load to every card. If we need per-clip regen later it
+// belongs in an overflow menu.
 //
-// CTA hierarchy per spec §4:
-//   - Per-card "Generate this clip" → OUTLINED secondary (not filled)
-//   - Sticky "Generate all N clips →" → FILLED primary navy
-//
-// Per spec §4 Phase 2 + §B4.
+// Realtime subscription on clips via useRealtimeRows.
 
 'use client';
 import { useState, useCallback } from 'react';
@@ -103,21 +103,31 @@ export function Phase2PlanReview({
 
   return (
     <section>
-      {/* Header strip: clip count + cost estimate */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          fontSize: 13,
-          marginBottom: 14,
-        }}
-      >
-        <span style={{ color: 'var(--ink-700)' }}>{clips.length} clips</span>
+      {/* Header strip: two-line so cost can't truncate on narrow widths */}
+      <div style={{ marginBottom: 18 }}>
+        <div
+          style={{
+            fontFamily: 'var(--ff-display)',
+            fontSize: 17,
+            fontWeight: 500,
+            color: 'var(--ink-900)',
+            letterSpacing: '-0.01em',
+          }}
+        >
+          {clips.length} {clips.length === 1 ? 'clip' : 'clips'}
+        </div>
         {totalCostEstimateUsd !== null && (
-          <span style={{ color: 'var(--ink-500)', fontStyle: 'italic', fontSize: 12 }}>
-            Estimated cost: ~${totalCostEstimateUsd.toFixed(2)} at {tierLabel}
-          </span>
+          <div
+            style={{
+              fontFamily: 'var(--ff-display)',
+              fontStyle: 'italic',
+              fontSize: 12.5,
+              color: 'var(--ink-500)',
+              marginTop: 2,
+            }}
+          >
+            ~${totalCostEstimateUsd.toFixed(2)} estimated at {tierLabel}
+          </div>
         )}
       </div>
 
@@ -199,14 +209,14 @@ interface CardProps {
   refImageLibrary: RefImage[];
 }
 
-function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: CardProps) {
+function PlanClipCard({ clip, parshaSlug, moves, refImageLibrary }: CardProps) {
   const [motionPickerOpen, setMotionPickerOpen] = useState(false);
   const [refPickerOpen, setRefPickerOpen] = useState(false);
   const [removeSheetOpen, setRemoveSheetOpen] = useState(false);
+  const [sceneExpanded, setSceneExpanded] = useState(false);
   const [motionSlug, setMotionSlug] = useState<string | null>(clip.motion_ref_slug);
   const [refPaths, setRefPaths] = useState<string[]>(clip.reference_image_paths ?? []);
   const [chainBroken, setChainBroken] = useState<boolean>(clip.chain_broken);
-  const [generatingThis, setGeneratingThis] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [breakingChain, setBreakingChain] = useState(false);
 
@@ -242,19 +252,6 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: 
 
   const fb = analyzeClip(voTxt, durationS);
   const currentMove = moves.find((m) => m.slug === motionSlug) ?? null;
-
-  async function generateThis() {
-    setGeneratingThis(true);
-    try {
-      await triggerClips(clipPlanId, [clip.index]);
-    } catch (e) {
-      toast.error("Couldn't start clip generation.", {
-        description: (e as Error).message,
-      });
-    } finally {
-      setGeneratingThis(false);
-    }
-  }
 
   async function pickMotion(slug: string | null) {
     const prev = motionSlug;
@@ -351,44 +348,37 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: 
     <div
       style={{
         border: '1px solid var(--ink-100)',
-        borderRadius: 10,
-        padding: 12,
-        marginBottom: 12,
-        background: 'var(--linen-50)',
+        borderRadius: 12,
+        padding: '16px 16px 14px',
+        marginBottom: 14,
+        background: 'white',
         opacity: removing ? 0.5 : 1,
         transition: 'opacity 0.2s',
       }}
     >
-      {/* Card header: clip label + duration + per-card generate + remove */}
+      {/* Compact header: clip label + duration + remove */}
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           marginBottom: 10,
-          gap: 8,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span
             style={{
-              fontSize: 11,
-              color: 'var(--ink-500)',
+              fontFamily: 'var(--ff-body)',
+              fontSize: 10.5,
+              letterSpacing: '0.14em',
               textTransform: 'uppercase',
-              letterSpacing: '0.1em',
-              flexShrink: 0,
+              color: 'var(--cedar-600)',
+              fontWeight: 600,
             }}
           >
             Clip {clip.index + 1}
           </span>
-          {/* Duration inline control */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <label
-              style={{ fontSize: 11, color: 'var(--ink-500)', whiteSpace: 'nowrap' }}
-              htmlFor={`dur-${clip.id}`}
-            >
-              ·
-            </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <input
               id={`dur-${clip.id}`}
               type="number"
@@ -396,217 +386,207 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: 
               max={DURATION_MAX}
               step={1}
               value={durationS}
+              aria-label={`Clip ${clip.index + 1} duration in seconds`}
               onChange={(e) => setDurationS(Number(e.target.value))}
               onBlur={(e) => saveDuration(Number(e.target.value))}
               style={{
-                width: 44,
-                minHeight: 32,
-                fontSize: 14,
+                width: 40,
+                height: 26,
+                fontSize: 13,
                 textAlign: 'center',
                 border: '1px solid var(--ink-100)',
-                borderRadius: 6,
+                borderRadius: 5,
                 background: 'white',
-                padding: '4px 6px',
+                padding: '2px 4px',
                 boxSizing: 'border-box',
               }}
             />
             <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>s</span>
           </div>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {/* Secondary outlined generate button */}
-          <button
-            type="button"
-            onClick={generateThis}
-            disabled={generatingThis || removing}
-            style={{
-              minHeight: 44,
-              padding: '8px 14px',
-              fontSize: 13,
-              fontWeight: 500,
-              background: 'white',
-              color: 'var(--navy-700)',
-              border: '1px solid var(--navy-700)',
-              borderRadius: 8,
-              cursor: generatingThis ? 'wait' : 'pointer',
-              opacity: generatingThis ? 0.7 : 1,
-            }}
-          >
-            {generatingThis ? 'Starting…' : 'Generate this clip'}
-          </button>
-          {/* Remove button */}
-          <button
-            type="button"
-            onClick={() => setRemoveSheetOpen(true)}
-            disabled={removing}
-            title="Remove this clip"
-            style={{
-              minHeight: 44,
-              minWidth: 44,
-              padding: '8px 10px',
-              fontSize: 16,
-              background: 'white',
-              color: 'var(--ink-500)',
-              border: '1px solid var(--ink-100)',
-              borderRadius: 8,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ×
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setRemoveSheetOpen(true)}
+          disabled={removing}
+          aria-label="Remove this clip"
+          style={{
+            width: 32,
+            height: 32,
+            padding: 0,
+            fontSize: 18,
+            lineHeight: 1,
+            background: 'transparent',
+            color: 'var(--ink-500)',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          ×
+        </button>
       </div>
 
-      {/* Duration help text */}
-      <p
-        style={{
-          margin: '0 0 10px',
-          fontSize: 11,
-          color: 'var(--ink-500)',
-          fontStyle: 'italic',
-          lineHeight: 1.4,
-        }}
-      >
-        Target clip length (3–15s). Seedance may adjust slightly to fit the voiceover at 2.6 words/sec.
-      </p>
-
-      {/* Voiceover */}
-      <label
-        style={{ display: 'block', fontSize: 11, color: 'var(--ink-700)', marginBottom: 3 }}
-      >
-        Voiceover
-      </label>
-      <p
-        style={{
-          margin: '0 0 4px',
-          fontSize: 11,
-          color: 'var(--ink-500)',
-          fontStyle: 'italic',
-          lineHeight: 1.4,
-        }}
-      >
-        What the character speaks. Write Hebrew/pinyin words phonetically
-        (ha-SHEM, t&apos;AI-chee) so Seedance pronounces them correctly.
-      </p>
+      {/* Voiceover — primary surface, no label, auto-grows */}
       <textarea
         value={voTxt}
+        ref={(el) => { if (el) autoSize(el); }}
         onChange={(e) => {
+          autoSize(e.currentTarget);
           setVoTxt(e.target.value);
           voSave.update(e.target.value);
         }}
+        placeholder="Voiceover…"
         style={{
           width: '100%',
-          minHeight: 64,
-          padding: 8,
-          fontSize: 16, // 16pt prevents iOS auto-zoom
+          minHeight: 110,
+          padding: '14px 16px',
+          fontSize: 16,
+          lineHeight: 1.55,
           border: '1px solid var(--ink-100)',
-          borderRadius: 6,
-          background: 'white',
-          fontFamily: 'inherit',
-          resize: 'vertical',
+          borderRadius: 10,
+          background: 'var(--linen-50)',
+          fontFamily: 'var(--ff-reading, var(--ff-body))',
+          color: 'var(--ink-900)',
+          resize: 'none',
+          overflow: 'hidden',
           boxSizing: 'border-box',
+          outline: 'none',
         }}
       />
-      <div style={{ fontSize: 10.5, color: 'var(--ink-500)', marginTop: 3 }}>
-        {fb.words} words
-        {durationS ? ` · ${fb.wps.toFixed(1)} wps` : ''}
+      <div
+        style={{
+          fontSize: 11.5,
+          color: 'var(--ink-500)',
+          marginTop: 6,
+          display: 'flex',
+          gap: 6,
+          alignItems: 'center',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        <span>{fb.words} words</span>
+        <span style={{ opacity: 0.5 }}>·</span>
+        <span>{fb.wps.toFixed(1)} wps</span>
         {fb.warning === 'tight' ? (
-          <span style={{ color: 'var(--tassel)' }}> ⚠ tight</span>
+          <span style={{ color: 'var(--tassel)', marginLeft: 2 }}>⚠ tight</span>
         ) : (
-          <span style={{ color: 'var(--jade)' }}> ✓</span>
+          <span style={{ color: 'var(--jade)', marginLeft: 2 }}>✓</span>
         )}
       </div>
 
-      {/* Scene direction */}
-      <label
+      {/* Compact action chip row */}
+      <div
         style={{
-          display: 'block',
-          fontSize: 11,
-          color: 'var(--ink-700)',
-          margin: '10px 0 3px',
-        }}
-      >
-        Scene direction
-      </label>
-      <p
-        style={{
-          margin: '0 0 4px',
-          fontSize: 11,
-          color: 'var(--ink-500)',
-          fontStyle: 'italic',
-          lineHeight: 1.4,
-        }}
-      >
-        Describes the visual scene Seedance generates. Be specific about setting, character pose, mood.
-      </p>
-      <textarea
-        value={scTxt}
-        onChange={(e) => {
-          setScTxt(e.target.value);
-          scSave.update(e.target.value);
-        }}
-        style={{
-          width: '100%',
-          minHeight: 64,
-          padding: 8,
-          fontSize: 16,
-          border: '1px solid var(--ink-100)',
-          borderRadius: 6,
-          background: 'white',
-          fontFamily: 'inherit',
-          resize: 'vertical',
-          boxSizing: 'border-box',
-        }}
-      />
-
-      {/* Tai Chi move picker (spec §6.5) */}
-      <label
-        style={{
-          display: 'block',
-          fontSize: 11,
-          color: 'var(--ink-700)',
-          margin: '10px 0 3px',
-        }}
-      >
-        Tai Chi move
-      </label>
-      <p
-        style={{
-          margin: '0 0 4px',
-          fontSize: 11,
-          color: 'var(--ink-500)',
-          fontStyle: 'italic',
-          lineHeight: 1.4,
-        }}
-      >
-        Optional motion reference — Seedance uses the move&apos;s video to guide the character&apos;s body movement.
-      </p>
-      <button
-        type="button"
-        onClick={() => setMotionPickerOpen(true)}
-        style={{
-          width: '100%',
-          minHeight: 44,
-          padding: '10px 12px',
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          background: 'white',
-          border: '1px solid var(--ink-100)',
-          borderRadius: 6,
-          fontSize: 14,
-          cursor: 'pointer',
-          boxSizing: 'border-box',
+          gap: 6,
+          marginTop: 14,
+          flexWrap: 'wrap',
         }}
       >
-        <span>{currentMove ? `🥋 ${currentMove.english}` : 'No move assigned'}</span>
-        <span style={{ color: 'var(--ink-500)' }}>▾</span>
-      </button>
+        <Chip
+          active={sceneExpanded}
+          onClick={() => setSceneExpanded((s) => !s)}
+          ariaExpanded={sceneExpanded}
+        >
+          <span style={{ display: 'inline-block', width: 10, transform: sceneExpanded ? 'rotate(90deg)' : 'none', transition: 'transform var(--trans)' }}>▸</span>
+          {' '}Scene direction
+        </Chip>
+        <Chip
+          filled={!!currentMove}
+          onClick={() => setMotionPickerOpen(true)}
+        >
+          {currentMove ? `🥋 ${currentMove.english}` : '+ Move'}
+        </Chip>
+        <Chip
+          filled={refPaths.length > 0}
+          onClick={() => setRefPickerOpen(true)}
+        >
+          {refPaths.length > 0
+            ? `📷 ${refPaths.length} ref${refPaths.length === 1 ? '' : 's'}`
+            : '+ Refs'}
+        </Chip>
+      </div>
 
+      {/* Inline expansion: scene direction */}
+      {sceneExpanded && (
+        <div style={{ marginTop: 10 }}>
+          <textarea
+            value={scTxt}
+            ref={(el) => { if (el) autoSize(el); }}
+            onChange={(e) => {
+              autoSize(e.currentTarget);
+              setScTxt(e.target.value);
+              scSave.update(e.target.value);
+            }}
+            placeholder="Describe the visual scene…"
+            style={{
+              width: '100%',
+              minHeight: 90,
+              padding: '12px 14px',
+              fontSize: 16,
+              lineHeight: 1.55,
+              border: '1px solid var(--ink-100)',
+              borderRadius: 10,
+              background: 'var(--linen-50)',
+              fontFamily: 'var(--ff-reading, var(--ff-body))',
+              color: 'var(--ink-900)',
+              resize: 'none',
+              overflow: 'hidden',
+              boxSizing: 'border-box',
+              outline: 'none',
+            }}
+          />
+        </div>
+      )}
+
+      {/* Chain-broken note — only visible when relevant, kept compact */}
+      {chainedBannerVisible && (
+        <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--ink-500)', lineHeight: 1.5 }}>
+          Chained from previous clip&apos;s last frame; refs ignored.{' '}
+          <button
+            type="button"
+            onClick={handleBreakChain}
+            disabled={breakingChain}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              color: 'var(--navy-700)',
+              textDecoration: 'underline',
+              fontSize: 11.5,
+              cursor: breakingChain ? 'wait' : 'pointer',
+            }}
+          >
+            {breakingChain ? 'Updating…' : 'Break chain'}
+          </button>
+        </div>
+      )}
+      {chainBroken && clip.index > 0 && (
+        <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--ink-500)', lineHeight: 1.5 }}>
+          Chain broken — refs active.{' '}
+          <button
+            type="button"
+            onClick={handleBreakChain}
+            disabled={breakingChain}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              color: 'var(--ink-500)',
+              textDecoration: 'underline',
+              fontSize: 11.5,
+              cursor: breakingChain ? 'wait' : 'pointer',
+            }}
+          >
+            {breakingChain ? 'Updating…' : 'Restore chain'}
+          </button>
+        </div>
+      )}
+
+      {/* Bottom sheets — rendered via portal, hidden when closed */}
       <MotionPickerSheet
         open={motionPickerOpen}
         onOpenChange={setMotionPickerOpen}
@@ -614,219 +594,6 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: 
         currentSlug={motionSlug}
         onPick={pickMotion}
       />
-
-      {/* Reference images section */}
-      <div style={{ margin: '10px 0 0' }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 3,
-          }}
-        >
-          <label style={{ fontSize: 11, color: 'var(--ink-700)' }}>
-            Reference images
-          </label>
-          <span
-            style={{
-              fontSize: 11,
-              color: refSlotsFull ? 'var(--tassel)' : 'var(--ink-500)',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {refCount} of {MAX_REF_IMAGES} used
-          </span>
-        </div>
-        <p
-          style={{
-            margin: '0 0 6px',
-            fontSize: 11,
-            color: 'var(--ink-500)',
-            fontStyle: 'italic',
-            lineHeight: 1.4,
-          }}
-        >
-          Up to 9 images per clip — character anchor, dojo background, Jewish ritual props. Used to keep visuals consistent.
-          {motionSlug && (
-            <> Motion reference active — reference images still applied alongside motion.</>
-          )}
-        </p>
-
-        {/* Chain-broken banner — shown when index > 0 and not yet broken */}
-        {chainedBannerVisible ? (
-          <div
-            style={{
-              background: 'var(--linen-100)',
-              border: '1px solid var(--ink-100)',
-              borderRadius: 8,
-              padding: '8px 12px',
-              fontSize: 12,
-              color: 'var(--ink-700)',
-              lineHeight: 1.5,
-              marginBottom: 8,
-            }}
-          >
-            This clip is chained from the previous clip&apos;s last frame for visual continuity.
-            Reference images are not used while chained.{' '}
-            <button
-              type="button"
-              onClick={handleBreakChain}
-              disabled={breakingChain}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: 0,
-                color: 'var(--navy-700)',
-                textDecoration: 'underline',
-                fontSize: 12,
-                cursor: breakingChain ? 'wait' : 'pointer',
-              }}
-            >
-              {breakingChain ? 'Updating…' : 'Break chain →'}
-            </button>
-          </div>
-        ) : chainBroken && clip.index > 0 ? (
-          <div
-            style={{
-              background: 'var(--linen-100)',
-              border: '1px solid var(--ink-100)',
-              borderRadius: 8,
-              padding: '8px 12px',
-              fontSize: 12,
-              color: 'var(--ink-700)',
-              lineHeight: 1.5,
-              marginBottom: 8,
-            }}
-          >
-            Chain broken — reference images will be used.{' '}
-            <button
-              type="button"
-              onClick={handleBreakChain}
-              disabled={breakingChain}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: 0,
-                color: 'var(--ink-500)',
-                textDecoration: 'underline',
-                fontSize: 12,
-                cursor: breakingChain ? 'wait' : 'pointer',
-              }}
-            >
-              {breakingChain ? 'Updating…' : 'Restore chain'}
-            </button>
-          </div>
-        ) : null}
-
-        {/* Thumbnail row */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 6,
-            overflowX: 'auto',
-            paddingBottom: 4,
-            alignItems: 'center',
-          }}
-        >
-          {refPaths.map((path) => {
-            const img = refImageLibrary.find((r) => r.path === path);
-            return (
-              <div
-                key={path}
-                style={{
-                  position: 'relative',
-                  flexShrink: 0,
-                  width: 50,
-                  height: 50,
-                  borderRadius: 6,
-                  border: '1px solid var(--ink-100)',
-                  overflow: 'hidden',
-                  background: 'var(--linen-50)',
-                }}
-              >
-                {img?.thumbUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={img.thumbUrl}
-                    alt={img.label}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      background: 'var(--ink-100)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 9,
-                      color: 'var(--ink-500)',
-                      textAlign: 'center',
-                      padding: 2,
-                    }}
-                  >
-                    {img?.label ?? path.split('/').pop()}
-                  </div>
-                )}
-                {/* Remove × button */}
-                <button
-                  type="button"
-                  onClick={() => removeRef(path)}
-                  title={`Remove ${img?.label ?? path}`}
-                  style={{
-                    position: 'absolute',
-                    top: 1,
-                    right: 1,
-                    width: 16,
-                    height: 16,
-                    borderRadius: '50%',
-                    background: 'rgba(0,0,0,0.55)',
-                    border: 'none',
-                    color: 'white',
-                    fontSize: 10,
-                    lineHeight: 1,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: 0,
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })}
-
-          {/* Add button */}
-          <button
-            type="button"
-            onClick={() => setRefPickerOpen(true)}
-            disabled={refSlotsFull}
-            title={refSlotsFull ? 'Full — remove one to add another' : 'Add reference image'}
-            style={{
-              flexShrink: 0,
-              width: 50,
-              height: 50,
-              borderRadius: 6,
-              border: '1px dashed var(--ink-300)',
-              background: 'white',
-              cursor: refSlotsFull ? 'not-allowed' : 'pointer',
-              opacity: refSlotsFull ? 0.45 : 1,
-              fontSize: 20,
-              color: 'var(--ink-500)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            +
-          </button>
-        </div>
-      </div>
-
       <ReferenceImagePickerSheet
         open={refPickerOpen}
         onOpenChange={setRefPickerOpen}
@@ -835,8 +602,6 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: 
         onAdd={addRef}
         onRemove={removeRef}
       />
-
-      {/* Remove clip confirmation bottom sheet */}
       <BottomSheet
         open={removeSheetOpen}
         onOpenChange={setRemoveSheetOpen}
@@ -854,5 +619,66 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: 
         Any rendered clip mp4 is also deleted. This can&apos;t be undone.
       </BottomSheet>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Auto-resize a textarea to fit its content. Called on mount via ref
+ * callback and on every change. Sets height to scrollHeight after
+ * resetting to 'auto' so it can both grow and shrink as text changes.
+ */
+function autoSize(el: HTMLTextAreaElement) {
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
+/**
+ * Compact pill button used for the per-card action row (Scene direction,
+ * Move, Refs). White when empty, linen-tinted when active/filled. Active
+ * = section currently expanded; filled = has a value attached.
+ */
+function Chip({
+  children,
+  active,
+  filled,
+  onClick,
+  ariaExpanded,
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  filled?: boolean;
+  onClick: () => void;
+  ariaExpanded?: boolean;
+}) {
+  const tinted = active || filled;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={ariaExpanded}
+      style={{
+        minHeight: 32,
+        padding: '6px 12px',
+        fontSize: 12.5,
+        fontWeight: 500,
+        fontFamily: 'var(--ff-body)',
+        background: tinted ? 'var(--linen-100)' : 'white',
+        color: tinted ? 'var(--ink-900)' : 'var(--ink-700)',
+        border: `1px solid ${tinted ? 'var(--ink-200)' : 'var(--ink-100)'}`,
+        borderRadius: 999,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        transition: 'all var(--trans)',
+      }}
+    >
+      {children}
+    </button>
   );
 }
