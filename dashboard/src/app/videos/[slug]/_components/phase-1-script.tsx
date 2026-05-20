@@ -45,6 +45,7 @@ interface Props {
   scripts: Script[];
   defaultScript: Script;
   onAdvance: () => void;
+  advancing?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,8 +190,19 @@ function AdvanceBar({ onAdvance, isPending }: { onAdvance: () => void; isPending
           opacity: isPending ? 0.7 : 1,
         }}
       >
-        Next: review clip plan &rarr;
+        {isPending ? 'Generating clip plan…' : 'Generate clip plan →'}
       </button>
+      <p
+        style={{
+          textAlign: 'center',
+          fontSize: 12,
+          color: 'var(--ink-500)',
+          fontStyle: 'italic',
+          margin: '8px 0 0',
+        }}
+      >
+        Usually takes 1–2 minutes
+      </p>
     </div>
   );
 }
@@ -677,12 +689,8 @@ function DiffView({ changes }: { changes: Change[] }) {
 // Root component
 // ---------------------------------------------------------------------------
 
-export function Phase1Script({ parshaSlug, scripts, defaultScript, onAdvance }: Props) {
+export function Phase1Script({ parshaSlug, scripts, defaultScript, onAdvance, advancing = false }: Props) {
   const [activeTab, setActiveTab] = useState<TabKind>('pick');
-
-  // Determine if we can advance (always allowed — the connected wrapper
-  // decides the actual action based on what script is in the DB)
-  const canAdvance = true;
 
   return (
     <section>
@@ -707,7 +715,7 @@ export function Phase1Script({ parshaSlug, scripts, defaultScript, onAdvance }: 
 
       {activeTab === 'from-idea' && <FromIdeaMode parshaSlug={parshaSlug} />}
 
-      <AdvanceBar onAdvance={onAdvance} isPending={!canAdvance} />
+      <AdvanceBar onAdvance={onAdvance} isPending={advancing} />
     </section>
   );
 }

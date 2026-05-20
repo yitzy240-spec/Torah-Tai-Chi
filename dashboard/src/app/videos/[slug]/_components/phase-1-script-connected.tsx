@@ -61,6 +61,7 @@ export function Phase1ScriptConnected({
       scripts={scripts}
       defaultScript={defaultScript}
       onAdvance={handleAdvance}
+      advancing={advancing}
     />
   );
 }
