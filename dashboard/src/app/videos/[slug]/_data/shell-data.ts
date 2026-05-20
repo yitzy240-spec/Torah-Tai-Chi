@@ -68,16 +68,32 @@ export async function fetchPageShellData(
 ): Promise<ShellData | null> {
   const supabase = await createClient();
 
-  // Step 1: parsha + scripts (must be first — slug → parsha.id)
-  const { data: parshaRaw, error: parshaErr } = await supabase
+  // Step 1: parsha (no embeds — same defensive reasoning as the videos /
+  // clip_plans fetches below: supabase embeds proved unreliable on this
+  // schema, sometimes returning empty arrays even when rows exist).
+  // Scripts fetched separately right after.
+  const { data: parshaRow, error: parshaErr } = await supabase
     .from('parshiot')
-    .select('id, name, book, slug, hebrew_name, scripts(id, option, title, draft_text)')
+    .select('id, name, book, slug, hebrew_name')
     .eq('slug', slug)
     .single();
 
-  if (parshaErr || !parshaRaw) return null;
+  if (parshaErr || !parshaRow) return null;
 
-  const parsha = parshaRaw as ShellParsha;
+  const { data: scriptsRaw } = await supabase
+    .from('scripts')
+    .select('id, option, title, draft_text')
+    .eq('parsha_id', parshaRow.id as string)
+    .order('option', { ascending: true });
+
+  const parsha: ShellParsha = {
+    id: parshaRow.id as string,
+    name: parshaRow.name as string,
+    book: parshaRow.book as string,
+    slug: parshaRow.slug as string,
+    hebrew_name: (parshaRow.hebrew_name as string | null) ?? null,
+    scripts: (scriptsRaw ?? []) as ScriptRow[],
+  };
 
   // Step 2a: jobs (needs parsha.id; must complete before we derive jobIds).
   // We DO NOT embed videos/clip_plans here — embeds proved unreliable

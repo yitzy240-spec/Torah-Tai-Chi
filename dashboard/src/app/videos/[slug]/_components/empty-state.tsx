@@ -1,16 +1,21 @@
 // dashboard/src/app/videos/[slug]/_components/empty-state.tsx
 //
-// Single-CTA card for the "empty" page state (no scripts, no video, nothing live).
-// Per spec §3 table: "Empty — Single CTA: Start your video".
+// Single-CTA card for the "empty" page state — parsha has no scripts, no
+// video, nothing live. Per spec §3 table: "Empty — Single CTA: Start your
+// video".
 //
-// On click: calls startFromEmpty, which ensures a placeholder script row exists
-// for this parsha and returns. No Modal call, no AI generation, no cost. The
-// user lands in Phase 1 with an empty editor and types (or generates AI
-// variants via an explicit opt-in tab inside Phase 1).
+// On click: navigate to ?phase=1. The page-state machine (hasScripts in
+// shell-data) routes parshas with existing scripts directly to Phase 1,
+// so this state should only render for parshas where the offline script
+// pipeline hasn't populated yet. In that case Phase 1 shows a
+// "Generating the script… check back" placeholder.
+//
+// Note: this button does NOT call any server action. The previous
+// implementation tried to insert a placeholder script row and hung
+// when RLS blocked the insert.
 
 'use client';
-import { useState, useTransition } from 'react';
-import { startFromEmpty } from '@/app/actions/video-page/start-from-empty';
+import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface Props {
@@ -19,22 +24,13 @@ interface Props {
   parshaSlug: string;
 }
 
-export function EmptyState({ parshaName, parshaId, parshaSlug }: Props) {
-  const [error, setError] = useState<string | null>(null);
+export function EmptyState({ parshaName, parshaSlug }: Props) {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
   function handleStart() {
-    setError(null);
-    startTransition(async () => {
-      const result = await startFromEmpty(parshaId, parshaSlug);
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      // Route to Phase 1 — page-state will detect the queued job and render the script editor.
+    startTransition(() => {
       router.push(`/videos/${parshaSlug}?phase=1`);
-      router.refresh();
     });
   }
 
@@ -61,18 +57,6 @@ export function EmptyState({ parshaName, parshaId, parshaSlug }: Props) {
       >
         {`${parshaName} doesn't have a video yet. Start scripting now`}
       </p>
-
-      {error && (
-        <p
-          style={{
-            fontSize: 13,
-            color: 'var(--tassel)',
-            marginBottom: 16,
-          }}
-        >
-          {error}
-        </p>
-      )}
 
       <button
         type="button"
