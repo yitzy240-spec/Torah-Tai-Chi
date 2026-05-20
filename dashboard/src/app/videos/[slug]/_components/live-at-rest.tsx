@@ -92,19 +92,27 @@ export function LiveAtRest(p: Props) {
     latestPostByPlatform[post.platform] = post;
   }
 
-  // Only show cards for platforms that have a published post
+  // Only show cards for platforms that have a published post.
+  // On the live page we show any platform that has a published post — we do NOT
+  // gate on connectedPlatforms because a platform may have been posted to before
+  // its Buffer token expired, or simply because the live page is a status display
+  // and should always show what actually got posted.
   const postedPlatforms = new Set(
     Object.entries(latestPostByPlatform)
       .filter(([, post]) => post.status === 'published')
       .map(([platform]) => platform),
   );
 
-  const isConnectedAndPosted = (pl: Platform | 'twitter') =>
-    p.connectedPlatforms.includes(pl as Platform) && postedPlatforms.has(pl);
+  const hasPostedPost = (pl: Platform | 'twitter') => postedPlatforms.has(pl);
 
   const captionFor = (key: string): string => p.captions[key] ?? '';
 
   const jobId = p.liveJobId ?? '';
+
+  // Show the social section when there are published posts, regardless of jobId.
+  // jobId may be null for legacy videos posted before the job pipeline was set up,
+  // but they may still have posts.
+  const showSocialSection = postedPlatforms.size > 0;
 
   return (
     <section style={{ width: '100%' }}>
@@ -269,7 +277,7 @@ export function LiveAtRest(p: Props) {
       {/* ------------------------------------------------------------ */}
       {/* 3. Per-platform posted cards (Phase 5 cards, posted state only) */}
       {/* ------------------------------------------------------------ */}
-      {jobId && (
+      {showSocialSection && (
         <div style={{ marginBottom: 20 }}>
           <div
             style={{
@@ -283,7 +291,7 @@ export function LiveAtRest(p: Props) {
             Social platforms
           </div>
 
-          {isConnectedAndPosted('tiktok') && (
+          {hasPostedPost('tiktok') && (
             <TikTokCard
               jobId={jobId}
               videoId={p.videoId}
@@ -294,7 +302,7 @@ export function LiveAtRest(p: Props) {
             />
           )}
 
-          {isConnectedAndPosted('instagram') && (
+          {hasPostedPost('instagram') && (
             <InstagramCard
               jobId={jobId}
               videoId={p.videoId}
@@ -306,7 +314,7 @@ export function LiveAtRest(p: Props) {
             />
           )}
 
-          {isConnectedAndPosted('youtube') && (
+          {hasPostedPost('youtube') && (
             <YouTubeCard
               jobId={jobId}
               videoId={p.videoId}
@@ -321,7 +329,7 @@ export function LiveAtRest(p: Props) {
             />
           )}
 
-          {isConnectedAndPosted('facebook') && (
+          {hasPostedPost('facebook') && (
             <FacebookCard
               jobId={jobId}
               videoId={p.videoId}
@@ -334,7 +342,7 @@ export function LiveAtRest(p: Props) {
           )}
 
           {/* X platform key is 'twitter' in the DB */}
-          {isConnectedAndPosted('twitter') && (
+          {hasPostedPost('twitter') && (
             <XCard
               jobId={jobId}
               videoId={p.videoId}
