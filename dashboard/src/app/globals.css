@@ -157,6 +157,9 @@
   .fab-btn { bottom: 80px !important; right: 18px !important; }
   .fab-tooltip { display: none !important; }
 }
+@media (min-width: 901px) {
+  .fab-btn { display: none !important; }
+}
 
 /* Sage page mobile */
 @media (max-width: 700px) {

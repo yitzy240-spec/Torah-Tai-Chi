@@ -186,7 +186,7 @@ function HolidayRow({ row }: { row: Extract<CalendarRow, { kind: 'holiday' }> })
   };
 
   return hasRow ? (
-    <Link href={`/videos/${data.slug}`} style={{ ...baseStyle, cursor: 'pointer' }} className="cal-week">
+    <Link href={`/videos/${data.slug}`} style={{ ...baseStyle, cursor: 'pointer' }} className="cal-holiday">
       {Inner}
     </Link>
   ) : (

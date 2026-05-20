@@ -160,6 +160,7 @@ function FlipCard({
           <Link
             href={`/videos/${card.slug}`}
             className="rt-play-btn"
+            tabIndex={flipped ? 0 : -1}
             onClick={(e) => e.stopPropagation()}
           >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -170,6 +171,7 @@ function FlipCard({
           <button
             type="button"
             className="rt-back-flip"
+            tabIndex={flipped ? 0 : -1}
             onClick={(e) => { e.stopPropagation(); onFlip(); }}
           >
             Flip back

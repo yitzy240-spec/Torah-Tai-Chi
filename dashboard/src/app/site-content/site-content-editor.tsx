@@ -95,7 +95,7 @@ export function SiteContentEditor({ initialRows }: { initialRows: SiteContentRow
           ...prev,
           [key]: { ...prev[key], saving: false, savedValue: prev[key].value },
         }));
-        showToast(key, 'Published.');
+        showToast(key, 'Saved.');
         return;
       } catch (e) {
         lastError = e;
@@ -222,11 +222,11 @@ function FieldCard({ row, field, isDirty, onChange, onSave }: FieldCardProps) {
           fontFamily: 'var(--ff-display)',
           fontStyle: 'italic',
           fontSize: '11.5px',
-          color: isDirty ? 'var(--cedar-500)' : 'var(--ink-300)',
+          color: isDirty ? 'var(--cedar-500)' : 'var(--ink-500)',
           fontVariationSettings: '"opsz" 12, "SOFT" 50',
         }}
       >
-        {field.saving ? 'Publishing\u2026' : isDirty ? 'Unpublished change' : 'Live'}
+        {field.saving ? 'Saving\u2026' : isDirty ? 'Unsaved' : 'Saved'}
       </div>
 
       {/* Key label */}
@@ -330,7 +330,7 @@ function FieldCard({ row, field, isDirty, onChange, onSave }: FieldCardProps) {
             transition: 'all var(--trans)',
           }}
         >
-          {field.saving ? 'Publishing\u2026' : 'Save & publish'}
+          {field.saving ? 'Saving\u2026' : 'Save'}
         </button>
       </div>
     </div>
