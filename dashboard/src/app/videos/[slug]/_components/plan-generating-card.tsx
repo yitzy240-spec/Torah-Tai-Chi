@@ -59,12 +59,25 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
 
   const isFailed = job?.status === 'failed';
 
+  // Rotating progress copy — Modal writes job.status_message asynchronously
+  // and we don't always get fine-grained updates from Claude, so cycle
+  // through honest stage descriptions on a timer to give the operator a
+  // sense of forward motion. Each stage lasts ~12s; the last one sticks.
+  const stages = [
+    'Reading the script…',
+    'Splitting into clip moments…',
+    'Writing scene directions…',
+    'Picking caption copy…',
+    'Finalizing the plan…',
+  ];
+  const stageIndex = Math.min(Math.floor(elapsedSec / 12), stages.length - 1);
+
   const headline = isFailed
     ? 'Clip plan generation failed'
-    : 'Generating the clip plan…';
+    : stages[stageIndex];
   const subline = isFailed
     ? (job?.status_message ?? 'See the job log for details.')
-    : 'Claude is breaking your script into clip-by-clip voiceover and scene direction. Usually 20–40 seconds.';
+    : 'Claude is reading your script and building a clip-by-clip plan. Usually 1–2 minutes.';
 
   return (
     <div

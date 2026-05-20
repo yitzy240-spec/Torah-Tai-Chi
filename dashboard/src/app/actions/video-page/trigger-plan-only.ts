@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
 
 /**
  * Insert a plan-only job and fire the Modal plan-only endpoint.
@@ -52,43 +53,46 @@ export async function triggerPlanOnly(
     return { ok: false, error: `DB insert failed: ${jobErr?.message ?? 'unknown error'}` };
   }
 
-  try {
-    const res = await fetch(workerUrl, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-pipeline-secret': triggerSecret,
-      },
-      body: JSON.stringify({
-        kind: 'plan-only',
-        job_id: job.id,
-        parsha_id: parshaId,
-        script_id: scriptId,
-      }),
-      // Same 15-second ceiling as trigger-generation.ts (covers Modal cold-start).
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!res.ok) {
-      // Mark the job failed so it doesn't stay stuck as 'queued'.
-      await supabase
+  // Fire-and-forget the Modal dispatch. We don't await here because the
+  // operator-facing UX (Phase 1 → Phase 2 nav + spinner) shouldn't wait
+  // for Modal's cold-start (~7s) before showing the next screen. If the
+  // dispatch fails, the background promise updates the job to 'failed'
+  // via service role, and the PlanGeneratingCard's Realtime subscription
+  // surfaces the error to the user.
+  void (async () => {
+    try {
+      const res = await fetch(workerUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-pipeline-secret': triggerSecret,
+        },
+        body: JSON.stringify({
+          kind: 'plan-only',
+          job_id: job.id,
+          parsha_id: parshaId,
+          script_id: scriptId,
+        }),
+        // Generous timeout — Modal may cold-start (~7s); we have all
+        // the time the operator's Phase 2 spinner gives us.
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!res.ok) {
+        const svc = createServiceClient();
+        await svc
+          .from('jobs')
+          .update({ status: 'failed', error_message: `Modal HTTP ${res.status}` })
+          .eq('id', job.id);
+      }
+    } catch (e) {
+      const err = e as Error;
+      const svc = createServiceClient();
+      await svc
         .from('jobs')
-        .update({ status: 'failed', error_message: `Modal HTTP ${res.status}` })
+        .update({ status: 'failed', error_message: `Modal fetch failed: ${err.message}` })
         .eq('id', job.id);
-      return { ok: false, error: `Modal trigger returned HTTP ${res.status}` };
     }
-  } catch (e) {
-    const err = e as Error;
-    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-      // Timeout expected during Modal cold-start (~7s). Job is queued — continue.
-    } else {
-      await supabase
-        .from('jobs')
-        .update({ status: 'failed', error_message: String(e) })
-        .eq('id', job.id);
-      return { ok: false, error: `Modal fetch failed: ${err.message}` };
-    }
-  }
+  })();
 
   return { ok: true, jobId: job.id };
 }
