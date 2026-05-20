@@ -12,16 +12,29 @@ import { createClient } from '@/lib/supabase/server';
  * before clip rendering.
  *
  * Auth-checks via the user cookie (same pattern as triggerGeneration).
+ *
+ * Returns a typed result instead of throwing so the client can surface
+ * actionable error messages rather than a generic 500.
  */
 export async function triggerPlanOnly(
   parshaId: string,
   scriptId: string,
-): Promise<{ jobId: string }> {
+): Promise<{ ok: true; jobId: string } | { ok: false; error: string }> {
+  // Guard: both IDs must be non-empty strings before touching the DB.
+  if (!parshaId || !scriptId) {
+    return { ok: false, error: `Missing required IDs (parshaId=${parshaId}, scriptId=${scriptId})` };
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
+  if (!user) return { ok: false, error: 'Not authenticated' };
+
+  const workerUrl = process.env.MODAL_WORKER_URL;
+  const triggerSecret = process.env.PIPELINE_TRIGGER_SECRET;
+  if (!workerUrl) return { ok: false, error: 'MODAL_WORKER_URL not configured on this environment' };
+  if (!triggerSecret) return { ok: false, error: 'PIPELINE_TRIGGER_SECRET not configured on this environment' };
 
   // Insert the job row first (matches existing Modal trigger pattern in trigger-generation.ts).
   const { data: job, error: jobErr } = await supabase
@@ -35,15 +48,12 @@ export async function triggerPlanOnly(
     })
     .select('id')
     .single();
-  if (jobErr || !job) throw new Error(jobErr?.message ?? 'Could not queue plan-only job');
-
-  const workerUrl = process.env.MODAL_WORKER_URL;
-  const triggerSecret = process.env.PIPELINE_TRIGGER_SECRET;
-  if (!workerUrl) throw new Error('MODAL_WORKER_URL not set');
-  if (!triggerSecret) throw new Error('PIPELINE_TRIGGER_SECRET not set');
+  if (jobErr || !job) {
+    return { ok: false, error: `DB insert failed: ${jobErr?.message ?? 'unknown error'}` };
+  }
 
   try {
-    await fetch(workerUrl, {
+    const res = await fetch(workerUrl, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -58,16 +68,27 @@ export async function triggerPlanOnly(
       // Same 15-second ceiling as trigger-generation.ts (covers Modal cold-start).
       signal: AbortSignal.timeout(15000),
     });
+
+    if (!res.ok) {
+      // Mark the job failed so it doesn't stay stuck as 'queued'.
+      await supabase
+        .from('jobs')
+        .update({ status: 'failed', error_message: `Modal HTTP ${res.status}` })
+        .eq('id', job.id);
+      return { ok: false, error: `Modal trigger returned HTTP ${res.status}` };
+    }
   } catch (e) {
-    if ((e as Error).name !== 'TimeoutError' && (e as Error).name !== 'AbortError') {
+    const err = e as Error;
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      // Timeout expected during Modal cold-start (~7s). Job is queued — continue.
+    } else {
       await supabase
         .from('jobs')
         .update({ status: 'failed', error_message: String(e) })
         .eq('id', job.id);
-      throw e;
+      return { ok: false, error: `Modal fetch failed: ${err.message}` };
     }
-    // TimeoutError is expected — Modal cold-start can take ~7s. Continue.
   }
 
-  return { jobId: job.id };
+  return { ok: true, jobId: job.id };
 }

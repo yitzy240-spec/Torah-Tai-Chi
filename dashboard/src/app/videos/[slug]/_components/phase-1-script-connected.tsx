@@ -36,7 +36,12 @@ export function Phase1ScriptConnected({
     if (advancing) return;
     setAdvancing(true);
     try {
-      await triggerPlanOnly(parshaId, scriptId);
+      const result = await triggerPlanOnly(parshaId, scriptId);
+      if (!result.ok) {
+        toast.error("Couldn't start the clip plan.", { description: result.error });
+        setAdvancing(false);
+        return;
+      }
       // Phase navigation: reload the page — the server will detect
       // the queued plan-only job and render the appropriate phase.
       // Full in-place phase nav will land in M4.
