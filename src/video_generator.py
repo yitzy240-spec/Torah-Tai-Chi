@@ -52,6 +52,7 @@ def build_seedance_input(
     resolution: str = "720p",
     reference_video_url: Optional[str] = None,
     jewish_ref_urls: Optional[list[str]] = None,
+    override_ref_urls: Optional[list[str]] = None,
 ) -> dict:
     voice_clause = "Voice matches @Audio1 in timbre and delivery. " if audio_url else ""
     # Per-clip delivery direction. Seedance is multimodal — the prompt
@@ -103,6 +104,10 @@ def build_seedance_input(
     chain_frame = first_frame_url if not reference_video_url else None
     if chain_frame:
         payload["first_frame_url"] = chain_frame
+    elif override_ref_urls:
+        # Operator picked specific refs in Phase 2 — honor exactly.
+        # Bypasses _select_refs's DOJO priority / category logic.
+        payload["reference_image_urls"] = override_ref_urls[:MAX_REFS]
     else:
         payload["reference_image_urls"] = _select_refs(
             character_ref_urls, dojo_ref_urls, clip.setting_id,
@@ -148,15 +153,21 @@ async def generate_clip_with_meta(
     model: str = SEEDANCE_MODEL,
     reference_video_url: Optional[str] = None,
     jewish_ref_urls: Optional[list[str]] = None,
+    override_ref_urls: Optional[list[str]] = None,
 ) -> tuple[Path, dict]:
     """Same as generate_clip but also returns Kie's task metadata so the
     caller can extract real cost (credits_consumed / costCredits / etc).
+
+    If override_ref_urls is non-empty, it bypasses the char/dojo/jewish
+    selection and goes directly into Seedance's reference_image_urls.
+    Used to honor the operator's per-clip ref picks from Phase 2.
     """
     payload = build_seedance_input(
         clip, character_ref_urls, dojo_ref_urls,
         first_frame_url, audio_url, resolution,
         reference_video_url=reference_video_url,
         jewish_ref_urls=jewish_ref_urls,
+        override_ref_urls=override_ref_urls,
     )
     task_id = await client.create_task(model, payload)
     urls, meta = await client.poll_task(task_id)

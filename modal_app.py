@@ -1078,6 +1078,46 @@ JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
 MAX_JEWISH_REFS_PER_CLIP = 3
 
 
+def _build_path_url_map(
+    char_refs: list[str],
+    dojo_refs: list[str],
+    jewish_refs: dict[str, str],
+) -> dict[str, str]:
+    """Map dashboard storage paths to Kie URLs.
+
+    The dashboard's Phase 2 ref picker saves picks as storage paths
+    like 'refs/char/01_front_neutral.png' on clips.reference_image_paths.
+    Modal uploads the SAME files (from /root/references/) to Kie and
+    gets back Kie URLs. This helper builds the path → URL map so we
+    can resolve the operator's per-clip picks to actual Kie URLs.
+
+    Reconstructs char/dojo ordering by re-running the same sort
+    _upload_dir uses, then zipping filenames to URLs. For jewish refs,
+    looks up filename via JEWISH_REF_FILENAMES.
+    """
+    m: dict[str, str] = {}
+    # Char: priority-sorted matches the order _upload_dir uploads in.
+    char_dir = Path("/root/references")
+    char_files = sorted(char_dir.glob("*.png"))
+    priority_index = {n: i for i, n in enumerate(_CHAR_PRIORITY)}
+    char_files.sort(key=lambda p: (
+        priority_index.get(p.name, len(_CHAR_PRIORITY)),
+        p.name,
+    ))
+    for f, url in zip(char_files, char_refs):
+        m[f"refs/char/{f.name}"] = url
+    # Dojo: alphabetical (matches _upload_dir).
+    dojo_files = sorted(Path("/root/references/dojo").glob("*.png"))
+    for f, url in zip(dojo_files, dojo_refs):
+        m[f"refs/dojo/{f.name}"] = url
+    # Jewish: keyed by ref_id; look up filename.
+    for ref_id, url in jewish_refs.items():
+        fn = JEWISH_REF_FILENAMES.get(ref_id)
+        if fn:
+            m[f"refs/jewish/{fn}"] = url
+    return m
+
+
 async def _upload_jewish_refs(kie: "KieClient") -> dict[str, str]:  # noqa: F821
     """Upload Jewish ritual ref photos to Kie once per pipeline run.
 
@@ -5652,13 +5692,14 @@ def clips_only_job(job_id: str) -> dict | None:
                 f"in plan with {len(all_planned)} clips"
             )
 
-        # Per-clip motion resolution: read clips.motion_ref_slug for
-        # each target clip (operator's per-clip pick from Phase 2 UI),
-        # fall back to scripts.motion_ref_slug if NULL.
+        # Per-clip motion + ref resolution from the clips table (operator's
+        # Phase 2 picks). Motion falls back to scripts.motion_ref_slug;
+        # ref picks have no legacy fallback — empty means "use the default
+        # char/dojo/jewish selection logic."
         target_indexes = [c.index for c in target_planned]
         clip_db_rows = (
             sb.table("clips")
-            .select("index, motion_ref_slug")
+            .select("index, motion_ref_slug, reference_image_paths")
             .eq("job_id", plan_owner_job_id)
             .in_("index", target_indexes)
             .execute()
@@ -5668,10 +5709,16 @@ def clips_only_job(job_id: str) -> dict | None:
             r["index"]: (r.get("motion_ref_slug") or script_motion)
             for r in clip_db_rows
         }
-        # Clips not yet in DB (edge case): fall back to script motion.
+        per_clip_ref_paths: dict[int, list[str] | None] = {
+            r["index"]: r.get("reference_image_paths")
+            for r in clip_db_rows
+        }
+        # Clips not yet in DB (edge case): fall back to script motion + no override.
         for c in target_planned:
             if c.index not in per_clip_motion:
                 per_clip_motion[c.index] = script_motion
+            if c.index not in per_clip_ref_paths:
+                per_clip_ref_paths[c.index] = None
 
         set_status("generating_clips", f"Generating 0 of {len(target_planned)} clips")
 
@@ -5679,6 +5726,7 @@ def clips_only_job(job_id: str) -> dict | None:
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
         jewish_refs = asyncio.run(_upload_jewish_refs(kie))
+        path_url_map = _build_path_url_map(char_refs, dojo_refs, jewish_refs)
 
         work_dir = Path(f"/tmp/job-{job_id}")
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -5692,6 +5740,24 @@ def clips_only_job(job_id: str) -> dict | None:
             _, motion_url = _load_selected_move(sb, slug)
             dest = work_dir / f"clip_{c.index:02d}.mp4"
             clip_jewish_refs = _jewish_refs_for_clip(c, jewish_refs)
+
+            # Operator's per-clip ref picks from Phase 2. Resolve dashboard
+            # storage paths to Kie URLs. Skip any path we can't resolve
+            # (file may have been removed from the library since the
+            # operator picked it — better to drop than fail the render).
+            picks = per_clip_ref_paths.get(c.index) or []
+            override_refs: list[str] | None = None
+            if picks:
+                resolved = [
+                    path_url_map[p] for p in picks if p in path_url_map
+                ]
+                if resolved:
+                    override_refs = resolved
+                    print(
+                        f"[refs] clip {c.index}: using {len(resolved)} "
+                        f"operator-picked refs (overriding defaults)"
+                    )
+
             # First-frame chaining: anchor each clip render to the previous
             # clip's last frame for visual continuity, same as the initial
             # pipeline. For clips_only, the "parent" clips live on
@@ -5716,6 +5782,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 reference_video_url=motion_url,
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
+                override_ref_urls=override_refs,
             )
             credits = (
                 kie_meta.get("credits_consumed")
