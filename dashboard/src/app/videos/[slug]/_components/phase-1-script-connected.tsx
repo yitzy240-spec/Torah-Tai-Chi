@@ -44,11 +44,13 @@ export function Phase1ScriptConnected({
         setAdvancing(false);
         return;
       }
-      // Navigate to Phase 2 explicitly. router.refresh ensures the new
-      // job row is picked up by the server fetch on the next render.
-      // (window.location.reload kept the user on ?phase=1 forever.)
+      // Navigate to Phase 2. router.refresh ensures the new job row is
+      // picked up by the server fetch on the next render. Also reset
+      // advancing so the button can't appear stuck if the soft-nav
+      // takes a moment — Phase 1 will unmount once Phase 2 commits.
       router.push(`/videos/${parshaSlug}?phase=2`);
       router.refresh();
+      setAdvancing(false);
     } catch (e) {
       toast.error("Couldn't start the clip plan.", { description: (e as Error).message });
       setAdvancing(false);

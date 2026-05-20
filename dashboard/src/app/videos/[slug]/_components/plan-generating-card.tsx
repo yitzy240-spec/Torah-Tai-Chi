@@ -10,9 +10,10 @@
 // editor renders).
 
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useRealtimeRow } from '@/hooks/use-realtime-row';
+import { kickPlanOnly } from '@/app/actions/video-page/kick-plan-only';
 
 interface JobRow {
   id: string;
@@ -42,6 +43,19 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
       router.refresh();
     }
   }, [job?.status, router]);
+
+  // Kick Modal once when this card mounts with a still-queued job.
+  // triggerPlanOnly only inserts the job row; the actual Modal dispatch
+  // happens here so the operator doesn't wait on Modal's cold-start
+  // during the Phase 1 → Phase 2 navigation.
+  const kickedRef = useRef(false);
+  useEffect(() => {
+    if (kickedRef.current) return;
+    if (!job) return;
+    if (job.status !== 'queued') return;
+    kickedRef.current = true;
+    void kickPlanOnly(jobId);
+  }, [job, jobId]);
 
   // Live elapsed-time tick.
   const [now, setNow] = useState(() => Date.now());
