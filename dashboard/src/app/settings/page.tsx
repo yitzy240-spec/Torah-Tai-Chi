@@ -7,11 +7,12 @@ import { listUsers } from '@/app/actions/manage-users';
 import { getStance, type Stance } from '@/lib/stance';
 
 // Visual-only toggle component (no interactivity needed here)
-function ToggleSwitch({ on }: { on: boolean }) {
+function ToggleSwitch({ on, label }: { on: boolean; label?: string }) {
   return (
     <div
       role="switch"
       aria-checked={on}
+      aria-label={label}
       style={{
         width: '44px',
         height: '24px',
@@ -275,7 +276,7 @@ export default async function SettingsPage() {
                 {sub}
               </div>
             </div>
-            <ToggleSwitch on={on} />
+            <ToggleSwitch on={on} label={label} />
           </div>
         ))}
       </section>
