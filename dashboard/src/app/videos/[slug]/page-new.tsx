@@ -32,6 +32,7 @@ import { EmptyState } from './_components/empty-state';
 import { LiveAtRestConnected } from './_components/live-at-rest-connected';
 import { DraftCalloutStrip } from './_components/draft-callout-strip';
 import { PlanGeneratingCard } from './_components/plan-generating-card';
+import { StartingPlanCard } from './_components/starting-plan-card';
 import type { ShellData } from './_data/shell-data';
 
 interface PageProps {
@@ -90,6 +91,8 @@ async function PhaseBody({
   videosForState,
   clipsByJobId,
   statePhase,
+  startPlan,
+  startPlanScriptId,
 }: {
   phase: DraftPhase | null;
   showDraftView: boolean;
@@ -99,6 +102,8 @@ async function PhaseBody({
   videosForState: ShellData['videosForState'];
   clipsByJobId: ShellData['clipsByJobId'];
   statePhase: ShellData['statePhase'];
+  startPlan: boolean;
+  startPlanScriptId: string | null;
 }) {
   // -------------------------------------------------------------------------
   // State: empty
@@ -149,10 +154,25 @@ async function PhaseBody({
     }
 
     if (!clipPlanId || !draftJobId) {
-      // The Phase 1 "Generate clip plan" handler navigates here before
-      // awaiting triggerPlanOnly — so for a brief moment there's no
-      // job row yet. Show the same spinner card as PlanGeneratingCard
-      // so the operator doesn't see a bare text placeholder.
+      // If the user just clicked "Generate clip plan" from Phase 1,
+      // the URL carries ?start_plan=1 plus the parsha + script ids.
+      // Render the StartingPlanCard — it fires triggerPlanOnly on
+      // mount and replaces the URL once the job exists. This is the
+      // only flow that should auto-insert a job; direct ?phase=2
+      // navigation without intent shows the generic spinner instead.
+      if (startPlan && startPlanScriptId) {
+        return (
+          <StartingPlanCard
+            parshaId={parsha.id}
+            scriptId={startPlanScriptId}
+            parshaSlug={parsha.slug}
+          />
+        );
+      }
+
+      // Brief in-between state for direct ?phase=2 nav with no intent.
+      // Show the same spinner card as PlanGeneratingCard so the
+      // operator doesn't see a bare text placeholder.
       return (
         <div
           style={{
@@ -358,6 +378,8 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
     Number(sp.phase) <= 5
       ? (Number(sp.phase) as DraftPhase)
       : null;
+  const startPlan = sp.start_plan === '1';
+  const startPlanScriptId = typeof sp.script === 'string' ? sp.script : null;
 
   const shell = await fetchPageShellData(slug, continueParam, phaseParam);
   if (!shell) notFound();
@@ -396,6 +418,8 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
             videosForState={videosForState}
             clipsByJobId={clipsByJobId}
             statePhase={statePhase}
+            startPlan={startPlan}
+            startPlanScriptId={startPlanScriptId}
           />
         </Suspense>
       </div>
@@ -424,6 +448,8 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
           videosForState={videosForState}
           clipsByJobId={clipsByJobId}
           statePhase={statePhase}
+          startPlan={startPlan}
+          startPlanScriptId={startPlanScriptId}
         />
       </Suspense>
     </div>

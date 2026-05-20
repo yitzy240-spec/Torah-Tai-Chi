@@ -1,20 +1,21 @@
 // dashboard/src/app/videos/[slug]/_components/phase-1-script-connected.tsx
 //
-// Thin client wrapper that wires Phase1Script's onAdvance callback to
-// triggerPlanOnly. Kept separate so Phase1Script stays a pure-UI component
-// (no direct action dependency) and page-new.tsx (server component) can
-// pass down IDs without passing server-action callbacks directly (which
-// Next.js App Router does support, but this keeps concerns cleaner).
+// Thin client wrapper for Phase1Script. The advance button is PURE
+// navigation: a router.push with an intent param. NO server action is
+// called from here — calling a server action from a client handler
+// makes Next.js wrap the call in a transition that blocks the router
+// commit until the action returns, which produced 8-second hangs.
 //
-// In M4 this will be replaced with a proper phase-nav state machine that
-// updates URL / phase cookie without a full page reload.
+// The actual plan-only job insert happens on Phase 2 via the
+// StartingPlanCard (mounted when ?start_plan=1 is in the URL).
+//
+// Prefetches the Phase 2 URL on mount so the RSC payload is cached
+// when the user clicks Generate.
 
 'use client';
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
 import { Phase1Script } from './phase-1-script';
-import { triggerPlanOnly } from '@/app/actions/video-page/trigger-plan-only';
 
 interface Props {
   parshaSlug: string;
@@ -32,32 +33,20 @@ export function Phase1ScriptConnected({
   defaultScript,
 }: Props) {
   const router = useRouter();
-  const [advancing, setAdvancing] = useState(false);
+  // parshaId is intentionally not in the URL — Phase 2 looks it up
+  // from the slug. Only scriptId travels through, since the operator
+  // may have multiple scripts and we need to know which one to plan.
+  void parshaId;
+  const nextUrl =
+    `/videos/${parshaSlug}?phase=2&start_plan=1&script=${encodeURIComponent(scriptId)}`;
+
+  // Prefetch the Phase 2 URL so router.push is instant on click.
+  useEffect(() => {
+    router.prefetch(nextUrl);
+  }, [router, nextUrl]);
 
   function handleAdvance() {
-    if (advancing) return;
-    setAdvancing(true);
-    // Navigate IMMEDIATELY — don't make the user wait on the action.
-    // Phase 2 renders a "starting…" placeholder while the action runs
-    // in the background; once the job row exists, router.refresh swaps
-    // in the PlanGeneratingCard.
-    router.push(`/videos/${parshaSlug}?phase=2`);
-    // Fire the action in the background; do NOT await here.
-    triggerPlanOnly(parshaId, scriptId)
-      .then((result) => {
-        if (!result.ok) {
-          toast.error("Couldn't start the clip plan.", { description: result.error });
-        } else {
-          // Job row exists — re-fetch so PlanGeneratingCard sees it.
-          router.refresh();
-        }
-      })
-      .catch((e) => {
-        toast.error("Couldn't start the clip plan.", { description: (e as Error).message });
-      })
-      .finally(() => {
-        setAdvancing(false);
-      });
+    router.push(nextUrl);
   }
 
   return (
@@ -66,7 +55,7 @@ export function Phase1ScriptConnected({
       scripts={scripts}
       defaultScript={defaultScript}
       onAdvance={handleAdvance}
-      advancing={advancing}
+      advancing={false}
     />
   );
 }
