@@ -21,6 +21,7 @@ import { InstagramCard } from './posting-cards/instagram-card';
 import { YouTubeCard } from './posting-cards/youtube-card';
 import { FacebookCard } from './posting-cards/facebook-card';
 import { XCard } from './posting-cards/x-card';
+import { PlatformIcon } from '@/components/platform-icon';
 import type { Platform } from '@/lib/platforms';
 
 export interface PlatformStatus {
@@ -199,42 +200,56 @@ export function LiveAtRest(p: Props) {
             {p.attribution}
           </p>
 
-          {/* Quick status list (compact, for at-a-glance) */}
-          <ul
-            style={{
-              listStyle: 'none',
-              margin: 0,
-              padding: 0,
-              border: '1px solid var(--ink-100)',
-              borderRadius: 8,
-              overflow: 'hidden',
-            }}
-          >
-            {p.platforms.map((pl, i) => {
+          {/* Per-channel list — top-bar styling, one row per channel */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {p.platforms.map((pl) => {
               const isPosted = pl.postedAt !== null;
               const isSite = pl.platform === 'torahtaichi.com';
-              const displayName = pl.platform === 'twitter' ? 'X' : pl.platform;
+              const platformKey = isSite
+                ? 'website'
+                : (pl.platform === 'twitter' ? 'twitter' : pl.platform) as 'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'twitter' | 'website';
+              const displayName = isSite
+                ? 'torahtaichi.com'
+                : pl.platform === 'twitter'
+                  ? 'X'
+                  : pl.platform.charAt(0).toUpperCase() + pl.platform.slice(1);
               const verb = isSite ? 'live since' : 'posted';
               return (
-                <li
+                <div
                   key={pl.platform}
                   style={{
                     display: 'flex',
-                    justifyContent: 'space-between',
                     alignItems: 'center',
-                    padding: '10px 12px',
-                    borderBottom:
-                      i < p.platforms.length - 1 ? '1px solid var(--ink-100)' : 'none',
+                    gap: 8,
+                    padding: '8px 12px',
+                    background: 'var(--linen-50)',
+                    border: '1px solid var(--jade)',
+                    borderRadius: 'var(--r-md)',
                     fontSize: 13,
                     color: isPosted ? 'var(--ink-900)' : 'var(--ink-400)',
-                    background: 'white',
                   }}
                 >
-                  <span>
-                    {displayName}
-                    {isPosted
-                      ? ` · ${verb} ${new Date(pl.postedAt!).toLocaleDateString()}`
-                      : ' · not posted'}
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: isPosted ? 'var(--jade)' : 'var(--ink-200)',
+                      flexShrink: 0,
+                      display: 'inline-block',
+                    }}
+                  />
+                  <PlatformIcon name={platformKey} size={14} />
+                  <span style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontWeight: 500 }}>{displayName}</span>
+                    {isPosted && (
+                      <span style={{ color: 'var(--ink-500)', fontSize: 12 }}>
+                        · {verb} {new Date(pl.postedAt!).toLocaleDateString()}
+                      </span>
+                    )}
+                    {!isPosted && (
+                      <span style={{ color: 'var(--ink-400)', fontSize: 12 }}>· not posted</span>
+                    )}
                   </span>
                   {pl.postUrl && (
                     <a
@@ -246,16 +261,16 @@ export function LiveAtRest(p: Props) {
                         textDecoration: 'underline',
                         fontSize: 12,
                         whiteSpace: 'nowrap',
-                        marginLeft: 8,
+                        marginLeft: 'auto',
                       }}
                     >
                       {pl.viewsLabel ?? 'View'} →
                     </a>
                   )}
-                </li>
+                </div>
               );
             })}
-          </ul>
+          </div>
         </div>
       </div>
 
