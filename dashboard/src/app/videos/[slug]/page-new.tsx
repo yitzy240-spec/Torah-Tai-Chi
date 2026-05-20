@@ -31,6 +31,7 @@ import { Phase5PostConnected } from './_components/phase-5-post-connected';
 import { EmptyState } from './_components/empty-state';
 import { LiveAtRestConnected } from './_components/live-at-rest-connected';
 import { DraftCalloutStrip } from './_components/draft-callout-strip';
+import { PlanGeneratingCard } from './_components/plan-generating-card';
 import type { ShellData } from './_data/shell-data';
 
 interface PageProps {
@@ -137,6 +138,15 @@ async function PhaseBody({
         : null;
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const clipPlanId = draftJobForState?.clipPlanId ?? null;
+
+    // Plan-only job is queued / generating but hasn't produced the plan yet.
+    // Show a calm in-progress card with elapsed time so the operator sees life.
+    if (!clipPlanId && draftJobId && draftJobForState) {
+      const startedAt = draftJobForState.triggeredAt;
+      return (
+        <PlanGeneratingCard startedAt={startedAt} jobId={draftJobId} />
+      );
+    }
 
     if (!clipPlanId || !draftJobId) {
       return (

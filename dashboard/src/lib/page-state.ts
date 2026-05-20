@@ -75,12 +75,18 @@ export function selectPageState(input: PageStateInput): PageState {
 }
 
 function phaseFor(
-  job: { status: string; videoId: string | null },
+  job: { status: string; kind: string | null; videoId: string | null; clipPlanId: string | null },
   clips: Array<{ storagePath: string | null }>,
 ): DraftPhase {
   if (job.videoId) return 4; // Stitched video exists
   if (clips.length > 0 && clips.some((c) => c.storagePath)) return 3; // Some clips rendered
+  // Plan-only job (queued / generating_plan / done) → Phase 2.
+  // This is the "plan being generated, then reviewed" surface — clipPlanId
+  // may be null while Modal is still generating; the Phase 2 UI handles that
+  // with a spinner + "Clip plan being generated…" copy.
+  if (job.kind === 'plan-only') return 2;
   if (
+    job.clipPlanId !== null ||
     job.status === 'done' ||
     ['generating_clips', 'verifying', 'stitching'].includes(job.status)
   )
