@@ -80,11 +80,22 @@ export async function fetchPageShellData(
 
   if (parshaErr || !parshaRow) return null;
 
-  const { data: scriptsRaw } = await supabase
-    .from('scripts')
-    .select('id, option, title, draft_text')
-    .eq('parsha_id', parshaRow.id as string)
-    .order('option', { ascending: true });
+  // Step 2: scripts + jobs in parallel — both depend only on parsha.id.
+  // Previously serialized, wasting ~100-200ms per page render. Embeds
+  // are still off (proved unreliable for videos / clip_plans on this
+  // schema); we fan out below by job_id instead.
+  const [scriptsResult, jobsResult] = await Promise.all([
+    supabase
+      .from('scripts')
+      .select('id, option, title, draft_text')
+      .eq('parsha_id', parshaRow.id as string)
+      .order('option', { ascending: true }),
+    supabase
+      .from('jobs')
+      .select('id, status, kind, triggered_at, completed_at, regen_of_job_id')
+      .eq('parsha_id', parshaRow.id as string)
+      .order('triggered_at', { ascending: false }),
+  ]);
 
   const parsha: ShellParsha = {
     id: parshaRow.id as string,
@@ -92,20 +103,10 @@ export async function fetchPageShellData(
     book: parshaRow.book as string,
     slug: parshaRow.slug as string,
     hebrew_name: (parshaRow.hebrew_name as string | null) ?? null,
-    scripts: (scriptsRaw ?? []) as ScriptRow[],
+    scripts: (scriptsResult.data ?? []) as ScriptRow[],
   };
 
-  // Step 2a: jobs (needs parsha.id; must complete before we derive jobIds).
-  // We DO NOT embed videos/clip_plans here — embeds proved unreliable
-  // (videos embed returned null even when the row exists, possibly an RLS
-  // edge case; clip_plans embed needed FK disambiguation after migration
-  // 20260519 added jobs.clip_plan_id). Defensive pattern: fetch jobs, then
-  // fetch videos / clip_plans / posts / clips in parallel keyed by job_id.
-  const { data: jobsRaw } = await supabase
-    .from('jobs')
-    .select('id, status, kind, triggered_at, completed_at, regen_of_job_id')
-    .eq('parsha_id', parsha.id)
-    .order('triggered_at', { ascending: false });
+  const jobsRaw = jobsResult.data;
 
   const jobs = (jobsRaw ?? []) as unknown as JobRow[];
   const allJobIds = jobs.map((j) => j.id);
