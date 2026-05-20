@@ -3,12 +3,10 @@
 // Single-CTA card for the "empty" page state (no scripts, no video, nothing live).
 // Per spec §3 table: "Empty — Single CTA: Start your video".
 //
-// On click: calls startFromEmpty server action (triggers the parsha pipeline to
-// auto-generate scripts, then routes to Phase 1 for review).
-//
-// TODO(milestone-1b): Once the plan-only Modal kind ships, "Start scripting"
-// should stop after plan generation so the user gets the Phase 1 → Phase 2
-// checkpoint instead of a full unattended pipeline run.
+// On click: calls startFromEmpty, which ensures a placeholder script row exists
+// for this parsha and returns. No Modal call, no AI generation, no cost. The
+// user lands in Phase 1 with an empty editor and types (or generates AI
+// variants via an explicit opt-in tab inside Phase 1).
 
 'use client';
 import { useState, useTransition } from 'react';
@@ -61,8 +59,7 @@ export function EmptyState({ parshaName, parshaId, parshaSlug }: Props) {
           marginInline: 'auto',
         }}
       >
-        {parshaName} doesn&apos;t have a video yet. The script generates automatically — review
-        it, then we&apos;ll make the clips.
+        {parshaName} doesn&apos;t have a video yet. Start scripting now
       </p>
 
       {error && (
