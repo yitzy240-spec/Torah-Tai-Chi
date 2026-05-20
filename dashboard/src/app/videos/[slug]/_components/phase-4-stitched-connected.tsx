@@ -3,9 +3,11 @@
 // Thin client wrapper supplying onAdvance / onBack to Phase4Stitched.
 
 'use client';
+import { useRouter } from 'next/navigation';
 import { Phase4Stitched } from './phase-4-stitched';
 
 interface Props {
+  parshaSlug: string;
   videoMp4Path: string | null;
   thumbPath: string | null;
   captionsVttDataUrl: string | null;
@@ -13,20 +15,20 @@ interface Props {
   totalDurationS: number;
 }
 
-export function Phase4StitchedConnected(props: Props) {
+export function Phase4StitchedConnected({ parshaSlug, ...rest }: Props) {
+  const router = useRouter();
+
   function handleAdvance() {
-    // Phase 5 navigation — reload so server detects state update.
-    window.location.reload();
+    router.push(`/videos/${parshaSlug}?phase=5`);
   }
 
   function handleBack() {
-    // Back to Phase 3 clips.
-    window.location.reload();
+    router.push(`/videos/${parshaSlug}?phase=3`);
   }
 
   return (
     <Phase4Stitched
-      {...props}
+      {...rest}
       onAdvance={handleAdvance}
       onBack={handleBack}
     />

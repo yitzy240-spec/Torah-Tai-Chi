@@ -1,12 +1,12 @@
 // dashboard/src/app/videos/[slug]/_components/phase-2-plan-review-connected.tsx
 //
 // Thin client wrapper that supplies the onAdvance / onBack callbacks to
-// Phase2PlanReview. In Milestone 4 these will be replaced with a real
-// phase-state machine (URL or cookie driven). For now advancing or going
-// back triggers window.location.reload() so the server re-evaluates page
-// state (phase 3 becomes visible once a clips-only job is queued).
+// Phase2PlanReview. Uses ?phase=N URL params so navigation actually
+// moves the user; bare reload kept them stuck on the natural state
+// phase derived from the data.
 
 'use client';
+import { useRouter } from 'next/navigation';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
 import type { RefImage } from './_shared/reference-image-picker-sheet';
 import { Phase2PlanReview } from './phase-2-plan-review';
@@ -35,15 +35,14 @@ interface Props {
 }
 
 export function Phase2PlanReviewConnected(props: Props) {
+  const router = useRouter();
+
   function handleAdvance() {
-    // Phase 3 navigation — full impl in M4. Reload so server detects
-    // the new clips-only job and renders the phase 3 stub.
-    window.location.reload();
+    router.push(`/videos/${props.parshaSlug}?phase=3`);
   }
 
   function handleBack() {
-    // Back to Phase 1 — full impl in M4.
-    window.location.reload();
+    router.push(`/videos/${props.parshaSlug}?phase=1`);
   }
 
   return (

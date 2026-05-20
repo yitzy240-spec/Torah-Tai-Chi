@@ -204,7 +204,7 @@ async function PhaseBody({
     }
 
     const props = await getPhase4Props(draftJobId, draftVideoId, clipPlanId);
-    return <Phase4StitchedConnected {...props} />;
+    return <Phase4StitchedConnected parshaSlug={parsha.slug} {...props} />;
   }
 
   // -------------------------------------------------------------------------
