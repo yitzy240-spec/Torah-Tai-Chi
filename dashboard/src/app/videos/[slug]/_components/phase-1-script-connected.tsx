@@ -11,6 +11,7 @@
 
 'use client';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Phase1Script } from './phase-1-script';
 import { triggerPlanOnly } from '@/app/actions/video-page/trigger-plan-only';
@@ -30,6 +31,7 @@ export function Phase1ScriptConnected({
   scripts,
   defaultScript,
 }: Props) {
+  const router = useRouter();
   const [advancing, setAdvancing] = useState(false);
 
   async function handleAdvance() {
@@ -42,10 +44,11 @@ export function Phase1ScriptConnected({
         setAdvancing(false);
         return;
       }
-      // Phase navigation: reload the page — the server will detect
-      // the queued plan-only job and render the appropriate phase.
-      // Full in-place phase nav will land in M4.
-      window.location.reload();
+      // Navigate to Phase 2 explicitly. router.refresh ensures the new
+      // job row is picked up by the server fetch on the next render.
+      // (window.location.reload kept the user on ?phase=1 forever.)
+      router.push(`/videos/${parshaSlug}?phase=2`);
+      router.refresh();
     } catch (e) {
       toast.error("Couldn't start the clip plan.", { description: (e as Error).message });
       setAdvancing(false);
