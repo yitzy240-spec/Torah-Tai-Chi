@@ -4,15 +4,19 @@
 // Renders all 5 text fields the public website consumes:
 //   title, subtitle, description, website_caption, spoken_script.
 //
-// Each field is edited inline via EditableField (localStorage + optimistic save).
-// A single "Publish changes" button at the bottom saves all pending fields and
-// triggers website ISR revalidation. A separate "Unpublish" button (outlined,
-// not red) removes the video from torahtaichi.com with a BottomSheet confirm.
+// DEFAULT STATE: read-only display. Each field row shows label + value + "Edit" link.
+// Per-field edit: tapping "Edit" on ONE field collapses it to an input, focused.
+//   - localStorage draft + optimistic save via EditableField primitive.
+//   - "Cancel" link reverts that field to read mode + restores the original value.
+//
+// "Publish changes" CTA: navy fill when any field has a pending edit, outlined when none.
+// "Unpublish" stays outlined, no change.
+// "X fields editing" context note shows while any field is in edit mode.
 //
 // "View page" link is always present while the video is live.
 
 'use client';
-import { useState, useRef, useTransition } from 'react';
+import { useState, useRef, useTransition, useEffect } from 'react';
 import { EditableField } from './posting-cards/_shared/editable-field';
 import { BottomSheet } from './bottom-sheet';
 import { saveSiteField } from '@/app/actions/video-page/save-site-fields';
@@ -32,6 +36,152 @@ interface Props {
   spokenScript: string;
 }
 
+type FieldKey = 'title' | 'subtitle' | 'description' | 'websiteCaption' | 'spokenScript';
+
+function ReadValueDisplay({ value, multiline }: { value: string; multiline?: boolean }) {
+  if (multiline) {
+    return (
+      <div
+        style={{
+          fontSize: 15,
+          color: 'var(--ink-500)',
+          lineHeight: 1.5,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}
+      >
+        {value || <span style={{ color: 'var(--ink-300)', fontStyle: 'italic' }}>—</span>}
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        fontSize: 15,
+        color: 'var(--ink-500)',
+      }}
+    >
+      {value || <span style={{ color: 'var(--ink-300)', fontStyle: 'italic' }}>—</span>}
+    </div>
+  );
+}
+
+interface FieldRowProps {
+  label: string;
+  fieldKey: FieldKey;
+  storageKey: string;
+  initialValue: string;
+  currentValue: string;
+  multiline?: boolean;
+  minHeight?: number;
+  placeholder?: string;
+  isEditing: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSave: (v: string) => Promise<void>;
+  onValueChange: (v: string) => void;
+}
+
+function FieldRow({
+  label,
+  storageKey,
+  initialValue,
+  currentValue,
+  multiline = true,
+  minHeight,
+  placeholder,
+  isEditing,
+  onEdit,
+  onCancel,
+  onSave,
+}: FieldRowProps) {
+  // Auto-focus the input when switching into edit mode.
+  const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isEditing]);
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {/* Label row */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: isEditing ? 4 : 2,
+        }}
+      >
+        <span style={{ fontSize: 11, color: 'var(--ink-700)', fontWeight: 500 }}>{label}</span>
+        {isEditing ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              fontSize: 11,
+              color: 'var(--ink-400)',
+              background: 'transparent',
+              border: 'none',
+              padding: '2px 0',
+              cursor: 'pointer',
+              minHeight: 'unset',
+              textDecoration: 'underline',
+            }}
+          >
+            Cancel
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onEdit}
+            style={{
+              fontSize: 11,
+              color: 'var(--navy-700)',
+              background: 'transparent',
+              border: 'none',
+              padding: '2px 0',
+              cursor: 'pointer',
+              minHeight: 'unset',
+              textDecoration: 'underline',
+            }}
+          >
+            Edit
+          </button>
+        )}
+      </div>
+
+      {/* Value / input */}
+      {isEditing ? (
+        <EditableField
+          storageKey={storageKey}
+          label=""
+          initialValue={currentValue}
+          onSave={onSave}
+          multiline={multiline}
+          minHeight={minHeight}
+          placeholder={placeholder}
+        />
+      ) : (
+        <div
+          style={{ paddingBottom: 2 }}
+          onClick={onEdit}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onEdit(); }}
+          aria-label={`Edit ${label}`}
+        >
+          <ReadValueDisplay value={initialValue} multiline={multiline} />
+        </div>
+      )}
+
+      {/* Divider */}
+      <div style={{ height: 1, background: 'var(--ink-100)', marginTop: isEditing ? 4 : 8 }} />
+    </div>
+  );
+}
+
 export function LiveSiteCmsCard({
   videoId,
   parshaSlug,
@@ -49,6 +199,9 @@ export function LiveSiteCmsCard({
   const [publishing, startPublishing] = useTransition();
   const [unpublishing, startUnpublishing] = useTransition();
 
+  // Track which fields are in edit mode
+  const [editingFields, setEditingFields] = useState<Set<FieldKey>>(new Set());
+
   // Track the current field values so the "Publish changes" bulk-save can flush
   // them all in one call. EditableField fires per-field optimistic saves on each
   // change, but we still capture the latest value here for the final flush.
@@ -57,6 +210,21 @@ export function LiveSiteCmsCard({
   const latestDescription = useRef(description);
   const latestWebsiteCaption = useRef(websiteCaption);
   const latestSpokenScript = useRef(spokenScript);
+
+  const editingCount = editingFields.size;
+  const hasEdits = editingCount > 0;
+
+  function startEditing(field: FieldKey) {
+    setEditingFields((prev) => new Set([...prev, field]));
+  }
+
+  function stopEditing(field: FieldKey) {
+    setEditingFields((prev) => {
+      const next = new Set(prev);
+      next.delete(field);
+      return next;
+    });
+  }
 
   function handlePublishChanges() {
     setSaveError(null);
@@ -73,6 +241,7 @@ export function LiveSiteCmsCard({
         setSaveError(res.error);
       } else {
         setSavedAt(new Date().toLocaleTimeString());
+        setEditingFields(new Set());
       }
     });
   }
@@ -84,6 +253,70 @@ export function LiveSiteCmsCard({
       setUnpublishOpen(false);
     });
   }
+
+  const fieldProps = {
+    title: {
+      label: 'Title',
+      storageKey: `site.${parshaSlug}.title`,
+      initialValue: title,
+      latestRef: latestTitle,
+      dbField: 'title' as const,
+      multiline: false,
+      placeholder: 'Bamidbar',
+    },
+    subtitle: {
+      label: 'Sub-title',
+      storageKey: `site.${parshaSlug}.subtitle`,
+      initialValue: subtitle,
+      latestRef: latestSubtitle,
+      dbField: 'subtitle' as const,
+      multiline: false,
+      placeholder: 'In the desert, counted as one.',
+    },
+    description: {
+      label: 'Description',
+      storageKey: `site.${parshaSlug}.description`,
+      initialValue: description,
+      latestRef: latestDescription,
+      dbField: 'description' as const,
+      multiline: true,
+      minHeight: 80,
+      placeholder: 'Longer copy + SEO meta…',
+    },
+    websiteCaption: {
+      label: 'Caption (shown below video on website)',
+      storageKey: `site.${parshaSlug}.website_caption`,
+      initialValue: websiteCaption,
+      latestRef: latestWebsiteCaption,
+      dbField: 'website_caption' as const,
+      multiline: true,
+      minHeight: 60,
+      placeholder: 'Short caption displayed under the video…',
+    },
+    spokenScript: {
+      label: 'Spoken script (shown on website below video)',
+      storageKey: `site.${parshaSlug}.spoken_script`,
+      initialValue: spokenScript,
+      latestRef: latestSpokenScript,
+      dbField: 'spoken_script' as const,
+      multiline: true,
+      minHeight: 120,
+      placeholder: 'Full script text…',
+    },
+  };
+
+  type FieldMeta = {
+    label: string;
+    storageKey: string;
+    initialValue: string;
+    latestRef: React.MutableRefObject<string>;
+    dbField: 'title' | 'subtitle' | 'description' | 'website_caption' | 'spoken_script';
+    multiline: boolean;
+    minHeight?: number;
+    placeholder: string;
+  };
+
+  const fieldEntries = Object.entries(fieldProps) as Array<[FieldKey, FieldMeta]>;
 
   return (
     <div
@@ -145,62 +378,50 @@ export function LiveSiteCmsCard({
         </a>
       </div>
 
-      {/* 5 editable fields */}
-      <EditableField
-        storageKey={`site.${parshaSlug}.title`}
-        label="Title"
-        initialValue={title}
-        onSave={async (v) => {
-          latestTitle.current = v;
-          await saveSiteField(videoId, 'title', v);
-        }}
-        multiline={false}
-        placeholder="Bamidbar"
-      />
-      <EditableField
-        storageKey={`site.${parshaSlug}.subtitle`}
-        label="Sub-title"
-        initialValue={subtitle}
-        onSave={async (v) => {
-          latestSubtitle.current = v;
-          await saveSiteField(videoId, 'subtitle', v);
-        }}
-        multiline={false}
-        placeholder="In the desert, counted as one."
-      />
-      <EditableField
-        storageKey={`site.${parshaSlug}.description`}
-        label="Description"
-        initialValue={description}
-        onSave={async (v) => {
-          latestDescription.current = v;
-          await saveSiteField(videoId, 'description', v);
-        }}
-        minHeight={80}
-        placeholder="Longer copy + SEO meta…"
-      />
-      <EditableField
-        storageKey={`site.${parshaSlug}.website_caption`}
-        label="Caption (shown below video on website)"
-        initialValue={websiteCaption}
-        onSave={async (v) => {
-          latestWebsiteCaption.current = v;
-          await saveSiteField(videoId, 'website_caption', v);
-        }}
-        minHeight={60}
-        placeholder="Short caption displayed under the video…"
-      />
-      <EditableField
-        storageKey={`site.${parshaSlug}.spoken_script`}
-        label="Spoken script (shown on website below video)"
-        initialValue={spokenScript}
-        onSave={async (v) => {
-          latestSpokenScript.current = v;
-          await saveSiteField(videoId, 'spoken_script', v);
-        }}
-        minHeight={120}
-        placeholder="Full script text…"
-      />
+      {/* 5 fields — read by default, per-field edit affordance */}
+      {fieldEntries.map(
+        ([key, fp]) => (
+          <FieldRow
+            key={key}
+            fieldKey={key}
+            label={fp.label}
+            storageKey={fp.storageKey}
+            initialValue={fp.initialValue}
+            currentValue={fp.latestRef.current}
+            multiline={fp.multiline}
+            minHeight={fp.minHeight}
+            placeholder={fp.placeholder}
+            isEditing={editingFields.has(key)}
+            onEdit={() => startEditing(key)}
+            onCancel={() => {
+              stopEditing(key);
+              // Reset the latestRef back to initial so publish-flush stays consistent
+              fp.latestRef.current = fp.initialValue;
+            }}
+            onSave={async (v) => {
+              fp.latestRef.current = v;
+              await saveSiteField(videoId, fp.dbField, v);
+            }}
+            onValueChange={(v) => {
+              fp.latestRef.current = v;
+            }}
+          />
+        ),
+      )}
+
+      {/* "X fields editing" context note */}
+      {hasEdits && (
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--ink-500)',
+            marginBottom: 8,
+            fontStyle: 'italic',
+          }}
+        >
+          {editingCount === 1 ? '1 field editing' : `${editingCount} fields editing`} — save with "Publish changes" below
+        </div>
+      )}
 
       {saveError && (
         <div style={{ fontSize: 12, color: 'var(--tassel)', marginBottom: 8 }}>
@@ -213,7 +434,7 @@ export function LiveSiteCmsCard({
         </div>
       )}
 
-      {/* Publish changes — primary action */}
+      {/* Publish changes — primary when edits pending, outlined when none */}
       <button
         type="button"
         onClick={handlePublishChanges}
@@ -223,14 +444,15 @@ export function LiveSiteCmsCard({
           minHeight: 48,
           fontSize: 14,
           fontWeight: 500,
-          background: 'var(--navy-700)',
-          color: 'var(--linen-50)',
-          border: 'none',
+          background: hasEdits ? 'var(--navy-700)' : 'white',
+          color: hasEdits ? 'var(--linen-50)' : 'var(--ink-700)',
+          border: hasEdits ? 'none' : '1px solid var(--ink-300)',
           borderRadius: 8,
           padding: 12,
           cursor: publishing || unpublishing ? 'not-allowed' : 'pointer',
           opacity: publishing || unpublishing ? 0.7 : 1,
           marginBottom: 8,
+          transition: 'background 0.15s, color 0.15s, border 0.15s',
         }}
       >
         {publishing ? 'Saving…' : 'Publish changes'}
