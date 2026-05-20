@@ -28,6 +28,8 @@ type UpcomingParshaProps = {
   book: string;
   shabbatDate: string | null;
   hebrew: string | null;
+  /** true when this IS the upcoming Shabbat; false = next available weekly parsha (fallback) */
+  isThisShabbat: boolean;
 };
 
 type UpcomingHolidayProps = {
@@ -464,8 +466,17 @@ export function StartNextVideoPicker({
     });
   }
 
-  const shabbatLabel = upcomingParsha?.shabbatDate
-    ? `This Shabbat · ${new Date(upcomingParsha.shabbatDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`
+  const shabbatDateFormatted = upcomingParsha?.shabbatDate
+    ? new Date(upcomingParsha.shabbatDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+    : null;
+  const shabbatLabel = upcomingParsha
+    ? upcomingParsha.isThisShabbat
+      ? shabbatDateFormatted
+        ? `This Shabbat · ${shabbatDateFormatted}`
+        : 'This Shabbat'
+      : shabbatDateFormatted
+        ? `Next weekly parsha · ${shabbatDateFormatted}`
+        : 'Next weekly parsha'
     : 'This Shabbat';
 
   return (

@@ -12,7 +12,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-import { getThisWeekParsha, getUpcomingHolidays, HEBCAL_TO_SLUG } from '@/lib/hebcal';
+import { getThisWeekParsha, getUpcomingWeeks, getUpcomingHolidays, HEBCAL_TO_SLUG } from '@/lib/hebcal';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { StartNextVideoPicker } from '@/components/start-next-video-picker';
 
@@ -33,6 +33,8 @@ type UpcomingParshaProps = {
   book: string;
   shabbatDate: string | null;
   hebrew: string | null;
+  /** true when the parsha IS this coming Shabbat; false = next available weekly parsha */
+  isThisShabbat: boolean;
 };
 
 type LatestLiveVideo = {
@@ -92,8 +94,12 @@ async function getAllParshiot(): Promise<ParshaOption[]> {
 }
 
 async function resolveUpcomingParsha(): Promise<UpcomingParshaProps | null> {
-  const hebcal = await getThisWeekParsha();
+  // Try this Shabbat first.
+  const thisWeek = await getThisWeekParsha();
+  const hebcal = thisWeek ?? (await getUpcomingWeeks(6)).find(Boolean) ?? null;
   if (!hebcal) return null;
+
+  const isThisShabbat = hebcal === thisWeek;
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -111,6 +117,7 @@ async function resolveUpcomingParsha(): Promise<UpcomingParshaProps | null> {
     book: data.book as string,
     shabbatDate: hebcal.shabbatDate,
     hebrew: hebcal.hebrew ?? null,
+    isThisShabbat,
   };
 }
 
@@ -125,17 +132,34 @@ async function resolveUpcomingHoliday(): Promise<{
 
   const supabase = await createClient();
   const slugs = holidays.map((h) => h.slug);
+
+  // Fetch seeded parshiot rows for these holiday slugs.
   const { data: rows } = await supabase
     .from('parshiot')
     .select('id, slug')
     .in('slug', slugs);
 
   const seeded = new Map((rows ?? []).map((r) => [r.slug as string, r.id as string]));
+
+  // Fetch parsha_ids that already have a published-to-website video so we can skip them.
+  const seededIds = Array.from(seeded.values());
+  const { data: liveRows } = seededIds.length > 0
+    ? await supabase
+        .from('videos')
+        .select('parsha_id')
+        .in('parsha_id', seededIds)
+        .eq('published_to_website', true)
+    : { data: [] };
+
+  const alreadyLiveIds = new Set((liveRows ?? []).map((r) => r.parsha_id as string));
+
   const today = new Date().toISOString().slice(0, 10);
 
   for (const h of holidays) {
     const id = seeded.get(h.slug);
     if (!id) continue;
+    // Skip holidays that already have a live published video.
+    if (alreadyLiveIds.has(id)) continue;
     const days = Math.round(
       (new Date(h.date + 'T12:00:00').getTime() -
         new Date(today + 'T12:00:00').getTime()) /
