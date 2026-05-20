@@ -6,7 +6,7 @@
 //
 // Receives pre-computed server data as props; all I/O is via server actions.
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { startFromEmpty } from '@/app/actions/video-page/start-from-empty';
 import { startTopicVideo } from '@/app/actions/video-page/start-topic-video';
@@ -169,17 +169,35 @@ function ParshaPickerSheet({
   open,
   onClose,
   allParshiot,
+  upcomingParshaId,
   v2Suffix,
 }: {
   open: boolean;
   onClose: () => void;
   allParshiot: ParshaOption[];
+  upcomingParshaId: string | null;
   v2Suffix: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [activeParshaId, setActiveParshaId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Ref map: parshaId → button element for scroll-to-upcoming
+  const rowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // When the sheet opens, scroll to the upcoming parsha row
+  useEffect(() => {
+    if (!open || !upcomingParshaId) return;
+    const el = rowRefs.current[upcomingParshaId];
+    if (el) {
+      // Small delay to allow the sheet to finish painting before scrolling
+      const id = setTimeout(() => {
+        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+      }, 50);
+      return () => clearTimeout(id);
+    }
+  }, [open, upcomingParshaId]);
 
   async function handlePick(parsha: ParshaOption) {
     setActiveParshaId(parsha.id);
@@ -252,9 +270,11 @@ function ParshaPickerSheet({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               {parshiot.map((p) => {
                 const isActive = activeParshaId === p.id;
+                const isUpcoming = p.id === upcomingParshaId;
                 return (
                   <button
                     key={p.id}
+                    ref={(el) => { rowRefs.current[p.id] = el; }}
                     onClick={() => handlePick(p)}
                     disabled={isPending}
                     style={{
@@ -263,12 +283,18 @@ function ParshaPickerSheet({
                       justifyContent: 'space-between',
                       padding: '11px 14px',
                       borderRadius: 'var(--r-md)',
-                      border: '1px solid transparent',
-                      background: isActive ? 'var(--navy-wash)' : 'transparent',
+                      border: isUpcoming && !isActive
+                        ? '1px solid var(--jade)'
+                        : '1px solid transparent',
+                      background: isActive
+                        ? 'var(--navy-wash)'
+                        : isUpcoming
+                          ? 'rgba(46,125,94,.06)'
+                          : 'transparent',
                       fontFamily: 'var(--ff-body)',
                       fontSize: '15px',
                       color: isActive ? 'var(--navy-700)' : 'var(--ink-900)',
-                      fontWeight: isActive ? 600 : 400,
+                      fontWeight: isActive || isUpcoming ? 600 : 400,
                       cursor: isPending ? 'wait' : 'pointer',
                       minHeight: '44px',
                       textAlign: 'left',
@@ -276,18 +302,36 @@ function ParshaPickerSheet({
                     }}
                   >
                     <span>{p.name}</span>
-                    {isActive && (
-                      <span
-                        style={{
-                          fontFamily: 'var(--ff-display)',
-                          fontStyle: 'italic',
-                          fontSize: '12px',
-                          color: 'var(--navy-700)',
-                        }}
-                      >
-                        Starting…
-                      </span>
-                    )}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {isUpcoming && !isActive && (
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            letterSpacing: '0.08em',
+                            textTransform: 'uppercase',
+                            color: 'var(--jade)',
+                            background: 'rgba(46,125,94,.1)',
+                            borderRadius: 4,
+                            padding: '2px 6px',
+                          }}
+                        >
+                          Upcoming
+                        </span>
+                      )}
+                      {isActive && (
+                        <span
+                          style={{
+                            fontFamily: 'var(--ff-display)',
+                            fontStyle: 'italic',
+                            fontSize: '12px',
+                            color: 'var(--navy-700)',
+                          }}
+                        >
+                          Starting…
+                        </span>
+                      )}
+                    </span>
                   </button>
                 );
               })}
@@ -621,6 +665,7 @@ export function StartNextVideoPicker({
         open={showParshaPicker}
         onClose={() => setShowParshaPicker(false)}
         allParshiot={allParshiot}
+        upcomingParshaId={upcomingParsha?.id ?? null}
         v2Suffix={v2Suffix}
       />
       <TopicVideoSheet
