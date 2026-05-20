@@ -11,7 +11,8 @@
 //   - <PhaseSkeleton> provides a minimal placeholder while the body streams in.
 
 import { Suspense } from 'react';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
+import { triggerPlanOnly } from '@/app/actions/video-page/trigger-plan-only';
 import type { DraftPhase } from '@/lib/page-state';
 import { fetchPageShellData } from './_data/shell-data';
 import { getPhase1Props } from './_data/phase-1-data';
@@ -32,7 +33,6 @@ import { EmptyState } from './_components/empty-state';
 import { LiveAtRestConnected } from './_components/live-at-rest-connected';
 import { DraftCalloutStrip } from './_components/draft-callout-strip';
 import { PlanGeneratingCard } from './_components/plan-generating-card';
-import { StartingPlanCard } from './_components/starting-plan-card';
 import type { ShellData } from './_data/shell-data';
 
 interface PageProps {
@@ -144,6 +144,23 @@ async function PhaseBody({
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const clipPlanId = draftJobForState?.clipPlanId ?? null;
 
+    // Intent fast path: user just clicked "Generate clip plan" on Phase 1
+    // and no draft job exists yet. Insert the job ROW server-side here
+    // (no Modal call — that happens in PlanGeneratingCard), then redirect
+    // to the clean URL. The redirect kicks browser to re-fetch, the new
+    // render finds the job, and PlanGeneratingCard takes over.
+    //
+    // Doing this in the server component avoids client-side useEffect
+    // coordination (which kept users stuck on StartingPlanCard because
+    // router.refresh wasn't picking up the new job reliably).
+    if (!draftJobId && startPlan && startPlanScriptId) {
+      const result = await triggerPlanOnly(parsha.id, startPlanScriptId);
+      if (result.ok) {
+        redirect(`/videos/${parsha.slug}?phase=2`);
+      }
+      // Insert failed — fall through to show error in spinner card.
+    }
+
     // Plan-only job is queued / generating but hasn't produced the plan yet.
     // Show a calm in-progress card with elapsed time so the operator sees life.
     if (!clipPlanId && draftJobId && draftJobForState) {
@@ -154,21 +171,6 @@ async function PhaseBody({
     }
 
     if (!clipPlanId || !draftJobId) {
-      // If the user just clicked "Generate clip plan" from Phase 1,
-      // the URL carries ?start_plan=1 plus the parsha + script ids.
-      // Render the StartingPlanCard — it fires triggerPlanOnly on
-      // mount and replaces the URL once the job exists. This is the
-      // only flow that should auto-insert a job; direct ?phase=2
-      // navigation without intent shows the generic spinner instead.
-      if (startPlan && startPlanScriptId) {
-        return (
-          <StartingPlanCard
-            parshaId={parsha.id}
-            scriptId={startPlanScriptId}
-            parshaSlug={parsha.slug}
-          />
-        );
-      }
 
       // Brief in-between state for direct ?phase=2 nav with no intent.
       // Show the same spinner card as PlanGeneratingCard so the
