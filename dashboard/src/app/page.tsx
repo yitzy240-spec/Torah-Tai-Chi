@@ -5,9 +5,11 @@
 // the legacy landing (page-legacy.tsx) or the new redesigned landing
 // (page-new.tsx).
 //
-// Query override for side-by-side testing:
-//   ?v2=1  — force new landing regardless of flag
-//   ?v2=0  — force legacy landing regardless of flag
+// Resolution order (first match wins):
+//   ?v2=1                          → force new landing
+//   ?v2=0                          → force legacy landing
+//   VERCEL_ENV !== 'production'    → new landing (preview + local dev default to new)
+//   settings.video_page_v2 flag    → flag value (production-only path)
 
 import { getFlag } from '@/lib/feature-flag';
 import TodayPageLegacy from './page-legacy';
@@ -20,6 +22,11 @@ interface PageProps {
 export default async function DashboardRoot(props: PageProps) {
   const sp = await props.searchParams;
   const override = typeof sp.v2 === 'string' ? sp.v2 : null;
-  const useNew = override === '1' ? true : override === '0' ? false : await getFlag('video_page_v2');
+  const isNonProd = process.env.VERCEL_ENV !== 'production';
+  const useNew =
+    override === '1' ? true
+    : override === '0' ? false
+    : isNonProd ? true
+    : await getFlag('video_page_v2');
   return useNew ? <DashboardLandingNew searchParams={props.searchParams} /> : <TodayPageLegacy />;
 }
