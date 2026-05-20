@@ -79,34 +79,56 @@ export async function fetchPageShellData(
 
   const parsha = parshaRaw as ShellParsha;
 
-  // Step 2a: jobs (needs parsha.id; must complete before we derive videoIds/jobIds)
-  // NOTE: clip_plans embed is disambiguated to the legacy clip_plans.job_id FK.
-  // Migration 20260519 added jobs.clip_plan_id (the reverse direction) — without
-  // the !clip_plans_job_id_fkey hint, PostgREST sees two relationships and errors
-  // with PGRST201 ("more than one relationship was found").
+  // Step 2a: jobs (needs parsha.id; must complete before we derive jobIds).
+  // We DO NOT embed videos/clip_plans here — embeds proved unreliable
+  // (videos embed returned null even when the row exists, possibly an RLS
+  // edge case; clip_plans embed needed FK disambiguation after migration
+  // 20260519 added jobs.clip_plan_id). Defensive pattern: fetch jobs, then
+  // fetch videos / clip_plans / posts / clips in parallel keyed by job_id.
   const { data: jobsRaw } = await supabase
     .from('jobs')
-    .select(
-      'id, status, kind, triggered_at, completed_at, regen_of_job_id, ' +
-        'videos(id, published_to_website), clip_plans!clip_plans_job_id_fkey(id)',
-    )
+    .select('id, status, kind, triggered_at, completed_at, regen_of_job_id')
     .eq('parsha_id', parsha.id)
     .order('triggered_at', { ascending: false });
 
   const jobs = (jobsRaw ?? []) as unknown as JobRow[];
+  const allJobIds = jobs.map((j) => j.id);
 
-  // Flatten job → video / clip_plan ids
+  // Step 2b: fetch videos, clip_plans, posts, clips in parallel by job_id.
+  const [videosResult, clipPlansResult, clipsResult] = await Promise.all([
+    allJobIds.length > 0
+      ? supabase.from('videos').select('id, job_id, published_to_website').in('job_id', allJobIds)
+      : Promise.resolve({ data: [] }),
+    allJobIds.length > 0
+      ? supabase.from('clip_plans').select('id, job_id').in('job_id', allJobIds)
+      : Promise.resolve({ data: [] }),
+    allJobIds.length > 0
+      ? supabase.from('clips').select('job_id, storage_path').in('job_id', allJobIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  // Build lookup maps so the flatten step is O(1) per job.
+  const videoByJobId = new Map<string, { id: string; publishedToWebsite: boolean }>();
+  for (const v of videosResult.data ?? []) {
+    videoByJobId.set(v.job_id as string, {
+      id: v.id as string,
+      publishedToWebsite: !!(v.published_to_website as boolean | null),
+    });
+  }
+  const clipPlanByJobId = new Map<string, string>();
+  for (const cp of clipPlansResult.data ?? []) {
+    clipPlanByJobId.set(cp.job_id as string, cp.id as string);
+  }
+
+  // Flatten jobs with the resolved video / clip_plan ids.
   const jobsForState = jobs.map((j) => {
-    const videoRel = j.videos;
-    const v = (Array.isArray(videoRel) ? videoRel[0] : videoRel) ?? null;
-    const planRel = j.clip_plans;
-    const p = (Array.isArray(planRel) ? planRel[0] : planRel) ?? null;
+    const video = videoByJobId.get(j.id);
     return {
       id: j.id,
       status: j.status,
       kind: j.kind,
-      videoId: (v?.id as string | null) ?? null,
-      clipPlanId: (p?.id as string | null) ?? null,
+      videoId: video?.id ?? null,
+      clipPlanId: clipPlanByJobId.get(j.id) ?? null,
       completedAt: j.completed_at,
       triggeredAt: j.triggered_at,
     };
@@ -115,20 +137,11 @@ export async function fetchPageShellData(
   const videoIds = jobsForState
     .map((jj) => jj.videoId)
     .filter((id): id is string => id !== null);
-  const allJobIds = jobsForState.map((jj) => jj.id);
 
-  // Step 2b-d: videos + posts + clips — all independent; run in parallel.
-  const [videosResult, postsResult, clipsResult] = await Promise.all([
-    videoIds.length > 0
-      ? supabase.from('videos').select('id, job_id, published_to_website').in('id', videoIds)
-      : Promise.resolve({ data: [] }),
-    videoIds.length > 0
-      ? supabase.from('posts').select('video_id, status, platform').in('video_id', videoIds)
-      : Promise.resolve({ data: [] }),
-    allJobIds.length > 0
-      ? supabase.from('clips').select('job_id, storage_path').in('job_id', allJobIds)
-      : Promise.resolve({ data: [] }),
-  ]);
+  // Step 2c: posts — only needed once we know which video ids exist.
+  const postsResult = videoIds.length > 0
+    ? await supabase.from('posts').select('video_id, status, platform').in('video_id', videoIds)
+    : { data: [] };
 
   const videosForState: Array<{ id: string; jobId: string; publishedToWebsite: boolean }> = (
     videosResult.data ?? []
