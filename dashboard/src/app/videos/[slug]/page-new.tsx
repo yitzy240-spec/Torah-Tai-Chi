@@ -149,10 +149,53 @@ async function PhaseBody({
     }
 
     if (!clipPlanId || !draftJobId) {
+      // The Phase 1 "Generate clip plan" handler navigates here before
+      // awaiting triggerPlanOnly — so for a brief moment there's no
+      // job row yet. Show the same spinner card as PlanGeneratingCard
+      // so the operator doesn't see a bare text placeholder.
       return (
-        <p style={{ color: 'var(--ink-500)' }}>
-          Generating clip plan… check back in a moment.
-        </p>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '48px 24px',
+            minHeight: 240,
+            background: 'var(--linen-50)',
+            border: '1px solid var(--ink-100)',
+            borderRadius: 'var(--r-lg)',
+            textAlign: 'center',
+          }}
+        >
+          <div
+            aria-hidden="true"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              border: '3px solid var(--ink-100)',
+              borderTopColor: 'var(--navy-700)',
+              animation: 'spin 0.9s linear infinite',
+              marginBottom: 18,
+            }}
+          />
+          <div
+            style={{
+              fontFamily: 'var(--ff-display)',
+              fontSize: 20,
+              fontWeight: 500,
+              color: 'var(--ink-900)',
+              marginBottom: 8,
+            }}
+          >
+            Starting clip plan…
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5 }}>
+            Setting up the job — the spinner will switch to live progress in a moment.
+          </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
       );
     }
 

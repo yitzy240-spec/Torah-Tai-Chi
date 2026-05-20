@@ -34,27 +34,30 @@ export function Phase1ScriptConnected({
   const router = useRouter();
   const [advancing, setAdvancing] = useState(false);
 
-  async function handleAdvance() {
+  function handleAdvance() {
     if (advancing) return;
     setAdvancing(true);
-    try {
-      const result = await triggerPlanOnly(parshaId, scriptId);
-      if (!result.ok) {
-        toast.error("Couldn't start the clip plan.", { description: result.error });
+    // Navigate IMMEDIATELY — don't make the user wait on the action.
+    // Phase 2 renders a "starting…" placeholder while the action runs
+    // in the background; once the job row exists, router.refresh swaps
+    // in the PlanGeneratingCard.
+    router.push(`/videos/${parshaSlug}?phase=2`);
+    // Fire the action in the background; do NOT await here.
+    triggerPlanOnly(parshaId, scriptId)
+      .then((result) => {
+        if (!result.ok) {
+          toast.error("Couldn't start the clip plan.", { description: result.error });
+        } else {
+          // Job row exists — re-fetch so PlanGeneratingCard sees it.
+          router.refresh();
+        }
+      })
+      .catch((e) => {
+        toast.error("Couldn't start the clip plan.", { description: (e as Error).message });
+      })
+      .finally(() => {
         setAdvancing(false);
-        return;
-      }
-      // Navigate to Phase 2. router.refresh ensures the new job row is
-      // picked up by the server fetch on the next render. Also reset
-      // advancing so the button can't appear stuck if the soft-nav
-      // takes a moment — Phase 1 will unmount once Phase 2 commits.
-      router.push(`/videos/${parshaSlug}?phase=2`);
-      router.refresh();
-      setAdvancing(false);
-    } catch (e) {
-      toast.error("Couldn't start the clip plan.", { description: (e as Error).message });
-      setAdvancing(false);
-    }
+      });
   }
 
   return (
