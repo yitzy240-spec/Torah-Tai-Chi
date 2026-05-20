@@ -356,7 +356,9 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
         book={parsha.book}
         name={parsha.name}
       />
-      {liveStripProps && <PersistentLiveStrip {...liveStripProps} />}
+      {liveStripProps && state.kind === 'live-and-draft' && showDraftView && (
+        <PersistentLiveStrip {...liveStripProps} />
+      )}
       {stepperPhase !== null && <CompressedStepper currentPhase={stepperPhase} />}
 
       <Suspense fallback={<PhaseSkeleton phase={stepperPhase} />}>
