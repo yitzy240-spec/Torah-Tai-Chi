@@ -5699,7 +5699,9 @@ def clips_only_job(job_id: str) -> dict | None:
         target_indexes = [c.index for c in target_planned]
         clip_db_rows = (
             sb.table("clips")
-            .select("index, motion_ref_slug, reference_image_paths")
+            .select(
+                "index, motion_ref_slug, reference_image_paths, chain_broken"
+            )
             .eq("job_id", plan_owner_job_id)
             .in_("index", target_indexes)
             .execute()
@@ -5713,12 +5715,18 @@ def clips_only_job(job_id: str) -> dict | None:
             r["index"]: r.get("reference_image_paths")
             for r in clip_db_rows
         }
+        per_clip_chain_broken: dict[int, bool] = {
+            r["index"]: bool(r.get("chain_broken"))
+            for r in clip_db_rows
+        }
         # Clips not yet in DB (edge case): fall back to script motion + no override.
         for c in target_planned:
             if c.index not in per_clip_motion:
                 per_clip_motion[c.index] = script_motion
             if c.index not in per_clip_ref_paths:
                 per_clip_ref_paths[c.index] = None
+            if c.index not in per_clip_chain_broken:
+                per_clip_chain_broken[c.index] = False
 
         set_status("generating_clips", f"Generating 0 of {len(target_planned)} clips")
 
@@ -5734,17 +5742,20 @@ def clips_only_job(job_id: str) -> dict | None:
         completed_count = 0
         clip_paths_by_index: dict[int, Path] = {}
 
-        async def _render_one(c):
+        # Render a single clip given a precomputed first_frame_url. The
+        # caller (_run_group) is responsible for deciding whether to
+        # chain from the previous in-group clip or fall back to refs.
+        async def _render_one(c, first_frame_url):
             nonlocal completed_count
             slug = per_clip_motion.get(c.index)
             _, motion_url = _load_selected_move(sb, slug)
             dest = work_dir / f"clip_{c.index:02d}.mp4"
             clip_jewish_refs = _jewish_refs_for_clip(c, jewish_refs)
 
-            # Operator's per-clip ref picks from Phase 2. Resolve dashboard
-            # storage paths to Kie URLs. Skip any path we can't resolve
-            # (file may have been removed from the library since the
-            # operator picked it — better to drop than fail the render).
+            # Operator's per-clip ref picks from Phase 2. Note: Seedance
+            # ignores reference_image_urls when first_frame_url is set
+            # (mutex constraint). Picks are only honored when this clip
+            # does NOT chain — i.e. it's the first in its scene group.
             picks = per_clip_ref_paths.get(c.index) or []
             override_refs: list[str] | None = None
             if picks:
@@ -5753,25 +5764,18 @@ def clips_only_job(job_id: str) -> dict | None:
                 ]
                 if resolved:
                     override_refs = resolved
-                    print(
-                        f"[refs] clip {c.index}: using {len(resolved)} "
-                        f"operator-picked refs (overriding defaults)"
-                    )
+                    if first_frame_url:
+                        print(
+                            f"[refs] clip {c.index}: {len(resolved)} "
+                            f"operator-picked refs ignored — chained from "
+                            f"previous clip (Seedance mutex)"
+                        )
+                    else:
+                        print(
+                            f"[refs] clip {c.index}: using {len(resolved)} "
+                            f"operator-picked refs (overriding defaults)"
+                        )
 
-            # First-frame chaining: anchor each clip render to the previous
-            # clip's last frame for visual continuity, same as the initial
-            # pipeline. For clips_only, the "parent" clips live on
-            # plan_owner_job_id (the plan-only job that owns the clip_plan).
-            first_frame_url = await _resolve_regen_first_frame(
-                sb=sb,
-                parent_job_id=plan_owner_job_id,
-                clip_index=c.index,
-                clip_visual_prompt=c.visual_prompt or "",
-                clip_setting_id=c.setting_id,
-                motion_ref_slug=slug,
-                kie=kie,
-                work_dir=work_dir,
-            )
             _, kie_meta = await generate_clip_with_meta(
                 kie, c,
                 character_ref_urls=char_refs,
@@ -5832,11 +5836,100 @@ def clips_only_job(job_id: str) -> dict | None:
             )
             return c.index, dest
 
-        results = asyncio.run(
-            asyncio.gather(*(_render_one(c) for c in target_planned))
+        # ── Scene-group chaining ──────────────────────────────────────
+        # Same pattern as run_pipeline (_can_chain / _run_group): clips
+        # that share a setting_id without introducing new Jewish ritual
+        # refs or a motion ref get grouped. Within a group, clip N+1
+        # chains from clip N's last frame (Seedance mutex with
+        # reference_image_urls; refs are dropped on chained clips).
+        # Across groups: parallel. Operator's per-clip ref picks only
+        # take effect on the FIRST clip of each group; subsequent clips
+        # in the group inherit visual continuity via the chain.
+        def _can_chain_in_group(prev_c, curr_c) -> bool:
+            if prev_c.setting_id != curr_c.setting_id:
+                return False
+            # Motion ref is mutex with first_frame_url in Seedance.
+            if per_clip_motion.get(curr_c.index):
+                return False
+            # Operator explicitly broke the chain on this clip.
+            if per_clip_chain_broken.get(curr_c.index, False):
+                return False
+            prev_kws = _jewish_ref_ids_in_prompt(prev_c.visual_prompt or "")
+            curr_kws = _jewish_ref_ids_in_prompt(curr_c.visual_prompt or "")
+            # New ritual keyword introduced — chain would drop the new
+            # ref images. Break to let them flow through.
+            return not (curr_kws - prev_kws)
+
+        scene_groups: list[list] = []
+        for c in target_planned:
+            if scene_groups and _can_chain_in_group(scene_groups[-1][-1], c):
+                scene_groups[-1].append(c)
+            else:
+                scene_groups.append([c])
+
+        print(
+            f"[scene-groups] {len(scene_groups)} group(s) for "
+            f"{len(target_planned)} clip(s): " + " | ".join(
+                "→".join(str(c.index) for c in g) for g in scene_groups
+            )
         )
-        for idx, path in results:
-            clip_paths_by_index[idx] = path
+
+        async def _run_group(group: list) -> list[tuple[int, Path]]:
+            out: list[tuple[int, Path]] = []
+            prev_mp4: Path | None = None
+            for idx_in_group, c in enumerate(group):
+                first_frame_url: str | None = None
+                if prev_mp4 is not None:
+                    # Within-group chain from this run's prior clip's last frame.
+                    png_path = work_dir / f"firstframe_{c.index:02d}.png"
+                    try:
+                        _extract_last_frame(prev_mp4, png_path)
+                        first_frame_url = await _upload_first_frame(
+                            kie, png_path
+                        )
+                        print(
+                            f"[firstframe] clip {c.index}: chaining from "
+                            f"clip {group[idx_in_group - 1].index} "
+                            f"(setting={c.setting_id})"
+                        )
+                    except Exception as ff_err:
+                        print(
+                            f"[firstframe] clip {c.index}: extract/upload "
+                            f"failed ({type(ff_err).__name__}: {ff_err}); "
+                            f"falling through to refs"
+                        )
+                        first_frame_url = None
+                    finally:
+                        try:
+                            if png_path.exists():
+                                png_path.unlink()
+                        except Exception:
+                            pass
+                else:
+                    # First clip of scene group. Try a parent-job chain
+                    # (partial-regen case: parent already has a rendered
+                    # clip N-1 from a prior run we can chain from).
+                    first_frame_url = await _resolve_regen_first_frame(
+                        sb=sb,
+                        parent_job_id=plan_owner_job_id,
+                        clip_index=c.index,
+                        clip_visual_prompt=c.visual_prompt or "",
+                        clip_setting_id=c.setting_id,
+                        motion_ref_slug=per_clip_motion.get(c.index),
+                        kie=kie,
+                        work_dir=work_dir,
+                    )
+                idx, dest = await _render_one(c, first_frame_url)
+                out.append((idx, dest))
+                prev_mp4 = dest
+            return out
+
+        group_results = asyncio.run(
+            asyncio.gather(*(_run_group(g) for g in scene_groups))
+        )
+        for grp in group_results:
+            for idx, path in grp:
+                clip_paths_by_index[idx] = path
 
         # For the stitch we need ALL clips in the plan, not just the
         # rendered subset. Download any that belong to the plan-owner
