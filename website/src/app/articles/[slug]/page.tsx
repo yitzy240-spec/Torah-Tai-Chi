@@ -120,7 +120,7 @@ export default async function ArticleDetailPage({ params }: Props) {
       <header className="ad-header stagger">
         {/* Subtle meta row sits above the H1 so H1 owns the hierarchy */}
         <div className="ad-eyebrow">
-          <Link href="/articles" className="ad-eyebrow-back">
+          <Link href="/articles" className="ad-eyebrow-back" prefetch={false}>
             &larr; All writings
           </Link>
           {article.category && (
