@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Fraunces, Mona_Sans, Frank_Ruhl_Libre } from 'next/font/google';
 import { unstable_cache } from 'next/cache';
+import { Toaster } from 'sonner';
 import './globals.css';
 import { SidebarNav } from '@/components/sidebar-nav';
 import { KieLowBalanceBanner } from '@/components/kie-low-balance-banner';
@@ -180,6 +181,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         ) : (
           children
         )}
+        <Toaster position="bottom-center" richColors closeButton />
       </body>
     </html>
   );

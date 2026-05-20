@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
 
 const MAX_VOICEOVER_CHARS = 1500;
 const MAX_VISUAL_PROMPT_CHARS = 5000;
@@ -50,7 +51,11 @@ export async function updateClipText(opts: {
   }
   if (Object.keys(update).length === 0) return { ok: true };
 
-  const { error } = await supabase.from('clips').update(update).eq('id', clipId);
+  // Use service role for the write — RLS on `clips` only allows authed
+  // reads, not authed writes. Without this the update silently matches
+  // zero rows and Yonah's voiceover/scene-direction edits never persist.
+  const svc = createServiceClient();
+  const { error } = await svc.from('clips').update(update).eq('id', clipId);
   if (error) return { error: error.message };
   return { ok: true };
 }

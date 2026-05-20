@@ -1,6 +1,7 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
 
 const MAX_TITLE_CHARS = 100;
 const MAX_TLDR_CHARS = 300;
@@ -38,7 +39,9 @@ export async function updateScriptMeta(opts: {
   }
   if (Object.keys(update).length === 0) return { ok: true };
 
-  const { error } = await supabase.from('scripts').update(update).eq('id', scriptId);
+  // Use service role — RLS on `scripts` only allows authed reads.
+  const svc = createServiceClient();
+  const { error } = await svc.from('scripts').update(update).eq('id', scriptId);
   if (error) return { error: error.message };
 
   // Revalidate the dashboard's own parsha page so the next render sees
