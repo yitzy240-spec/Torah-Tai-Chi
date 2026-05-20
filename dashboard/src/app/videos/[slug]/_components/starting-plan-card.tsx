@@ -149,10 +149,10 @@ export function StartingPlanCard({ parshaId, scriptId, parshaSlug }: Props) {
               marginBottom: 8,
             }}
           >
-            Starting clip plan…
+            Reading the script…
           </div>
           <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5 }}>
-            Queuing the job — the spinner will switch to live progress in a moment.
+            Claude is breaking your script into clip-by-clip voiceover and scene direction.
           </div>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </>
