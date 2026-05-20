@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/service';
 import { revalidatePath } from 'next/cache';
 
 /**
@@ -55,10 +56,14 @@ export async function startFromEmpty(
     return { ok: true, scriptId: preferred.id as string };
   }
 
-  // No script exists — create a blank placeholder. The Phase 1 editor will
-  // bind to this row; whatever Yonah types becomes the draft_text. No Modal
-  // call. No cost. No surprise pipeline runs.
-  const { data: placeholder, error: insertErr } = await supabase
+  // No script exists — create a blank placeholder via service-role client.
+  // RLS on `scripts` only allows authed reads, not authed writes — same
+  // pattern as add-move-to-script.ts / saveScriptDraft. Without this the
+  // insert silently matches zero rows and the page stays stuck on empty.
+  // The Phase 1 editor will bind to this row; whatever Yonah types becomes
+  // the draft_text. No Modal call. No cost. No surprise pipeline runs.
+  const svc = createServiceClient();
+  const { data: placeholder, error: insertErr } = await svc
     .from('scripts')
     .insert({
       parsha_id: parshaId,

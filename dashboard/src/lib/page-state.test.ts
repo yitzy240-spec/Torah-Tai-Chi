@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { selectPageState } from './page-state';
 
-const base = { jobs: [], videos: [], posts: [], clipsByJobId: {} };
+const base = { jobs: [], videos: [], posts: [], clipsByJobId: {}, hasScripts: false };
 
 test('empty: no jobs, no videos -> empty', () => {
   const s = selectPageState(base);
@@ -115,4 +115,37 @@ test('plan-only done counts as a draft awaiting clip rendering (phase 2)', () =>
   });
   assert.equal(s.kind, 'draft-in-progress');
   if (s.kind === 'draft-in-progress') assert.equal(s.phase, 2);
+});
+
+test('script-only: hasScripts true, no jobs/videos -> phase 1 draft with null jobId', () => {
+  const s = selectPageState({ ...base, hasScripts: true });
+  assert.equal(s.kind, 'draft-in-progress');
+  if (s.kind === 'draft-in-progress') {
+    assert.equal(s.phase, 1);
+    assert.equal(s.draftJobId, null);
+  }
+});
+
+test('script-only WITH a live video -> live-and-draft phase 1 with null jobId', () => {
+  const s = selectPageState({
+    ...base,
+    hasScripts: true,
+    jobs: [
+      {
+        id: 'j1',
+        status: 'done',
+        kind: 'parsha',
+        videoId: 'v1',
+        clipPlanId: 'cp1',
+        completedAt: '2026-05-17T01:00:00Z',
+        triggeredAt: '2026-05-17T00:00:00Z',
+      },
+    ],
+    videos: [{ id: 'v1', jobId: 'j1', publishedToWebsite: true }],
+  });
+  assert.equal(s.kind, 'live-and-draft');
+  if (s.kind === 'live-and-draft') {
+    assert.equal(s.phase, 1);
+    assert.equal(s.draftJobId, null);
+  }
 });

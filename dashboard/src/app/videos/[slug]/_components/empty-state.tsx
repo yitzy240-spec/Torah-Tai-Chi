@@ -59,7 +59,7 @@ export function EmptyState({ parshaName, parshaId, parshaSlug }: Props) {
           marginInline: 'auto',
         }}
       >
-        {parshaName} doesn&apos;t have a video yet. Start scripting now
+        {`${parshaName} doesn't have a video yet. Start scripting now`}
       </p>
 
       {error && (

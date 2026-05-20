@@ -5,9 +5,9 @@
 
 export type PageState =
   | { kind: 'empty' }
-  | { kind: 'draft-in-progress'; draftJobId: string; phase: DraftPhase }
+  | { kind: 'draft-in-progress'; draftJobId: string | null; phase: DraftPhase }
   | { kind: 'live-at-rest'; liveVideoId: string }
-  | { kind: 'live-and-draft'; liveVideoId: string; draftJobId: string; phase: DraftPhase };
+  | { kind: 'live-and-draft'; liveVideoId: string; draftJobId: string | null; phase: DraftPhase };
 
 export type DraftPhase = 1 | 2 | 3 | 4 | 5;
 
@@ -24,6 +24,9 @@ export interface PageStateInput {
   videos: Array<{ id: string; jobId: string; publishedToWebsite: boolean }>;
   posts: Array<{ videoId: string; status: string }>;
   clipsByJobId: Record<string, Array<{ storagePath: string | null }>>;
+  /** True when the parsha has at least one script row. A script-only
+   *  parsha (no jobs / videos / posts yet) counts as a Phase 1 draft. */
+  hasScripts: boolean;
 }
 
 const IN_FLIGHT = new Set([
@@ -37,7 +40,7 @@ const IN_FLIGHT = new Set([
 ]);
 
 export function selectPageState(input: PageStateInput): PageState {
-  const { jobs, videos, posts, clipsByJobId } = input;
+  const { jobs, videos, posts, clipsByJobId, hasScripts } = input;
 
   // A live video = published to website OR has at least one published post.
   const liveVideo = videos.find((v) => {
@@ -61,7 +64,12 @@ export function selectPageState(input: PageStateInput): PageState {
   );
   const draftJob = inFlightJob ?? doneUnpublished ?? planOnlyAwaiting;
 
-  if (!liveVideo && !draftJob) return { kind: 'empty' };
+  // Script-only draft: the parsha has scripts but no job has been queued
+  // yet. Tap "Start scripting" → script row inserted → land here. The
+  // user edits the script in Phase 1; the job is born when they advance.
+  const scriptOnlyDraft = hasScripts && !draftJob;
+
+  if (!liveVideo && !draftJob && !scriptOnlyDraft) return { kind: 'empty' };
 
   if (draftJob) {
     const phase = phaseFor(draftJob, clipsByJobId[draftJob.id] ?? []);
@@ -69,6 +77,13 @@ export function selectPageState(input: PageStateInput): PageState {
       return { kind: 'live-and-draft', liveVideoId: liveVideo.id, draftJobId: draftJob.id, phase };
     }
     return { kind: 'draft-in-progress', draftJobId: draftJob.id, phase };
+  }
+
+  if (scriptOnlyDraft) {
+    if (liveVideo) {
+      return { kind: 'live-and-draft', liveVideoId: liveVideo.id, draftJobId: null, phase: 1 };
+    }
+    return { kind: 'draft-in-progress', draftJobId: null, phase: 1 };
   }
 
   return { kind: 'live-at-rest', liveVideoId: liveVideo!.id };
