@@ -54,33 +54,35 @@ export function ReferenceImagePickerSheet({
 
   const isFull = selected.length >= MAX_REFS;
 
-  const filtered = useMemo(() => {
-    if (!filter) return library;
+  // Resolve selected paths to full RefImage objects (preserves order).
+  const attached = useMemo(() => {
+    const byPath = new Map(library.map((r) => [r.path, r]));
+    return selected
+      .map((p) => byPath.get(p))
+      .filter((r): r is RefImage => r !== undefined);
+  }, [library, selected]);
+
+  // Library minus the already-attached items, filtered by search.
+  const availableFiltered = useMemo(() => {
+    const sel = new Set(selected);
+    const base = library.filter((img) => !sel.has(img.path));
+    if (!filter) return base;
     const f = filter.toLowerCase();
-    return library.filter(
+    return base.filter(
       (img) =>
         img.label.toLowerCase().includes(f) ||
         CATEGORY_LABELS[img.category].toLowerCase().includes(f),
     );
-  }, [library, filter]);
+  }, [library, selected, filter]);
 
-  const byCategory = useMemo(() => {
+  const availableByCategory = useMemo(() => {
     const map: Partial<Record<RefImageCategory, RefImage[]>> = {};
-    for (const img of filtered) {
+    for (const img of availableFiltered) {
       if (!map[img.category]) map[img.category] = [];
       map[img.category]!.push(img);
     }
     return map;
-  }, [filtered]);
-
-  async function toggle(path: string) {
-    if (selected.includes(path)) {
-      await onRemove(path);
-    } else if (!isFull) {
-      await onAdd(path);
-    }
-    // If full and trying to add: no-op (UI already shows "Full" banner).
-  }
+  }, [availableFiltered]);
 
   return (
     <BottomSheet
@@ -89,85 +91,217 @@ export function ReferenceImagePickerSheet({
       title="Reference images"
       primaryAction={{ label: 'Done', onClick: () => onOpenChange(false) }}
     >
-      {isFull && (
-        <div
-          style={{
-            background: 'var(--linen-100)',
-            border: '1px solid var(--ink-100)',
-            borderRadius: 8,
-            padding: '8px 12px',
-            fontSize: 13,
-            color: 'var(--ink-700)',
-            marginBottom: 12,
-          }}
-        >
-          Full — remove one to add another.
-        </div>
-      )}
-
-      {library.length > 20 && (
-        <input
-          type="text"
-          placeholder="Filter…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          style={{
-            width: '100%',
-            minHeight: 44,
-            fontSize: 16,
-            padding: 10,
-            marginBottom: 12,
-            border: '1px solid var(--ink-100)',
-            borderRadius: 6,
-            boxSizing: 'border-box',
-          }}
-        />
-      )}
-
-      <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-        {CATEGORY_ORDER.filter((cat) => (byCategory[cat] ?? []).length > 0).map((cat) => (
-          <div key={cat} style={{ marginBottom: 16 }}>
+      <div style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+        {/* ── Currently attached ──────────────────────────────────── */}
+        <section style={{ marginBottom: 20 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+            }}
+          >
             <div
               style={{
                 fontSize: 10,
                 color: 'var(--ink-500)',
                 textTransform: 'uppercase',
                 letterSpacing: '0.1em',
-                marginBottom: 8,
               }}
             >
-              {CATEGORY_LABELS[cat]}
+              Currently attached
             </div>
             <div
               style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 8,
+                fontSize: 11,
+                color: isFull ? 'var(--tassel)' : 'var(--ink-500)',
+                fontVariantNumeric: 'tabular-nums',
               }}
             >
-              {(byCategory[cat] ?? []).map((img) => {
-                const isSelected = selected.includes(img.path);
-                const disabled = isFull && !isSelected;
-                return (
+              {selected.length} of {MAX_REFS}
+            </div>
+          </div>
+
+          {attached.length === 0 ? (
+            <div
+              style={{
+                padding: '14px 16px',
+                border: '1px dashed var(--ink-200)',
+                borderRadius: 8,
+                fontSize: 13,
+                color: 'var(--ink-500)',
+                textAlign: 'center',
+              }}
+            >
+              No references attached yet. Tap one below to add.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              {attached.map((img) => (
+                <div
+                  key={img.path}
+                  style={{
+                    position: 'relative',
+                    width: 76,
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 76,
+                      height: 76,
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      background: 'var(--linen-50)',
+                      border: '1.5px solid var(--navy-700)',
+                    }}
+                  >
+                    {img.thumbUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={img.thumbUrl}
+                        alt={img.label}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          background: 'var(--ink-100)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 10,
+                          color: 'var(--ink-500)',
+                          textAlign: 'center',
+                          padding: 4,
+                        }}
+                      >
+                        {img.label}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { void onRemove(img.path); }}
+                    aria-label={`Remove ${img.label}`}
+                    style={{
+                      position: 'absolute',
+                      top: -6,
+                      right: -6,
+                      width: 22,
+                      height: 22,
+                      borderRadius: '50%',
+                      background: 'var(--ink-900)',
+                      color: 'white',
+                      border: '2px solid white',
+                      fontSize: 13,
+                      lineHeight: 1,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0,
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                    }}
+                  >
+                    ×
+                  </button>
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      color: 'var(--ink-500)',
+                      marginTop: 4,
+                      maxWidth: 76,
+                      lineHeight: 1.3,
+                      textAlign: 'center',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {img.label.replace(/^Rav Eli — /, '')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* ── Add from library ────────────────────────────────────── */}
+        <section>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                color: 'var(--ink-500)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+              }}
+            >
+              {isFull ? 'Library (full — remove one to swap in)' : 'Add from library'}
+            </div>
+          </div>
+
+          {library.length > 20 && (
+            <input
+              type="text"
+              placeholder="Filter…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              style={{
+                width: '100%',
+                minHeight: 40,
+                fontSize: 16,
+                padding: 10,
+                marginBottom: 12,
+                border: '1px solid var(--ink-100)',
+                borderRadius: 6,
+                boxSizing: 'border-box',
+              }}
+            />
+          )}
+
+          {CATEGORY_ORDER.filter((cat) => (availableByCategory[cat] ?? []).length > 0).map((cat) => (
+            <div key={cat} style={{ marginBottom: 14 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: 'var(--ink-400)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  marginBottom: 6,
+                }}
+              >
+                {CATEGORY_LABELS[cat]}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {(availableByCategory[cat] ?? []).map((img) => (
                   <button
                     key={img.path}
                     type="button"
-                    onClick={() => toggle(img.path)}
-                    disabled={disabled}
+                    onClick={() => { if (!isFull) void onAdd(img.path); }}
+                    disabled={isFull}
                     title={img.label}
                     style={{
                       width: 64,
                       height: 64,
                       padding: 0,
-                      border: isSelected
-                        ? '2px solid var(--navy-700)'
-                        : '1px solid var(--ink-100)',
+                      border: '1px solid var(--ink-100)',
                       borderRadius: 8,
                       overflow: 'hidden',
                       background: 'var(--linen-50)',
-                      cursor: disabled ? 'not-allowed' : 'pointer',
-                      opacity: disabled ? 0.45 : 1,
-                      position: 'relative',
+                      cursor: isFull ? 'not-allowed' : 'pointer',
+                      opacity: isFull ? 0.45 : 1,
                       flexShrink: 0,
                     }}
                   >
@@ -196,35 +330,25 @@ export function ReferenceImagePickerSheet({
                         {img.label}
                       </div>
                     )}
-                    {isSelected && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: 2,
-                          right: 2,
-                          width: 16,
-                          height: 16,
-                          borderRadius: '50%',
-                          background: 'var(--navy-700)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <span style={{ color: 'white', fontSize: 10, lineHeight: 1 }}>✓</span>
-                      </div>
-                    )}
                   </button>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-        {filtered.length === 0 && (
-          <p style={{ fontSize: 14, color: 'var(--ink-500)', textAlign: 'center', padding: 16 }}>
-            No images match the filter.
-          </p>
-        )}
+          ))}
+
+          {availableFiltered.length === 0 && filter && (
+            <p
+              style={{
+                fontSize: 13,
+                color: 'var(--ink-500)',
+                textAlign: 'center',
+                padding: 16,
+              }}
+            >
+              No images match the filter.
+            </p>
+          )}
+        </section>
       </div>
     </BottomSheet>
   );
