@@ -29,7 +29,7 @@ interface Script {
   draft_text: string | null;
 }
 
-type TabKind = 'pick' | 'write' | 'from-idea' | 'polish';
+type TabKind = 'pick' | 'write' | 'from-idea';
 
 type FromIdeaStatus = 'idle' | 'generating' | 'done';
 type PolishStatus = 'idle' | 'polishing' | 'reviewing';
@@ -111,7 +111,6 @@ const TABS: { kind: TabKind; label: string }[] = [
   { kind: 'pick', label: 'Pick AI variant' },
   { kind: 'write', label: 'Write my own' },
   { kind: 'from-idea', label: 'From an idea' },
-  { kind: 'polish', label: 'AI polish' },
 ];
 
 function TabBar({ active, onChange }: { active: TabKind; onChange: (k: TabKind) => void }) {
@@ -347,7 +346,7 @@ function PickMode({
 }
 
 // ---------------------------------------------------------------------------
-// Mode: Write my own
+// Mode: Write my own (includes inline "Polish with AI" magic button)
 // ---------------------------------------------------------------------------
 
 function WriteMode({ parshaSlug }: { parshaSlug: string }) {
@@ -356,19 +355,140 @@ function WriteMode({ parshaSlug }: { parshaSlug: string }) {
     '',
   );
 
+  const [polishState, setPolishState] = useState<PolishState>({
+    original: '',
+    polished: null,
+    status: 'idle',
+  });
+  const [diffChanges, setDiffChanges] = useState<Change[]>([]);
+
+  async function handlePolish() {
+    const snapshot = localText;
+    setPolishState({ original: snapshot, polished: null, status: 'polishing' });
+    try {
+      const res = await fetch('/api/script/polish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ original: snapshot }),
+      });
+      const json = (await res.json()) as { polished?: string; error?: string };
+      if (!res.ok || json.error) {
+        toast.error('Polish failed.', { description: json.error ?? `HTTP ${res.status}` });
+        setPolishState({ original: '', polished: null, status: 'idle' });
+        return;
+      }
+      const polished = json.polished ?? snapshot;
+      const changes = diffWords(snapshot, polished);
+      setDiffChanges(changes);
+      setPolishState({ original: snapshot, polished, status: 'reviewing' });
+    } catch (e) {
+      toast.error('Polish request failed.', { description: (e as Error).message });
+      setPolishState({ original: '', polished: null, status: 'idle' });
+    }
+  }
+
+  function handleAccept() {
+    if (!polishState.polished) return;
+    setLocalText(polishState.polished);
+    setPolishState({ original: '', polished: null, status: 'idle' });
+    setDiffChanges([]);
+    toast.success('Polished version accepted.');
+  }
+
+  function handleReject() {
+    setPolishState({ original: '', polished: null, status: 'idle' });
+    setDiffChanges([]);
+  }
+
+  const isPolishing = polishState.status === 'polishing';
+  const isReviewing = polishState.status === 'reviewing';
+  const hasText = localText.trim().length > 0;
+
   return (
     <div>
       <p style={{ fontSize: 13, color: 'var(--ink-500)', marginTop: 0, marginBottom: 12 }}>
         Write your script from scratch. It will be saved in your browser until you advance.
       </p>
-      <textarea
-        placeholder="Start writing your voiceover script here…"
-        value={localText}
-        onChange={(e) => setLocalText(e.target.value)}
-        style={{ ...textareaStyle, minHeight: 280 }}
-        autoFocus
-      />
-      <MetricsRow text={localText} />
+
+      {!isReviewing ? (
+        <>
+          <textarea
+            placeholder="Start writing your voiceover script here…"
+            value={localText}
+            onChange={(e) => setLocalText(e.target.value)}
+            disabled={isPolishing}
+            style={{ ...textareaStyle, minHeight: 280, opacity: isPolishing ? 0.6 : 1 }}
+            autoFocus
+          />
+          <MetricsRow text={localText} />
+          {hasText && (
+            <button
+              type="button"
+              onClick={handlePolish}
+              disabled={isPolishing}
+              style={{
+                marginTop: 10,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '8px 14px',
+                fontSize: 13,
+                fontWeight: 500,
+                background: isPolishing ? 'var(--linen-100)' : 'var(--linen-50)',
+                color: isPolishing ? 'var(--ink-400)' : 'var(--navy-700)',
+                border: '1px solid var(--ink-100)',
+                borderRadius: 8,
+                cursor: isPolishing ? 'wait' : 'pointer',
+                transition: 'var(--trans)',
+                animation: isPolishing ? 'pulse-navy 1.8s ease-in-out infinite' : 'none',
+              }}
+            >
+              {isPolishing ? '✨ Polishing…' : '✨ Polish with AI'}
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <DiffView changes={diffChanges} />
+          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+            <button
+              type="button"
+              onClick={handleAccept}
+              style={{
+                flex: 1,
+                minHeight: 44,
+                fontSize: 14,
+                fontWeight: 500,
+                background: 'var(--jade)',
+                color: 'white',
+                border: 'none',
+                borderRadius: 8,
+                cursor: 'pointer',
+              }}
+            >
+              Accept
+            </button>
+            <button
+              type="button"
+              onClick={handleReject}
+              style={{
+                flex: 1,
+                minHeight: 44,
+                fontSize: 14,
+                fontWeight: 500,
+                background: 'transparent',
+                color: 'var(--tassel)',
+                border: '1px solid var(--tassel)',
+                borderRadius: 8,
+                cursor: 'pointer',
+              }}
+            >
+              Reject
+            </button>
+          </div>
+          {polishState.polished && <MetricsRow text={polishState.polished} />}
+        </>
+      )}
     </div>
   );
 }
@@ -552,180 +672,6 @@ function DiffView({ changes }: { changes: Change[] }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Mode: AI Polish
-// ---------------------------------------------------------------------------
-
-function PolishMode({
-  parshaSlug,
-  scripts,
-  defaultScript,
-}: {
-  parshaSlug: string;
-  scripts: Script[];
-  defaultScript: Script;
-}) {
-  // Reuse the same selected script state as PickMode for this session
-  const [selectedId] = useState<string>(defaultScript.id);
-  const selected = scripts.find((s) => s.id === selectedId) ?? defaultScript;
-
-  const [localText, setLocalText, clearDraft] = useLocalStorageDraft(
-    `script.${parshaSlug}.${selected.id}`,
-    selected.draft_text ?? '',
-  );
-
-  const { update, isPending: isSaving } = useOptimisticSave<string>({
-    current: localText,
-    save: async (next) => {
-      await saveScript(selected.id, next);
-    },
-    onSuccess: clearDraft,
-    errorMessage: 'Saving the script failed.',
-  });
-
-  const [polishState, setPolishState] = useState<PolishState>({
-    original: '',
-    polished: null,
-    status: 'idle',
-  });
-
-  const [diffChanges, setDiffChanges] = useState<Change[]>([]);
-
-  async function handlePolish() {
-    const snapshot = localText;
-    setPolishState({ original: snapshot, polished: null, status: 'polishing' });
-    try {
-      const res = await fetch('/api/script/polish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ original: snapshot }),
-      });
-      const json = (await res.json()) as { polished?: string; error?: string };
-      if (!res.ok || json.error) {
-        toast.error('Polish failed.', { description: json.error ?? `HTTP ${res.status}` });
-        setPolishState({ original: '', polished: null, status: 'idle' });
-        return;
-      }
-      const polished = json.polished ?? snapshot;
-      const changes = diffWords(snapshot, polished);
-      setDiffChanges(changes);
-      setPolishState({ original: snapshot, polished, status: 'reviewing' });
-    } catch (e) {
-      toast.error('Polish request failed.', { description: (e as Error).message });
-      setPolishState({ original: '', polished: null, status: 'idle' });
-    }
-  }
-
-  function handleAccept() {
-    if (!polishState.polished) return;
-    setLocalText(polishState.polished);
-    update(polishState.polished);
-    setPolishState({ original: '', polished: null, status: 'idle' });
-    setDiffChanges([]);
-    toast.success('Polished version accepted.');
-  }
-
-  function handleReject() {
-    setPolishState({ original: '', polished: null, status: 'idle' });
-    setDiffChanges([]);
-  }
-
-  const isPolishing = polishState.status === 'polishing';
-  const isReviewing = polishState.status === 'reviewing';
-
-  return (
-    <div>
-      <p style={{ fontSize: 13, color: 'var(--ink-500)', marginTop: 0, marginBottom: 12 }}>
-        Edit your script then send it to AI for a polish. Review the diff and accept or reject.
-      </p>
-
-      {!isReviewing ? (
-        <>
-          <textarea
-            value={localText}
-            onChange={(e) => {
-              setLocalText(e.target.value);
-              update(e.target.value);
-            }}
-            disabled={isPolishing}
-            style={{ ...textareaStyle, opacity: isPolishing ? 0.6 : 1 }}
-          />
-          <MetricsRow text={localText} />
-          <button
-            type="button"
-            onClick={handlePolish}
-            disabled={isPolishing || !localText.trim() || isSaving}
-            style={{
-              marginTop: 12,
-              width: '100%',
-              minHeight: 44,
-              fontSize: 14,
-              fontWeight: 500,
-              background: 'var(--navy-700)',
-              color: 'var(--linen-50)',
-              border: 'none',
-              borderRadius: 8,
-              cursor: isPolishing || !localText.trim() || isSaving ? 'not-allowed' : 'pointer',
-              opacity: isPolishing || !localText.trim() || isSaving ? 0.6 : 1,
-              animation: isPolishing ? 'pulse-navy 1.8s ease-in-out infinite' : 'none',
-            }}
-          >
-            {isPolishing ? 'Polishing…' : 'Polish with AI'}
-          </button>
-        </>
-      ) : (
-        <>
-          <DiffView changes={diffChanges} />
-          <div
-            style={{
-              display: 'flex',
-              gap: 10,
-              marginTop: 12,
-            }}
-          >
-            <button
-              type="button"
-              onClick={handleAccept}
-              style={{
-                flex: 1,
-                minHeight: 44,
-                fontSize: 14,
-                fontWeight: 500,
-                background: 'var(--jade)',
-                color: 'white',
-                border: 'none',
-                borderRadius: 8,
-                cursor: 'pointer',
-              }}
-            >
-              Accept
-            </button>
-            <button
-              type="button"
-              onClick={handleReject}
-              style={{
-                flex: 1,
-                minHeight: 44,
-                fontSize: 14,
-                fontWeight: 500,
-                background: 'transparent',
-                color: 'var(--tassel)',
-                border: '1px solid var(--tassel)',
-                borderRadius: 8,
-                cursor: 'pointer',
-              }}
-            >
-              Reject
-            </button>
-          </div>
-          {polishState.polished && (
-            <MetricsRow text={polishState.polished} />
-          )}
-        </>
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Root component
@@ -760,10 +706,6 @@ export function Phase1Script({ parshaSlug, scripts, defaultScript, onAdvance }: 
       {activeTab === 'write' && <WriteMode parshaSlug={parshaSlug} />}
 
       {activeTab === 'from-idea' && <FromIdeaMode parshaSlug={parshaSlug} />}
-
-      {activeTab === 'polish' && (
-        <PolishMode parshaSlug={parshaSlug} scripts={scripts} defaultScript={defaultScript} />
-      )}
 
       <AdvanceBar onAdvance={onAdvance} isPending={!canAdvance} />
     </section>
