@@ -208,17 +208,36 @@ async def _kie_phase(
     auth/shape problem.
     """
     last_exc: Exception | None = None
+    # Hard wall-clock timeout per attempt — same reasoning as _openrouter_phase.
+    _HARD_ATTEMPT_TIMEOUT_S = 90.0
     for attempt in range(1, max_attempts + 1):
         print(f"{log_prefix} kie attempt {attempt}/{max_attempts}")
         try:
-            r = await _call_kie_once(
-                http=http,
-                api_key=api_key,
-                model=model,
-                system=system,
-                messages=messages,
-                max_tokens=max_tokens,
+            r = await asyncio.wait_for(
+                _call_kie_once(
+                    http=http,
+                    api_key=api_key,
+                    model=model,
+                    system=system,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                ),
+                timeout=_HARD_ATTEMPT_TIMEOUT_S,
             )
+        except asyncio.TimeoutError:
+            err = RuntimeError(
+                f"Kie hard timeout after {_HARD_ATTEMPT_TIMEOUT_S}s"
+            )
+            last_exc = err
+            print(
+                f"{log_prefix} kie hard timeout attempt "
+                f"{attempt}/{max_attempts} ({_HARD_ATTEMPT_TIMEOUT_S}s)"
+            )
+            if attempt < max_attempts:
+                backoff = min(2 ** (attempt - 1), _BACKOFF_CAP_S)
+                await asyncio.sleep(backoff)
+                continue
+            break
         except _RETRYABLE_NET_ERRORS as net_err:
             last_exc = net_err
             if attempt < max_attempts:
@@ -319,17 +338,42 @@ async def _openrouter_phase(
     exhaustion.
     """
     last_exc: Exception | None = None
+    # Hard wall-clock timeout per attempt. httpx's read timeout resets on
+    # every byte received, and OpenRouter streams SSE keep-alives during
+    # slow upstream responses — so a single request can hang for tens of
+    # minutes without httpx timing out. asyncio.wait_for enforces a real
+    # ceiling so we fall back to Kie or fail quickly instead of hanging
+    # the entire pipeline. 90s is generous for any Claude response.
+    _HARD_ATTEMPT_TIMEOUT_S = 90.0
     for attempt in range(1, max_attempts + 1):
         print(f"{log_prefix} openrouter attempt {attempt}/{max_attempts}")
         try:
-            r = await _call_openrouter_once(
-                http=http,
-                api_key=api_key,
-                model=model,
-                system=system,
-                messages=messages,
-                max_tokens=max_tokens,
+            r = await asyncio.wait_for(
+                _call_openrouter_once(
+                    http=http,
+                    api_key=api_key,
+                    model=model,
+                    system=system,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                ),
+                timeout=_HARD_ATTEMPT_TIMEOUT_S,
             )
+        except asyncio.TimeoutError as t_err:
+            err = RuntimeError(
+                f"OpenRouter hard timeout after {_HARD_ATTEMPT_TIMEOUT_S}s "
+                f"(SSE keep-alives keeping connection alive)"
+            )
+            last_exc = err
+            print(
+                f"{log_prefix} openrouter hard timeout attempt "
+                f"{attempt}/{max_attempts} ({_HARD_ATTEMPT_TIMEOUT_S}s)"
+            )
+            if attempt < max_attempts:
+                backoff = min(2 ** (attempt - 1), _BACKOFF_CAP_S)
+                await asyncio.sleep(backoff)
+                continue
+            break
         except _RETRYABLE_NET_ERRORS as net_err:
             last_exc = net_err
             if attempt < max_attempts:

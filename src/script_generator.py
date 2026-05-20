@@ -655,7 +655,7 @@ async def transform_draft_to_clip_plan(
     parsha_name: str, book: str, option: str,
     style_note: str, title: str, draft: str,
     api_key: str, model: str = "claude-sonnet-4-6",
-    timeout_s: float = 180.0,
+    timeout_s: float = 90.0,
     selected_move: dict | None = None,
     max_retries: int = 5,
     director_notes: str | None = None,
