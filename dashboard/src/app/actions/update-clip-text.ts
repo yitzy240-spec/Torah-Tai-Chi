@@ -52,15 +52,19 @@ export async function updateClipText(opts: {
   if (Object.keys(update).length === 0) return { ok: true };
 
   // Service role write — RLS on `clips` only allows authed reads, not
-  // authed writes. `.select('id').single()` raises PGRST116 if zero rows
-  // matched (stale clipId), instead of returning ok with nothing written.
+  // authed writes. `.select('id')` returns the array of affected rows so
+  // we can detect zero-row writes (stale clipId, dropped row) and surface
+  // an explicit error instead of returning ok with nothing written.
+  // Same shape as update-script-meta.ts.
   const svc = createServiceClient();
-  const { error } = await svc
+  const { data: affected, error } = await svc
     .from('clips')
     .update(update)
     .eq('id', clipId)
-    .select('id')
-    .single();
+    .select('id');
   if (error) return { error: error.message };
+  if (!affected || affected.length === 0) {
+    return { error: `Clip ${clipId} not found (or update was blocked).` };
+  }
   return { ok: true };
 }
