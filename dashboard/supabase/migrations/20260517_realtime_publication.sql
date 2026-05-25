@@ -3,12 +3,37 @@
 -- filtered by parsha_id so clip rendering, video stitching, and post
 -- status changes all update the UI without a refresh.
 --
--- jobs is NOT listed here — check whether it is already published before
--- re-running. This migration adds only the four new tables; re-running is
--- safe because ALTER PUBLICATION ... ADD TABLE is idempotent in Postgres
--- (no error if the table is already a member).
+-- ALTER PUBLICATION ... ADD TABLE is NOT idempotent in Postgres — it
+-- raises 42710 (duplicate_object) if the table is already a member.
+-- Wrap each add in a DO block so a re-run skips existing members
+-- without aborting the whole migration. (Hit this on the 2026-05-25
+-- prod apply when `clips` was already in supabase_realtime from an
+-- earlier ad-hoc setup.)
 
-ALTER PUBLICATION supabase_realtime ADD TABLE clips;
-ALTER PUBLICATION supabase_realtime ADD TABLE videos;
-ALTER PUBLICATION supabase_realtime ADD TABLE posts;
-ALTER PUBLICATION supabase_realtime ADD TABLE clip_plans;
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE clips;
+EXCEPTION WHEN duplicate_object THEN
+  RAISE NOTICE 'clips already in supabase_realtime — skipping';
+END$$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE videos;
+EXCEPTION WHEN duplicate_object THEN
+  RAISE NOTICE 'videos already in supabase_realtime — skipping';
+END$$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE posts;
+EXCEPTION WHEN duplicate_object THEN
+  RAISE NOTICE 'posts already in supabase_realtime — skipping';
+END$$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE clip_plans;
+EXCEPTION WHEN duplicate_object THEN
+  RAISE NOTICE 'clip_plans already in supabase_realtime — skipping';
+END$$;
