@@ -10,16 +10,20 @@
 //     · Refs opens ReferenceImagePickerSheet (bottom sheet)
 //   - Chain-broken note (compact, only when relevant)
 //
-// One CTA per view (Von Restorff): the sticky bottom "Generate all N
-// clips →" is the only primary action. Per-card generate was removed
-// from the card head — it competed with the bottom CTA and added
-// cognitive load to every card. If we need per-clip regen later it
-// belongs in an overflow menu.
+// Two ways to generate:
+//   - Sticky bottom "Generate all N clips →" (primary, filled navy) —
+//     for the operator who's ready to commit.
+//   - Per-card "▶ Generate this clip" (secondary, outlined navy) —
+//     for the operator who wants to render one clip at a time, review,
+//     then continue. Footer-aligned per card so it doesn't compete with
+//     the bottom primary. Hidden once the clip has rendered
+//     (clip.storage_path is set); a green "✓ Rendered" tick takes its
+//     place. Re-render of done clips happens in Phase 3.
 //
 // Realtime subscription on clips via useRealtimeRows.
 
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorageDraft } from '@/hooks/use-localstorage-draft';
 import { useOptimisticSave } from '@/hooks/use-optimistic-save';
@@ -209,7 +213,7 @@ interface CardProps {
   refImageLibrary: RefImage[];
 }
 
-function PlanClipCard({ clip, parshaSlug, moves, refImageLibrary }: CardProps) {
+function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: CardProps) {
   const [motionPickerOpen, setMotionPickerOpen] = useState(false);
   const [refPickerOpen, setRefPickerOpen] = useState(false);
   const [removeSheetOpen, setRemoveSheetOpen] = useState(false);
@@ -219,6 +223,30 @@ function PlanClipCard({ clip, parshaSlug, moves, refImageLibrary }: CardProps) {
   const [chainBroken, setChainBroken] = useState<boolean>(clip.chain_broken);
   const [removing, setRemoving] = useState(false);
   const [breakingChain, setBreakingChain] = useState(false);
+  // Per-clip render state: true between the operator tapping "Generate this clip"
+  // and Modal writing storage_path back via realtime. Local because Modal doesn't
+  // expose a per-clip "in-flight" flag — we rely on storage_path appearance.
+  const [thisRendering, setThisRendering] = useState(false);
+
+  // Clear the local rendering flag the moment storage_path appears in the
+  // realtime-updated clip row. Covers the success path and also a cross-tab
+  // generation completed by another session.
+  useEffect(() => {
+    if (clip.storage_path) setThisRendering(false);
+  }, [clip.storage_path]);
+
+  async function generateThisClip() {
+    if (thisRendering) return;
+    setThisRendering(true);
+    try {
+      await triggerClips(clipPlanId, [clip.index]);
+    } catch (e) {
+      setThisRendering(false);
+      toast.error("Couldn't start clip generation.", {
+        description: (e as Error).message,
+      });
+    }
+  }
 
   // Duration state — local for the number input, persisted on blur/change.
   const [durationS, setDurationS] = useState<number>(clip.duration_s ?? 10);
@@ -583,6 +611,69 @@ function PlanClipCard({ clip, parshaSlug, moves, refImageLibrary }: CardProps) {
           >
             {breakingChain ? 'Updating…' : 'Restore chain'}
           </button>
+        </div>
+      )}
+
+      {/* Per-card generate — outlined / secondary so it doesn't compete with
+          the sticky bottom "Generate all". Hidden once this clip has rendered
+          (clip.storage_path !== null); Phase 3 handles re-render of done clips. */}
+      {!clip.storage_path && (
+        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={generateThisClip}
+            disabled={thisRendering}
+            aria-busy={thisRendering}
+            style={{
+              minHeight: 40,
+              fontSize: 13,
+              fontWeight: 500,
+              padding: '8px 14px',
+              borderRadius: 8,
+              background: 'white',
+              color: thisRendering ? 'var(--ink-500)' : 'var(--navy-700)',
+              border: '1px solid var(--navy-700)',
+              cursor: thisRendering ? 'wait' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            {thisRendering ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    border: '2px solid var(--ink-200)',
+                    borderTopColor: 'var(--navy-700)',
+                    animation: 'spin 0.9s linear infinite',
+                    display: 'inline-block',
+                  }}
+                />
+                Rendering this clip…
+              </>
+            ) : (
+              <>▶ Generate this clip</>
+            )}
+          </button>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+      {clip.storage_path && (
+        <div
+          style={{
+            marginTop: 14,
+            fontSize: 12,
+            color: 'var(--jade)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span aria-hidden="true">✓</span> Rendered
         </div>
       )}
 
