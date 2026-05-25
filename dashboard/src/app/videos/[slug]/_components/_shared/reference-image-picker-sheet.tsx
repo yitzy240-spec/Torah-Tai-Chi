@@ -92,7 +92,26 @@ export function ReferenceImagePickerSheet({
       primaryAction={{ label: 'Done', onClick: () => onOpenChange(false) }}
     >
       <div style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-        {/* ── Currently attached ──────────────────────────────────── */}
+        {/* ── How this works ──────────────────────────────────────── */}
+        <p
+          style={{
+            fontSize: 13,
+            color: 'var(--ink-500)',
+            fontFamily: 'var(--ff-display)',
+            fontStyle: 'italic',
+            lineHeight: 1.5,
+            margin: '0 0 18px 0',
+            padding: '10px 12px',
+            background: 'var(--linen-100)',
+            borderRadius: 6,
+          }}
+        >
+          Leave empty to use the default character + dojo references Seedance
+          auto-picks for this clip. Attach images below only to override the
+          defaults for this clip.
+        </p>
+
+        {/* ── Override references ─────────────────────────────────── */}
         <section style={{ marginBottom: 20 }}>
           <div
             style={{
@@ -110,7 +129,7 @@ export function ReferenceImagePickerSheet({
                 letterSpacing: '0.1em',
               }}
             >
-              Currently attached
+              Override references
             </div>
             <div
               style={{
@@ -119,7 +138,9 @@ export function ReferenceImagePickerSheet({
                 fontVariantNumeric: 'tabular-nums',
               }}
             >
-              {selected.length} of {MAX_REFS}
+              {selected.length === 0
+                ? 'using defaults'
+                : `${selected.length} of ${MAX_REFS} overriding defaults`}
             </div>
           </div>
 
@@ -134,7 +155,8 @@ export function ReferenceImagePickerSheet({
                 textAlign: 'center',
               }}
             >
-              No references attached yet. Tap one below to add.
+              Empty — Seedance will use the default character + dojo references
+              for this clip.
             </div>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -248,7 +270,7 @@ export function ReferenceImagePickerSheet({
                 letterSpacing: '0.1em',
               }}
             >
-              {isFull ? 'Library (full — remove one to swap in)' : 'Add from library'}
+              {isFull ? 'Library (full — remove one to swap in)' : 'Tap to override defaults'}
             </div>
           </div>
 
