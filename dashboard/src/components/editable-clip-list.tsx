@@ -214,6 +214,15 @@ export function EditableClipList({
             durationS={durationsByIndex[idx] ?? 0}
             versions={versions}
             selectedClipId={selectedByIndex[idx] ?? versions[versions.length - 1].clipId}
+            displayedClipId={
+              // The clip_id the currently-displayed video uses at this slot.
+              // Falls back to latest only when the displayed-video map doesn't
+              // cover this index (rare: parsha with mismatched data). Used to
+              // surface the Apply button when the user picks something
+              // different from what the stitched video already uses.
+              displayedClipIdByIndex[idx]
+              ?? versions[versions.length - 1].clipId
+            }
             onSelectVersion={(clipId) =>
               setSelectedByIndex((prev) => ({ ...prev, [idx]: clipId }))
             }

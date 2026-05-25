@@ -19,6 +19,16 @@ const IN_PROGRESS_STATUSES = [
 export async function regenClipFromText(opts: {
   videoId: string;
   clipIndex: number;
+  /** clip_id the user was viewing/editing when they clicked Re-render.
+   *  When passed, the regen parents off THIS clip's owning job, not the
+   *  top-player video's job. Required path for users editing a non-
+   *  latest chip — without it, edits land on the chip's clip_id but
+   *  Modal reads from a different job's clip and renders the wrong
+   *  text. Yonah's 2026-05-17 Shavuot V8/V9 bug: edited V8 chip
+   *  (job 9b2ae20e), Re-render parented from top-player video
+   *  (job 1cc92e02), Modal read 1cc92e02's clip 2 → rendered the
+   *  unedited "TOH-rah" text instead of his CRANE edit. */
+  clipId?: string;
   /** Optional override — re-render at a different resolution than the
    *  parent job. Useful when bumping a clip from 720p Fast → 1080p
    *  Standard (or going the other way for cheap drafts). When omitted,
@@ -28,25 +38,28 @@ export async function regenClipFromText(opts: {
    *  parent. Same fallthrough semantics as `resolution`. */
   modelTier?: ModelTier;
 }): Promise<{ ok: true; jobId: string } | { error: string }> {
-  const { videoId, clipIndex, resolution: resOverride, modelTier: tierOverride } = opts;
+  const { videoId, clipIndex, clipId, resolution: resOverride, modelTier: tierOverride } = opts;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated' };
 
-  const { data: videoRow } = await supabase
-    .from('videos').select('id, job_id').eq('id', videoId).single();
-  if (!videoRow) return { error: 'Video not found' };
-
-  // parentJobId is the job that owns the displayed video — could be a
-  // full pipeline run, a regen, or a compose. Modal's regen_clip_from_text
-  // handles all three cases (it looks up composed_from_clip_ids when the
-  // parent is a compose with no clip rows of its own). The earlier
-  // "walk to source clip's job" hack made compose regens silently swap
-  // OTHER clips back to the source job's versions instead of preserving
-  // the compose's picks — Yonah saw "completely different clips
-  // throughout" after regenerating just one. Don't walk; let Modal
-  // resolve the compose case itself.
-  const parentJobId = videoRow.job_id as string;
+  // Resolve parentJobId from the chip the user clicked Re-render on
+  // (clipId → its owning job). Falls back to the displayed video's
+  // job when clipId isn't passed (legacy callers / compose context).
+  // Modal then reads parent_clips for THIS job, which is the same row
+  // updateClipText wrote the user's edits to.
+  let parentJobId: string;
+  if (clipId) {
+    const { data: clipRow } = await supabase
+      .from('clips').select('job_id').eq('id', clipId).maybeSingle();
+    if (!clipRow) return { error: 'Edited clip not found' };
+    parentJobId = clipRow.job_id as string;
+  } else {
+    const { data: videoRow } = await supabase
+      .from('videos').select('id, job_id').eq('id', videoId).single();
+    if (!videoRow) return { error: 'Video not found' };
+    parentJobId = videoRow.job_id as string;
+  }
 
   const { data: parentJob } = await supabase
     .from('jobs')

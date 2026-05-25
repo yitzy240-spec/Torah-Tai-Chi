@@ -11,6 +11,7 @@ import { VideoVersionsView, type VersionInfo } from '@/components/video-versions
 import type { EditableClipVersion } from '@/components/editable-clip-card';
 import { EditableClipList } from '@/components/editable-clip-list';
 import { EditingHelpModal } from '@/components/editing-help-modal';
+import { TeachingTextEditor } from '@/components/teaching-text-editor';
 import { PLATFORMS, type Platform, type CaptionField } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
@@ -18,7 +19,6 @@ import { pickActiveVersion, resolveInitialSelectedId } from '@/lib/active-versio
 import { getConnectedPlatforms } from '@/lib/connected-platforms';
 import { refreshVideoPostUrls } from '@/lib/refresh-post-urls';
 import { YouTubeComments } from '@/components/youtube-comments';
-import { dedupeClipsByStoragePath } from '@/lib/dedupe-clips';
 
 interface Script {
   id: string;
@@ -112,7 +112,7 @@ function buildClipPayload(
 }
 
 
-export async function VideoDetailPageLegacy({ params, searchParams }: PageProps) {
+export default async function VideoDetailPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const sp = await searchParams;
   const supabase = await createClient();
@@ -137,7 +137,7 @@ export async function VideoDetailPageLegacy({ params, searchParams }: PageProps)
   // jobs come first so they're guaranteed present.
   const { data: doneJobsRaw } = await supabase
     .from('jobs')
-    .select('id, kind, script_id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, composed_from_clip_ids, created_at)')
+    .select('id, kind, script_id, resolution, model_tier, total_cost_usd, regen_of_job_id, triggered_at, videos(id, mp4_path, thumb_path, published_to_website, composed_from_clip_ids, spoken_script, created_at)')
     .eq('parsha_id', parsha.id)
     .eq('status', 'done')
     .order('triggered_at', { ascending: true });
@@ -170,6 +170,7 @@ export async function VideoDetailPageLegacy({ params, searchParams }: PageProps)
       thumbPath: v.thumb_path as string | null,
       publishedToWebsite: !!v.published_to_website,
       composedFromClipIds: (v.composed_from_clip_ids as string[] | null) ?? null,
+      spokenScript: (v.spoken_script as string | null) ?? '',
       createdAt: (v.created_at as string | null) ?? (j.triggered_at as string | null) ?? new Date(0).toISOString(),
       resolution: (j.resolution as Resolution | null) ?? null,
       modelTier: (j.model_tier as ModelTier | null) ?? null,
@@ -180,6 +181,46 @@ export async function VideoDetailPageLegacy({ params, searchParams }: PageProps)
 
   // Latest = canonical "live" version: drives captions, distribution, cost.
   const latest = versionRows.length > 0 ? versionRows[versionRows.length - 1] : null;
+
+  // The version currently live on torahtaichi.com (if any). When set,
+  // the top-of-page module switches from "script carousel + draft player"
+  // to "live video + live teaching-text editor" — the page becomes a
+  // display+edit surface for the published state, not a work-in-progress
+  // composer. There's at most one published version per parsha
+  // (enforced by set-video-published).
+  const livePublishedVersion = versionRows.find((v) => v.publishedToWebsite) ?? null;
+
+  // Source script for the live published version. Title + tldr live on
+  // scripts.title / scripts.tldr — these are what the public website
+  // renders as the video's title and teaser. Walk regen_of_job_id back
+  // to the root job (regens/composes carry script_id=null) until we
+  // hit one with script_id set. Mirrors the chain-walk pattern in
+  // website/src/lib/parshiot.ts and set-video-published.ts.
+  let liveScriptId: string | null = null;
+  let liveScriptTitle: string = '';
+  let liveScriptTldr: string = '';
+  if (livePublishedVersion) {
+    let cursor: string | null = livePublishedVersion.jobId;
+    for (let i = 0; i < 25 && cursor; i++) {
+      const { data: j }: { data: { script_id: string | null; regen_of_job_id: string | null } | null } = await supabase
+        .from('jobs')
+        .select('script_id, regen_of_job_id')
+        .eq('id', cursor)
+        .maybeSingle();
+      if (j?.script_id) {
+        liveScriptId = j.script_id as string;
+        const { data: s } = await supabase
+          .from('scripts')
+          .select('title, tldr')
+          .eq('id', liveScriptId)
+          .maybeSingle();
+        liveScriptTitle = (s?.title as string | null) ?? '';
+        liveScriptTldr = (s?.tldr as string | null) ?? '';
+        break;
+      }
+      cursor = (j?.regen_of_job_id as string | null) ?? null;
+    }
+  }
 
   // Resolve which version is "selected": `?v=<videoId>` if it matches
   // a known version; otherwise the version currently live on the
@@ -273,45 +314,68 @@ export async function VideoDetailPageLegacy({ params, searchParams }: PageProps)
       tierByJobId[r.jobId] = { resolution: r.resolution, modelTier: r.modelTier };
     }
 
-    const { data: allClips } = await supabase
+    const { data: allClipsRaw } = await supabase
       .from('clips')
       .select('id, job_id, index, voiceover, visual_prompt, storage_path, duration_s, created_at')
       .in('job_id', allJobIds)
       .order('created_at', { ascending: true });
 
-    // Dedupe by storage_path within each index via shared helper.
-    // See dashboard/src/lib/dedupe-clips.ts for the full rationale.
-    // The helper returns the FIRST (oldest by created_at) row for each
-    // distinct storage_path, matching the legacy behavior exactly.
-    const rawClips = (allClips ?? []).map((c) => ({
-      id: c.id as string,
-      index: c.index as number,
-      storage_path: c.storage_path as string | null,
-      created_at: (c.created_at as string | null) ?? new Date(0).toISOString(),
-      job_id: c.job_id as string,
-      voiceover: c.voiceover as string | null,
-      visual_prompt: c.visual_prompt as string | null,
-      duration_s: c.duration_s as number | null,
-    }));
-    const dedupedByIndex = dedupeClipsByStoragePath(rawClips);
+    // Re-sort by OWNING JOB's triggered_at (matches versionRows ordering),
+    // not row created_at. Concurrent regens can finish DB inserts in a
+    // different order than they were triggered (Yonah hit this on the
+    // 2026-05-17 Shavuot 18:48 / 18:47 pair), so sorting by row created_at
+    // makes the "latest" chip diverge from the "latest video" the user is
+    // viewing. We want them on the same ordering so the chip binds to the
+    // same clip_id the displayed video's job has at this index.
+    const triggeredAtByJobId: Record<string, string> = {};
+    for (const j of doneJobsRaw ?? []) {
+      triggeredAtByJobId[j.id as string] = (j.triggered_at as string | null) ?? new Date(0).toISOString();
+    }
+    const allClips = [...(allClipsRaw ?? [])].sort((a, b) => {
+      const aT = triggeredAtByJobId[a.job_id as string] ?? '';
+      const bT = triggeredAtByJobId[b.job_id as string] ?? '';
+      if (aT !== bT) return aT.localeCompare(bT);
+      // Tiebreaker: clip created_at ASC (deterministic for same-job rows).
+      return ((a.created_at as string) ?? '').localeCompare((b.created_at as string) ?? '');
+    });
 
-    for (const [idxStr, dedupedClips] of Object.entries(dedupedByIndex)) {
-      const idx = Number(idxStr);
+    // Dedupe by storage_path within each index, but bind each chip to the
+    // LATEST clip_id sharing the path (by owning-job triggered_at). Every
+    // regen copies its non-target clips' rows from the parent verbatim —
+    // sharing the parent's storage_path under a fresh clip_id. The chip
+    // the user edits must point at the row Modal will read on the next
+    // re-render — i.e. the latest job's clip_id at this slot — otherwise
+    // updateClipText writes to a shadowed row Modal never reads, and
+    // edits silently vanish.
+    const pathSlotPerIndex: Record<number, Record<string, number>> = {};
+
+    for (const c of allClips) {
+      const idx = c.index as number;
+      const path = c.storage_path as string | null;
+      if (!path) continue; // skip clips without checkpointed mp4
+      if (!pathSlotPerIndex[idx]) pathSlotPerIndex[idx] = {};
       if (!editableClipsByIndex[idx]) editableClipsByIndex[idx] = [];
-      for (const c of dedupedClips) {
-        const path = c.storage_path!; // dedupe helper only includes clips with a path
-        const t = tierByJobId[c.job_id];
-        editableClipsByIndex[idx].push({
-          clipId: c.id,
-          jobId: c.job_id,
-          voiceover: c.voiceover ?? '',
-          visualPrompt: c.visual_prompt ?? '',
-          storagePath: path,
-          storageUrl: publicVideoUrl(path),
-          createdAt: c.created_at,
-          resolution: t?.resolution ?? null,
-          modelTier: t?.modelTier ?? null,
-        });
+
+      const t = tierByJobId[c.job_id as string];
+      const entry: EditableClipVersion = {
+        clipId: c.id as string,
+        jobId: c.job_id as string,
+        voiceover: (c.voiceover as string | null) ?? '',
+        visualPrompt: (c.visual_prompt as string | null) ?? '',
+        storagePath: path,
+        storageUrl: publicVideoUrl(path),
+        createdAt: (c.created_at as string | null) ?? new Date(0).toISOString(),
+        resolution: t?.resolution ?? null,
+        modelTier: t?.modelTier ?? null,
+      };
+      const existingSlot = pathSlotPerIndex[idx][path];
+      if (existingSlot !== undefined) {
+        // Replace the older entry at this slot — keeps chip count stable
+        // while updating the chip's backing clip_id to the latest row.
+        editableClipsByIndex[idx][existingSlot] = entry;
+      } else {
+        pathSlotPerIndex[idx][path] = editableClipsByIndex[idx].length;
+        editableClipsByIndex[idx].push(entry);
       }
       // Always take the LATEST distinct version's duration, not the
       // first. Earlier this guarded `=== undefined`, which froze the
@@ -319,10 +383,10 @@ export async function VideoDetailPageLegacy({ params, searchParams }: PageProps)
       // produced — so a regen that lengthened a clip (e.g. the
       // 2026-05-14 Bamidbar recovery where clip 0 was time-stretched
       // from 10s to 11.4s) showed the old "10s" label even though the
-      // actual mp4 played at the new length. dedupedClips is ordered
-      // oldest→newest, so the last entry holds the newest distinct value.
-      const lastClip = dedupedClips[dedupedClips.length - 1];
-      if (lastClip?.duration_s) durationsByIndex[idx] = lastClip.duration_s;
+      // actual mp4 played at the new length. The query orders ASC by
+      // created_at, so this assignment ends with the newest distinct
+      // version's value.
+      if (c.duration_s) durationsByIndex[idx] = c.duration_s as number;
     }
   }
 
@@ -774,17 +838,30 @@ export async function VideoDetailPageLegacy({ params, searchParams }: PageProps)
             typicalRun={typicalRun}
             hidePerClipFeedback={Object.keys(editableClipsByIndex).length > 0}
           />
-          {/* Script carousel — full width below the feedback row when we
-              already have a video, so Yonah can still flip through script
-              variants without losing the player + feedback context. */}
+          {/* Once a version is published, the top module's right side
+              switches from "script options to choose from" to "the live
+              teaching text — edit and update the public page." The
+              script carousel is for picking a script that will produce
+              a video; once a video IS live, that's done. */}
           <div style={{ marginBottom: '32px' }}>
-            <ScriptCarousel
-              parshaId={parsha.id}
-              parshaName={parsha.name}
-              defaultTierKey={defaultTierKey}
-              scripts={parsha.scripts ?? []}
-              pinnedScriptId={pinnedScriptId}
-            />
+            {livePublishedVersion ? (
+              <TeachingTextEditor
+                videoId={livePublishedVersion.videoId}
+                scriptId={liveScriptId}
+                initialTitle={liveScriptTitle}
+                initialTldr={liveScriptTldr}
+                initialText={livePublishedVersion.spokenScript ?? ''}
+                parshaSlug={parsha.slug}
+              />
+            ) : (
+              <ScriptCarousel
+                parshaId={parsha.id}
+                parshaName={parsha.name}
+                defaultTierKey={defaultTierKey}
+                scripts={parsha.scripts ?? []}
+                pinnedScriptId={pinnedScriptId}
+              />
+            )}
           </div>
         </>
       ) : (
@@ -917,13 +994,24 @@ export async function VideoDetailPageLegacy({ params, searchParams }: PageProps)
                 </div>
               )}
             </div>
-            <ScriptCarousel
-              parshaId={parsha.id}
-              parshaName={parsha.name}
-              defaultTierKey={defaultTierKey}
-              scripts={parsha.scripts ?? []}
-              pinnedScriptId={pinnedScriptId}
-            />
+            {livePublishedVersion ? (
+              <TeachingTextEditor
+                videoId={livePublishedVersion.videoId}
+                scriptId={liveScriptId}
+                initialTitle={liveScriptTitle}
+                initialTldr={liveScriptTldr}
+                initialText={livePublishedVersion.spokenScript ?? ''}
+                parshaSlug={parsha.slug}
+              />
+            ) : (
+              <ScriptCarousel
+                parshaId={parsha.id}
+                parshaName={parsha.name}
+                defaultTierKey={defaultTierKey}
+                scripts={parsha.scripts ?? []}
+                pinnedScriptId={pinnedScriptId}
+              />
+            )}
           </div>
         </>
       )}
@@ -1388,7 +1476,3 @@ function PostedStatusPill({ anyPublished, anyScheduled }: { anyPublished: boolea
     </span>
   );
 }
-
-// Default export keeps Next.js happy if this file is ever rendered
-// directly (e.g. during development before the dispatcher is in place).
-export default VideoDetailPageLegacy;

@@ -9,6 +9,16 @@ export interface Parsha {
   slug: string;
   book: string;
   hebrewName: string;
+  /** 'parsha' (a weekly Torah reading) or 'holiday' (Shavuot, Pesach,
+   *  etc.). Holidays publish through the same pipeline but are excluded
+   *  from the homepage hero so we don't display e.g. Shavuot as "this
+   *  week's teaching." */
+  kind: 'parsha' | 'holiday';
+  /** ISO timestamp of when the published video's row was inserted.
+   *  Used to pick the most-recently-published non-holiday video for the
+   *  hero when the upcoming-parsha (per Hebcal) doesn't have a video yet.
+   *  Null when no video has been published. */
+  videoPublishedAt?: string | null;
   /** Script text shown on the video page. Prefers
    *  videos.spoken_script (the transcript snapshot taken at publish
    *  time, accurate for the live version even after per-clip regens).
@@ -42,7 +52,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   // Fetch parshiot
   const { data: parshiotData, error: parshiotError } = await client
     .from("parshiot")
-    .select(`id, "order", name, slug, book`)
+    .select(`id, "order", name, slug, book, kind`)
     .order('"order"', { ascending: true });
 
   if (parshiotError) {
@@ -74,7 +84,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       .eq("option", "A-tight"),
     client
       .from("videos")
-      .select("parsha_id, thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description")
+      .select("parsha_id, thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description, created_at")
       .in("parsha_id", parshaIds),
   ]);
 
@@ -89,6 +99,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   const spokenScriptMap = new Map<string, string | null>();
   const postUrlsMap = new Map<string, Parsha["postUrls"]>();
   const titleMap = new Map<string, string | null>();
+  const videoPublishedAtMap = new Map<string, string>();
   for (const v of (videosResult.data ?? []) as Array<{
     parsha_id: string | null;
     thumb_path: string | null;
@@ -99,6 +110,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
     title: string | null;
     subtitle: string | null;
     description: string | null;
+    created_at: string | null;
   }>) {
     if (!v.parsha_id) continue;
     if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
@@ -109,12 +121,13 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       postUrlsMap.set(v.parsha_id, v.post_urls as Parsha["postUrls"]);
     }
     // videos.title is the snapshot written at stitch time (spec §11.6).
-    // Fall back to parsha.name (from parshiotData below) for old rows
-    // where the snapshot wasn't yet written.
+    // Fall back to A-tight script title for old rows where the snapshot
+    // wasn't yet written.
     titleMap.set(v.parsha_id, v.title ?? null);
+    if (v.created_at) videoPublishedAtMap.set(v.parsha_id, v.created_at);
   }
 
-  return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string }) => {
+  return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string; kind: string }) => {
     const script = scriptMap.get(row.id);
     const thumbPath = thumbMap.get(row.id) ?? null;
     const mp4Path = videoMap.get(row.id) ?? null;
@@ -129,6 +142,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       slug: row.slug,
       book: row.book,
       hebrewName: HEBREW_NAMES[row.slug] ?? "",
+      kind: (row.kind === 'holiday' ? 'holiday' : 'parsha') as 'parsha' | 'holiday',
       // Prefer the spoken-script snapshot (matches the live video's
       // actual voiceovers); fall back to the draft when none exists yet.
       atightScript: spoken ?? script?.draft_text,
@@ -137,6 +151,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
       websiteCaption: captionMap.get(row.id) ?? null,
       postUrls: postUrlsMap.get(row.id),
+      videoPublishedAt: videoPublishedAtMap.get(row.id) ?? null,
     };
   });
 }
@@ -146,7 +161,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
 
   const { data: parshaData, error } = await client
     .from("parshiot")
-    .select(`id, "order", name, slug, book`)
+    .select(`id, "order", name, slug, book, kind`)
     .eq("slug", slug)
     .single();
 
@@ -172,7 +187,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     // so this query never needs to walk jobs → scripts anymore.
     client
       .from("videos")
-      .select("thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description")
+      .select("thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description, created_at")
       .eq("parsha_id", parshaData.id)
       .maybeSingle(),
   ]);
@@ -186,6 +201,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     title?: string | null;
     subtitle?: string | null;
     description?: string | null;
+    created_at?: string | null;
   } | null;
 
   const thumbPath = videoData?.thumb_path ?? null;
@@ -203,11 +219,13 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     slug: parshaData.slug,
     book: parshaData.book,
     hebrewName: HEBREW_NAMES[parshaData.slug] ?? "",
+    kind: ((parshaData as { kind?: string }).kind === 'holiday' ? 'holiday' : 'parsha') as 'parsha' | 'holiday',
     atightScript: spoken ?? atightFallback.data?.draft_text,
     atightTitle: resolvedTitle,
     thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
     videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
     websiteCaption: videoData?.website_caption ?? null,
+    videoPublishedAt: videoData?.created_at ?? null,
     postUrls: postUrlsRaw && Object.keys(postUrlsRaw).length > 0
       ? (postUrlsRaw as Parsha["postUrls"])
       : undefined,
@@ -225,25 +243,26 @@ export async function getNearbyParshiot(
   const [prevResult, nextResult] = await Promise.all([
     client
       .from("parshiot")
-      .select(`id, "order", name, slug, book`)
+      .select(`id, "order", name, slug, book, kind`)
       .lt('"order"', current.order)
       .order('"order"', { ascending: false })
       .limit(1),
     client
       .from("parshiot")
-      .select(`id, "order", name, slug, book`)
+      .select(`id, "order", name, slug, book, kind`)
       .gt('"order"', current.order)
       .order('"order"', { ascending: true })
       .limit(1),
   ]);
 
-  const mapRow = (row: { id: string; order: number; name: string; slug: string; book: string }): Parsha => ({
+  const mapRow = (row: { id: string; order: number; name: string; slug: string; book: string; kind: string }): Parsha => ({
     id: row.id,
     order: row.order,
     name: row.name,
     slug: row.slug,
     book: row.book,
     hebrewName: HEBREW_NAMES[row.slug] ?? "",
+    kind: (row.kind === 'holiday' ? 'holiday' : 'parsha') as 'parsha' | 'holiday',
   });
 
   return {

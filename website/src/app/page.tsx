@@ -2,7 +2,6 @@ import Link from "next/link";
 import { getAllParshiot } from "@/lib/parshiot";
 import { getAllArticles } from "@/lib/articles";
 import { getSiteContent, splitEm } from "@/lib/site-content";
-import { getThisWeekParsha } from "@/lib/hebcal";
 import RecentTeachingsCarousel, { type CarouselCard } from "@/components/RecentTeachingsCarousel";
 import ArticleCard from "@/components/ArticleCard";
 import Announcement from "@/components/Announcement";
@@ -36,12 +35,17 @@ export default async function HomePage() {
   }
   const withScript = parshiot.filter((p) => p.atightScript);
 
-  // Feature A: Hebcal live parsha — fall back to first-with-script if Hebcal fails
-  const hebcalParsha = await getThisWeekParsha();
-  const hebcalMatch = hebcalParsha
-    ? (parshiot.find((p) => p.slug === hebcalParsha.slug) ?? null)
-    : null;
-  const thisWeek = hebcalMatch ?? withScript[0] ?? parshiot[0];
+  // Hero is whatever was most recently published. No "this week" /
+  // calendar logic — the homepage is "here's the latest teaching,"
+  // not "here's a calendar app." Holidays count too: if Yonah just
+  // published Shavuot, that's the latest, show it.
+  const thisWeek = parshiot
+    .filter((p) => !!p.videoUrl && !!p.videoPublishedAt)
+    .sort((a, b) =>
+      (b.videoPublishedAt ?? '').localeCompare(a.videoPublishedAt ?? '')
+    )[0]
+    ?? withScript[0]
+    ?? parshiot[0];
 
   // Carousel data: only parshiot that have a rendered video. Empty
   // placeholder cards looked like "everything's coming soon" — better

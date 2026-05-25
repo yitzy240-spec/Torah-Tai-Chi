@@ -51,11 +51,16 @@ export async function updateClipText(opts: {
   }
   if (Object.keys(update).length === 0) return { ok: true };
 
-  // Use service role for the write — RLS on `clips` only allows authed
-  // reads, not authed writes. Without this the update silently matches
-  // zero rows and Yonah's voiceover/scene-direction edits never persist.
+  // Service role write — RLS on `clips` only allows authed reads, not
+  // authed writes. `.select('id').single()` raises PGRST116 if zero rows
+  // matched (stale clipId), instead of returning ok with nothing written.
   const svc = createServiceClient();
-  const { error } = await svc.from('clips').update(update).eq('id', clipId);
+  const { error } = await svc
+    .from('clips')
+    .update(update)
+    .eq('id', clipId)
+    .select('id')
+    .single();
   if (error) return { error: error.message };
   return { ok: true };
 }

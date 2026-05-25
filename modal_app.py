@@ -1292,8 +1292,11 @@ _HEBREW_PHONETIC_MAP: dict[str, str] = {
     "dan tee-yen": "Dan Tien",
     "dan teeyen": "Dan Tien",
     "dahn-tee-en": "Dan Tien",
-    "qi": "Qi",
-    "chi": "Qi",
+    # Standalone "chi" / "qi" are intentionally omitted: in this corpus
+    # they always appear in the "Tai Chi" compound, which the next entry
+    # handles. Including the singletons re-matches the "Chi" inside the
+    # already-replaced "Tai Chi" and produces "Tai Qi" on the public
+    # site. Yonah's 2026-05-18 Shavuot publish hit this in passing.
     "tai chi": "Tai Chi",
     "tai-chi": "Tai Chi",
     "yin-yang": "Yin-Yang",
@@ -6254,6 +6257,16 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         MAX_DURATION_S = 15
         MIN_DURATION_S = 4
         voiceover_text = target_parent_clip["voiceover"] or ""
+        # Audit log: pin down the exact row + text the regen is about to
+        # render. Caught the 2026-05-17 Shavuot bug where the user's
+        # edits saved to a row Modal didn't read (chip-vs-parent-job
+        # clip_id mismatch). Keep this log line until we have telemetry.
+        print(
+            f"[regen_clip_from_text] reading target_parent_clip "
+            f"id={target_parent_clip['id']} (parent_job={parent_job_id}, "
+            f"index={target_index}) voiceover[:80]="
+            f"{voiceover_text[:80]!r}"
+        )
         word_count = len(voiceover_text.split())
         current_duration = int(target_parent_clip["duration_s"] or 0)
         current_wps = (
