@@ -13,6 +13,7 @@
 import { getFlag } from '@/lib/feature-flag';
 import VideoDetailPageLegacy from './page-legacy';
 import VideoDetailPageNew from './page-new';
+import { BetaToggleBanner } from './_components/beta-toggle-banner';
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -20,6 +21,7 @@ interface PageProps {
 }
 
 export default async function VideoDetailPage(props: PageProps) {
+  const { slug } = await props.params;
   const sp = await props.searchParams;
   const override = typeof sp.v2 === 'string' ? sp.v2 : null;
   const isNonProd = process.env.VERCEL_ENV !== 'production';
@@ -28,5 +30,10 @@ export default async function VideoDetailPage(props: PageProps) {
     : override === '0' ? false
     : isNonProd ? true
     : await getFlag('video_page_v2');
-  return useNew ? <VideoDetailPageNew {...props} /> : <VideoDetailPageLegacy {...props} />;
+  return (
+    <>
+      <BetaToggleBanner mode={useNew ? 'new' : 'legacy'} slug={slug} />
+      {useNew ? <VideoDetailPageNew {...props} /> : <VideoDetailPageLegacy {...props} />}
+    </>
+  );
 }
