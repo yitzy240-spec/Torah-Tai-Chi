@@ -59,7 +59,7 @@ export function BetaToggleBanner({
           Beta editor
         </span>
         <Link
-          href={`/videos/${slug}?v2=0`}
+          href={`/api/beta-mode?mode=off&to=${encodeURIComponent(`/videos/${slug}`)}`}
           prefetch={false}
           style={{
             display: 'inline-flex',
@@ -99,7 +99,7 @@ export function BetaToggleBanner({
         Save your work first — switching reloads the page from the database.
       </span>
       <Link
-        href={`/videos/${slug}?v2=1`}
+        href={`/api/beta-mode?mode=on&to=${encodeURIComponent(`/videos/${slug}`)}`}
         prefetch={false}
         style={{
           display: 'inline-flex',
