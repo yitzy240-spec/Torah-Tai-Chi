@@ -7,6 +7,11 @@
 // directly; the parent (page-new.tsx) re-derives isLive on each render so
 // no per-card realtime subscription is needed here.
 //
+// P2-B note: failed-banner pattern (other platform cards derive isFailed
+// from posts.status === 'failed' + error_message) does NOT apply here.
+// Site doesn't post via Buffer; failure surfaces via publishSiteChanges /
+// setVideoPublished error toast (the `error` state below) instead.
+//
 // TWO variants per spec §5.2:
 //   - Live variant: read-only display + "View page →" + "Replace site version" → BottomSheet confirm.
 //   - Draft variant: editable fields + "Publish to torahtaichi.com" CTA.

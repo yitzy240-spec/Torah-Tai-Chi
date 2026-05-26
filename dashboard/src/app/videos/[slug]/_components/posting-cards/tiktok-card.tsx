@@ -33,6 +33,7 @@ interface PostRow {
   published_at: string | null;
   buffer_update_id: string | null;
   caption: string | null;
+  error_message: string | null;
 }
 
 interface Props {
@@ -55,10 +56,12 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
   // Subscribe to this card's posts row so a late 'failed' status (Buffer
   // rate limit, async Modal worker failure) lands without manual refresh.
   const livePost = useRealtimeRow<PostRow>('posts', post?.id ?? null, post ?? null);
-  const effectiveStatus = livePost?.status ?? post?.status ?? null;
+  const effectivePost = livePost ?? post ?? null;
+  const effectiveStatus = effectivePost?.status ?? null;
 
   const isPosted = effectiveStatus === 'published';
   const isScheduled = effectiveStatus === 'scheduled';
+  const isFailed = effectiveStatus === 'failed';
 
   // Scheduled state
   if (isScheduled && post) {
@@ -201,6 +204,32 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
         initialCombined={caption}
         onSave={async (next) => savePlatformCaption(jobId, 'tiktok', next)}
       />
+
+      {isFailed && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+            padding: '10px 12px',
+            marginBottom: 10,
+            background: 'rgba(207, 109, 81, 0.08)',
+            border: '1px solid var(--tassel)',
+            borderRadius: 6,
+            fontSize: 12.5,
+            color: 'var(--ink-700)',
+            lineHeight: 1.5,
+          }}
+        >
+          <span aria-hidden="true" style={{ color: 'var(--tassel)', fontWeight: 700, flexShrink: 0 }}>!</span>
+          <span>
+            Last post attempt failed.
+            {effectivePost?.error_message ? <> <span style={{ color: 'var(--ink-500)' }}>{String(effectivePost.error_message).split('\n')[0].slice(0, 180)}</span></> : null}
+            {' '}Tap to retry.
+          </span>
+        </div>
+      )}
 
       {error && <div style={{ fontSize: 12, color: 'var(--tassel)', marginBottom: 8 }}>{error}</div>}
 

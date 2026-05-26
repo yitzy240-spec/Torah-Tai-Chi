@@ -30,6 +30,7 @@ interface PostRow {
   published_at: string | null;
   buffer_update_id: string | null;
   caption: string | null;
+  error_message: string | null;
 }
 
 interface SocialMeta {
