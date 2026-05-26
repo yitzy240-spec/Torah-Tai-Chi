@@ -223,7 +223,11 @@ export function Phase2PlanReview({
       // explicit subset otherwise so we only spend on what's missing.
       const indexesToRender = someRendered ? unrenderedIndexes : null;
       await triggerClips(clipPlanId, indexesToRender, tier);
-      onAdvance();
+      // Stay on Phase 2 — per-card spinners + version chips already
+      // communicate render progress. Advancing here would land the
+      // operator on Phase 4's "Stitching in progress…" placeholder
+      // even though no compose ran (misleading). Only the all-rendered
+      // composeVideo branch above legitimately advances.
     } catch (e) {
       toast.error("Couldn't start clip generation.", {
         description: (e as Error).message,
