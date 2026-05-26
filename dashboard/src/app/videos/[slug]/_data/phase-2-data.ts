@@ -22,9 +22,10 @@ export type Phase2Clip = {
   chain_broken: boolean;
 };
 
-/** One rendered version of a clip index — every clips-only render of
- *  the same index produces a new ClipVersion. Operator picks among
- *  them via the version chips on the Phase 2 card. */
+/** One rendered version of a clip index — every render under a child
+ *  job (clips-only from Phase 2, or regen-from-text from Phase 3)
+ *  produces a new ClipVersion. Operator picks among them via the
+ *  version chips on the Phase 2 card. */
 export type ClipVersion = {
   clipId: string;
   storagePath: string;
@@ -56,14 +57,22 @@ export async function getPhase2Props(
   const supabase = await createClient();
 
   // Parallelize: clips + job details (resolution/tier) + tai-chi moves
-  // + clips-only child jobs (so we can overlay rendered storage_paths).
-  // The plan-only's clip rows hold canonical metadata (voiceover, scene
-  // direction, motion ref, refs, chain_broken). When the operator
+  // + child jobs (so we can overlay rendered versions from any child
+  // job). The plan-only's clip rows hold canonical metadata (voiceover,
+  // scene direction, motion ref, refs, chain_broken). When the operator
   // renders a clip via the per-card or 'Generate remaining' CTA, Modal
-  // inserts NEW clip rows under the clips-only job_id with storage_path
-  // set. Without the overlay below, the Phase 2 cards keep showing
-  // 'Generate this clip' even after the render succeeded — they're
-  // reading the plan-only rows which never get a storage_path.
+  // inserts NEW clip rows under the child job_id with storage_path set.
+  // Without the overlay below, the Phase 2 cards keep showing 'Generate
+  // this clip' even after the render succeeded — they're reading the
+  // plan-only rows which never get a storage_path.
+  //
+  // NOTE: the child-jobs query OMITS a kind filter. Phase 3's regen-
+  // from-text path (regenClipFromText) creates child jobs whose kind
+  // inherits the parent ('parsha' or 'plan-only'), not 'clips-only'.
+  // Filtering by kind='clips-only' would make those regen renders
+  // invisible to Phase 2's chip row. Mirror Phase 3's data fetcher
+  // (phase-3-data.ts:7-14): rendered versions from ANY child job,
+  // identified solely by regen_of_job_id + status='done'.
   const [clipsResult, jobDetailsResult, moves, clipsOnlyJobsResult] = await Promise.all([
     supabase
       .from('clips')
@@ -76,12 +85,11 @@ export async function getPhase2Props(
       .from('jobs')
       .select('id')
       .eq('regen_of_job_id', draftJobId)
-      .eq('kind', 'clips-only')
       .eq('status', 'done'),
   ]);
 
   // Build the per-index version list: every rendered clip row under any
-  // done clips-only child job. Ordered newest-first so the default
+  // done child job (any kind). Ordered newest-first so the default
   // selection (chips[0]) is always the most recent render. The job's
   // resolution / model_tier are joined client-side after a separate
   // jobs SELECT — using a PostgREST embed for this caused a schema-
