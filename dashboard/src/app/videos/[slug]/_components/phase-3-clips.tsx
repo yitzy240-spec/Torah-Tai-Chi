@@ -162,8 +162,9 @@ export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, o
         >
           {advancing ? 'Starting…' : 'Preview stitched video →'}
         </button>
-        <div style={{ marginTop: 8, textAlign: 'center', fontSize: 11.5, color: 'var(--ink-500)', fontFamily: 'var(--ff-display)', fontStyle: 'italic' }}>
-          Re-stitches the video with your latest clip picks. Usually 1–2 minutes.
+        <div style={{ marginTop: 8, textAlign: 'center', fontSize: 11.5, color: 'var(--ink-500)', fontFamily: 'var(--ff-display)', fontStyle: 'italic', lineHeight: 1.5, padding: '0 16px' }}>
+          Stitches using the clip versions you picked in Phase 2.
+          Re-rendered a clip here? Go back to Phase 2, tap that version, then return to stitch.
         </div>
         <div style={{ textAlign: 'center', marginTop: 8 }}>
           <button
