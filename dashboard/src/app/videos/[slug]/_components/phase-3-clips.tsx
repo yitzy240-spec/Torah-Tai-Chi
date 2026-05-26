@@ -156,6 +156,9 @@ export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, o
         >
           Preview stitched video →
         </button>
+        <div style={{ marginTop: 8, textAlign: 'center', fontSize: 11.5, color: 'var(--ink-500)', fontFamily: 'var(--ff-display)', fontStyle: 'italic' }}>
+          Re-stitches the video with your latest clip picks. Usually 1–2 minutes.
+        </div>
         <div style={{ textAlign: 'center', marginTop: 8 }}>
           <button
             type="button"
