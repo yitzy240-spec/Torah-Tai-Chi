@@ -50,11 +50,24 @@ export function selectPageState(input: PageStateInput): PageState {
 
   // A draft = any in-flight job, OR a done job whose video isn't yet live
   // (needs review/posting), OR a done plan-only job still awaiting clip rendering.
-  const inFlightJob = jobs.find((j) => IN_FLIGHT.has(j.status));
+  //
+  // clips-only is excluded from draft detection — it's a sub-action on an
+  // existing plan (the operator's per-card "Generate this clip" or the
+  // bottom "Generate remaining N clips" CTA), not a standalone workflow.
+  // If Modal happens to write a video row for a clips-only run (single-clip
+  // preview mp4 etc.), letting it count as a draft would hijack the page
+  // into PlanGeneratingCard with the clips-only's elapsed time and no
+  // clip_plan_id to bind to. The owning plan-only job is the canonical
+  // draft for the parsha; clips-only's progress shows up through the
+  // clips.storage_path realtime path on the Phase 2/3 cards.
+  const isDraftKind = (k: string | null) =>
+    k === null || k === 'parsha' || k === 'plan-only' || k === 'compose' || k === 'video_topic';
+  const inFlightJob = jobs.find((j) => IN_FLIGHT.has(j.status) && isDraftKind(j.kind));
   const liveVideoIds = new Set(liveVideo ? [liveVideo.id] : []);
   const doneUnpublished = jobs.find(
     (j) =>
       j.status === 'done' &&
+      isDraftKind(j.kind) &&
       j.kind !== 'plan-only' &&
       j.videoId !== null &&
       !liveVideoIds.has(j.videoId),
