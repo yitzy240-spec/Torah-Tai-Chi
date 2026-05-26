@@ -463,6 +463,15 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   const [liveJobId, setLiveJobId] = useState<string | null>(null);
   const [renderStartedAt, setRenderStartedAt] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // Persistent failure surface — mirrors Phase 3's failed-card pattern.
+  // The 12s toast in the liveJob effect is the immediate signal; this
+  // banner is the persistent one for operators who glanced away.
+  // Cleared when the operator re-renders (start of generateThisClip)
+  // or when a successful version lands (clip.storage_path effect).
+  const [lastFailedError, setLastFailedError] = useState<{
+    jobId: string;
+    message: string;
+  } | null>(null);
 
   // Watch the clips-only job we just triggered so we can detect failure
   // and surface it to the operator. The hook does an initial SELECT +
@@ -475,12 +484,14 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   );
 
   // Success path — clip mp4 appeared in storage. Clears the spinner and
-  // closes out the live job watch.
+  // closes out the live job watch. Also clears any stale failure banner
+  // so it doesn't linger next to a successful render.
   useEffect(() => {
     if (clip.storage_path) {
       setThisRendering(false);
       setLiveJobId(null);
       setRenderStartedAt(null);
+      setLastFailedError(null);
     }
   }, [clip.storage_path]);
 
@@ -510,9 +521,11 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       setThisRendering(false);
       setLiveJobId(null);
       setRenderStartedAt(null);
-      const detail = (liveJob.error_message ?? 'Job failed without an error message.')
-        .split('\n')[0]
-        .slice(0, 220);
+      const fullMessage = liveJob.error_message ?? 'Job failed without an error message.';
+      const detail = fullMessage.split('\n')[0].slice(0, 220);
+      // Persistent banner — keyed on jobId so a re-render's success clears
+      // the right stale failure. Toast still fires for the immediate signal.
+      setLastFailedError({ jobId: liveJob.id, message: fullMessage });
       toast.error(`Clip ${clip.index + 1} render failed`, {
         description: detail,
         action: {
@@ -526,6 +539,8 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
 
   async function generateThisClip() {
     if (thisRendering) return;
+    // Clear any prior failure banner — the operator is retrying.
+    setLastFailedError(null);
     setThisRendering(true);
     setRenderStartedAt(Date.now());
     try {
@@ -1108,6 +1123,40 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
           until clip N-1 has a rendered mp4, so scene-group chaining (clip
           N's first frame = clip N-1's last frame) is never broken by
           out-of-order generation. */}
+      {!clip.storage_path && lastFailedError && !thisRendering && (
+        <div
+          role="alert"
+          style={{
+            marginTop: 14,
+            padding: '10px 12px',
+            background: 'rgba(207, 109, 81, 0.08)',
+            border: '1px solid var(--tassel)',
+            borderRadius: 6,
+            fontSize: 12.5,
+            color: 'var(--ink-700)',
+            lineHeight: 1.5,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
+          }}
+        >
+          <span aria-hidden="true" style={{ color: 'var(--tassel)', fontWeight: 700, flexShrink: 0 }}>!</span>
+          <span>
+            Last render failed.{' '}
+            <span style={{ color: 'var(--ink-500)' }}>
+              {lastFailedError.message.split('\n')[0].slice(0, 180)}
+            </span>{' '}
+            <a
+              href={`/jobs/${lastFailedError.jobId}`}
+              target="_blank"
+              rel="noopener"
+              style={{ color: 'var(--navy-700)', textDecoration: 'underline' }}
+            >
+              View log →
+            </a>
+          </span>
+        </div>
+      )}
       {!clip.storage_path && (
         <div
           style={{
