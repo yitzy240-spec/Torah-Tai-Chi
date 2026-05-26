@@ -40,8 +40,14 @@ interface Props {
 export function Phase2PlanReviewConnected(props: Props) {
   const router = useRouter();
 
+  // Phase 2 ALWAYS advances to Phase 4 (the stitched-video viewer).
+  // When all clips are rendered, Phase 2's bottom CTA fires composeVideo
+  // first, then calls this to navigate; the new compose job is freshly
+  // queued and Phase 4's realtime sub picks up the mp4_path when Modal
+  // finishes. Phase 3 (post-stitch per-clip iteration) is reachable from
+  // Phase 4 via 'Back to clips' for operators who want to keep iterating.
   function handleAdvance() {
-    router.push(`/videos/${props.parshaSlug}?phase=3`);
+    router.push(`/videos/${props.parshaSlug}?phase=4`);
   }
 
   function handleBack() {

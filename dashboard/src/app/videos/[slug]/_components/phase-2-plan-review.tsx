@@ -66,6 +66,7 @@ import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { ClipVersion } from '../_data/phase-2-data';
 import { publicVideoUrl } from '@/lib/storage-url';
+import { composeVideo } from '@/app/actions/compose-video';
 
 const MAX_REF_IMAGES = 9;
 const DURATION_MIN = 3;
@@ -155,23 +156,65 @@ export function Phase2PlanReview({
   // rendered mp4 already:
   //   0 done       → "Generate all N clips →"             fires triggerClips(planId, null)
   //   1..N-1 done  → "Generate M remaining clips →"       fires triggerClips(planId, [unrenderedIndexes])
-  //   all N done   → "Continue to clip review →"          just navigates to Phase 3
+  //   all N done   → "Stitch video →"                     fires composeVideo with the operator's
+  //                                                       per-clip version selections from
+  //                                                       localStorage, then advances to Phase 4
   // This stops "Generate all" from re-spending Kie credits on clips the
-  // operator has already rendered one-by-one, and naturally turns the CTA
-  // into the next-phase advance once everything is rendered.
+  // operator has already rendered one-by-one, and turns the all-done CTA
+  // into the actual stitch trigger so the operator never has to do it
+  // manually (nothing else in the new editor flow fires compose).
   const renderedIndexes = clips.filter((c) => !!c.storage_path).map((c) => c.index);
   const unrenderedIndexes = clips.filter((c) => !c.storage_path).map((c) => c.index);
   const allRendered = clips.length > 0 && unrenderedIndexes.length === 0;
   const someRendered = renderedIndexes.length > 0 && unrenderedIndexes.length > 0;
   const bottomLabel = allRendered
-    ? 'Continue to clip review →'
+    ? 'Stitch video →'
     : someRendered
       ? `Generate ${unrenderedIndexes.length} remaining ${unrenderedIndexes.length === 1 ? 'clip' : 'clips'} →`
       : `Generate all ${clips.length} clips →`;
 
+  // Read the operator's localStorage per-clip selection. If they haven't
+  // explicitly picked, fall back to the newest version per index. Empty
+  // string means 'no version exists for this index' which would block
+  // the compose call below — the all-rendered gate prevents that.
+  function resolveSelectedClipIds(): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < clips.length; i++) {
+      const versions = initialVersionsByIndex[i] ?? [];
+      if (versions.length === 0) return [];
+      const key = `plan.${parshaSlug}.${clips[i].id}.selected_clip_id`;
+      const stored = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
+      const picked = stored && versions.some((v) => v.clipId === stored)
+        ? stored
+        : versions[0].clipId;
+      ids.push(picked);
+    }
+    return ids;
+  }
+
   async function handleBottomAction() {
     if (allRendered) {
-      onAdvance();
+      setGenerating(true);
+      try {
+        const clipIds = resolveSelectedClipIds();
+        if (clipIds.length !== clips.length) {
+          toast.error('Could not resolve all clip versions. Refresh and try again.');
+          return;
+        }
+        const result = await composeVideo({ referenceJobId: jobId, clipIds });
+        if ('error' in result) {
+          toast.error("Couldn't start stitching.", { description: result.error });
+          return;
+        }
+        // Compose job is queued; navigate to Phase 4 where the operator
+        // watches the stitched video (and the realtime sub on the video
+        // row picks up mp4_path when Modal finishes the stitch).
+        onAdvance();
+      } catch (e) {
+        toast.error("Couldn't start stitching.", { description: (e as Error).message });
+      } finally {
+        setGenerating(false);
+      }
       return;
     }
     setGenerating(true);
@@ -905,8 +948,9 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
           </div>
 
           {/* Version chips — only render the bar when 2+ versions exist.
-              Newest is always v{versions.length}; chips go newest-first
-              left-to-right (matches the array order from the server). */}
+              Reading order: v1 on the left (oldest), v{N} on the right
+              (newest). The server passes versions newest-first, so we
+              walk in reverse for display. */}
           {versions.length > 1 && (
             <div
               style={{
@@ -917,39 +961,41 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
                 marginBottom: 10,
               }}
             >
-              {versions.map((v, idx) => {
-                // idx 0 is newest. Label as 'v{N}' where N = versions.length - idx
-                // so newest gets the highest number (familiar from the legacy page).
-                const versionNumber = versions.length - idx;
-                const isSelected = v.clipId === selectedClipId;
-                const tierLabel =
-                  v.resolution && v.modelTier
-                    ? `${v.resolution} ${v.modelTier === 'standard' ? 'Standard' : 'Fast'}`
-                    : null;
-                return (
-                  <button
-                    key={v.clipId}
-                    type="button"
-                    onClick={() => pickVersion(v.clipId)}
-                    aria-pressed={isSelected}
-                    title={tierLabel ? `v${versionNumber} · ${tierLabel}` : `v${versionNumber}`}
-                    style={{
-                      minHeight: 32,
-                      padding: '5px 12px',
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                      borderRadius: 999,
-                      cursor: 'pointer',
-                      background: isSelected ? 'var(--navy-700)' : 'white',
-                      color: isSelected ? 'var(--linen-50)' : 'var(--ink-700)',
-                      border: `1px solid ${isSelected ? 'var(--navy-700)' : 'var(--ink-200)'}`,
-                      fontVariantNumeric: 'tabular-nums',
-                    }}
-                  >
-                    v{versionNumber}
-                  </button>
-                );
-              })}
+              {versions
+                .slice()
+                .reverse()
+                .map((v, displayIdx) => {
+                  // displayIdx 0 is now OLDEST. v1 = first rendered.
+                  const versionNumber = displayIdx + 1;
+                  const isSelected = v.clipId === selectedClipId;
+                  const tierLabel =
+                    v.resolution && v.modelTier
+                      ? `${v.resolution} ${v.modelTier === 'standard' ? 'Standard' : 'Fast'}`
+                      : null;
+                  return (
+                    <button
+                      key={v.clipId}
+                      type="button"
+                      onClick={() => pickVersion(v.clipId)}
+                      aria-pressed={isSelected}
+                      title={tierLabel ? `v${versionNumber} · ${tierLabel}` : `v${versionNumber}`}
+                      style={{
+                        minHeight: 32,
+                        padding: '5px 12px',
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                        borderRadius: 999,
+                        cursor: 'pointer',
+                        background: isSelected ? 'var(--navy-700)' : 'white',
+                        color: isSelected ? 'var(--linen-50)' : 'var(--ink-700)',
+                        border: `1px solid ${isSelected ? 'var(--navy-700)' : 'var(--ink-200)'}`,
+                        fontVariantNumeric: 'tabular-nums',
+                      }}
+                    >
+                      v{versionNumber}
+                    </button>
+                  );
+                })}
             </div>
           )}
 
