@@ -32,17 +32,26 @@ export async function triggerClips(
   // diagnostic SQL) can find it without walking the regen_of_job_id
   // chain. Without this, jobs.parsha_id stays NULL on the row and
   // queries like "SELECT * FROM jobs WHERE parsha_id = …" miss it.
-  const { data: plan } = await supabase
+  //
+  // Two separate queries instead of a PostgREST embed — relies only on
+  // standard SELECTs by primary key, avoiding the schema-cache FK-
+  // resolution failure that hit the earlier "jobs!inner(parsha_id)"
+  // embed in prod (Server-Components-render error 2026-05-26).
+  const { data: plan, error: planErr } = await supabase
     .from('clip_plans')
-    .select('job_id, jobs!inner(parsha_id)')
+    .select('job_id')
     .eq('id', clipPlanId)
-    .single();
-  if (!plan) throw new Error('clip_plan not found');
+    .maybeSingle();
+  if (planErr) throw new Error(`clip_plan lookup failed: ${planErr.message}`);
+  if (!plan?.job_id) throw new Error('clip_plan not found');
   const parentJobId = plan.job_id as string;
-  // Supabase embedding returns the parent as an array OR object depending on relation cardinality.
-  const parentRel = (plan as unknown as { jobs: { parsha_id: string | null } | { parsha_id: string | null }[] }).jobs;
-  const parentParshaId =
-    (Array.isArray(parentRel) ? parentRel[0]?.parsha_id : parentRel?.parsha_id) ?? null;
+
+  const { data: parentJob } = await supabase
+    .from('jobs')
+    .select('parsha_id')
+    .eq('id', parentJobId)
+    .maybeSingle();
+  const parentParshaId = (parentJob?.parsha_id as string | null | undefined) ?? null;
 
   const { data: job, error: jobErr } = await supabase
     .from('jobs')
