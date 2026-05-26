@@ -22,10 +22,12 @@ export function Phase4StitchedConnected({ parshaSlug, ...rest }: Props) {
 
   function handleAdvance() {
     router.push(`/videos/${parshaSlug}?phase=5`);
+    router.refresh();
   }
 
   function handleBack() {
     router.push(`/videos/${parshaSlug}?phase=3`);
+    router.refresh();
   }
 
   return (
