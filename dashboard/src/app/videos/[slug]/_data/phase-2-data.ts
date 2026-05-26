@@ -22,18 +22,26 @@ export type Phase2Clip = {
   chain_broken: boolean;
 };
 
+/** One rendered version of a clip index — every clips-only render of
+ *  the same index produces a new ClipVersion. Operator picks among
+ *  them via the version chips on the Phase 2 card. */
+export type ClipVersion = {
+  clipId: string;
+  storagePath: string;
+  createdAt: string;
+  resolution: string | null;
+  modelTier: string | null;
+};
+
 export type Phase2Props = {
   parshaSlug: string;
   jobId: string;
   clipPlanId: string;
   initialClips: Phase2Clip[];
-  /** Latest rendered mp4 storage_path per clip index, from any done
-   *  clips-only child job that points back to the plan via
-   *  regen_of_job_id. Lives separately from initialClips so
-   *  useRealtimeRows (which only knows about the plan-only's clip
-   *  rows) can refetch without clobbering the overlay. The component
-   *  merges this in at display time. */
-  initialRenderedByIndex: Record<number, string>;
+  /** All rendered versions per clip index, newest first. Drives the
+   *  version chips + player source. Lives separately from initialClips
+   *  so useRealtimeRows refetches don't clobber the overlay. */
+  initialVersionsByIndex: Record<number, ClipVersion[]>;
   initialResolution: Resolution;
   initialModelTier: ModelTier;
   moves: TaiChiMove[];
@@ -72,29 +80,43 @@ export async function getPhase2Props(
       .eq('status', 'done'),
   ]);
 
-  // Build the storage_path overlay: for each clip index, the most recent
-  // rendered mp4 path from any done clips-only child job. Newest wins.
+  // Build the per-index version list: every rendered clip row under any
+  // done clips-only child job. Ordered newest-first so the default
+  // selection (chips[0]) is always the most recent render. The job's
+  // resolution / model_tier are joined so the chips can show 'v2 · 480p
+  // Fast' style labels without an extra round-trip.
   const clipsOnlyJobIds = (clipsOnlyJobsResult.data ?? []).map((j) => j.id as string);
-  const renderedByIndex = new Map<number, string>();
+  const versionsByIndex = new Map<number, ClipVersion[]>();
   if (clipsOnlyJobIds.length > 0) {
     const { data: renderedClips } = await supabase
       .from('clips')
-      .select('index, storage_path, created_at')
+      .select('id, index, storage_path, created_at, jobs!inner(resolution, model_tier)')
       .in('job_id', clipsOnlyJobIds)
       .not('storage_path', 'is', null)
       .order('created_at', { ascending: false });
     for (const r of renderedClips ?? []) {
       const idx = r.index as number;
-      if (!renderedByIndex.has(idx)) {
-        renderedByIndex.set(idx, r.storage_path as string);
-      }
+      // Embedded join returns 'jobs' as object OR array depending on
+      // PostgREST relation cardinality. Normalize.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const jobsRel = (r as any).jobs;
+      const job = Array.isArray(jobsRel) ? jobsRel[0] : jobsRel;
+      const list = versionsByIndex.get(idx) ?? [];
+      list.push({
+        clipId: r.id as string,
+        storagePath: r.storage_path as string,
+        createdAt: r.created_at as string,
+        resolution: (job?.resolution as string | null) ?? null,
+        modelTier: (job?.model_tier as string | null) ?? null,
+      });
+      versionsByIndex.set(idx, list);
     }
   }
 
-  // Don't overlay onto initialClips here — useRealtimeRows refetches
-  // the raw plan-only rows on the client and would clobber it. Instead
-  // pass renderedByIndex as a separate prop and let the component
-  // merge it at display time (the merge survives realtime refetches).
+  // initialClips holds the plan-only's editable metadata only. Don't
+  // overlay storage_path here — useRealtimeRows would clobber it on
+  // refetch. The component merges initialVersionsByIndex at display
+  // time (selection drives the player; chips drive selection).
   const initialClips: Phase2Clip[] = (clipsResult.data ?? []).map((c) => ({
     id: c.id as string,
     index: c.index as number,
@@ -106,7 +128,7 @@ export async function getPhase2Props(
     reference_image_paths: (c.reference_image_paths as string[] | null) ?? null,
     chain_broken: (c.chain_broken as boolean | null) ?? false,
   }));
-  const initialRenderedByIndex: Record<number, string> = Object.fromEntries(renderedByIndex);
+  const initialVersionsByIndex: Record<number, ClipVersion[]> = Object.fromEntries(versionsByIndex);
 
   const draftJobDetails = jobDetailsResult.data;
   const resolution = (draftJobDetails?.resolution as Resolution | null) ?? '720p';
@@ -117,7 +139,7 @@ export async function getPhase2Props(
     jobId: draftJobId,
     clipPlanId,
     initialClips,
-    initialRenderedByIndex,
+    initialVersionsByIndex,
     initialResolution: resolution,
     initialModelTier: modelTier,
     moves,

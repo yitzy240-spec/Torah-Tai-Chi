@@ -64,6 +64,7 @@ import { TierPickerSheet, type TierChoice } from './_shared/tier-picker-sheet';
 import { BottomSheet } from './bottom-sheet';
 import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
+import type { ClipVersion } from '../_data/phase-2-data';
 import { publicVideoUrl } from '@/lib/storage-url';
 
 const MAX_REF_IMAGES = 9;
@@ -87,11 +88,10 @@ interface Props {
   jobId: string; // the plan-only job — used to subscribe to clip updates
   clipPlanId: string;
   initialClips: Clip[]; // sorted by index
-  /** Latest rendered storage_path per clip index, from clips-only
-   *  child jobs. Lives separately from initialClips so useRealtimeRows
-   *  refetches don't wipe the player out — the render state is
-   *  reconciled at display time via the renderedByIndex map below. */
-  initialRenderedByIndex: Record<number, string>;
+  /** All rendered versions per clip index, newest first. Drives chips
+   *  + player. Separate from initialClips so useRealtimeRows refetches
+   *  don't clobber the player; the merge happens at display time. */
+  initialVersionsByIndex: Record<number, ClipVersion[]>;
   initialResolution: Resolution; // default tier comes from the plan-only job (or fallback)
   initialModelTier: ModelTier;
   moves: TaiChiMove[]; // server-fetched library, passed in from page-new
@@ -105,7 +105,7 @@ export function Phase2PlanReview({
   jobId,
   clipPlanId,
   initialClips,
-  initialRenderedByIndex,
+  initialVersionsByIndex,
   initialResolution,
   initialModelTier,
   moves,
@@ -128,16 +128,23 @@ export function Phase2PlanReview({
   // Realtime tracks ONLY the plan-only's own clip rows (those carry the
   // editable metadata — voiceover, scene direction, motion ref, etc.).
   // The rendered mp4 paths live in separate rows under clips-only
-  // child jobs; they're carried in via initialRenderedByIndex from the
-  // server and never overwritten by realtime refetches. We merge them
-  // back in below for display so the inline player survives a refetch.
+  // child jobs; they're carried in via initialVersionsByIndex from the
+  // server and never overwritten by realtime refetches. We resolve
+  // 'which storage_path to display' at the card level, factoring in
+  // the operator's per-clip version selection (localStorage-backed).
   const rawClips = useRealtimeRows<Clip>('clips', 'job_id', jobId, initialClips).sort(
     (a, b) => a.index - b.index,
   );
-  const clips = rawClips.map((c) => ({
-    ...c,
-    storage_path: initialRenderedByIndex[c.index] ?? c.storage_path,
-  }));
+  const clips = rawClips.map((c) => {
+    const versions = initialVersionsByIndex[c.index] ?? [];
+    // For the prev-rendered gating, treat the clip as 'rendered' if
+    // ANY version exists. Selection happens per-card below.
+    const hasAnyVersion = versions.length > 0;
+    return {
+      ...c,
+      storage_path: hasAnyVersion ? versions[0].storagePath : c.storage_path,
+    };
+  });
 
   const totalDurationS = clips.reduce((s, c) => s + (c.duration_s ?? 0), 0);
   const totalCostEstimateUsd =
@@ -247,6 +254,7 @@ export function Phase2PlanReview({
           parshaSlug={parshaSlug}
           moves={moves}
           refImageLibrary={refImageLibrary}
+          versions={initialVersionsByIndex[c.index] ?? []}
           // Sequential gate: clip N's per-card generate is enabled only
           // when N-1 has a rendered mp4. Without this, an operator who
           // tapped 'Generate this clip' on clip 3 before clip 2 would
@@ -334,14 +342,51 @@ interface CardProps {
   parshaSlug: string;
   moves: TaiChiMove[];
   refImageLibrary: RefImage[];
+  versions: ClipVersion[]; // all rendered versions for this clip index, newest first
   prevRendered: boolean; // true if the prior clip has an mp4 (or this is clip 0)
   prevIndex: number | null; // 0-based index of the prior clip, null on clip 0
   tier: TierChoice; // chosen render tier — passed into triggerClips
 }
 
-function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, prevRendered, prevIndex, tier }: CardProps) {
+function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, versions, prevRendered, prevIndex, tier }: CardProps) {
   const router = useRouter();
   const [motionPickerOpen, setMotionPickerOpen] = useState(false);
+
+  // Per-card version selection. Default = newest (versions[0]). Persisted
+  // in localStorage so the operator's pick survives refresh. When a new
+  // render lands and the operator hasn't manually picked an older one,
+  // we auto-advance the selection to the new newest (see effect below).
+  const versionLsKey = `plan.${parshaSlug}.${clip.id}.selected_clip_id`;
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return versions[0]?.clipId ?? null;
+    const stored = window.localStorage.getItem(versionLsKey);
+    // Only honor a stored pick if it's still one of the current versions.
+    if (stored && versions.some((v) => v.clipId === stored)) return stored;
+    return versions[0]?.clipId ?? null;
+  });
+  const selectedVersion =
+    versions.find((v) => v.clipId === selectedClipId) ?? versions[0] ?? null;
+  const isOnLatest = selectedVersion?.clipId === versions[0]?.clipId;
+
+  function pickVersion(clipId: string) {
+    setSelectedClipId(clipId);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(versionLsKey, clipId);
+    }
+  }
+
+  // Auto-jump to the newest version when a re-render lands — but only
+  // if the operator was already on the latest before (no manual pick).
+  // Otherwise respect their explicit selection.
+  useEffect(() => {
+    if (versions.length === 0) return;
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(versionLsKey);
+    if (!stored) {
+      setSelectedClipId(versions[0].clipId);
+    }
+  }, [versions, versionLsKey]);
+
   const [refPickerOpen, setRefPickerOpen] = useState(false);
   const [removeSheetOpen, setRemoveSheetOpen] = useState(false);
   const [sceneExpanded, setSceneExpanded] = useState(false);
@@ -825,13 +870,14 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
         </div>
       )}
 
-      {/* Inline mini-player + Re-render — visible once this clip has a
-          rendered mp4. The editors above stay live; the operator edits
-          voiceover / scene direction / move / refs in place, taps
-          Re-render, watches the new version in the same player. The
-          phase-2-data overlay always picks the most-recent rendered
-          storage_path, so a re-render just swaps the mp4 url here. */}
-      {clip.storage_path && (
+      {/* Inline mini-player + version chips + Re-render — visible once
+          this clip has at least one rendered version. The editors stay
+          live; the operator edits, taps Re-render, watches the new
+          version in the same player. Chips below the player let them
+          flip between past versions if a re-render came out worse.
+          Each re-render lands as a new chip on the left (newest first);
+          their pick is persisted in localStorage. */}
+      {selectedVersion && (
         <div style={{ marginTop: 14 }}>
           <div
             style={{
@@ -845,18 +891,106 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
               margin: '0 auto 12px',
             }}
           >
-            {/* keyed on storage_path so a re-render forces the <video>
-                element to remount and pick up the new src instead of
-                continuing to show the prior mp4 in its buffer. */}
+            {/* keyed on the selected version's clip id so flipping
+                between versions remounts the <video> with the new src
+                instead of continuing to show the prior mp4 in buffer. */}
             <video
-              key={clip.storage_path}
-              src={publicVideoUrl(clip.storage_path)}
+              key={selectedVersion.clipId}
+              src={publicVideoUrl(selectedVersion.storagePath)}
               controls
               playsInline
               preload="metadata"
               style={{ width: '100%', height: '100%', display: 'block' }}
             />
           </div>
+
+          {/* Version chips — only render the bar when 2+ versions exist.
+              Newest is always v{versions.length}; chips go newest-first
+              left-to-right (matches the array order from the server). */}
+          {versions.length > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 6,
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+                marginBottom: 10,
+              }}
+            >
+              {versions.map((v, idx) => {
+                // idx 0 is newest. Label as 'v{N}' where N = versions.length - idx
+                // so newest gets the highest number (familiar from the legacy page).
+                const versionNumber = versions.length - idx;
+                const isSelected = v.clipId === selectedClipId;
+                const tierLabel =
+                  v.resolution && v.modelTier
+                    ? `${v.resolution} ${v.modelTier === 'standard' ? 'Standard' : 'Fast'}`
+                    : null;
+                return (
+                  <button
+                    key={v.clipId}
+                    type="button"
+                    onClick={() => pickVersion(v.clipId)}
+                    aria-pressed={isSelected}
+                    title={tierLabel ? `v${versionNumber} · ${tierLabel}` : `v${versionNumber}`}
+                    style={{
+                      minHeight: 32,
+                      padding: '5px 12px',
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      borderRadius: 999,
+                      cursor: 'pointer',
+                      background: isSelected ? 'var(--navy-700)' : 'white',
+                      color: isSelected ? 'var(--linen-50)' : 'var(--ink-700)',
+                      border: `1px solid ${isSelected ? 'var(--navy-700)' : 'var(--ink-200)'}`,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  >
+                    v{versionNumber}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Tier label under the chip row, soft secondary */}
+          {selectedVersion && (
+            <div
+              style={{
+                textAlign: 'center',
+                marginBottom: 12,
+                fontSize: 11,
+                color: 'var(--ink-500)',
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+              }}
+            >
+              {selectedVersion.resolution && selectedVersion.modelTier
+                ? `${selectedVersion.resolution} ${selectedVersion.modelTier === 'standard' ? 'Standard' : 'Fast'}`
+                : 'rendered'}
+              {!isOnLatest && versions.length > 1 && (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    onClick={() => pickVersion(versions[0].clipId)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      color: 'var(--navy-700)',
+                      fontStyle: 'italic',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                    }}
+                  >
+                    jump to newest
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="button"

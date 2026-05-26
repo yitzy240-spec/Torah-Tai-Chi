@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { RefImage } from './_shared/reference-image-picker-sheet';
+import type { ClipVersion } from '../_data/phase-2-data';
 import { Phase2PlanReview } from './phase-2-plan-review';
 
 interface Clip {
@@ -29,7 +30,7 @@ interface Props {
   jobId: string;
   clipPlanId: string;
   initialClips: Clip[];
-  initialRenderedByIndex: Record<number, string>;
+  initialVersionsByIndex: Record<number, ClipVersion[]>;
   initialResolution: Resolution;
   initialModelTier: ModelTier;
   moves: TaiChiMove[];
