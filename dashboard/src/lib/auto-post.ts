@@ -218,6 +218,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         scheduled_at: args.scheduledAt.toISOString(),
         status: args.shareNow ? 'published' : 'scheduled',
         caption,
+        error_message: null,
       });
 
       results.push({ platform, externalId: update.id });
@@ -239,12 +240,14 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
     } catch (e) {
       const errMsg = String(e);
       errors.push(`${platform}: ${errMsg}`);
+      const truncatedErr = (errMsg ?? '').split('\n')[0].slice(0, 1000) || null;
       await supabase.from('posts').insert({
         video_id: args.videoId,
         platform,
         scheduled_at: args.scheduledAt.toISOString(),
         status: 'failed',
         caption,
+        error_message: truncatedErr,
       });
       await logEvent({
         actor: actorForPlatform(platform),
@@ -263,6 +266,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
     const caption = args.captions.youtube!;
     const yt = await getYouTubeConnection();
     if (!yt.connected) {
+      const ytNotConnectedErr = 'YouTube not connected — visit /channels to connect';
       errors.push('youtube: not connected — visit /channels to connect');
       await supabase.from('posts').insert({
         video_id: args.videoId,
@@ -270,6 +274,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         scheduled_at: args.scheduledAt.toISOString(),
         status: 'failed',
         caption,
+        error_message: ytNotConnectedErr.split('\n')[0].slice(0, 1000) || null,
       });
       await logEvent({
         actor: 'youtube',
@@ -342,6 +347,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
           scheduled_at: args.scheduledAt.toISOString(),
           status: args.shareNow ? 'published' : 'scheduled',
           caption,
+          error_message: null,
         });
         // YouTube URL is deterministic at upload time, so denormalize it
         // onto videos.post_urls immediately for the public website to use.
@@ -365,12 +371,14 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
       } catch (e) {
         const errMsg = String(e);
         errors.push(`youtube: ${errMsg}`);
+        const truncatedErr = (errMsg ?? '').split('\n')[0].slice(0, 1000) || null;
         await supabase.from('posts').insert({
           video_id: args.videoId,
           platform: 'youtube',
           scheduled_at: args.scheduledAt.toISOString(),
           status: 'failed',
           caption,
+          error_message: truncatedErr,
         });
         await logEvent({
           actor: 'youtube',
