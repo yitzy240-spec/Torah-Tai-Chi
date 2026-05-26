@@ -48,7 +48,10 @@ import {
   ReferenceImagePickerSheet,
   type RefImage,
 } from './_shared/reference-image-picker-sheet';
+import { TierPickerSheet, type TierChoice } from './_shared/tier-picker-sheet';
 import { BottomSheet } from './bottom-sheet';
+import { estimateSeedanceCost } from '@/lib/seedance-pricing';
+import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 
 const MAX_REF_IMAGES = 9;
 const DURATION_MIN = 3;
@@ -71,8 +74,8 @@ interface Props {
   jobId: string; // the plan-only job — used to subscribe to clip updates
   clipPlanId: string;
   initialClips: Clip[]; // sorted by index
-  totalCostEstimateUsd: number | null;
-  tierLabel: string; // e.g. "720p Fast"
+  initialResolution: Resolution; // default tier comes from the plan-only job (or fallback)
+  initialModelTier: ModelTier;
   moves: TaiChiMove[]; // server-fetched library, passed in from page-new
   refImageLibrary: RefImage[]; // server-fetched, passed in from page-new
   onAdvance: () => void; // called after triggering all clips
@@ -84,24 +87,39 @@ export function Phase2PlanReview({
   jobId,
   clipPlanId,
   initialClips,
-  totalCostEstimateUsd,
-  tierLabel,
+  initialResolution,
+  initialModelTier,
   moves,
   refImageLibrary,
   onAdvance,
   onBack,
 }: Props) {
   const [generating, setGenerating] = useState(false);
+  // Tier state owned here so the picker + cost estimate + Generate handoff
+  // share a single source of truth. Initialized from the plan-only job's
+  // saved tier (or the NULL fallback). Picking a new option in the sheet
+  // updates this, the cost line recomputes, and the next render fires at
+  // the chosen tier (written to the clips-only job row in trigger-clips).
+  const [tier, setTier] = useState<TierChoice>({
+    resolution: initialResolution,
+    modelTier: initialModelTier,
+  });
+  const [tierPickerOpen, setTierPickerOpen] = useState(false);
 
   // Realtime subscription keeps the card list fresh as Modal writes clips.
   const clips = useRealtimeRows<Clip>('clips', 'job_id', jobId, initialClips).sort(
     (a, b) => a.index - b.index,
   );
 
+  const totalDurationS = clips.reduce((s, c) => s + (c.duration_s ?? 0), 0);
+  const totalCostEstimateUsd =
+    totalDurationS > 0 ? estimateSeedanceCost(totalDurationS, tier.resolution, tier.modelTier) : null;
+  const tierLabel = `${tier.resolution} ${tier.modelTier === 'standard' ? 'Standard' : 'Fast'}`;
+
   async function generateAll() {
     setGenerating(true);
     try {
-      await triggerClips(clipPlanId, null);
+      await triggerClips(clipPlanId, null, tier);
       onAdvance();
     } catch (e) {
       toast.error("Couldn't start clip generation.", {
@@ -135,9 +153,35 @@ export function Phase2PlanReview({
               fontSize: 12.5,
               color: 'var(--ink-500)',
               marginTop: 2,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              flexWrap: 'wrap',
             }}
           >
-            ~${totalCostEstimateUsd.toFixed(2)} estimated at {tierLabel}
+            <span>~${totalCostEstimateUsd.toFixed(2)} estimated at</span>
+            <button
+              type="button"
+              onClick={() => setTierPickerOpen(true)}
+              aria-label="Change render quality"
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '4px 8px',
+                margin: 0,
+                fontFamily: 'inherit',
+                fontStyle: 'inherit',
+                fontSize: 'inherit',
+                color: 'var(--navy-700)',
+                textDecoration: 'underline',
+                textUnderlineOffset: 3,
+                cursor: 'pointer',
+                minHeight: 32,
+                borderRadius: 4,
+              }}
+            >
+              {tierLabel} ▸
+            </button>
           </div>
         )}
       </div>
@@ -159,6 +203,7 @@ export function Phase2PlanReview({
           // Clip 0 has no predecessor, always enabled.
           prevRendered={i === 0 || !!clips[i - 1].storage_path}
           prevIndex={i === 0 ? null : i - 1}
+          tier={tier}
         />
       ))}
 
@@ -213,6 +258,14 @@ export function Phase2PlanReview({
           </button>
         </div>
       </div>
+
+      <TierPickerSheet
+        open={tierPickerOpen}
+        onOpenChange={setTierPickerOpen}
+        current={tier}
+        totalDurationS={totalDurationS}
+        onPick={setTier}
+      />
     </section>
   );
 }
@@ -229,9 +282,10 @@ interface CardProps {
   refImageLibrary: RefImage[];
   prevRendered: boolean; // true if the prior clip has an mp4 (or this is clip 0)
   prevIndex: number | null; // 0-based index of the prior clip, null on clip 0
+  tier: TierChoice; // chosen render tier — passed into triggerClips
 }
 
-function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, prevRendered, prevIndex }: CardProps) {
+function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, prevRendered, prevIndex, tier }: CardProps) {
   const [motionPickerOpen, setMotionPickerOpen] = useState(false);
   const [refPickerOpen, setRefPickerOpen] = useState(false);
   const [removeSheetOpen, setRemoveSheetOpen] = useState(false);
@@ -257,7 +311,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
     if (thisRendering) return;
     setThisRendering(true);
     try {
-      await triggerClips(clipPlanId, [clip.index]);
+      await triggerClips(clipPlanId, [clip.index], tier);
     } catch (e) {
       setThisRendering(false);
       toast.error("Couldn't start clip generation.", {

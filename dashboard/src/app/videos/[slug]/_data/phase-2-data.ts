@@ -6,7 +6,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { listTaiChiMoves } from '@/lib/tai-chi-moves';
 import { getRefImageLibrary } from '@/lib/ref-image-library';
-import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
 import type { RefImage } from '@/app/videos/[slug]/_components/_shared/reference-image-picker-sheet';
@@ -28,8 +27,8 @@ export type Phase2Props = {
   jobId: string;
   clipPlanId: string;
   initialClips: Phase2Clip[];
-  totalCostEstimateUsd: number | null;
-  tierLabel: string;
+  initialResolution: Resolution;
+  initialModelTier: ModelTier;
   moves: TaiChiMove[];
   refImageLibrary: RefImage[];
 };
@@ -67,18 +66,14 @@ export async function getPhase2Props(
   const draftJobDetails = jobDetailsResult.data;
   const resolution = (draftJobDetails?.resolution as Resolution | null) ?? '720p';
   const modelTier = (draftJobDetails?.model_tier as ModelTier | null) ?? 'standard';
-  const totalDurationS = initialClips.reduce((s, c) => s + (c.duration_s ?? 0), 0);
-  const totalCostEstimateUsd =
-    totalDurationS > 0 ? estimateSeedanceCost(totalDurationS, resolution, modelTier) : null;
-  const tierLabel = `${resolution} ${modelTier}`;
 
   return {
     parshaSlug,
     jobId: draftJobId,
     clipPlanId,
     initialClips,
-    totalCostEstimateUsd,
-    tierLabel,
+    initialResolution: resolution,
+    initialModelTier: modelTier,
     moves,
     refImageLibrary: getRefImageLibrary(),
   };

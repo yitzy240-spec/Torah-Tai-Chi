@@ -8,6 +8,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
+import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { RefImage } from './_shared/reference-image-picker-sheet';
 import { Phase2PlanReview } from './phase-2-plan-review';
 
@@ -28,8 +29,8 @@ interface Props {
   jobId: string;
   clipPlanId: string;
   initialClips: Clip[];
-  totalCostEstimateUsd: number | null;
-  tierLabel: string;
+  initialResolution: Resolution;
+  initialModelTier: ModelTier;
   moves: TaiChiMove[];
   refImageLibrary: RefImage[];
 }

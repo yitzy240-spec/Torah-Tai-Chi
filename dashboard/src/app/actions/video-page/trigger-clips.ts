@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 
 /**
  * Insert a clips-only job and fire the Modal clips-only endpoint.
@@ -7,17 +8,17 @@ import { createClient } from '@/lib/supabase/server';
  * Pass clipIndexes=null to generate all clips; pass a non-empty array to
  * generate only the specified clip indexes (0-based).
  *
- * NOTE: The Modal-side handler for kind='clips-only' is not yet implemented
- * (Milestone 1b deferred). This action will return an error at runtime until
- * that work ships. The Modal endpoint is expected to live at MODAL_WORKER_URL,
- * and the worker must branch on kind='clips-only' to skip plan generation and
- * start directly at clip rendering (optionally filtering to the given indexes).
+ * tier (resolution + modelTier) controls Seedance render quality. When
+ * omitted (or null fields), the job row's resolution/model_tier stay
+ * NULL and Modal's clips_only_job falls back via this_job → parent_job
+ * → "720p"/"standard" (modal_app.py line 5674-5678).
  *
  * Auth-checks via the user cookie (same pattern as triggerGeneration).
  */
 export async function triggerClips(
   clipPlanId: string,
   clipIndexes: number[] | null, // null = all clips
+  tier?: { resolution: Resolution; modelTier: ModelTier },
 ): Promise<{ jobId: string }> {
   const supabase = await createClient();
   const {
@@ -40,6 +41,8 @@ export async function triggerClips(
       status: 'queued',
       regen_of_job_id: plan.job_id,
       triggered_by: user.id,
+      resolution: tier?.resolution ?? null,
+      model_tier: tier?.modelTier ?? null,
     })
     .select('id')
     .single();
