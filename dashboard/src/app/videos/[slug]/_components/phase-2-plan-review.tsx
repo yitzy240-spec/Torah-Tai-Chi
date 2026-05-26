@@ -86,6 +86,11 @@ interface Props {
   jobId: string; // the plan-only job — used to subscribe to clip updates
   clipPlanId: string;
   initialClips: Clip[]; // sorted by index
+  /** Latest rendered storage_path per clip index, from clips-only
+   *  child jobs. Lives separately from initialClips so useRealtimeRows
+   *  refetches don't wipe the player out — the render state is
+   *  reconciled at display time via the renderedByIndex map below. */
+  initialRenderedByIndex: Record<number, string>;
   initialResolution: Resolution; // default tier comes from the plan-only job (or fallback)
   initialModelTier: ModelTier;
   moves: TaiChiMove[]; // server-fetched library, passed in from page-new
@@ -99,6 +104,7 @@ export function Phase2PlanReview({
   jobId,
   clipPlanId,
   initialClips,
+  initialRenderedByIndex,
   initialResolution,
   initialModelTier,
   moves,
@@ -118,10 +124,19 @@ export function Phase2PlanReview({
   });
   const [tierPickerOpen, setTierPickerOpen] = useState(false);
 
-  // Realtime subscription keeps the card list fresh as Modal writes clips.
-  const clips = useRealtimeRows<Clip>('clips', 'job_id', jobId, initialClips).sort(
+  // Realtime tracks ONLY the plan-only's own clip rows (those carry the
+  // editable metadata — voiceover, scene direction, motion ref, etc.).
+  // The rendered mp4 paths live in separate rows under clips-only
+  // child jobs; they're carried in via initialRenderedByIndex from the
+  // server and never overwritten by realtime refetches. We merge them
+  // back in below for display so the inline player survives a refetch.
+  const rawClips = useRealtimeRows<Clip>('clips', 'job_id', jobId, initialClips).sort(
     (a, b) => a.index - b.index,
   );
+  const clips = rawClips.map((c) => ({
+    ...c,
+    storage_path: initialRenderedByIndex[c.index] ?? c.storage_path,
+  }));
 
   const totalDurationS = clips.reduce((s, c) => s + (c.duration_s ?? 0), 0);
   const totalCostEstimateUsd =

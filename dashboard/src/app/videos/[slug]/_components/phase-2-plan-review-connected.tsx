@@ -29,6 +29,7 @@ interface Props {
   jobId: string;
   clipPlanId: string;
   initialClips: Clip[];
+  initialRenderedByIndex: Record<number, string>;
   initialResolution: Resolution;
   initialModelTier: ModelTier;
   moves: TaiChiMove[];

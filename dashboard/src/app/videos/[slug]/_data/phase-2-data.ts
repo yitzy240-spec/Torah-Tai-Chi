@@ -27,6 +27,13 @@ export type Phase2Props = {
   jobId: string;
   clipPlanId: string;
   initialClips: Phase2Clip[];
+  /** Latest rendered mp4 storage_path per clip index, from any done
+   *  clips-only child job that points back to the plan via
+   *  regen_of_job_id. Lives separately from initialClips so
+   *  useRealtimeRows (which only knows about the plan-only's clip
+   *  rows) can refetch without clobbering the overlay. The component
+   *  merges this in at display time. */
+  initialRenderedByIndex: Record<number, string>;
   initialResolution: Resolution;
   initialModelTier: ModelTier;
   moves: TaiChiMove[];
@@ -84,20 +91,22 @@ export async function getPhase2Props(
     }
   }
 
+  // Don't overlay onto initialClips here — useRealtimeRows refetches
+  // the raw plan-only rows on the client and would clobber it. Instead
+  // pass renderedByIndex as a separate prop and let the component
+  // merge it at display time (the merge survives realtime refetches).
   const initialClips: Phase2Clip[] = (clipsResult.data ?? []).map((c) => ({
     id: c.id as string,
     index: c.index as number,
     voiceover: (c.voiceover as string | null) ?? '',
     visual_prompt: (c.visual_prompt as string | null) ?? '',
     duration_s: (c.duration_s as number | null) ?? null,
-    // Prefer a rendered path from a clips-only child job; fall back to
-    // the plan-only's own storage_path field (always null today but
-    // future-proof if Modal ever writes it).
-    storage_path: renderedByIndex.get(c.index as number) ?? (c.storage_path as string | null) ?? null,
+    storage_path: (c.storage_path as string | null) ?? null,
     motion_ref_slug: (c.motion_ref_slug as string | null) ?? null,
     reference_image_paths: (c.reference_image_paths as string[] | null) ?? null,
     chain_broken: (c.chain_broken as boolean | null) ?? false,
   }));
+  const initialRenderedByIndex: Record<number, string> = Object.fromEntries(renderedByIndex);
 
   const draftJobDetails = jobDetailsResult.data;
   const resolution = (draftJobDetails?.resolution as Resolution | null) ?? '720p';
@@ -108,6 +117,7 @@ export async function getPhase2Props(
     jobId: draftJobId,
     clipPlanId,
     initialClips,
+    initialRenderedByIndex,
     initialResolution: resolution,
     initialModelTier: modelTier,
     moves,
