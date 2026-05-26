@@ -26,20 +26,31 @@ export async function triggerClips(
   } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  // Look up the parent plan-only job to wire the regen link.
+  // Look up the parent plan-only job to wire the regen link AND grab
+  // its parsha_id. The clips-only row needs parsha_id denormalized so
+  // any parsha-filtered query (jobs list, dashboard "in flight" badges,
+  // diagnostic SQL) can find it without walking the regen_of_job_id
+  // chain. Without this, jobs.parsha_id stays NULL on the row and
+  // queries like "SELECT * FROM jobs WHERE parsha_id = …" miss it.
   const { data: plan } = await supabase
     .from('clip_plans')
-    .select('job_id')
+    .select('job_id, jobs!inner(parsha_id)')
     .eq('id', clipPlanId)
     .single();
   if (!plan) throw new Error('clip_plan not found');
+  const parentJobId = plan.job_id as string;
+  // Supabase embedding returns the parent as an array OR object depending on relation cardinality.
+  const parentRel = (plan as unknown as { jobs: { parsha_id: string | null } | { parsha_id: string | null }[] }).jobs;
+  const parentParshaId =
+    (Array.isArray(parentRel) ? parentRel[0]?.parsha_id : parentRel?.parsha_id) ?? null;
 
   const { data: job, error: jobErr } = await supabase
     .from('jobs')
     .insert({
       kind: 'clips-only',
       status: 'queued',
-      regen_of_job_id: plan.job_id,
+      regen_of_job_id: parentJobId,
+      parsha_id: parentParshaId,
       triggered_by: user.id,
       resolution: tier?.resolution ?? null,
       model_tier: tier?.modelTier ?? null,

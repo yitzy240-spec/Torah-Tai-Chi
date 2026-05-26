@@ -5927,9 +5927,16 @@ def clips_only_job(job_id: str) -> dict | None:
                 prev_mp4 = dest
             return out
 
-        group_results = asyncio.run(
-            asyncio.gather(*(_run_group(g) for g in scene_groups))
-        )
+        # Wrap in an async coroutine — asyncio.gather() creates a Future
+        # that attaches to the *current* event loop at construction time.
+        # Called from a sync function (no running loop), Python 3.10+
+        # raises "There is no current event loop in thread 'MainThread'".
+        # The fix is to defer gather creation into a coroutine that
+        # asyncio.run executes inside its own freshly-created loop.
+        # Failure surfaced 2026-05-26 on Yonah's first Naso clip-1 render.
+        async def _gather_all_groups():
+            return await asyncio.gather(*(_run_group(g) for g in scene_groups))
+        group_results = asyncio.run(_gather_all_groups())
         for grp in group_results:
             for idx, path in grp:
                 clip_paths_by_index[idx] = path
