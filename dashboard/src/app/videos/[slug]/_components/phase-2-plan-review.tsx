@@ -11,9 +11,13 @@
 //   - Chain-broken note (compact, only when relevant)
 //
 // Two ways to generate:
-//   - Sticky bottom "Generate all N clips →" (primary, filled navy) —
-//     for the operator who's ready to commit. Modal renders them in
-//     order, chaining each scene group internally.
+//   - Sticky bottom CTA — primary, filled navy. Context-aware:
+//       0 rendered    → "Generate all N clips →"
+//       partial done  → "Generate M remaining clips →" (only fires the
+//                       unrendered subset so the operator doesn't re-pay
+//                       for clips they already rendered one-by-one)
+//       all rendered  → "Continue to clip review →" (just advances to
+//                       Phase 3; no Modal call)
 //   - Per-card "▶ Generate this clip" (secondary, outlined navy) —
 //     for the operator who wants to render one clip at a time, review,
 //     then continue. STRICTLY SEQUENTIAL: clip N's button is disabled
@@ -27,6 +31,12 @@
 //     Hidden entirely once the clip has rendered; a quiet jade
 //     "✓ Rendered" tick takes its place. Re-render lives in Phase 3.
 //
+// Per-card failure detection: the operator-fired clips-only job is
+// watched via useRealtimeRow so a Modal crash (asyncio, OOM, etc.)
+// surfaces a toast with the error + a 'View log' link instead of
+// spinning forever. A 4-minute hard timeout backs that up in case
+// both realtime channels drop silently.
+//
 // Realtime subscription on clips via useRealtimeRows.
 
 'use client';
@@ -34,6 +44,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useLocalStorageDraft } from '@/hooks/use-localstorage-draft';
 import { useOptimisticSave } from '@/hooks/use-optimistic-save';
+import { useRealtimeRow } from '@/hooks/use-realtime-row';
 import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { analyzeClip } from '@/lib/word-count';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
@@ -116,10 +127,35 @@ export function Phase2PlanReview({
     totalDurationS > 0 ? estimateSeedanceCost(totalDurationS, tier.resolution, tier.modelTier) : null;
   const tierLabel = `${tier.resolution} ${tier.modelTier === 'standard' ? 'Standard' : 'Fast'}`;
 
-  async function generateAll() {
+  // Bottom-button state machine, derived from how many clips have a
+  // rendered mp4 already:
+  //   0 done       → "Generate all N clips →"             fires triggerClips(planId, null)
+  //   1..N-1 done  → "Generate M remaining clips →"       fires triggerClips(planId, [unrenderedIndexes])
+  //   all N done   → "Continue to clip review →"          just navigates to Phase 3
+  // This stops "Generate all" from re-spending Kie credits on clips the
+  // operator has already rendered one-by-one, and naturally turns the CTA
+  // into the next-phase advance once everything is rendered.
+  const renderedIndexes = clips.filter((c) => !!c.storage_path).map((c) => c.index);
+  const unrenderedIndexes = clips.filter((c) => !c.storage_path).map((c) => c.index);
+  const allRendered = clips.length > 0 && unrenderedIndexes.length === 0;
+  const someRendered = renderedIndexes.length > 0 && unrenderedIndexes.length > 0;
+  const bottomLabel = allRendered
+    ? 'Continue to clip review →'
+    : someRendered
+      ? `Generate ${unrenderedIndexes.length} remaining ${unrenderedIndexes.length === 1 ? 'clip' : 'clips'} →`
+      : `Generate all ${clips.length} clips →`;
+
+  async function handleBottomAction() {
+    if (allRendered) {
+      onAdvance();
+      return;
+    }
     setGenerating(true);
     try {
-      await triggerClips(clipPlanId, null, tier);
+      // null when nothing rendered yet (Modal handles "all clips" internally);
+      // explicit subset otherwise so we only spend on what's missing.
+      const indexesToRender = someRendered ? unrenderedIndexes : null;
+      await triggerClips(clipPlanId, indexesToRender, tier);
       onAdvance();
     } catch (e) {
       toast.error("Couldn't start clip generation.", {
@@ -218,10 +254,11 @@ export function Phase2PlanReview({
           marginTop: 16,
         }}
       >
-        {/* Primary: filled navy — "Generate all N clips" */}
+        {/* Primary: filled navy. Label + behavior changes based on render
+            state — generate-all, generate-remaining, or advance to Phase 3. */}
         <button
           type="button"
-          onClick={generateAll}
+          onClick={handleBottomAction}
           disabled={generating}
           style={{
             width: '100%',
@@ -237,7 +274,7 @@ export function Phase2PlanReview({
             opacity: generating ? 0.7 : 1,
           }}
         >
-          {generating ? 'Starting…' : `Generate all ${clips.length} clips →`}
+          {generating ? 'Starting…' : bottomLabel}
         </button>
         <div style={{ textAlign: 'center', marginTop: 8 }}>
           <button
@@ -295,25 +332,82 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
   const [chainBroken, setChainBroken] = useState<boolean>(clip.chain_broken);
   const [removing, setRemoving] = useState(false);
   const [breakingChain, setBreakingChain] = useState(false);
-  // Per-clip render state: true between the operator tapping "Generate this clip"
-  // and Modal writing storage_path back via realtime. Local because Modal doesn't
-  // expose a per-clip "in-flight" flag — we rely on storage_path appearance.
+  // Per-clip render state. Cleared by ANY of:
+  //   1. clip.storage_path appears (success — realtime on clips table)
+  //   2. liveJobId's status flips to 'failed' (Modal crashed, Kie rejected,
+  //      anything else — realtime on jobs table)
+  //   3. 4-minute hard timeout (defensive — if both realtimes drop AND the
+  //      job is genuinely hung, the operator gets unstuck instead of
+  //      spinning forever)
   const [thisRendering, setThisRendering] = useState(false);
+  const [liveJobId, setLiveJobId] = useState<string | null>(null);
 
-  // Clear the local rendering flag the moment storage_path appears in the
-  // realtime-updated clip row. Covers the success path and also a cross-tab
-  // generation completed by another session.
+  // Watch the clips-only job we just triggered so we can detect failure
+  // and surface it to the operator. The hook does an initial SELECT +
+  // 10s defensive poll so we catch the failure even if postgres_changes
+  // misses the UPDATE event.
+  const liveJob = useRealtimeRow<{ id: string; status: string; error_message: string | null }>(
+    'jobs',
+    liveJobId,
+    null,
+  );
+
+  // Success path — clip mp4 appeared in storage. Clears the spinner and
+  // closes out the live job watch.
   useEffect(() => {
-    if (clip.storage_path) setThisRendering(false);
+    if (clip.storage_path) {
+      setThisRendering(false);
+      setLiveJobId(null);
+    }
   }, [clip.storage_path]);
+
+  // Failure path — clips-only job ended in failed state. Surface a toast
+  // with the technical detail (truncated; full traceback lives at /jobs/[id]).
+  useEffect(() => {
+    if (!liveJob) return;
+    if (liveJob.status === 'failed') {
+      setThisRendering(false);
+      setLiveJobId(null);
+      const detail = (liveJob.error_message ?? 'Job failed without an error message.')
+        .split('\n')[0]
+        .slice(0, 220);
+      toast.error(`Clip ${clip.index + 1} render failed`, {
+        description: detail,
+        action: {
+          label: 'View log',
+          onClick: () => window.open(`/jobs/${liveJob.id}`, '_blank'),
+        },
+        duration: 12000,
+      });
+    }
+  }, [liveJob, clip.index]);
+
+  // Defensive timeout — if neither realtime signal arrives in 4 minutes,
+  // clear the spinner so the operator isn't stuck waiting on a ghost.
+  // 4 min is well past the p99 single-clip render time (~60s at Standard,
+  // ~30s at Fast) but short enough that genuine hangs surface quickly.
+  useEffect(() => {
+    if (!thisRendering) return;
+    const id = setTimeout(() => {
+      setThisRendering(false);
+      setLiveJobId(null);
+      toast.error(`Clip ${clip.index + 1} render is taking longer than expected`, {
+        description: 'No update from Modal in 4 minutes. Refresh to check, or tap Generate again to retry.',
+        duration: 12000,
+      });
+    }, 4 * 60 * 1000);
+    return () => clearTimeout(id);
+  }, [thisRendering, clip.index]);
 
   async function generateThisClip() {
     if (thisRendering) return;
     setThisRendering(true);
     try {
-      await triggerClips(clipPlanId, [clip.index], tier);
+      const { jobId } = await triggerClips(clipPlanId, [clip.index], tier);
+      setLiveJobId(jobId);
     } catch (e) {
       setThisRendering(false);
+      setLiveJobId(null);
       toast.error("Couldn't start clip generation.", {
         description: (e as Error).message,
       });
