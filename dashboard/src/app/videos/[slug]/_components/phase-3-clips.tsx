@@ -61,6 +61,10 @@ interface Props {
   onAdvance: () => void;
   /** Called after user taps "← Back to plan" */
   onBack: () => void;
+  /** True while the parent's handleAdvance is in flight — gates the
+   *  Preview button so an impatient operator can't double-tap and fire
+   *  composeVideo twice (duplicate Modal compose jobs racing). */
+  advancing?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +90,7 @@ function toClipVersions(dedupedRows: ClipRow[]): ClipVersion[] {
 // Phase3Clips (outer)
 // ---------------------------------------------------------------------------
 
-export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, onAdvance, onBack }: Props) {
+export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, onAdvance, onBack, advancing = false }: Props) {
   // Realtime subscription on clips for this job so re-renders appear in-place
   const clips = useRealtimeRows<ClipRow>('clips', 'job_id', jobId, initialClips);
 
@@ -141,6 +145,7 @@ export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, o
         <button
           type="button"
           onClick={onAdvance}
+          disabled={advancing}
           style={{
             width: '100%',
             minHeight: 48,
@@ -151,10 +156,11 @@ export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, o
             border: 'none',
             borderRadius: 10,
             padding: 14,
-            cursor: 'pointer',
+            cursor: advancing ? 'wait' : 'pointer',
+            opacity: advancing ? 0.7 : 1,
           }}
         >
-          Preview stitched video →
+          {advancing ? 'Starting…' : 'Preview stitched video →'}
         </button>
         <div style={{ marginTop: 8, textAlign: 'center', fontSize: 11.5, color: 'var(--ink-500)', fontFamily: 'var(--ff-display)', fontStyle: 'italic' }}>
           Re-stitches the video with your latest clip picks. Usually 1–2 minutes.

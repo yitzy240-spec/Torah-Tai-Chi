@@ -9,6 +9,7 @@
 // localStorage) so Phase 4 reflects any Phase 3 regens.
 
 'use client';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { composeVideo } from '@/app/actions/compose-video';
@@ -36,39 +37,46 @@ interface Props {
 
 export function Phase3ClipsConnected(props: Props) {
   const router = useRouter();
+  const [advancing, setAdvancing] = useState(false);
 
   async function handleAdvance() {
-    // Read operator's per-clip version selection from localStorage
-    // (set by Phase 2 chips, persisted across navigations). Fall back
-    // to the latest rendered clip per index if no manual pick.
-    const clipIds: string[] = [];
-    for (const c of props.initialClips) {
-      const key = `plan.${props.parshaSlug}.${c.id}.selected_clip_id`;
-      const stored = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
-      if (stored) {
-        clipIds.push(stored);
-      } else {
-        // No selection — Phase 3 was entered without going through Phase 2's
-        // versioning. Skip the compose trigger and let Phase 4 keep showing
-        // whatever stitched video already exists.
-        clipIds.length = 0;
-        break;
+    if (advancing) return;
+    setAdvancing(true);
+    try {
+      // Read operator's per-clip version selection from localStorage
+      // (set by Phase 2 chips, persisted across navigations). Fall back
+      // to the latest rendered clip per index if no manual pick.
+      const clipIds: string[] = [];
+      for (const c of props.initialClips) {
+        const key = `plan.${props.parshaSlug}.${c.id}.selected_clip_id`;
+        const stored = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
+        if (stored) {
+          clipIds.push(stored);
+        } else {
+          // No selection — Phase 3 was entered without going through Phase 2's
+          // versioning. Skip the compose trigger and let Phase 4 keep showing
+          // whatever stitched video already exists.
+          clipIds.length = 0;
+          break;
+        }
       }
-    }
 
-    if (clipIds.length === props.initialClips.length) {
-      const result = await composeVideo({
-        referenceJobId: props.jobId,
-        clipIds,
-      });
-      if ('error' in result) {
-        toast.error("Couldn't start stitching.", { description: result.error });
-        return;
+      if (clipIds.length === props.initialClips.length) {
+        const result = await composeVideo({
+          referenceJobId: props.jobId,
+          clipIds,
+        });
+        if ('error' in result) {
+          toast.error("Couldn't start stitching.", { description: result.error });
+          return;
+        }
       }
-    }
 
-    router.push(`/videos/${props.parshaSlug}?phase=4`);
-    router.refresh();
+      router.push(`/videos/${props.parshaSlug}?phase=4`);
+      router.refresh();
+    } finally {
+      setAdvancing(false);
+    }
   }
 
   function handleBack() {
@@ -80,6 +88,7 @@ export function Phase3ClipsConnected(props: Props) {
       {...props}
       onAdvance={handleAdvance}
       onBack={handleBack}
+      advancing={advancing}
     />
   );
 }
