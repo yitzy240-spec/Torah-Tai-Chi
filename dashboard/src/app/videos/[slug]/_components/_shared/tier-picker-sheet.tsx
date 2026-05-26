@@ -1,21 +1,25 @@
 // dashboard/src/app/videos/[slug]/_components/_shared/tier-picker-sheet.tsx
 //
 // Bottom-sheet picker for Seedance render tier (resolution × model_tier).
-// 4 options: 720p Fast, 720p Standard, 1080p Fast, 1080p Standard.
-// Each row shows estimated cost for the current plan's total duration so
-// the operator sees the dollar impact before committing.
+// Options come from TIER_OPTIONS in seedance-pricing.ts — the source of
+// truth for which combinations Kie actually supports. Currently:
+//   480p Fast, 480p Standard, 720p Fast, 720p Standard, 1080p Standard.
+// (No 1080p Fast — Kie's Seedance doesn't offer that combination, so
+// listing it would let the operator pick a tier that errors at render
+// time.) Each row shows estimated cost for the current plan's total
+// duration so the dollar impact is visible before committing.
 //
 // Default selection ('720p standard') matches Modal's NULL-fallback in
 // modal_app.py lines 311-312 + 5674-5678. Picking a different tier
 // passes resolution + model_tier explicitly into triggerClips, which
-// writes them to the clips-only job row; Modal reads from the job row.
+// writes them to the clips-only job row; Modal reads from the row.
 //
 // No "save as default" toggle — global default lives on the Settings
 // page. Picking here only affects this clips-only run.
 
 'use client';
 import { BottomSheet } from '../bottom-sheet';
-import { estimateSeedanceCost } from '@/lib/seedance-pricing';
+import { estimateSeedanceCost, TIER_OPTIONS } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 
 export interface TierChoice {
@@ -31,18 +35,6 @@ interface Props {
   totalDurationS: number;
   onPick: (choice: TierChoice) => void;
 }
-
-const OPTIONS: Array<{
-  resolution: Resolution;
-  modelTier: ModelTier;
-  label: string;
-  hint: string;
-}> = [
-  { resolution: '720p',  modelTier: 'fast',     label: '720p Fast',      hint: 'fastest, lowest quality' },
-  { resolution: '720p',  modelTier: 'standard', label: '720p Standard',  hint: 'usual default' },
-  { resolution: '1080p', modelTier: 'fast',     label: '1080p Fast',     hint: 'hi-res, lower quality' },
-  { resolution: '1080p', modelTier: 'standard', label: '1080p Standard', hint: 'highest cost + quality' },
-];
 
 export function TierPickerSheet({ open, onOpenChange, current, totalDurationS, onPick }: Props) {
   return (
@@ -65,16 +57,16 @@ export function TierPickerSheet({ open, onOpenChange, current, totalDurationS, o
         Applies to this video&apos;s clips only. Most videos use 720p Standard.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {OPTIONS.map((opt) => {
-          const isSelected = opt.resolution === current.resolution && opt.modelTier === current.modelTier;
+        {TIER_OPTIONS.map((opt) => {
+          const isSelected = opt.resolution === current.resolution && opt.tier === current.modelTier;
           const cost =
-            totalDurationS > 0 ? estimateSeedanceCost(totalDurationS, opt.resolution, opt.modelTier) : null;
+            totalDurationS > 0 ? estimateSeedanceCost(totalDurationS, opt.resolution, opt.tier) : null;
           return (
             <button
-              key={`${opt.resolution}-${opt.modelTier}`}
+              key={`${opt.resolution}-${opt.tier}`}
               type="button"
               onClick={() => {
-                onPick({ resolution: opt.resolution, modelTier: opt.modelTier });
+                onPick({ resolution: opt.resolution, modelTier: opt.tier });
                 onOpenChange(false);
               }}
               aria-pressed={isSelected}
@@ -108,7 +100,7 @@ export function TierPickerSheet({ open, onOpenChange, current, totalDurationS, o
                 <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink-900)' }}>
                   {opt.label}
                 </span>
-                <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>{opt.hint}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>{opt.note}</span>
               </span>
               {cost !== null && (
                 <span
