@@ -8,6 +8,7 @@ import { Phase4Stitched } from './phase-4-stitched';
 
 interface Props {
   parshaSlug: string;
+  videoId: string;
   videoMp4Path: string | null;
   thumbPath: string | null;
   captionsVttDataUrl: string | null;

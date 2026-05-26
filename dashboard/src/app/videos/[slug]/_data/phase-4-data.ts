@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/server';
 import { buildClipPayload } from '@/lib/clip-payload';
 
 export type Phase4Props = {
+  videoId: string;
   videoMp4Path: string | null;
   thumbPath: string | null;
   captionsVttDataUrl: string | null;
@@ -47,6 +48,7 @@ export async function getPhase4Props(
   );
 
   return {
+    videoId: draftVideoId,
     videoMp4Path,
     thumbPath,
     captionsVttDataUrl,

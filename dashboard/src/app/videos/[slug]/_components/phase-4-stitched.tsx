@@ -9,8 +9,10 @@
 'use client';
 import { useRef } from 'react';
 import { publicVideoUrl } from '@/lib/storage-url';
+import { useRealtimeRow } from '@/hooks/use-realtime-row';
 
 interface Props {
+  videoId: string;
   videoMp4Path: string | null;
   thumbPath: string | null;
   captionsVttDataUrl: string | null;
@@ -22,6 +24,7 @@ interface Props {
 }
 
 export function Phase4Stitched({
+  videoId,
   videoMp4Path,
   thumbPath,
   captionsVttDataUrl,
@@ -32,16 +35,29 @@ export function Phase4Stitched({
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  if (!videoMp4Path) {
+  const liveVideo = useRealtimeRow<{ id: string; mp4_path: string | null; thumb_path: string | null }>(
+    'videos',
+    videoId,
+    { id: videoId, mp4_path: videoMp4Path, thumb_path: thumbPath },
+  );
+  const effectiveMp4 = liveVideo?.mp4_path ?? videoMp4Path;
+  const effectiveThumb = liveVideo?.thumb_path ?? thumbPath;
+
+  if (!effectiveMp4) {
     return (
-      <p style={{ color: 'var(--ink-500)', textAlign: 'center', padding: '24px 0' }}>
-        Stitched video not ready yet — check back in a moment.
-      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', minHeight: 240, background: 'var(--linen-50)', border: '1px solid var(--ink-100)', borderRadius: 'var(--r-lg)', textAlign: 'center' }}>
+        <div aria-hidden="true" style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid var(--ink-100)', borderTopColor: 'var(--navy-700)', animation: 'spin 0.9s linear infinite', marginBottom: 18 }} />
+        <div style={{ fontFamily: 'var(--ff-display)', fontSize: 20, fontWeight: 500, color: 'var(--ink-900)', marginBottom: 8 }}>Stitching your video…</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5 }}>
+          Modal is assembling all the clips into the final mp4. Usually 1–3 minutes. This page updates automatically when it&apos;s ready.
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
     );
   }
 
-  const videoUrl = publicVideoUrl(videoMp4Path);
-  const posterUrl = thumbPath ? publicVideoUrl(thumbPath) : undefined;
+  const videoUrl = publicVideoUrl(effectiveMp4);
+  const posterUrl = effectiveThumb ? publicVideoUrl(effectiveThumb) : undefined;
 
   function jumpToClip(startS: number) {
     const v = videoRef.current;
