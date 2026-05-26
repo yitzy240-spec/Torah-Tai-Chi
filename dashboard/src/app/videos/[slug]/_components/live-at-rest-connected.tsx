@@ -93,10 +93,9 @@ export function LiveAtRestConnected({
       try {
         // Clone the live script into a fresh draft row, then navigate to Phase 1.
         await replaceVersion(parshaId, sourceScriptId, parshaSlug);
-        // The revalidatePath in replaceVersion busts the server cache.
-        // Push to Phase 1 — page-state will detect the new script as a fresh draft.
+        // replaceVersion calls revalidatePath internally; router.push picks up
+        // the fresh server state on navigation. No explicit refresh needed.
         router.push(`/videos/${parshaSlug}?phase=1`);
-        router.refresh();
       } catch (e) {
         setError((e as Error).message);
       }

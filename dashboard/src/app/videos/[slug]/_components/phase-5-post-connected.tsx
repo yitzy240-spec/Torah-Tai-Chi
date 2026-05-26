@@ -70,8 +70,9 @@ export function Phase5PostConnected(props: Props) {
     startTransition(async () => {
       try {
         await replaceVersion(props.parshaId, props.sourceScriptId, props.parshaSlug);
+        // replaceVersion calls revalidatePath internally; router.push picks up
+        // the fresh server state on navigation. No explicit refresh needed.
         router.push(`/videos/${props.parshaSlug}?phase=1`);
-        router.refresh();
       } catch (e) {
         setReplaceError((e as Error).message);
       }
