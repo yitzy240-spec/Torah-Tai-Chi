@@ -63,6 +63,7 @@ import { TierPickerSheet, type TierChoice } from './_shared/tier-picker-sheet';
 import { BottomSheet } from './bottom-sheet';
 import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
+import { publicVideoUrl } from '@/lib/storage-url';
 
 const MAX_REF_IMAGES = 9;
 const DURATION_MIN = 3;
@@ -790,12 +791,105 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
         </div>
       )}
 
-      {/* Per-card generate — outlined / secondary so it doesn't compete with
-          the sticky bottom "Generate all". Hidden once this clip has rendered
-          (clip.storage_path !== null); Phase 3 handles re-render of done clips.
-          Gated by prevRendered: clip N's button is disabled until clip N-1
-          has a rendered mp4, so scene-group chaining (clip N's first frame =
-          clip N-1's last frame) is never broken by out-of-order generation. */}
+      {/* Inline mini-player + Re-render — visible once this clip has a
+          rendered mp4. The editors above stay live; the operator edits
+          voiceover / scene direction / move / refs in place, taps
+          Re-render, watches the new version in the same player. The
+          phase-2-data overlay always picks the most-recent rendered
+          storage_path, so a re-render just swaps the mp4 url here. */}
+      {clip.storage_path && (
+        <div style={{ marginTop: 14 }}>
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 240,
+              aspectRatio: '9 / 16',
+              borderRadius: 10,
+              overflow: 'hidden',
+              background: 'var(--ink-900)',
+              margin: '0 auto 12px',
+            }}
+          >
+            {/* keyed on storage_path so a re-render forces the <video>
+                element to remount and pick up the new src instead of
+                continuing to show the prior mp4 in its buffer. */}
+            <video
+              key={clip.storage_path}
+              src={publicVideoUrl(clip.storage_path)}
+              controls
+              playsInline
+              preload="metadata"
+              style={{ width: '100%', height: '100%', display: 'block' }}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={generateThisClip}
+              disabled={thisRendering}
+              aria-busy={thisRendering}
+              style={{
+                minHeight: 40,
+                fontSize: 13,
+                fontWeight: 500,
+                padding: '8px 14px',
+                borderRadius: 8,
+                background: 'white',
+                color: thisRendering ? 'var(--ink-500)' : 'var(--navy-700)',
+                border: '1px solid var(--navy-700)',
+                cursor: thisRendering ? 'wait' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              {thisRendering ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: '50%',
+                      border: '2px solid var(--ink-200)',
+                      borderTopColor: 'var(--navy-700)',
+                      animation: 'spin 0.9s linear infinite',
+                      display: 'inline-block',
+                    }}
+                  />
+                  Re-rendering… {elapsedLabel}
+                </>
+              ) : (
+                <>↻ Re-render</>
+              )}
+            </button>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+          {thisRendering && elapsedHint && (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 11.5,
+                color: 'var(--ink-500)',
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+                lineHeight: 1.5,
+                textAlign: 'right',
+              }}
+            >
+              {elapsedHint}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* First-generation button — outlined / secondary so it doesn't compete
+          with the sticky bottom "Generate all". Only shown when no render
+          exists yet. Gated by prevRendered: clip N's button is disabled
+          until clip N-1 has a rendered mp4, so scene-group chaining (clip
+          N's first frame = clip N-1's last frame) is never broken by
+          out-of-order generation. */}
       {!clip.storage_path && (
         <div
           style={{
@@ -878,21 +972,6 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
           {elapsedHint}
         </div>
       )}
-      {clip.storage_path && (
-        <div
-          style={{
-            marginTop: 14,
-            fontSize: 12,
-            color: 'var(--jade)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <span aria-hidden="true">✓</span> Rendered
-        </div>
-      )}
-
       {/* Bottom sheets — rendered via portal, hidden when closed */}
       <MotionPickerSheet
         open={motionPickerOpen}
