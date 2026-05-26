@@ -128,9 +128,11 @@ async function PhaseBody({
     const props = getPhase1Props(parsha);
     if (!props) {
       return (
-        <p style={{ color: 'var(--ink-500)' }}>
-          Generating the script… check back in a moment.
-        </p>
+        <PhaseErrorBoundary phaseLabel="Phase 1 (script)">
+          <p style={{ color: 'var(--ink-500)' }}>
+            Generating the script… check back in a moment.
+          </p>
+        </PhaseErrorBoundary>
       );
     }
     return (
@@ -185,48 +187,50 @@ async function PhaseBody({
       // Show the same spinner card as PlanGeneratingCard so the
       // operator doesn't see a bare text placeholder.
       return (
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '48px 24px',
-            minHeight: 240,
-            background: 'var(--linen-50)',
-            border: '1px solid var(--ink-100)',
-            borderRadius: 'var(--r-lg)',
-            textAlign: 'center',
-          }}
-        >
-          <div
-            aria-hidden="true"
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              border: '3px solid var(--ink-100)',
-              borderTopColor: 'var(--navy-700)',
-              animation: 'spin 0.9s linear infinite',
-              marginBottom: 18,
-            }}
-          />
+        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)">
           <div
             style={{
-              fontFamily: 'var(--ff-display)',
-              fontSize: 20,
-              fontWeight: 500,
-              color: 'var(--ink-900)',
-              marginBottom: 8,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '48px 24px',
+              minHeight: 240,
+              background: 'var(--linen-50)',
+              border: '1px solid var(--ink-100)',
+              borderRadius: 'var(--r-lg)',
+              textAlign: 'center',
             }}
           >
-            Starting clip plan…
+            <div
+              aria-hidden="true"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                border: '3px solid var(--ink-100)',
+                borderTopColor: 'var(--navy-700)',
+                animation: 'spin 0.9s linear infinite',
+                marginBottom: 18,
+              }}
+            />
+            <div
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontSize: 20,
+                fontWeight: 500,
+                color: 'var(--ink-900)',
+                marginBottom: 8,
+              }}
+            >
+              Starting clip plan…
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5 }}>
+              Setting up the job — the spinner will switch to live progress in a moment.
+            </div>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
-          <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5 }}>
-            Setting up the job — the spinner will switch to live progress in a moment.
-          </div>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
+        </PhaseErrorBoundary>
       );
     }
 
@@ -251,9 +255,11 @@ async function PhaseBody({
 
     if (!draftVideoId || !draftJobId) {
       return (
-        <p style={{ color: 'var(--ink-500)' }}>
-          Clips are generating… check back in a moment.
-        </p>
+        <PhaseErrorBoundary phaseLabel="Phase 3 (clip review)">
+          <p style={{ color: 'var(--ink-500)' }}>
+            Clips are generating… check back in a moment.
+          </p>
+        </PhaseErrorBoundary>
       );
     }
 
@@ -279,9 +285,11 @@ async function PhaseBody({
 
     if (!draftJobId || !draftVideoId) {
       return (
-        <p style={{ color: 'var(--ink-500)' }}>
-          Stitching in progress… check back in a moment.
-        </p>
+        <PhaseErrorBoundary phaseLabel="Phase 4 (stitched video)">
+          <p style={{ color: 'var(--ink-500)' }}>
+            Stitching in progress… check back in a moment.
+          </p>
+        </PhaseErrorBoundary>
       );
     }
 
@@ -306,9 +314,11 @@ async function PhaseBody({
 
     if (!draftJobId || !draftVideoId) {
       return (
-        <p style={{ color: 'var(--ink-500)' }}>
-          Video not yet available… check back in a moment.
-        </p>
+        <PhaseErrorBoundary phaseLabel="Phase 5 (posting)">
+          <p style={{ color: 'var(--ink-500)' }}>
+            Video not yet available… check back in a moment.
+          </p>
+        </PhaseErrorBoundary>
       );
     }
 
