@@ -162,9 +162,8 @@ export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, o
         >
           {advancing ? 'Starting…' : 'Preview stitched video →'}
         </button>
-        <div style={{ marginTop: 8, textAlign: 'center', fontSize: 11.5, color: 'var(--ink-500)', fontFamily: 'var(--ff-display)', fontStyle: 'italic', lineHeight: 1.5, padding: '0 16px' }}>
-          Stitches using the clip versions you picked in Phase 2.
-          Re-rendered a clip here? Go back to Phase 2, tap that version, then return to stitch.
+        <div style={{ marginTop: 8, textAlign: 'center', fontSize: 11.5, color: 'var(--ink-500)', fontFamily: 'var(--ff-display)', fontStyle: 'italic', lineHeight: 1.5 }}>
+          Stitches using the latest version selected for each clip. Usually 1–3 minutes.
         </div>
         <div style={{ textAlign: 'center', marginTop: 8 }}>
           <button
@@ -203,9 +202,27 @@ interface ClipCardProps {
 }
 
 function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }: ClipCardProps) {
-  // Version picker state — latest version by default (last in sorted array)
+  // Version picker state — latest version by default (last in sorted array).
+  // Selection is also written to the same localStorage key Phase 2 uses
+  // (`plan.{parshaSlug}.{plan_only_clip_id}.selected_clip_id`) so Phase 3
+  // and Phase 2 share one source of truth for "which version of each clip
+  // the operator wants in the final stitch." Without this write, a regen
+  // or version pick in Phase 3 wouldn't propagate to compose — the operator
+  // had to bounce back to Phase 2 to tap the new chip. The KEY uses the
+  // plan-only clip row id (latestRow.id is from `clips WHERE job_id =
+  // draftJobId`, matching Phase 2's `clip.id`); the VALUE is the rendered
+  // version's clip row id, which is what composeVideo expects.
+  const versionLsKey = `plan.${parshaSlug}.${latestRow.id}.selected_clip_id`;
   const [selectedVersionIdx, setSelectedVersionIdx] = useState(versions.length - 1);
   const displayed = versions[selectedVersionIdx] ?? versions[versions.length - 1];
+
+  function pickVersion(nextIdx: number) {
+    setSelectedVersionIdx(nextIdx);
+    const picked = versions[nextIdx];
+    if (picked && typeof window !== 'undefined') {
+      window.localStorage.setItem(versionLsKey, picked.id);
+    }
+  }
 
   // Motion picker state — track what slug the clip is rendered with (frozen at mount)
   // vs. what the user has picked since (may differ = stale)
@@ -420,7 +437,7 @@ function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }
         {versions.length > 1 && (
           <select
             value={selectedVersionIdx}
-            onChange={(e) => setSelectedVersionIdx(Number(e.target.value))}
+            onChange={(e) => pickVersion(Number(e.target.value))}
             style={{
               minHeight: 36,
               fontSize: 13,
