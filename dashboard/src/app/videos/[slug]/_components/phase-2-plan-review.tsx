@@ -332,15 +332,20 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
   const [chainBroken, setChainBroken] = useState<boolean>(clip.chain_broken);
   const [removing, setRemoving] = useState(false);
   const [breakingChain, setBreakingChain] = useState(false);
-  // Per-clip render state. Cleared by ANY of:
-  //   1. clip.storage_path appears (success — realtime on clips table)
+  // Per-clip render state. Cleared by either:
+  //   1. clip.storage_path appears (success — realtime + poll on clips)
   //   2. liveJobId's status flips to 'failed' (Modal crashed, Kie rejected,
-  //      anything else — realtime on jobs table)
-  //   3. 4-minute hard timeout (defensive — if both realtimes drop AND the
-  //      job is genuinely hung, the operator gets unstuck instead of
-  //      spinning forever)
+  //      anything else — realtime + poll on jobs)
+  // No hard timeout — both signals have defensive 10s polling now, so
+  // a stuck spinner means the job is genuinely still running (or in the
+  // rare case Modal never picked up the trigger, which the operator
+  // can resolve by refreshing or tapping Generate again). Showing
+  // elapsed time + a soft 'taking longer than usual' hint after 5 min
+  // gives them the context without us pretending to know it failed.
   const [thisRendering, setThisRendering] = useState(false);
   const [liveJobId, setLiveJobId] = useState<string | null>(null);
+  const [renderStartedAt, setRenderStartedAt] = useState<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Watch the clips-only job we just triggered so we can detect failure
   // and surface it to the operator. The hook does an initial SELECT +
@@ -358,8 +363,17 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
     if (clip.storage_path) {
       setThisRendering(false);
       setLiveJobId(null);
+      setRenderStartedAt(null);
     }
   }, [clip.storage_path]);
+
+  // Live elapsed-time tick — only runs while rendering, so we don't burn
+  // setInterval cycles when nothing's in flight.
+  useEffect(() => {
+    if (!thisRendering) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [thisRendering]);
 
   // Failure path — clips-only job ended in failed state. Surface a toast
   // with the technical detail (truncated; full traceback lives at /jobs/[id]).
@@ -368,6 +382,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
     if (liveJob.status === 'failed') {
       setThisRendering(false);
       setLiveJobId(null);
+      setRenderStartedAt(null);
       const detail = (liveJob.error_message ?? 'Job failed without an error message.')
         .split('\n')[0]
         .slice(0, 220);
@@ -382,37 +397,32 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
     }
   }, [liveJob, clip.index]);
 
-  // Defensive timeout — if neither realtime signal arrives in 4 minutes,
-  // clear the spinner so the operator isn't stuck waiting on a ghost.
-  // 4 min is well past the p99 single-clip render time (~60s at Standard,
-  // ~30s at Fast) but short enough that genuine hangs surface quickly.
-  useEffect(() => {
-    if (!thisRendering) return;
-    const id = setTimeout(() => {
-      setThisRendering(false);
-      setLiveJobId(null);
-      toast.error(`Clip ${clip.index + 1} render is taking longer than expected`, {
-        description: 'No update from Modal in 4 minutes. Refresh to check, or tap Generate again to retry.',
-        duration: 12000,
-      });
-    }, 4 * 60 * 1000);
-    return () => clearTimeout(id);
-  }, [thisRendering, clip.index]);
-
   async function generateThisClip() {
     if (thisRendering) return;
     setThisRendering(true);
+    setRenderStartedAt(Date.now());
     try {
       const { jobId } = await triggerClips(clipPlanId, [clip.index], tier);
       setLiveJobId(jobId);
     } catch (e) {
       setThisRendering(false);
       setLiveJobId(null);
+      setRenderStartedAt(null);
       toast.error("Couldn't start clip generation.", {
         description: (e as Error).message,
       });
     }
   }
+
+  // Elapsed time + 'taking longer than usual' hint, derived purely from
+  // local state — no timer side effects, just maths on the tick.
+  const elapsedSec = renderStartedAt ? Math.floor((nowMs - renderStartedAt) / 1000) : 0;
+  const elapsedLabel = elapsedSec < 60
+    ? `${elapsedSec}s`
+    : `${Math.floor(elapsedSec / 60)}m ${String(elapsedSec % 60).padStart(2, '0')}s`;
+  const elapsedHint = elapsedSec >= 5 * 60
+    ? 'Taking longer than usual — Kie may be queued. Your render keeps going regardless; refresh anytime to check.'
+    : null;
 
   // Duration state — local for the number input, persisted on blur/change.
   const [durationS, setDurationS] = useState<number>(clip.duration_s ?? 10);
@@ -844,13 +854,28 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
                     display: 'inline-block',
                   }}
                 />
-                Rendering this clip…
+                Rendering this clip… {elapsedLabel}
               </>
             ) : (
               <>▶ Generate this clip</>
             )}
           </button>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+      {thisRendering && elapsedHint && (
+        <div
+          style={{
+            marginTop: 8,
+            fontSize: 11.5,
+            color: 'var(--ink-500)',
+            fontFamily: 'var(--ff-display)',
+            fontStyle: 'italic',
+            lineHeight: 1.5,
+            textAlign: 'right',
+          }}
+        >
+          {elapsedHint}
         </div>
       )}
       {clip.storage_path && (
