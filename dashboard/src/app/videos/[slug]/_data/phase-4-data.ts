@@ -11,6 +11,7 @@ export type Phase4Props = {
   videoId: string;
   videoMp4Path: string | null;
   thumbPath: string | null;
+  composeJobId: string | null;
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
@@ -25,15 +26,21 @@ export async function getPhase4Props(
 
   // Parallelize: video row + clip plan + clip rows — all independent
   const [videoResult, planResult, clipsResult] = await Promise.all([
-    supabase.from('videos').select('mp4_path, thumb_path').eq('id', draftVideoId).single(),
+    supabase.from('videos').select('id, mp4_path, thumb_path, job_id').eq('id', draftVideoId).single(),
     clipPlanId
       ? supabase.from('clip_plans').select('plan_json').eq('id', clipPlanId).single()
       : Promise.resolve({ data: null }),
     supabase.from('clips').select('id, index').eq('job_id', draftJobId).order('index'),
   ]);
 
-  const videoMp4Path = (videoResult.data?.mp4_path as string | null) ?? null;
-  const thumbPath = (videoResult.data?.thumb_path as string | null) ?? null;
+  // The compose job that owns this video — needed for failure detection
+  // in the UI. The video row exists immediately on insert with empty
+  // mp4_path; Modal updates mp4_path on success or jobs.status='failed'
+  // + error_message on crash. Phase 4 subscribes to both.
+  const videoRow = videoResult.data as { id: string; mp4_path: string | null; thumb_path: string | null; job_id: string | null } | null;
+  const videoMp4Path = videoRow?.mp4_path ?? null;
+  const thumbPath = videoRow?.thumb_path ?? null;
+  const composeJobId = videoRow?.job_id ?? null;
   const planJson = planResult.data?.plan_json ?? null;
   const clipRowsForBoundaries: Array<{ id: string; index: number }> = (clipsResult.data ?? []).map(
     (c) => ({
@@ -51,6 +58,7 @@ export async function getPhase4Props(
     videoId: draftVideoId,
     videoMp4Path,
     thumbPath,
+    composeJobId,
     captionsVttDataUrl,
     clipBoundariesS,
     totalDurationS,

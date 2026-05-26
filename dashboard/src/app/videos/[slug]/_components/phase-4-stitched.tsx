@@ -15,6 +15,7 @@ interface Props {
   videoId: string;
   videoMp4Path: string | null;
   thumbPath: string | null;
+  composeJobId: string | null;
   captionsVttDataUrl: string | null;
   /** Cumulative start-of-clip offsets in seconds, e.g. [0, 9, 19, 28] */
   clipBoundariesS: number[];
@@ -27,6 +28,7 @@ export function Phase4Stitched({
   videoId,
   videoMp4Path,
   thumbPath,
+  composeJobId,
   captionsVttDataUrl,
   clipBoundariesS,
   totalDurationS,
@@ -42,6 +44,29 @@ export function Phase4Stitched({
   );
   const effectiveMp4 = liveVideo?.mp4_path ?? videoMp4Path;
   const effectiveThumb = liveVideo?.thumb_path ?? thumbPath;
+
+  const liveJob = useRealtimeRow<{ id: string; status: string; error_message: string | null }>(
+    'jobs',
+    composeJobId,
+    null,
+  );
+  const composeFailed = liveJob?.status === 'failed';
+  const composeError = liveJob?.error_message ?? null;
+
+  if (composeFailed && !effectiveMp4) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', minHeight: 240, background: 'var(--linen-50)', border: '1px solid var(--tassel)', borderRadius: 'var(--r-lg)', textAlign: 'center' }}>
+        <div aria-hidden="true" style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--tassel)', color: 'white', fontSize: 22, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>!</div>
+        <div style={{ fontFamily: 'var(--ff-display)', fontSize: 20, fontWeight: 500, color: 'var(--ink-900)', marginBottom: 8 }}>Stitching failed</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5, marginBottom: 16 }}>
+          {composeError ? composeError.split('\n')[0].slice(0, 220) : 'Modal returned no error message.'}
+        </div>
+        <button type="button" onClick={onBack} style={{ minHeight: 44, padding: '10px 18px', fontSize: 14, fontWeight: 500, background: 'white', color: 'var(--navy-700)', border: '1px solid var(--navy-700)', borderRadius: 8, cursor: 'pointer' }}>
+          ← Back to clips
+        </button>
+      </div>
+    );
+  }
 
   if (!effectiveMp4) {
     return (

@@ -11,6 +11,7 @@ interface Props {
   videoId: string;
   videoMp4Path: string | null;
   thumbPath: string | null;
+  composeJobId: string | null;
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
