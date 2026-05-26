@@ -1,5 +1,12 @@
 // dashboard/src/app/videos/[slug]/_components/posting-cards/instagram-card.tsx
 //
+// Post-status source-of-truth: useRealtimeRow on the posts row (by post.id).
+// Parent (phase-5-post.tsx) also runs useRealtimeRows on the posts table
+// filtered by video_id, so the prop already updates live; the per-card
+// useRealtimeRow here is defense-in-depth: it survives any future change
+// to the parent and includes a 10s defensive poll if websocket drops.
+// effectiveStatus = livePost?.status ?? post?.status ?? null.
+//
 // Mirrors TikTokCard + adds:
 //   - First-comment field (label includes "may not appear on IG — Buffer report")
 //   - ReelOrPostToggle
@@ -17,11 +24,14 @@ import { savePlatformCaption } from '@/app/actions/video-page/save-platform-capt
 import { saveSocialMetadata } from '@/app/actions/video-page/save-social-metadata';
 import { postToPlatform } from '@/app/actions/video-page/post-platform';
 import { editPostedOnPlatform } from '@/app/actions/video-page/edit-posted';
+import { useRealtimeRow } from '@/hooks/use-realtime-row';
 
 interface PostRow {
+  id: string;
   status: string;
   created_at: string;
   scheduled_at: string | null;
+  published_at: string | null;
   buffer_update_id: string | null;
   caption: string | null;
 }
@@ -50,8 +60,13 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
   const [posting, startPosting] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const isPosted = post?.status === 'published';
-  const isScheduled = post?.status === 'scheduled';
+  // Subscribe to this card's posts row so a late 'failed' status (Buffer
+  // rate limit, async Modal worker failure) lands without manual refresh.
+  const livePost = useRealtimeRow<PostRow>('posts', post?.id ?? null, post ?? null);
+  const effectiveStatus = livePost?.status ?? post?.status ?? null;
+
+  const isPosted = effectiveStatus === 'published';
+  const isScheduled = effectiveStatus === 'scheduled';
 
   async function saveInstaMeta(type: 'reel' | 'post', fc: string) {
     await saveSocialMetadata(jobId, {

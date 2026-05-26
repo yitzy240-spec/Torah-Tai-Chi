@@ -20,6 +20,7 @@ interface PostRow {
   status: string;
   created_at: string;
   scheduled_at: string | null;
+  published_at: string | null;
   buffer_update_id: string | null;
   caption: string | null;
 }

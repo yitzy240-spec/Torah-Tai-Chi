@@ -17,6 +17,7 @@ export type Phase5Post = {
   status: string;
   created_at: string;
   scheduled_at: string | null;
+  published_at: string | null;
   buffer_update_id: string | null;
   caption: string | null;
 };
@@ -82,7 +83,7 @@ export async function getPhase5Props(
       getCanonicalClipPlan(supabaseSvc, draftJobId),
       supabase
         .from('posts')
-        .select('id, platform, status, created_at, scheduled_at, buffer_update_id, caption')
+        .select('id, platform, status, created_at, scheduled_at, published_at, buffer_update_id, caption')
         .eq('video_id', draftVideoId)
         .order('created_at', { ascending: false }),
       getConnectedPlatforms(),
@@ -129,6 +130,7 @@ export async function getPhase5Props(
     status: p.status as string,
     created_at: (p.created_at as string | null) ?? new Date(0).toISOString(),
     scheduled_at: (p.scheduled_at as string | null) ?? null,
+    published_at: (p.published_at as string | null) ?? null,
     buffer_update_id: (p.buffer_update_id as string | null) ?? null,
     caption: (p.caption as string | null) ?? null,
   }));

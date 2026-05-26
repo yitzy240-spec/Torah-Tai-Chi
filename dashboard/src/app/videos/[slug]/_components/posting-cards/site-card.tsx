@@ -1,5 +1,12 @@
 // dashboard/src/app/videos/[slug]/_components/posting-cards/site-card.tsx
 //
+// Post-status source-of-truth: NONE — Site card doesn't write to the posts
+// table. Site state lives on videos.published_to_website (a column on the
+// videos row), surfaced to this card as the `isLive` prop from the parent.
+// publishSiteChanges / setVideoPublished update videos.published_to_website
+// directly; the parent (page-new.tsx) re-derives isLive on each render so
+// no per-card realtime subscription is needed here.
+//
 // TWO variants per spec §5.2:
 //   - Live variant: read-only display + "View page →" + "Replace site version" → BottomSheet confirm.
 //   - Draft variant: editable fields + "Publish to torahtaichi.com" CTA.
