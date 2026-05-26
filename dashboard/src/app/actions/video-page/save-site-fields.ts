@@ -24,5 +24,40 @@ export async function saveSiteField(
     .eq('id', videoId);
 
   if (error) throw new Error(`saveSiteField(${field}): ${error.message}`);
-  revalidatePath('/', 'layout');
+
+  // Narrow the revalidation scope. This action runs on every per-field
+  // optimistic save (5 fields × debounced typing = many calls). The old
+  // revalidatePath('/', 'layout') was a full-app cache bust on each call.
+  //
+  // Look up the parsha slug via videos → jobs → parshiot and revalidate
+  // just the operator's video page + the dashboard root (where the parsha
+  // tile shows draft/live state). Public website (torahtaichi.com) ISR is
+  // not busted here — that's publishSiteChanges' job, fired by the
+  // explicit "Publish changes" CTA.
+  const { data: videoRow } = await supabase
+    .from('videos')
+    .select('job_id')
+    .eq('id', videoId)
+    .single();
+  const jobId = videoRow?.job_id as string | undefined;
+  let parshaSlug: string | null = null;
+  if (jobId) {
+    const { data: jobRow } = await supabase
+      .from('jobs')
+      .select('parsha_id')
+      .eq('id', jobId)
+      .single();
+    const parshaId = jobRow?.parsha_id as string | null | undefined;
+    if (parshaId) {
+      const { data: parshaRow } = await supabase
+        .from('parshiot')
+        .select('slug')
+        .eq('id', parshaId)
+        .single();
+      parshaSlug = (parshaRow?.slug as string | undefined) ?? null;
+    }
+  }
+
+  if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`);
+  revalidatePath('/');
 }
