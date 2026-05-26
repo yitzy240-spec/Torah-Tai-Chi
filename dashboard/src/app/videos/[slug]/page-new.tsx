@@ -33,6 +33,7 @@ import { EmptyState } from './_components/empty-state';
 import { LiveAtRestConnected } from './_components/live-at-rest-connected';
 import { DraftCalloutStrip } from './_components/draft-callout-strip';
 import { PlanGeneratingCard } from './_components/plan-generating-card';
+import { PhaseErrorBoundary } from './_components/phase-error-boundary';
 import type { ShellData } from './_data/shell-data';
 
 interface PageProps {
@@ -110,11 +111,13 @@ async function PhaseBody({
   // -------------------------------------------------------------------------
   if (state.kind === 'empty') {
     return (
-      <EmptyState
-        parshaName={parsha.name}
-        parshaId={parsha.id}
-        parshaSlug={parsha.slug}
-      />
+      <PhaseErrorBoundary phaseLabel="Empty parsha">
+        <EmptyState
+          parshaName={parsha.name}
+          parshaId={parsha.id}
+          parshaSlug={parsha.slug}
+        />
+      </PhaseErrorBoundary>
     );
   }
 
@@ -130,7 +133,11 @@ async function PhaseBody({
         </p>
       );
     }
-    return <Phase1ScriptConnected {...props} />;
+    return (
+      <PhaseErrorBoundary phaseLabel="Phase 1 (script)">
+        <Phase1ScriptConnected {...props} />
+      </PhaseErrorBoundary>
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -166,7 +173,9 @@ async function PhaseBody({
     if (!clipPlanId && draftJobId && draftJobForState) {
       const startedAt = draftJobForState.triggeredAt;
       return (
-        <PlanGeneratingCard startedAt={startedAt} jobId={draftJobId} />
+        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)">
+          <PlanGeneratingCard startedAt={startedAt} jobId={draftJobId} />
+        </PhaseErrorBoundary>
       );
     }
 
@@ -222,7 +231,11 @@ async function PhaseBody({
     }
 
     const props = await getPhase2Props(parsha.slug, draftJobId, clipPlanId);
-    return <Phase2PlanReviewConnected {...props} />;
+    return (
+      <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)">
+        <Phase2PlanReviewConnected {...props} />
+      </PhaseErrorBoundary>
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -245,7 +258,11 @@ async function PhaseBody({
     }
 
     const props = await getPhase3Props(parsha.slug, draftJobId, draftVideoId);
-    return <Phase3ClipsConnected {...props} />;
+    return (
+      <PhaseErrorBoundary phaseLabel="Phase 3 (clip review)">
+        <Phase3ClipsConnected {...props} />
+      </PhaseErrorBoundary>
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -269,7 +286,11 @@ async function PhaseBody({
     }
 
     const props = await getPhase4Props(draftJobId, draftVideoId, clipPlanId);
-    return <Phase4StitchedConnected parshaSlug={parsha.slug} {...props} />;
+    return (
+      <PhaseErrorBoundary phaseLabel="Phase 4 (stitched video)">
+        <Phase4StitchedConnected parshaSlug={parsha.slug} {...props} />
+      </PhaseErrorBoundary>
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -299,7 +320,11 @@ async function PhaseBody({
       draftVideoId,
       videosForState,
     );
-    return <Phase5PostConnected {...phase5Props} />;
+    return (
+      <PhaseErrorBoundary phaseLabel="Phase 5 (posting)">
+        <Phase5PostConnected {...phase5Props} />
+      </PhaseErrorBoundary>
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -321,44 +346,46 @@ async function PhaseBody({
     );
 
     return (
-      <>
-        {state.kind === 'live-and-draft' && props.draftStripPhase && (
-          <DraftCalloutStrip
-            parshaSlug={parsha.slug}
-            landingPhase={props.draftStripPhase}
-            phase={props.draftStripPhase}
-            clipsRendered={props.clipsRendered}
-            clipsTotal={props.clipsTotal}
+      <PhaseErrorBoundary phaseLabel="Live page">
+        <>
+          {state.kind === 'live-and-draft' && props.draftStripPhase && (
+            <DraftCalloutStrip
+              parshaSlug={parsha.slug}
+              landingPhase={props.draftStripPhase}
+              phase={props.draftStripPhase}
+              clipsRendered={props.clipsRendered}
+              clipsTotal={props.clipsTotal}
+            />
+          )}
+          <LiveAtRestConnected
+            parshaName={props.parshaName}
+            parshaId={props.parshaId}
+            sourceScriptId={props.sourceScriptId}
+            versionLabel={props.versionLabel}
+            videoMp4Url={props.videoMp4Url}
+            thumbPath={props.thumbPath}
+            websiteUrl={props.websiteUrl}
+            displayTitle={props.displayTitle}
+            attribution={props.attribution}
+            publishedToWebsiteSince={props.publishedToWebsiteSince}
+            platforms={props.platforms}
+            parshaSlug={props.parshaSlug}
+            videoId={props.videoId}
+            siteTitle={props.siteTitle}
+            siteSubtitle={props.siteSubtitle}
+            siteDescription={props.siteDescription}
+            siteWebsiteCaption={props.siteWebsiteCaption}
+            siteSpokenScript={props.siteSpokenScript}
+            liveJobId={props.liveJobId}
+            captions={props.captions}
+            youtubeTags={props.youtubeTags}
+            socialMetadata={props.socialMetadata}
+            initialPosts={props.livePosts}
+            postUrls={props.postUrls}
+            connectedPlatforms={props.connectedPlatforms}
           />
-        )}
-        <LiveAtRestConnected
-          parshaName={props.parshaName}
-          parshaId={props.parshaId}
-          sourceScriptId={props.sourceScriptId}
-          versionLabel={props.versionLabel}
-          videoMp4Url={props.videoMp4Url}
-          thumbPath={props.thumbPath}
-          websiteUrl={props.websiteUrl}
-          displayTitle={props.displayTitle}
-          attribution={props.attribution}
-          publishedToWebsiteSince={props.publishedToWebsiteSince}
-          platforms={props.platforms}
-          parshaSlug={props.parshaSlug}
-          videoId={props.videoId}
-          siteTitle={props.siteTitle}
-          siteSubtitle={props.siteSubtitle}
-          siteDescription={props.siteDescription}
-          siteWebsiteCaption={props.siteWebsiteCaption}
-          siteSpokenScript={props.siteSpokenScript}
-          liveJobId={props.liveJobId}
-          captions={props.captions}
-          youtubeTags={props.youtubeTags}
-          socialMetadata={props.socialMetadata}
-          initialPosts={props.livePosts}
-          postUrls={props.postUrls}
-          connectedPlatforms={props.connectedPlatforms}
-        />
-      </>
+        </>
+      </PhaseErrorBoundary>
     );
   }
 
