@@ -12,13 +12,20 @@
 //
 // Two ways to generate:
 //   - Sticky bottom "Generate all N clips →" (primary, filled navy) —
-//     for the operator who's ready to commit.
+//     for the operator who's ready to commit. Modal renders them in
+//     order, chaining each scene group internally.
 //   - Per-card "▶ Generate this clip" (secondary, outlined navy) —
 //     for the operator who wants to render one clip at a time, review,
-//     then continue. Footer-aligned per card so it doesn't compete with
-//     the bottom primary. Hidden once the clip has rendered
-//     (clip.storage_path is set); a green "✓ Rendered" tick takes its
-//     place. Re-render of done clips happens in Phase 3.
+//     then continue. STRICTLY SEQUENTIAL: clip N's button is disabled
+//     until clip N-1 has a rendered mp4. This is non-negotiable —
+//     scene-group chaining uses clip N-1's last frame as clip N's
+//     first frame for visual continuity; rendering out of order gives
+//     Seedance a fresh roll of the room and produces a visible cut at
+//     the boundary (the bug clips_only_job scene-group chaining was
+//     shipped to fix in 2026-05-20). Disabled state shows a small
+//     italic hint ("Generate clip N first") instead of the button.
+//     Hidden entirely once the clip has rendered; a quiet jade
+//     "✓ Rendered" tick takes its place. Re-render lives in Phase 3.
 //
 // Realtime subscription on clips via useRealtimeRows.
 
@@ -135,7 +142,7 @@ export function Phase2PlanReview({
         )}
       </div>
 
-      {clips.map((c) => (
+      {clips.map((c, i) => (
         <PlanClipCard
           key={c.id}
           clip={c}
@@ -143,6 +150,15 @@ export function Phase2PlanReview({
           parshaSlug={parshaSlug}
           moves={moves}
           refImageLibrary={refImageLibrary}
+          // Sequential gate: clip N's per-card generate is enabled only
+          // when N-1 has a rendered mp4. Without this, an operator who
+          // tapped 'Generate this clip' on clip 3 before clip 2 would
+          // break scene-group chaining (clip 3's first_frame_url would
+          // not be clip 2's last frame, giving Seedance a fresh roll of
+          // the room and producing visual discontinuity at the cut).
+          // Clip 0 has no predecessor, always enabled.
+          prevRendered={i === 0 || !!clips[i - 1].storage_path}
+          prevIndex={i === 0 ? null : i - 1}
         />
       ))}
 
@@ -211,9 +227,11 @@ interface CardProps {
   parshaSlug: string;
   moves: TaiChiMove[];
   refImageLibrary: RefImage[];
+  prevRendered: boolean; // true if the prior clip has an mp4 (or this is clip 0)
+  prevIndex: number | null; // 0-based index of the prior clip, null on clip 0
 }
 
-function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: CardProps) {
+function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, prevRendered, prevIndex }: CardProps) {
   const [motionPickerOpen, setMotionPickerOpen] = useState(false);
   const [refPickerOpen, setRefPickerOpen] = useState(false);
   const [removeSheetOpen, setRemoveSheetOpen] = useState(false);
@@ -616,14 +634,39 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: 
 
       {/* Per-card generate — outlined / secondary so it doesn't compete with
           the sticky bottom "Generate all". Hidden once this clip has rendered
-          (clip.storage_path !== null); Phase 3 handles re-render of done clips. */}
+          (clip.storage_path !== null); Phase 3 handles re-render of done clips.
+          Gated by prevRendered: clip N's button is disabled until clip N-1
+          has a rendered mp4, so scene-group chaining (clip N's first frame =
+          clip N-1's last frame) is never broken by out-of-order generation. */}
       {!clip.storage_path && (
-        <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+        <div
+          style={{
+            marginTop: 14,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          {!prevRendered && !thisRendering && (
+            <span
+              style={{
+                fontSize: 11.5,
+                color: 'var(--ink-500)',
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+              }}
+            >
+              Generate clip {prevIndex !== null ? prevIndex + 1 : ''} first
+            </span>
+          )}
           <button
             type="button"
             onClick={generateThisClip}
-            disabled={thisRendering}
+            disabled={thisRendering || !prevRendered}
             aria-busy={thisRendering}
+            title={!prevRendered ? `Render clip ${prevIndex !== null ? prevIndex + 1 : ''} first to keep scene continuity` : undefined}
             style={{
               minHeight: 40,
               fontSize: 13,
@@ -631,9 +674,9 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary }: 
               padding: '8px 14px',
               borderRadius: 8,
               background: 'white',
-              color: thisRendering ? 'var(--ink-500)' : 'var(--navy-700)',
-              border: '1px solid var(--navy-700)',
-              cursor: thisRendering ? 'wait' : 'pointer',
+              color: thisRendering || !prevRendered ? 'var(--ink-300)' : 'var(--navy-700)',
+              border: `1px solid ${thisRendering || !prevRendered ? 'var(--ink-200)' : 'var(--navy-700)'}`,
+              cursor: thisRendering ? 'wait' : !prevRendered ? 'not-allowed' : 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
