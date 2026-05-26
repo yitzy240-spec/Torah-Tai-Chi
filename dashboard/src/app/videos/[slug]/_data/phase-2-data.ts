@@ -83,31 +83,43 @@ export async function getPhase2Props(
   // Build the per-index version list: every rendered clip row under any
   // done clips-only child job. Ordered newest-first so the default
   // selection (chips[0]) is always the most recent render. The job's
-  // resolution / model_tier are joined so the chips can show 'v2 · 480p
-  // Fast' style labels without an extra round-trip.
+  // resolution / model_tier are joined client-side after a separate
+  // jobs SELECT — using a PostgREST embed for this caused a schema-
+  // cache resolution failure in prod on the earlier clip_plans→jobs
+  // embed (Server Components render error 2026-05-26). Two queries by
+  // primary key are robust and effectively as fast.
   const clipsOnlyJobIds = (clipsOnlyJobsResult.data ?? []).map((j) => j.id as string);
   const versionsByIndex = new Map<number, ClipVersion[]>();
   if (clipsOnlyJobIds.length > 0) {
-    const { data: renderedClips } = await supabase
-      .from('clips')
-      .select('id, index, storage_path, created_at, jobs!inner(resolution, model_tier)')
-      .in('job_id', clipsOnlyJobIds)
-      .not('storage_path', 'is', null)
-      .order('created_at', { ascending: false });
-    for (const r of renderedClips ?? []) {
+    const [renderedClipsResult, jobsTierResult] = await Promise.all([
+      supabase
+        .from('clips')
+        .select('id, index, storage_path, created_at, job_id')
+        .in('job_id', clipsOnlyJobIds)
+        .not('storage_path', 'is', null)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('jobs')
+        .select('id, resolution, model_tier')
+        .in('id', clipsOnlyJobIds),
+    ]);
+    const tierByJobId = new Map<string, { resolution: string | null; modelTier: string | null }>();
+    for (const j of jobsTierResult.data ?? []) {
+      tierByJobId.set(j.id as string, {
+        resolution: (j.resolution as string | null) ?? null,
+        modelTier: (j.model_tier as string | null) ?? null,
+      });
+    }
+    for (const r of renderedClipsResult.data ?? []) {
       const idx = r.index as number;
-      // Embedded join returns 'jobs' as object OR array depending on
-      // PostgREST relation cardinality. Normalize.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const jobsRel = (r as any).jobs;
-      const job = Array.isArray(jobsRel) ? jobsRel[0] : jobsRel;
+      const tier = tierByJobId.get(r.job_id as string);
       const list = versionsByIndex.get(idx) ?? [];
       list.push({
         clipId: r.id as string,
         storagePath: r.storage_path as string,
         createdAt: r.created_at as string,
-        resolution: (job?.resolution as string | null) ?? null,
-        modelTier: (job?.model_tier as string | null) ?? null,
+        resolution: tier?.resolution ?? null,
+        modelTier: tier?.modelTier ?? null,
       });
       versionsByIndex.set(idx, list);
     }
