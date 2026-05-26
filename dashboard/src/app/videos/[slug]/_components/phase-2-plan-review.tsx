@@ -41,6 +41,7 @@
 
 'use client';
 import { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useLocalStorageDraft } from '@/hooks/use-localstorage-draft';
 import { useOptimisticSave } from '@/hooks/use-optimistic-save';
@@ -339,6 +340,7 @@ interface CardProps {
 }
 
 function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, prevRendered, prevIndex, tier }: CardProps) {
+  const router = useRouter();
   const [motionPickerOpen, setMotionPickerOpen] = useState(false);
   const [refPickerOpen, setRefPickerOpen] = useState(false);
   const [removeSheetOpen, setRemoveSheetOpen] = useState(false);
@@ -348,10 +350,17 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
   const [chainBroken, setChainBroken] = useState<boolean>(clip.chain_broken);
   const [removing, setRemoving] = useState(false);
   const [breakingChain, setBreakingChain] = useState(false);
-  // Per-clip render state. Cleared by either:
-  //   1. clip.storage_path appears (success — realtime + poll on clips)
-  //   2. liveJobId's status flips to 'failed' (Modal crashed, Kie rejected,
-  //      anything else — realtime + poll on jobs)
+  // Per-clip render state. Cleared by ANY of:
+  //   1. liveJob.status === 'done' (success — realtime + poll on the
+  //      clips-only job we triggered). On done we also router.refresh()
+  //      so the server re-fetches phase-2-data and the inline player
+  //      picks up the new storage_path (the rendered clip lives in a
+  //      separate row under the clips-only job_id; the realtime sub on
+  //      plan-only's clip rows won't see it without a refresh).
+  //   2. liveJob.status === 'failed' (Modal crashed, Kie rejected, etc.)
+  //   3. clip.storage_path appears (defensive — first-time generation
+  //      against a clean plan; rarely fires for re-renders since the
+  //      plan-only row's storage_path stays null)
   // No hard timeout — both signals have defensive 10s polling now, so
   // a stuck spinner means the job is genuinely still running (or in the
   // rare case Modal never picked up the trigger, which the operator
@@ -391,10 +400,20 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
     return () => clearInterval(id);
   }, [thisRendering]);
 
-  // Failure path — clips-only job ended in failed state. Surface a toast
-  // with the technical detail (truncated; full traceback lives at /jobs/[id]).
+  // Terminal-state path — clips-only job ended in 'done' or 'failed'.
+  // On 'done', router.refresh() so the server re-fetches phase-2-data
+  // and the inline player overlay picks up the new storage_path. On
+  // 'failed', surface a toast with the first line of error_message
+  // and a 'View log' action linking to /jobs/[id] for the traceback.
   useEffect(() => {
     if (!liveJob) return;
+    if (liveJob.status === 'done') {
+      setThisRendering(false);
+      setLiveJobId(null);
+      setRenderStartedAt(null);
+      router.refresh();
+      return;
+    }
     if (liveJob.status === 'failed') {
       setThisRendering(false);
       setLiveJobId(null);
@@ -411,7 +430,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, pr
         duration: 12000,
       });
     }
-  }, [liveJob, clip.index]);
+  }, [liveJob, clip.index, router]);
 
   async function generateThisClip() {
     if (thisRendering) return;
