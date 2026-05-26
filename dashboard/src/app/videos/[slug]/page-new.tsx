@@ -162,12 +162,96 @@ async function PhaseBody({
     // Doing this in the server component avoids client-side useEffect
     // coordination (which kept users stuck on StartingPlanCard because
     // router.refresh wasn't picking up the new job reliably).
+    let planError: string | null = null;
     if (!draftJobId && startPlan && startPlanScriptId) {
       const result = await triggerPlanOnly(parsha.id, startPlanScriptId);
       if (result.ok) {
         redirect(`/videos/${parsha.slug}?phase=2`);
       }
-      // Insert failed — fall through to show error in spinner card.
+      // Insert failed — capture error and render an error card below
+      // instead of falling through to a misleading spinner.
+      planError = result.error ?? 'Unknown error starting clip plan generation.';
+    }
+
+    if (planError) {
+      return (
+        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)">
+          <div
+            role="alert"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              padding: '48px 24px',
+              minHeight: 240,
+              background: 'var(--linen-50)',
+              border: '1px solid var(--tassel)',
+              borderRadius: 'var(--r-lg)',
+              textAlign: 'center',
+            }}
+          >
+            <div
+              aria-hidden="true"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                background: 'var(--tassel)',
+                color: 'white',
+                fontSize: 22,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 18,
+              }}
+            >
+              !
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontSize: 20,
+                fontWeight: 500,
+                color: 'var(--ink-900)',
+                marginBottom: 8,
+              }}
+            >
+              Couldn&apos;t start clip plan generation
+            </div>
+            <div
+              style={{
+                fontSize: 13,
+                color: 'var(--ink-500)',
+                maxWidth: 360,
+                lineHeight: 1.5,
+                marginBottom: 16,
+              }}
+            >
+              {planError.split('\n')[0].slice(0, 220)}
+            </div>
+            <a
+              href={`/videos/${parsha.slug}?phase=1`}
+              style={{
+                minHeight: 44,
+                padding: '10px 18px',
+                fontSize: 14,
+                fontWeight: 500,
+                background: 'white',
+                color: 'var(--navy-700)',
+                border: '1px solid var(--navy-700)',
+                borderRadius: 8,
+                cursor: 'pointer',
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              ← Back to script
+            </a>
+          </div>
+        </PhaseErrorBoundary>
+      );
     }
 
     // Plan-only job is queued / generating but hasn't produced the plan yet.
