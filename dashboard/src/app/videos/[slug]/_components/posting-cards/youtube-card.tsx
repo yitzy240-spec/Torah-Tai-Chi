@@ -110,7 +110,7 @@ export function YouTubeCard({
       <PostedSummaryRow
         icon="▶️"
         platform="YouTube"
-        postedAt={post!.created_at}
+        postedAt={effectivePost?.published_at ?? post!.created_at}
         postUrl={postUrl}
         onExpand={() => setExpanded(true)}
       />

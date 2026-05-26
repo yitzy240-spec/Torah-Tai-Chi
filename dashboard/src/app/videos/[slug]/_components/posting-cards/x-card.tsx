@@ -79,7 +79,7 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
       <PostedSummaryRow
         icon="𝕏"
         platform="X"
-        postedAt={post!.created_at}
+        postedAt={effectivePost?.published_at ?? post!.created_at}
         postUrl={postUrl}
         onExpand={() => setExpanded(true)}
       />

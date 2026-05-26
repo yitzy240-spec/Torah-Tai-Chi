@@ -223,7 +223,18 @@ export async function getLiveAtRestProps(
     // Prop names match what they render as (displayTitle = big heading, attribution = small label).
     displayTitle: (liveVRow?.subtitle as string | null) ?? '',
     attribution: (liveVRow?.title as string | null) ?? parshaName,
-    publishedToWebsiteSince: null,
+    // Source-of-truth for "LIVE since N": MAX(posts.published_at) across all
+    // platforms posted for this video. No videos.published_to_website_at
+    // column exists (see 20260426_videos_publish_gate.sql), so we use the
+    // moment any platform first went live as the proxy. Returns null when no
+    // post carries a published_at yet.
+    publishedToWebsiteSince: isPublishedToWebsite
+      ? livePosts.reduce<string | null>((max, post) => {
+          if (!post.published_at) return max;
+          if (max === null || post.published_at > max) return post.published_at;
+          return max;
+        }, null)
+      : null,
     platforms: platformStatusList,
     parshaSlug,
     draftStripPhase: statePhase,

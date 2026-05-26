@@ -92,7 +92,7 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
       <PostedSummaryRow
         icon="📱"
         platform="TikTok"
-        postedAt={post!.created_at}
+        postedAt={effectivePost?.published_at ?? post!.created_at}
         postUrl={postUrl}
         onExpand={() => setExpanded(true)}
       />

@@ -98,7 +98,7 @@ export function FacebookCard({ jobId, videoId, parshaSlug, caption, post, postUr
       <PostedSummaryRow
         icon="📘"
         platform="Facebook"
-        postedAt={post!.created_at}
+        postedAt={effectivePost?.published_at ?? post!.created_at}
         postUrl={postUrl}
         onExpand={() => setExpanded(true)}
       />

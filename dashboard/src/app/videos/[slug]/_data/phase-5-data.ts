@@ -155,13 +155,26 @@ export async function getPhase5Props(
   const liveVideoIndex = videosForState.findIndex((v) => v.id === draftVideoId) + 1;
   const liveVersionLabel = siteIsLive ? `v${liveVideoIndex}` : null;
 
+  // Source-of-truth for "Live since N ago": MAX(posts.published_at) across
+  // all platforms posted for this video. No videos.published_to_website_at
+  // column exists (see 20260426_videos_publish_gate.sql — only the boolean
+  // was added), so we fall back to "the moment any platform first went live."
+  // Returns null when no post has a published_at yet.
+  const liveSince = siteIsLive
+    ? initialPosts.reduce<string | null>((max, post) => {
+        if (!post.published_at) return max;
+        if (max === null || post.published_at > max) return post.published_at;
+        return max;
+      }, null)
+    : null;
+
   return {
     videoId: draftVideoId,
     parshaSlug,
     parshaId,
     sourceScriptId: draftScriptId,
     isLive: siteIsLive,
-    liveSince: null, // TODO: surface actual published_at when added
+    liveSince,
     liveVersionLabel,
     siteTitle: videoRow?.title ?? parshaName,
     siteSubtitle: videoRow?.subtitle ?? '',
