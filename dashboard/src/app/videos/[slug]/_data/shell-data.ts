@@ -189,7 +189,9 @@ export async function fetchPageShellData(
     videos: videosForState,
     posts: postsForState,
     clipsByJobId,
-    hasScripts: (parsha.scripts ?? []).length > 0,
+    hasScripts: (parsha.scripts ?? []).some(
+      (s) => (s.draft_text ?? '').trim().length > 0,
+    ),
   });
 
   // Live-strip props (live-and-draft state only)
