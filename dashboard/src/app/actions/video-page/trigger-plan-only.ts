@@ -26,6 +26,25 @@ export async function triggerPlanOnly(
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: 'Not authenticated' };
 
+  // Idempotency: if a plan-only job for this script is already queued
+  // or running, return its id instead of inserting a duplicate. Without
+  // this, an URL like ?start_plan=1&script_id=X that gets retried (refresh,
+  // network flake on the redirect) creates duplicate Modal jobs.
+  const { data: inFlight } = await supabase
+    .from('jobs')
+    .select('id, status')
+    .eq('parsha_id', parshaId)
+    .eq('script_id', scriptId)
+    .eq('kind', 'plan-only')
+    .in('status', ['queued', 'loading_parsha', 'generating_plan', 'verifying'])
+    .order('triggered_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (inFlight) {
+    return { ok: true, jobId: inFlight.id as string };
+  }
+
   const { data: job, error: jobErr } = await supabase
     .from('jobs')
     .insert({
