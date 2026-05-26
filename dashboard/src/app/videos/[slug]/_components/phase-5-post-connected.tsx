@@ -56,7 +56,7 @@ interface Props {
 }
 
 export function Phase5PostConnected(props: Props) {
-  const [, startTransition] = useTransition();
+  const [isReplacing, startTransition] = useTransition();
   const [replaceError, setReplaceError] = useState<string | null>(null);
   const router = useRouter();
 
@@ -85,6 +85,9 @@ export function Phase5PostConnected(props: Props) {
     <>
       {replaceError && (
         <p style={{ fontSize: 13, color: 'var(--tassel)', marginBottom: 8 }}>{replaceError}</p>
+      )}
+      {isReplacing && (
+        <p style={{ fontSize: 13, color: 'var(--ink-500)', marginBottom: 8 }}>Starting new draft…</p>
       )}
       <Phase5Post
         {...props}
