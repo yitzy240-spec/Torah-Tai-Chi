@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { composeVideo } from '@/app/actions/compose-video';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
+import type { ClipVersion } from '../_data/phase-2-data';
 import { Phase3Clips } from './phase-3-clips';
 
 interface ClipRow {
@@ -32,6 +33,9 @@ interface Props {
   jobId: string;
   parshaSlug: string;
   initialClips: ClipRow[];
+  /** All rendered versions per clip index (from regen child jobs),
+   *  newest first. Drives the per-card version picker. */
+  initialVersionsByIndex: Record<number, ClipVersion[]>;
   moves: TaiChiMove[];
 }
 

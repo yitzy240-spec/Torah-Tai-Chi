@@ -1,25 +1,33 @@
 // dashboard/src/app/videos/[slug]/_components/phase-3-clips.tsx
 //
 // Phase 3: Clips. Per-clip cards with inline 9:16 mini-player,
-// version picker (dedupe by storage_path per index), motion picker
+// version picker (sourced from initialVersionsByIndex — rendered
+// versions across regen child jobs, newest first), motion picker
 // (spec §6.5), and per-card "Re-render" which calls the EXISTING
-// regenClipFromText server action — NOT triggerClips (per EXECUTION-NOTES
-// "Per-clip regen" section).
+// regenClipFromText server action — NOT triggerClips.
+//
+// IMPORTANT: the realtime sub on clips.job_id = jobId only sees the
+// plan-only's clip rows. New renders land under child job_ids and
+// would never show up in the picker. We instead drive the picker
+// from initialVersionsByIndex (server-fetched in phase-3-data via
+// regen_of_job_id = draftJobId). That mirrors Phase 2's approach and
+// keeps a single source of truth for "which version of each clip the
+// operator picked" via the shared localStorage key. The realtime sub
+// still drives the metadata overlay (voiceover, scene, motion_ref).
 //
 // Error + long-wait states per spec §10.1 + §10.2.
-// Realtime subscription on clips (job_id filter) so re-renders surface
-// in-place when Modal completes.
 
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { useRealtimeRow } from '@/hooks/use-realtime-row';
 import { regenClipFromText } from '@/app/actions/regen-clip-from-text';
 import { savePlanClipMotion } from '@/app/actions/video-page/save-plan-clip-motion';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
+import type { ClipVersion } from '../_data/phase-2-data';
 import { publicVideoUrl } from '@/lib/storage-url';
-import { dedupeClipsByStoragePath } from '@/lib/dedupe-clips';
 import { MotionPickerSheet } from './_shared/motion-picker-sheet';
 
 // ---------------------------------------------------------------------------
@@ -37,24 +45,19 @@ interface ClipRow {
   created_at: string;
 }
 
-/** One distinct rendered version of a clip (dedupe by storage_path) */
-interface ClipVersion {
-  id: string;
-  storagePath: string;
-  videoUrl: string;
-  duration_s: number | null;
-  motion_ref_slug: string | null;
-  createdAt: string;
-}
-
 interface Props {
   /** The video's ID — passed to regenClipFromText */
   videoId: string;
   /** job_id of the draft job — used to filter the Realtime clips subscription */
   jobId: string;
   parshaSlug: string;
-  /** All clip rows for this job, sorted by index ascending */
+  /** All plan-only clip rows for this job, sorted by index ascending.
+   *  Source of metadata (voiceover, scene, motion_ref) — NOT the
+   *  rendered mp4 paths (those live in initialVersionsByIndex). */
   initialClips: ClipRow[];
+  /** All rendered versions per clip index (regen child jobs),
+   *  newest first. Drives the version picker + player. */
+  initialVersionsByIndex: Record<number, ClipVersion[]>;
   /** The Tai Chi move library (server-fetched, passed down) */
   moves: TaiChiMove[];
   /** Called after user taps "Preview stitched video →" */
@@ -68,61 +71,41 @@ interface Props {
 }
 
 // ---------------------------------------------------------------------------
-// Dedupe helper — thin mapper over the shared dedupeClipsByStoragePath util.
-// ---------------------------------------------------------------------------
-
-/**
- * Converts deduplicated ClipRow[] for a single index into ClipVersion[]
- * (oldest-to-newest, matching legacy behavior).
- */
-function toClipVersions(dedupedRows: ClipRow[]): ClipVersion[] {
-  return dedupedRows.map((r) => ({
-    id: r.id,
-    storagePath: r.storage_path!,
-    videoUrl: publicVideoUrl(r.storage_path!),
-    duration_s: r.duration_s,
-    motion_ref_slug: r.motion_ref_slug,
-    createdAt: r.created_at,
-  }));
-}
-
-// ---------------------------------------------------------------------------
 // Phase3Clips (outer)
 // ---------------------------------------------------------------------------
 
-export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, onAdvance, onBack, advancing = false }: Props) {
-  // Realtime subscription on clips for this job so re-renders appear in-place
-  const clips = useRealtimeRows<ClipRow>('clips', 'job_id', jobId, initialClips);
-
-  // Dedupe all clips by storage_path within each index, then build per-index
-  // structures for rendering. The shared helper handles sorting + deduping.
-  const dedupedByIndex = dedupeClipsByStoragePath(clips);
-  const indexes = Object.keys(dedupedByIndex).map(Number).sort((a, b) => a - b);
-
-  // We still need the full (non-deduped) rows per index to find the latestRow.
-  const byIndex = new Map<number, ClipRow[]>();
-  for (const c of clips) {
-    if (!byIndex.has(c.index)) byIndex.set(c.index, []);
-    byIndex.get(c.index)!.push(c);
-  }
+export function Phase3Clips({
+  videoId,
+  jobId,
+  parshaSlug,
+  initialClips,
+  initialVersionsByIndex,
+  moves,
+  onAdvance,
+  onBack,
+  advancing = false,
+}: Props) {
+  // Realtime subscription on plan-only clips so metadata edits (motion
+  // picker, etc.) reflect in-place. The rendered versions don't come
+  // through here — they come from initialVersionsByIndex (server fetch).
+  const planClips = useRealtimeRows<ClipRow>('clips', 'job_id', jobId, initialClips).sort(
+    (a, b) => a.index - b.index,
+  );
 
   return (
     <section>
-      {indexes.map((idx) => {
-        const versions = toClipVersions(dedupedByIndex[idx] ?? []);
-        // The "latest" clip row (most recent created_at with a storage_path)
-        const allRowsForIdx = byIndex.get(idx) ?? [];
-        const latestRow = allRowsForIdx
-          .filter((r) => r.storage_path)
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] ?? null;
-
-        if (!latestRow || versions.length === 0) return null;
+      {planClips.map((clip) => {
+        const versions = initialVersionsByIndex[clip.index] ?? [];
+        // Only render a card if there's a rendered version to show. A
+        // plan-only clip with no renders shouldn't appear in Phase 3 —
+        // the operator should be sent back to Phase 2 to render it
+        // first. (Phase 2's all-rendered gate ensures this in practice.)
+        if (versions.length === 0) return null;
 
         return (
           <ClipCard
-            key={idx}
-            clipIndex={idx}
-            latestRow={latestRow}
+            key={clip.id}
+            planClip={clip}
             versions={versions}
             videoId={videoId}
             parshaSlug={parshaSlug}
@@ -193,41 +176,56 @@ export function Phase3Clips({ videoId, jobId, parshaSlug, initialClips, moves, o
 // ---------------------------------------------------------------------------
 
 interface ClipCardProps {
-  clipIndex: number;
-  latestRow: ClipRow;
+  /** The plan-only clip row — provides metadata + the localStorage key
+   *  base. Its id is the key Phase 2 also uses. */
+  planClip: ClipRow;
+  /** All rendered versions for this clip index, newest first. */
   versions: ClipVersion[];
   videoId: string;
   parshaSlug: string;
   moves: TaiChiMove[];
 }
 
-function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }: ClipCardProps) {
-  // Version picker state — latest version by default (last in sorted array).
-  // Selection is also written to the same localStorage key Phase 2 uses
-  // (`plan.{parshaSlug}.{plan_only_clip_id}.selected_clip_id`) so Phase 3
-  // and Phase 2 share one source of truth for "which version of each clip
-  // the operator wants in the final stitch." Without this write, a regen
-  // or version pick in Phase 3 wouldn't propagate to compose — the operator
-  // had to bounce back to Phase 2 to tap the new chip. The KEY uses the
-  // plan-only clip row id (latestRow.id is from `clips WHERE job_id =
-  // draftJobId`, matching Phase 2's `clip.id`); the VALUE is the rendered
-  // version's clip row id, which is what composeVideo expects.
-  const versionLsKey = `plan.${parshaSlug}.${latestRow.id}.selected_clip_id`;
-  const [selectedVersionIdx, setSelectedVersionIdx] = useState(versions.length - 1);
-  const displayed = versions[selectedVersionIdx] ?? versions[versions.length - 1];
+function ClipCard({ planClip, versions, videoId, parshaSlug, moves }: ClipCardProps) {
+  // Version selection mirrors Phase 2's pattern: localStorage-backed,
+  // keyed on the plan-only clip id (NOT a rendered clip id), with the
+  // value being the rendered clip id. Default = newest (versions[0]).
+  // The key format matches Phase 2 — compose-on-advance reads the same
+  // key in phase-3-clips-connected.handleAdvance.
+  const versionLsKey = `plan.${parshaSlug}.${planClip.id}.selected_clip_id`;
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return versions[0]?.clipId ?? null;
+    const stored = window.localStorage.getItem(versionLsKey);
+    if (stored && versions.some((v) => v.clipId === stored)) return stored;
+    return versions[0]?.clipId ?? null;
+  });
+  const selectedVersion =
+    versions.find((v) => v.clipId === selectedClipId) ?? versions[0] ?? null;
+  const isOnLatest = selectedVersion?.clipId === versions[0]?.clipId;
 
-  function pickVersion(nextIdx: number) {
-    setSelectedVersionIdx(nextIdx);
-    const picked = versions[nextIdx];
-    if (picked && typeof window !== 'undefined') {
-      window.localStorage.setItem(versionLsKey, picked.id);
+  function pickVersion(clipId: string) {
+    setSelectedClipId(clipId);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(versionLsKey, clipId);
     }
   }
 
-  // Motion picker state — track what slug the clip is rendered with (frozen at mount)
-  // vs. what the user has picked since (may differ = stale)
-  const [renderedWithSlug] = useState<string | null>(latestRow.motion_ref_slug);
-  const [motionSlug, setMotionSlug] = useState<string | null>(latestRow.motion_ref_slug);
+  // Auto-jump to the newest version when a re-render lands — but only
+  // if the operator hadn't manually picked an older one (no stored
+  // value). Mirrors Phase 2.
+  useEffect(() => {
+    if (versions.length === 0) return;
+    if (typeof window === 'undefined') return;
+    const stored = window.localStorage.getItem(versionLsKey);
+    if (!stored) {
+      setSelectedClipId(versions[0].clipId);
+    }
+  }, [versions, versionLsKey]);
+
+  // Motion picker state — track what slug the clip's plan row currently
+  // holds vs. what the user has picked since (may differ = stale).
+  const [renderedWithSlug] = useState<string | null>(planClip.motion_ref_slug);
+  const [motionSlug, setMotionSlug] = useState<string | null>(planClip.motion_ref_slug);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Regen job tracking — we get the jobId back from regenClipFromText and
@@ -254,8 +252,22 @@ function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }
   const isInFlight = regenJob !== null && IN_FLIGHT_STATUSES.includes(regenJob.status);
   const isFailed = regenJob !== null && regenJob.status === 'failed';
 
+  const router = useRouter();
+
+  // When the regen completes, refresh the page so the server re-fetches
+  // initialVersionsByIndex and the new version appears as a picker
+  // option. Without this, the just-rendered clip would not surface
+  // until the operator manually reloaded.
+  useEffect(() => {
+    if (regenJob?.status === 'done') {
+      setRegenJobId(null);
+      setRegenStartedAt(null);
+      router.refresh();
+    }
+  }, [regenJob?.status, router]);
+
   async function handleRegen() {
-    const result = await regenClipFromText({ videoId, clipIndex });
+    const result = await regenClipFromText({ videoId, clipIndex: planClip.index });
     if ('error' in result) {
       toast.error('Re-render failed to start.', { description: result.error });
       return;
@@ -267,7 +279,7 @@ function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }
   async function pickMotion(slug: string | null) {
     const prev = motionSlug;
     setMotionSlug(slug); // optimistic
-    const result = await savePlanClipMotion(latestRow.id, slug, parshaSlug);
+    const result = await savePlanClipMotion(planClip.id, slug, parshaSlug);
     if (!result.ok) {
       setMotionSlug(prev); // revert
       toast.error("Couldn't save the move.", { description: result.error });
@@ -291,7 +303,7 @@ function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <span style={{ fontSize: 16 }}>⚠</span>
-          <strong style={{ fontSize: 13 }}>Clip {clipIndex + 1} — re-render failed</strong>
+          <strong style={{ fontSize: 13 }}>Clip {planClip.index + 1} — re-render failed</strong>
         </div>
         <p style={{ fontSize: 12, color: 'var(--ink-700)', margin: '0 0 10px' }}>
           {regenJob.status_message || 'Unknown error.'}
@@ -351,7 +363,7 @@ function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }
               animation: 'pulse-navy 1.8s ease-in-out infinite',
             }}
           />
-          <strong style={{ fontSize: 13 }}>Clip {clipIndex + 1} — Generating…</strong>
+          <strong style={{ fontSize: 13 }}>Clip {planClip.index + 1} — Generating…</strong>
         </div>
         <p
           style={{
@@ -401,6 +413,8 @@ function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }
   // ---------------------------------------------------------------------------
   // Normal card (spec §4 Phase 3)
   // ---------------------------------------------------------------------------
+  if (!selectedVersion) return null;
+
   return (
     <div
       style={{
@@ -429,40 +443,17 @@ function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }
             letterSpacing: '0.1em',
           }}
         >
-          ● Clip {clipIndex + 1}
-          {displayed.duration_s ? ` · ${displayed.duration_s}s` : ''}
+          ● Clip {planClip.index + 1}
+          {planClip.duration_s ? ` · ${planClip.duration_s}s` : ''}
         </span>
-
-        {/* Version picker dropdown — IS the undo mechanism (spec §4 Phase 3) */}
-        {versions.length > 1 && (
-          <select
-            value={selectedVersionIdx}
-            onChange={(e) => pickVersion(Number(e.target.value))}
-            style={{
-              minHeight: 36,
-              fontSize: 13,
-              padding: '4px 8px',
-              border: '1px solid var(--ink-100)',
-              borderRadius: 6,
-              background: 'white',
-              color: 'var(--ink-700)',
-              cursor: 'pointer',
-            }}
-          >
-            {versions.map((v, i) => (
-              <option key={v.id} value={i}>
-                v{i + 1}
-                {i === versions.length - 1 ? ' (latest)' : ''}
-              </option>
-            ))}
-          </select>
-        )}
       </div>
 
-      {/* Mini-player — full-width, 9:16, tap to play (spec §4 Phase 3) */}
+      {/* Mini-player — full-width, 9:16, tap to play (spec §4 Phase 3).
+          Keyed on the selected version's clip id so flipping between
+          versions remounts the <video> with the new src. */}
       <video
-        key={displayed.storagePath}
-        src={displayed.videoUrl}
+        key={selectedVersion.clipId}
+        src={publicVideoUrl(selectedVersion.storagePath)}
         controls
         playsInline
         preload="metadata"
@@ -474,6 +465,93 @@ function ClipCard({ clipIndex, latestRow, versions, videoId, parshaSlug, moves }
           display: 'block',
         }}
       />
+
+      {/* Version chips — only when 2+ versions exist. Mirrors Phase 2's
+          row: v1 oldest on the left, v{N} newest on the right. Server
+          passes versions newest-first, so we walk in reverse for display. */}
+      {versions.length > 1 && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 6,
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            marginTop: 10,
+          }}
+        >
+          {versions
+            .slice()
+            .reverse()
+            .map((v, displayIdx) => {
+              const versionNumber = displayIdx + 1;
+              const isSelected = v.clipId === selectedClipId;
+              const tierLabel =
+                v.resolution && v.modelTier
+                  ? `${v.resolution} ${v.modelTier === 'standard' ? 'Standard' : 'Fast'}`
+                  : null;
+              return (
+                <button
+                  key={v.clipId}
+                  type="button"
+                  onClick={() => pickVersion(v.clipId)}
+                  aria-pressed={isSelected}
+                  title={tierLabel ? `v${versionNumber} · ${tierLabel}` : `v${versionNumber}`}
+                  style={{
+                    minHeight: 32,
+                    padding: '5px 12px',
+                    fontSize: 12.5,
+                    fontWeight: 500,
+                    borderRadius: 999,
+                    cursor: 'pointer',
+                    background: isSelected ? 'var(--navy-700)' : 'white',
+                    color: isSelected ? 'var(--linen-50)' : 'var(--ink-700)',
+                    border: `1px solid ${isSelected ? 'var(--navy-700)' : 'var(--ink-200)'}`,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  v{versionNumber}
+                </button>
+              );
+            })}
+        </div>
+      )}
+
+      {/* Tier label + 'jump to newest' link */}
+      <div
+        style={{
+          textAlign: 'center',
+          marginTop: 8,
+          fontSize: 11,
+          color: 'var(--ink-500)',
+          fontFamily: 'var(--ff-display)',
+          fontStyle: 'italic',
+        }}
+      >
+        {selectedVersion.resolution && selectedVersion.modelTier
+          ? `${selectedVersion.resolution} ${selectedVersion.modelTier === 'standard' ? 'Standard' : 'Fast'}`
+          : 'rendered'}
+        {!isOnLatest && versions.length > 1 && (
+          <>
+            {' · '}
+            <button
+              type="button"
+              onClick={() => pickVersion(versions[0].clipId)}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: 0,
+                color: 'var(--navy-700)',
+                fontStyle: 'italic',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+                fontSize: 11,
+              }}
+            >
+              jump to newest
+            </button>
+          </>
+        )}
+      </div>
 
       {/* Tai Chi move picker (spec §6.5) */}
       <label
