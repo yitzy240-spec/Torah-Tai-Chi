@@ -22,6 +22,7 @@ type JobRow = {
   id: string;
   status: string;
   kind: string | null;
+  script_id: string | null;
   triggered_at: string;
   completed_at: string | null;
   regen_of_job_id: string | null;
@@ -49,6 +50,10 @@ export type ShellData = {
     id: string;
     status: string;
     kind: string | null;
+    /** Surfaced so page-new can detect "user picked a different script"
+     *  on a re-Generate and supersede the existing draft instead of
+     *  silently showing the old plan. */
+    scriptId: string | null;
     videoId: string | null;
     clipPlanId: string | null;
     completedAt: string | null;
@@ -92,7 +97,7 @@ export async function fetchPageShellData(
       .order('option', { ascending: true }),
     supabase
       .from('jobs')
-      .select('id, status, kind, triggered_at, completed_at, regen_of_job_id')
+      .select('id, status, kind, script_id, triggered_at, completed_at, regen_of_job_id')
       .eq('parsha_id', parshaRow.id as string)
       .order('triggered_at', { ascending: false }),
   ]);
@@ -144,6 +149,7 @@ export async function fetchPageShellData(
       id: j.id,
       status: j.status,
       kind: j.kind,
+      scriptId: j.script_id,
       videoId: video?.id ?? null,
       clipPlanId: clipPlanByJobId.get(j.id) ?? null,
       completedAt: j.completed_at,

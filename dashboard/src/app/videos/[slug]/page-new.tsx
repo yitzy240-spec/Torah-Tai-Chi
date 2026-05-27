@@ -153,24 +153,37 @@ async function PhaseBody({
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const clipPlanId = draftJobForState?.clipPlanId ?? null;
 
-    // Intent fast path: user just clicked "Generate clip plan" on Phase 1
-    // and no draft job exists yet. Insert the job ROW server-side here
-    // (no Modal call — that happens in PlanGeneratingCard), then redirect
-    // to the clean URL. The redirect kicks browser to re-fetch, the new
-    // render finds the job, and PlanGeneratingCard takes over.
+    // Intent fast path: user clicked "Generate clip plan" on Phase 1.
+    // Two cases trigger an insert here:
     //
-    // Doing this in the server component avoids client-side useEffect
-    // coordination (which kept users stuck on StartingPlanCard because
-    // router.refresh wasn't picking up the new job reliably).
+    //   1. No draft job yet — first run for this parsha.
+    //   2. A draft job exists, but its script_id differs from the one
+    //      the operator just selected. They went back, picked a
+    //      different alternate, and hit Generate again — that's an
+    //      explicit "regenerate plan with new script" request. Without
+    //      this case the URL's new script_id is ignored and Phase 2
+    //      keeps showing the old plan (Yonah's 2026-05-27 report).
+    //
+    // The newer plan-only job becomes the current draft via
+    // selectPageState's triggered_at-DESC ordering — the old job is
+    // orphaned but harmless. We do NOT delete it because its clip rows
+    // may still be referenced by in-flight clips-only/regen jobs.
+    //
+    // Doing the insert in the server component avoids client-side
+    // useEffect coordination (which kept users stuck on
+    // StartingPlanCard because router.refresh wasn't picking up the
+    // new job reliably).
     let planError: string | null = null;
-    if (!draftJobId && startPlan && startPlanScriptId) {
-      const result = await triggerPlanOnly(parsha.id, startPlanScriptId);
-      if (result.ok) {
-        redirect(`/videos/${parsha.slug}?phase=2`);
+    if (startPlan && startPlanScriptId) {
+      const scriptMismatch =
+        draftJobForState != null && draftJobForState.scriptId !== startPlanScriptId;
+      if (!draftJobId || scriptMismatch) {
+        const result = await triggerPlanOnly(parsha.id, startPlanScriptId);
+        if (result.ok) {
+          redirect(`/videos/${parsha.slug}?phase=2`);
+        }
+        planError = result.error ?? 'Unknown error starting clip plan generation.';
       }
-      // Insert failed — capture error and render an error card below
-      // instead of falling through to a misleading spinner.
-      planError = result.error ?? 'Unknown error starting clip plan generation.';
     }
 
     if (planError) {
