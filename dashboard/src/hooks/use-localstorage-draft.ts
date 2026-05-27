@@ -25,19 +25,25 @@ export function useLocalStorageDraft<T extends string>(
   initialServerValue: T,
 ): [T, (next: T) => void, () => void] {
   const [value, setValue] = useState<T>(initialServerValue);
-  const loaded = useRef(false);
+  // Track the key we last hydrated from. When the caller switches
+  // keys (e.g., Phase 1 'Try another' picks a different script_id),
+  // we re-read localStorage for the new key. A boolean one-shot flag
+  // would lock us to the first key forever — that's the bug Yonah hit:
+  // picking an alternate left the textarea showing the original script.
+  const loadedForKey = useRef<string | null>(null);
 
-  // On mount: read localStorage. If a draft exists, use it.
   useEffect(() => {
-    if (loaded.current) return;
-    loaded.current = true;
+    if (loadedForKey.current === key) return;
+    loadedForKey.current = key;
     try {
       const stored = window.localStorage.getItem(key);
-      if (stored !== null && stored !== initialServerValue) {
-        setValue(stored as T);
-      }
+      // Adopt stored draft if present; otherwise fall back to the server
+      // value for the new key. Without the explicit fallback, state
+      // would stay pinned to the previous key's value.
+      setValue(stored !== null ? (stored as T) : initialServerValue);
     } catch {
-      // localStorage may be unavailable (private browsing, etc.) — fall back to server value.
+      // localStorage may be unavailable (private browsing, etc.).
+      setValue(initialServerValue);
     }
   }, [key, initialServerValue]);
 
