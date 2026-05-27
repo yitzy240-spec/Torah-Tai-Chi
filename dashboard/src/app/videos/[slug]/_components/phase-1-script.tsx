@@ -44,7 +44,11 @@ interface Props {
   parshaSlug: string;
   scripts: Script[];
   defaultScript: Script;
-  onAdvance: () => void;
+  /** Receives the script_id the operator finally selected. The connected
+   *  wrapper needs this to build the Phase 2 URL — without it, 'Try
+   *  another' picks an alternate but Generate clip plan still routes to
+   *  the original. */
+  onAdvance: (scriptId: string) => void;
   advancing?: boolean;
 }
 
@@ -215,12 +219,18 @@ function PickMode({
   parshaSlug,
   scripts,
   defaultScript,
+  selectedId,
+  onSelectedIdChange,
 }: {
   parshaSlug: string;
   scripts: Script[];
   defaultScript: Script;
+  /** Controlled by Phase1Script so the advance button knows which
+   *  script_id the operator chose. */
+  selectedId: string;
+  onSelectedIdChange: (id: string) => void;
 }) {
-  const [selectedId, setSelectedId] = useState<string>(defaultScript.id);
+  const setSelectedId = onSelectedIdChange;
   const [showOthers, setShowOthers] = useState(false);
 
   const selected = scripts.find((s) => s.id === selectedId) ?? defaultScript;
@@ -691,6 +701,11 @@ function DiffView({ changes }: { changes: Change[] }) {
 
 export function Phase1Script({ parshaSlug, scripts, defaultScript, onAdvance, advancing = false }: Props) {
   const [activeTab, setActiveTab] = useState<TabKind>('pick');
+  // selectedScriptId lives here so PickMode (controlled) and the
+  // advance button stay in sync. Write/From-idea modes route to
+  // defaultScript.id for now — those flows don't yet create a new
+  // script row, so the plan is generated from the default.
+  const [selectedScriptId, setSelectedScriptId] = useState<string>(defaultScript.id);
 
   return (
     <section>
@@ -708,14 +723,20 @@ export function Phase1Script({ parshaSlug, scripts, defaultScript, onAdvance, ad
       <TabBar active={activeTab} onChange={setActiveTab} />
 
       {activeTab === 'pick' && (
-        <PickMode parshaSlug={parshaSlug} scripts={scripts} defaultScript={defaultScript} />
+        <PickMode
+          parshaSlug={parshaSlug}
+          scripts={scripts}
+          defaultScript={defaultScript}
+          selectedId={selectedScriptId}
+          onSelectedIdChange={setSelectedScriptId}
+        />
       )}
 
       {activeTab === 'write' && <WriteMode parshaSlug={parshaSlug} />}
 
       {activeTab === 'from-idea' && <FromIdeaMode parshaSlug={parshaSlug} />}
 
-      <AdvanceBar onAdvance={onAdvance} isPending={advancing} />
+      <AdvanceBar onAdvance={() => onAdvance(selectedScriptId)} isPending={advancing} />
     </section>
   );
 }

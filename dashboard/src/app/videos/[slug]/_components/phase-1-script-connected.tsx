@@ -34,18 +34,24 @@ export function Phase1ScriptConnected({
 }: Props) {
   const router = useRouter();
   // parshaId is intentionally not in the URL — Phase 2 looks it up
-  // from the slug. Only scriptId travels through, since the operator
-  // may have multiple scripts and we need to know which one to plan.
+  // from the slug. The scriptId in the URL is set from the operator's
+  // current PickMode selection (passed up via onAdvance), NOT from the
+  // server-rendered prop — otherwise 'Try another' would route to the
+  // original script every time.
   void parshaId;
-  const nextUrl =
+
+  // Prefetch the default-script Phase 2 URL on mount (common case).
+  // If the operator picks an alternate, the actual push uses the
+  // updated scriptId — prefetch is a cache hint, not a hard target.
+  const prefetchUrl =
     `/videos/${parshaSlug}?phase=2&start_plan=1&script=${encodeURIComponent(scriptId)}`;
-
-  // Prefetch the Phase 2 URL so router.push is instant on click.
   useEffect(() => {
-    router.prefetch(nextUrl);
-  }, [router, nextUrl]);
+    router.prefetch(prefetchUrl);
+  }, [router, prefetchUrl]);
 
-  function handleAdvance() {
+  function handleAdvance(chosenScriptId: string) {
+    const nextUrl =
+      `/videos/${parshaSlug}?phase=2&start_plan=1&script=${encodeURIComponent(chosenScriptId)}`;
     router.push(nextUrl);
   }
 
