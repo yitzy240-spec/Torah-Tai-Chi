@@ -127,7 +127,15 @@ class KieClient:
             dest.write_bytes(r.content)
 
     async def upload_file(self, path: Path, remote_dir: str = "torah-tai-chi") -> str:
-        """Upload via base64 endpoint, return downloadUrl."""
+        """Upload via base64 endpoint, return downloadUrl.
+
+        Retries transient 5xx from Kie's upload endpoint with 1s/2s/4s
+        backoff, matching submit_task. Without this, a single 500 (which
+        Kie returns sporadically — Yonah hit one mid-render on 2026-05-28)
+        killed the entire clip render and forced the operator to manually
+        retry from the UI. Idempotent endpoint: re-uploading the same
+        bytes just returns a new downloadUrl, no duplicate-state risk.
+        """
         import base64
         b64 = base64.b64encode(path.read_bytes()).decode("ascii")
         mime = "image/png" if path.suffix == ".png" else "application/octet-stream"
@@ -137,10 +145,31 @@ class KieClient:
             "fileName": path.name,
         }
         url = "https://kieai.redpandaai.co/api/file-base64-upload"
-        async with httpx.AsyncClient(timeout=self._timeout * 2) as c:
-            r = await c.post(url, headers=self._headers(), json=payload)
-            r.raise_for_status()
-            data = r.json()
-            if not data.get("success"):
-                raise RuntimeError(f"upload failed: {data}")
-            return data["data"]["downloadUrl"]
+        last_err: Exception | None = None
+        for attempt in range(1, 4):  # 3 total attempts
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout * 2) as c:
+                    r = await c.post(url, headers=self._headers(), json=payload)
+                    # Retry on 5xx; surface 4xx immediately (bad payload, auth, etc.).
+                    if r.status_code >= 500:
+                        raise httpx.HTTPStatusError(
+                            f"Kie upload {r.status_code}: {r.text[:200]}",
+                            request=r.request,
+                            response=r,
+                        )
+                    r.raise_for_status()
+                    data = r.json()
+                    if not data.get("success"):
+                        raise RuntimeError(f"upload failed: {data}")
+                    return data["data"]["downloadUrl"]
+            except (httpx.HTTPStatusError, httpx.RequestError) as e:
+                last_err = e
+                if attempt == 3:
+                    break
+                backoff = 2 ** (attempt - 1)  # 1s, 2s, 4s
+                print(
+                    f"[kie_client] upload_file 5xx/network on attempt {attempt}/3 "
+                    f"({path.name}); retrying in {backoff}s — {e}"
+                )
+                await asyncio.sleep(backoff)
+        raise last_err if last_err else RuntimeError("upload_file: unreachable")
