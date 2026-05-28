@@ -16,7 +16,6 @@ import { useState } from 'react';
 import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { BottomSheet } from './bottom-sheet';
 import { LiveSiteCmsCard } from './live-site-cms-card';
-import { TikTokCard } from './posting-cards/tiktok-card';
 import { InstagramCard } from './posting-cards/instagram-card';
 import { YouTubeCard } from './posting-cards/youtube-card';
 import { FacebookCard } from './posting-cards/facebook-card';
@@ -308,16 +307,10 @@ export function LiveAtRest(p: Props) {
             Social platforms
           </div>
 
-          {hasPostedPost('tiktok') && (
-            <TikTokCard
-              jobId={jobId}
-              videoId={p.videoId}
-              parshaSlug={p.parshaSlug}
-              caption={captionFor('tiktok')}
-              post={latestPostByPlatform['tiktok'] ?? null}
-              postUrl={p.postUrls['tiktok'] ?? null}
-            />
-          )}
+          {/* TikTok card removed 2026-05-28: TikTok was disconnected in
+              favor of Facebook (no traction). Historical TikTok posts
+              still live on TikTok itself; we just stop surfacing them
+              in the dashboard. */}
 
           {hasPostedPost('instagram') && (
             <InstagramCard

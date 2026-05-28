@@ -1,6 +1,6 @@
 // dashboard/src/app/videos/[slug]/_components/phase-5-post.tsx
 //
-// Phase 5 assembly: stacks platform cards in fixed order (Site, TikTok, Instagram, YouTube, Facebook, X).
+// Phase 5 assembly: stacks platform cards in fixed order (Site, Instagram, YouTube, Facebook, X).
 // Hides any platform NOT in connectedPlatforms (except Site, which is always shown).
 // Top: "Posted X of Y" progress strip with useRealtimeRows so the count updates live.
 // Includes "Post all" button for platforms with draft captions.
@@ -14,7 +14,6 @@ import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { postAllPlatforms } from '@/app/actions/video-page/post-all-platforms';
 import { BottomSheet } from './bottom-sheet';
 import { SiteCard } from './posting-cards/site-card';
-import { TikTokCard } from './posting-cards/tiktok-card';
 import { InstagramCard } from './posting-cards/instagram-card';
 import { YouTubeCard } from './posting-cards/youtube-card';
 import { FacebookCard } from './posting-cards/facebook-card';
@@ -211,17 +210,8 @@ export function Phase5Post(p: Props) {
         onReplace={p.onSiteReplace}
       />
 
-      {/* TikTok card */}
-      {isConnected('tiktok') && (
-        <TikTokCard
-          jobId={p.jobId}
-          videoId={p.videoId}
-          parshaSlug={p.parshaSlug}
-          caption={captionFor('tiktok')}
-          post={latestPostByPlatform['tiktok'] ?? null}
-          postUrl={p.postUrls['tiktok'] ?? null}
-        />
-      )}
+      {/* TikTok card removed 2026-05-28: platform swapped out for Facebook.
+          See ACTIVE_PLATFORMS in lib/platforms.ts. */}
 
       {/* Instagram card */}
       {isConnected('instagram') && (

@@ -14,7 +14,7 @@ import { getCanonicalClipPlan } from '@/lib/clip-plan';
 import { getConnectedPlatforms } from '@/lib/connected-platforms';
 import type { PlatformStatus } from '../_components/live-at-rest';
 import type { ShellData } from './shell-data';
-import type { Platform } from '@/lib/platforms';
+import { ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
 
 export type LiveAtRestPost = {
   id: string;
@@ -129,11 +129,18 @@ export async function getLiveAtRestProps(
     liveThumbUrl = u?.publicUrl ?? null;
   }
 
-  // Build per-channel status list (for the simple status display in the hero)
+  // Build per-channel status list (for the simple status display in the hero).
+  // Skip platforms not in ACTIVE_PLATFORMS so the swap-out (e.g., TikTok ⇒
+  // disconnected 2026-05-28 in favor of Facebook) hides those historical
+  // rows from the dashboard. The posts themselves remain in the DB and on
+  // the external platform — we just stop surfacing them in the UI.
+  const activeSet = new Set<string>(ACTIVE_PLATFORMS);
   const postsByPlatform = new Map<string, { postedAt: string | null; postUrl: string | null }>();
   for (const p of livePostsResult.data ?? []) {
-    if (p.status === 'published' && !postsByPlatform.has(p.platform as string)) {
-      postsByPlatform.set(p.platform as string, {
+    const platform = p.platform as string;
+    if (!activeSet.has(platform)) continue;
+    if (p.status === 'published' && !postsByPlatform.has(platform)) {
+      postsByPlatform.set(platform, {
         postedAt: (p.created_at as string | null) ?? null,
         postUrl: null,
       });
