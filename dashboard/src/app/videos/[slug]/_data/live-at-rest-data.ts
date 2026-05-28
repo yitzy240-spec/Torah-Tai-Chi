@@ -90,12 +90,11 @@ export async function getLiveAtRestProps(
   const liveJobId = liveVideoJobEntry?.jobId ?? null;
 
   // Resolve any Buffer-backed post URLs that aren't in videos.post_urls
-  // yet. This mirrors the legacy page (page-legacy.tsx:459) — without
-  // it, Buffer-platform posts (FB/IG/X) show no "View" link in the
-  // live-at-rest hero strip until something else triggers a refresh.
-  // Yonah's 2026-05-28 FB backfill exposed the gap: posts went out but
-  // the new editor had no path to fetch the published URLs back.
-  // Best-effort (try/catch inside the helper) so a Buffer outage
+  // yet. Buffer-platform posts (FB/IG/X) show no 'View' link in the
+  // live-at-rest hero strip until something fetches the externalLink
+  // from Buffer post-publish; this fetcher runs on every page load so
+  // the link fills in within 1–3 minutes of the post actually going
+  // out. Best-effort (try/catch inside the helper) so a Buffer outage
   // doesn't break the page load.
   try {
     await refreshVideoPostUrls(liveVideoId);

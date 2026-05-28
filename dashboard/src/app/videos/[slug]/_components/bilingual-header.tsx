@@ -1,9 +1,9 @@
 // dashboard/src/app/videos/[slug]/_components/bilingual-header.tsx
 //
-// The same bilingual header from the legacy page (page-legacy.tsx lines ~588-687),
-// lifted into its own component for reuse across the new page's 4 states.
-// Hebrew name + book + parsha display title with the existing typographic
-// treatment from the legacy page — copied verbatim, not reinterpreted.
+// Hebrew name + book + parsha display title. Lifted from the now-removed
+// legacy page during the v2 rollout and kept as the canonical header
+// across the 4 state surfaces (empty / draft-in-progress / live-at-rest
+// / live-and-draft).
 
 interface Props {
   hebrewName: string | null;

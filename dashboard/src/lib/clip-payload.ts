@@ -1,12 +1,8 @@
 // dashboard/src/lib/clip-payload.ts
 //
 // Shared helper to build a VTT captions data URL + clip boundary list
-// from a clip plan JSON + clip rows.
-//
-// Extracted from page-legacy.tsx (lines 62-111) so both the legacy page
-// and the new Phase 4 stitched-video component can call the same logic
-// without duplication. page-legacy.tsx still references its local copy —
-// it now imports from here instead.
+// from a clip plan JSON + clip rows. Consumed by Phase 4's stitched-
+// video player to align caption cues with clip start/end times.
 //
 // NOTE: runs in Node (server components / server actions) because it
 // uses `Buffer.from(...)` for base64 encoding. Do NOT mark 'use client'.

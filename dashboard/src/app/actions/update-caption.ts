@@ -81,12 +81,10 @@ export async function updateCaption(
   }
 
   // Caption save → page must reflect new text on the very next render.
-  // Yonah 2026-05-28: saved YT caption (post fired with the new text,
-  // confirming the DB write worked) but the legacy page's captions-list
-  // displayed empty / reverted on refresh. Default revalidatePath('page')
-  // wasn't enough — the dispatcher (page.tsx) wraps page-legacy in a
-  // layout segment, and the layout's cached data outlived the page bust.
-  // 'layout' modifier invalidates the whole subtree.
+  // Yonah 2026-05-28 saved a YT caption and the editor reverted on
+  // refresh — default revalidatePath('page') wasn't busting the layout
+  // segment's cached data. 'layout' modifier invalidates the whole
+  // subtree so the next render re-runs the data fetch from the DB.
   if (args.parshaSlug) {
     revalidatePath(`/videos/${args.parshaSlug}`, 'layout');
   }
