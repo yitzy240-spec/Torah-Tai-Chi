@@ -80,7 +80,19 @@ export async function updateCaption(
     }
   }
 
-  if (args.parshaSlug) revalidatePath(`/videos/${args.parshaSlug}`);
+  // Caption save → page must reflect new text on the very next render.
+  // Yonah 2026-05-28: saved YT caption (post fired with the new text,
+  // confirming the DB write worked) but the legacy page's captions-list
+  // displayed empty / reverted on refresh. Default revalidatePath('page')
+  // wasn't enough — the dispatcher (page.tsx) wraps page-legacy in a
+  // layout segment, and the layout's cached data outlived the page bust.
+  // 'layout' modifier invalidates the whole subtree.
+  if (args.parshaSlug) {
+    revalidatePath(`/videos/${args.parshaSlug}`, 'layout');
+  }
+  // Today landing also surfaces caption-derived state (Latest live
+  // card uses videos.website_caption which we mirror from instagram).
+  revalidatePath('/', 'layout');
 
   return {};
 }
