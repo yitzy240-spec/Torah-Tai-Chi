@@ -67,6 +67,39 @@ interface CustomDraft {
   tldr: string;
 }
 
+/** localStorage-backed draft. All three fields (title/text/tldr) survive
+ *  refresh and Phase-2-then-back navigation. Without this, Yonah's
+ *  in-progress Write/FromIdea content gets wiped when the Phase 1
+ *  client component unmounts on phase transition. */
+function useDraftStorage(key: string): [CustomDraft, (next: CustomDraft) => void] {
+  const [draft, setDraftRaw] = useState<CustomDraft>(() => {
+    if (typeof window === 'undefined') return { title: '', text: '', tldr: '' };
+    try {
+      const stored = window.localStorage.getItem(key);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<CustomDraft>;
+        return {
+          title: parsed.title ?? '',
+          text: parsed.text ?? '',
+          tldr: parsed.tldr ?? '',
+        };
+      }
+    } catch {
+      // Corrupt JSON or storage unavailable — fall through to empty.
+    }
+    return { title: '', text: '', tldr: '' };
+  });
+  const setDraft = (next: CustomDraft) => {
+    setDraftRaw(next);
+    try {
+      window.localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // Quota / private mode — render still works, just no persistence.
+    }
+  };
+  return [draft, setDraft];
+}
+
 // ---------------------------------------------------------------------------
 // Metrics row (shared across write / from-idea done / polish)
 // ---------------------------------------------------------------------------
@@ -411,32 +444,16 @@ function PickMode({
 // ---------------------------------------------------------------------------
 
 function WriteMode({
-  parshaSlug,
   draft,
   onDraftChange,
 }: {
-  parshaSlug: string;
-  /** Controlled by Phase1Script so Generate clip plan can read the
-   *  title + text + tldr and create a scripts row. */
+  /** Controlled by Phase1Script — which localStorage-backs every field
+   *  so the draft survives refresh and Phase-2-then-back navigation. */
   draft: CustomDraft;
   onDraftChange: (next: CustomDraft) => void;
 }) {
-  // Text persists across refreshes via localStorage; title + tldr live
-  // in lifted state (less critical to survive a tab-close).
-  const [localText, setLocalText] = useLocalStorageDraft<string>(
-    `script.${parshaSlug}.custom`,
-    draft.text,
-  );
-  // Mirror localStorage text into the lifted draft so the advance bar
-  // sees the same value. useEffect (not inline conditional setState) so
-  // we don't trigger an update during render.
-  useEffect(() => {
-    if (localText !== draft.text) {
-      onDraftChange({ ...draft, text: localText });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localText]);
   const setTitle = (t: string) => onDraftChange({ ...draft, title: t });
+  const setText = (t: string) => onDraftChange({ ...draft, text: t });
   const setTldr = (t: string) => onDraftChange({ ...draft, tldr: t });
 
   const [polishState, setPolishState] = useState<PolishState>({
@@ -447,7 +464,7 @@ function WriteMode({
   const [diffChanges, setDiffChanges] = useState<Change[]>([]);
 
   async function handlePolish() {
-    const snapshot = localText;
+    const snapshot = draft.text;
     setPolishState({ original: snapshot, polished: null, status: 'polishing' });
     try {
       const res = await fetch('/api/script/polish', {
@@ -473,7 +490,7 @@ function WriteMode({
 
   function handleAccept() {
     if (!polishState.polished) return;
-    setLocalText(polishState.polished);
+    setText(polishState.polished);
     setPolishState({ original: '', polished: null, status: 'idle' });
     setDiffChanges([]);
     toast.success('Polished version accepted.');
@@ -486,7 +503,7 @@ function WriteMode({
 
   const isPolishing = polishState.status === 'polishing';
   const isReviewing = polishState.status === 'reviewing';
-  const hasText = localText.trim().length > 0;
+  const hasText = draft.text.trim().length > 0;
 
   return (
     <div>
@@ -519,12 +536,12 @@ function WriteMode({
           <label style={inputLabelStyle}>Voiceover script</label>
           <textarea
             placeholder="Start writing your voiceover script here…"
-            value={localText}
-            onChange={(e) => setLocalText(e.target.value)}
+            value={draft.text}
+            onChange={(e) => setText(e.target.value)}
             disabled={isPolishing}
             style={{ ...textareaStyle, minHeight: 280, opacity: isPolishing ? 0.6 : 1 }}
           />
-          <MetricsRow text={localText} />
+          <MetricsRow text={draft.text} />
           {hasText && (
             <button
               type="button"
@@ -834,9 +851,10 @@ export function Phase1Script({
   // from those tabs inserts a new scripts row from this state. Without
   // lifting it here, the modes were dead-ends (text in localStorage /
   // useState only, advance fell back to defaultScript.id — the bug
-  // Yonah caught 2026-05-28).
-  const [writeDraft, setWriteDraft] = useState<CustomDraft>({ title: '', text: '', tldr: '' });
-  const [ideaDraft, setIdeaDraft] = useState<CustomDraft>({ title: '', text: '', tldr: '' });
+  // Yonah caught 2026-05-28). localStorage-backed so a refresh or a
+  // Phase-2-then-back doesn't clobber in-progress work.
+  const [writeDraft, setWriteDraft] = useDraftStorage(`script.${parshaSlug}.write.draft.v1`);
+  const [ideaDraft, setIdeaDraft] = useDraftStorage(`script.${parshaSlug}.idea.draft.v1`);
   const [creating, setCreating] = useState(false);
 
   async function handleAdvance() {
@@ -900,7 +918,6 @@ export function Phase1Script({
 
       {activeTab === 'write' && (
         <WriteMode
-          parshaSlug={parshaSlug}
           draft={writeDraft}
           onDraftChange={setWriteDraft}
         />
