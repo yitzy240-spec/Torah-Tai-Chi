@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { getCanonicalClipPlan } from '@/lib/clip-plan';
 import { getConnectedPlatforms } from '@/lib/connected-platforms';
+import { refreshVideoPostUrls } from '@/lib/refresh-post-urls';
 import type { PlatformStatus } from '../_components/live-at-rest';
 import type { ShellData } from './shell-data';
 import { ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
@@ -87,6 +88,20 @@ export async function getLiveAtRestProps(
   // Find the job that produced the live video (needed for canonical plan lookup)
   const liveVideoJobEntry = videosForState.find((v) => v.id === liveVideoId);
   const liveJobId = liveVideoJobEntry?.jobId ?? null;
+
+  // Resolve any Buffer-backed post URLs that aren't in videos.post_urls
+  // yet. This mirrors the legacy page (page-legacy.tsx:459) — without
+  // it, Buffer-platform posts (FB/IG/X) show no "View" link in the
+  // live-at-rest hero strip until something else triggers a refresh.
+  // Yonah's 2026-05-28 FB backfill exposed the gap: posts went out but
+  // the new editor had no path to fetch the published URLs back.
+  // Best-effort (try/catch inside the helper) so a Buffer outage
+  // doesn't break the page load.
+  try {
+    await refreshVideoPostUrls(liveVideoId);
+  } catch (e) {
+    console.warn('[live-at-rest-data] refreshVideoPostUrls failed:', e);
+  }
 
   // Parallelize: live video row + live posts + canonical clip plan + connected platforms
   const [liveVRowResult, livePostsResult, canonicalPlan, connectedPlatforms, jobDetailResult] =
