@@ -10,6 +10,7 @@
 import { useRef } from 'react';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { useRealtimeRow } from '@/hooks/use-realtime-row';
+import { humanizeRenderError } from '@/lib/humanize-render-error';
 
 interface Props {
   videoId: string;
@@ -59,7 +60,7 @@ export function Phase4Stitched({
         <div aria-hidden="true" style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--tassel)', color: 'white', fontSize: 22, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>!</div>
         <div style={{ fontFamily: 'var(--ff-display)', fontSize: 20, fontWeight: 500, color: 'var(--ink-900)', marginBottom: 8 }}>Stitching failed</div>
         <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5, marginBottom: 16 }}>
-          {composeError ? composeError.split('\n')[0].slice(0, 220) : 'Modal returned no error message.'}
+          {humanizeRenderError(composeError)}
         </div>
         <button type="button" onClick={onBack} style={{ minHeight: 44, padding: '10px 18px', fontSize: 14, fontWeight: 500, background: 'white', color: 'var(--navy-700)', border: '1px solid var(--navy-700)', borderRadius: 8, cursor: 'pointer' }}>
           ← Back to clips

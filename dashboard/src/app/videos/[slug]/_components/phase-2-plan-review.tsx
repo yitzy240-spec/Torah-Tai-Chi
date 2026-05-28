@@ -48,6 +48,7 @@ import { useOptimisticSave } from '@/hooks/use-optimistic-save';
 import { useRealtimeRow } from '@/hooks/use-realtime-row';
 import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { analyzeClip } from '@/lib/word-count';
+import { humanizeRenderError } from '@/lib/humanize-render-error';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
 import { savePlanClip } from '@/app/actions/video-page/save-plan-clip';
 import { savePlanClipMotion } from '@/app/actions/video-page/save-plan-clip-motion';
@@ -522,12 +523,14 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       setLiveJobId(null);
       setRenderStartedAt(null);
       const fullMessage = liveJob.error_message ?? 'Job failed without an error message.';
-      const detail = fullMessage.split('\n')[0].slice(0, 220);
       // Persistent banner — keyed on jobId so a re-render's success clears
       // the right stale failure. Toast still fires for the immediate signal.
+      // Toast + banner both run the raw message through humanizeRenderError
+      // so Yonah sees "Kie is having a server issue" instead of a Python
+      // traceback (2026-05-28 Yonah feedback).
       setLastFailedError({ jobId: liveJob.id, message: fullMessage });
       toast.error(`Clip ${clip.index + 1} render failed`, {
-        description: detail,
+        description: humanizeRenderError(fullMessage),
         action: {
           label: 'View log',
           onClick: () => window.open(`/jobs/${liveJob.id}`, '_blank'),
@@ -1142,10 +1145,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
         >
           <span aria-hidden="true" style={{ color: 'var(--tassel)', fontWeight: 700, flexShrink: 0 }}>!</span>
           <span>
-            Last render failed.{' '}
-            <span style={{ color: 'var(--ink-500)' }}>
-              {lastFailedError.message.split('\n')[0].slice(0, 180)}
-            </span>{' '}
+            {humanizeRenderError(lastFailedError.message)}{' '}
             <a
               href={`/jobs/${lastFailedError.jobId}`}
               target="_blank"

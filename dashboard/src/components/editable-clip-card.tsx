@@ -16,6 +16,7 @@ function tierLabel(resolution: Resolution | null, tier: ModelTier | null): strin
   return parts.join(' ');
 }
 import { createClient as createBrowserSupabase } from '@/lib/supabase/client';
+import { humanizeRenderError } from '@/lib/humanize-render-error';
 
 const TERMINAL_JOB_STATUSES = new Set(['done', 'failed']);
 
@@ -89,29 +90,10 @@ function waitForJobTerminal(
   });
 }
 
-/**
- * Translate a raw error_message from a failed regen into a friendly
- * message Yonah can act on. Most importantly: when Kie returns
- * "credits exhausted" (or similar phrasing), surface a clear "out of
- * credits" line with a top-up CTA instead of the generic fallback.
- */
-function friendlyRenderError(raw: string | null): string {
-  if (!raw) return 'Re-render failed. Open the parsha page logs for details.';
-  const lower = raw.toLowerCase();
-  if (
-    lower.includes('credit') &&
-    (lower.includes('exhaust') || lower.includes('insufficient') || lower.includes('not enough'))
-  ) {
-    return 'Out of Kie credits. Top up at kie.ai/billing, then try again.';
-  }
-  if (lower.includes('quota')) {
-    return 'Kie quota hit. Wait a few minutes or top up at kie.ai/billing, then try again.';
-  }
-  // Otherwise show the first line of the actual error so we can debug
-  // remotely from a screenshot. Truncate aggressively.
-  const firstLine = raw.split('\n')[0]?.trim() ?? raw;
-  return `Re-render failed: ${firstLine.slice(0, 220)}`;
-}
+// Render-error humanization centralized in lib/humanize-render-error.ts
+// so the per-card banner (phase-2-plan-review.tsx) and this regen toast
+// share the same pattern set — add new error patterns there once, both
+// surfaces benefit.
 
 export interface EditableClipVersion {
   clipId: string;
@@ -370,7 +352,7 @@ export function EditableClipCard({
         // 9-10 min Seedance runs we've observed.
         const result = await waitForJobTerminal(r.jobId, 20 * 60 * 1000);
         if (result.status === 'failed') {
-          setRenderError(friendlyRenderError(result.errorMessage));
+          setRenderError(humanizeRenderError(result.errorMessage));
         } else if (result.status === 'timeout') {
           setRenderError(
             'Render is still running after 20 minutes. Refresh the page to check on it.',
