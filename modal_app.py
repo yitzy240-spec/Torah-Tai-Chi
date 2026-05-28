@@ -5695,32 +5695,57 @@ def clips_only_job(job_id: str) -> dict | None:
                 f"in plan with {len(all_planned)} clips"
             )
 
-        # Per-clip motion + ref resolution from the clips table (operator's
-        # Phase 2 picks). Motion falls back to scripts.motion_ref_slug;
-        # ref picks have no legacy fallback — empty means "use the default
-        # char/dojo/jewish selection logic."
+        # Per-clip overrides from the clips table (operator's Phase 2
+        # edits). Modal used to read ONLY motion/refs/chain from here
+        # and pull voiceover + visual_prompt from plan_json — meaning
+        # operator voiceover edits in Phase 2 were silently ignored at
+        # render time (Yonah hit this 2026-05-28: edited "Torah" to
+        # remove the H sound; Modal rendered the original anyway).
+        # Now we pull voiceover + visual_prompt + duration_s too and
+        # apply them on top of the plan clip BEFORE rendering.
         target_indexes = [c.index for c in target_planned]
         clip_db_rows = (
             sb.table("clips")
             .select(
-                "index, motion_ref_slug, reference_image_paths, chain_broken"
+                "index, voiceover, visual_prompt, duration_s, "
+                "motion_ref_slug, reference_image_paths, chain_broken"
             )
             .eq("job_id", plan_owner_job_id)
             .in_("index", target_indexes)
             .execute()
             .data
         ) or []
+        edits_by_index: dict[int, dict] = {r["index"]: r for r in clip_db_rows}
+
+        # Materialize target clips with operator overrides applied.
+        # Empty / whitespace-only operator voiceover or visual_prompt
+        # falls back to the plan value (operator likely cleared the
+        # field by accident — a silent silent-clip would be worse than
+        # falling back to the AI text).
+        materialized_targets = []
+        for plan_clip in target_planned:
+            edit = edits_by_index.get(plan_clip.index, {})
+            edit_vo = edit.get("voiceover")
+            edit_vp = edit.get("visual_prompt")
+            edit_dur = edit.get("duration_s")
+            materialized_targets.append(plan_clip.model_copy(update={
+                "voiceover": edit_vo if (edit_vo and edit_vo.strip()) else plan_clip.voiceover,
+                "visual_prompt": edit_vp if (edit_vp and edit_vp.strip()) else plan_clip.visual_prompt,
+                "duration_s": edit_dur if edit_dur is not None else plan_clip.duration_s,
+            }))
+        target_planned = materialized_targets
+
         per_clip_motion: dict[int, str | None] = {
-            r["index"]: (r.get("motion_ref_slug") or script_motion)
-            for r in clip_db_rows
+            idx: (edit.get("motion_ref_slug") or script_motion)
+            for idx, edit in edits_by_index.items()
         }
         per_clip_ref_paths: dict[int, list[str] | None] = {
-            r["index"]: r.get("reference_image_paths")
-            for r in clip_db_rows
+            idx: edit.get("reference_image_paths")
+            for idx, edit in edits_by_index.items()
         }
         per_clip_chain_broken: dict[int, bool] = {
-            r["index"]: bool(r.get("chain_broken"))
-            for r in clip_db_rows
+            idx: bool(edit.get("chain_broken"))
+            for idx, edit in edits_by_index.items()
         }
         # Clips not yet in DB (edge case): fall back to script motion + no override.
         for c in target_planned:
