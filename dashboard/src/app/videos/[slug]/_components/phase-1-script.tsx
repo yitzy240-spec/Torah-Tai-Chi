@@ -9,7 +9,7 @@
 // Per spec §4 Phase 1 (B3 milestone).
 
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { diffWords } from 'diff';
 import type { Change } from 'diff';
 import { toast } from 'sonner';
@@ -17,6 +17,7 @@ import { useLocalStorageDraft } from '@/hooks/use-localstorage-draft';
 import { useOptimisticSave } from '@/hooks/use-optimistic-save';
 import { analyzeScript } from '@/lib/word-count';
 import { saveScript } from '@/app/actions/video-page/save-script';
+import { createCustomScript } from '@/app/actions/video-page/create-custom-script';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,10 @@ interface PolishState {
 
 interface Props {
   parshaSlug: string;
+  /** Required so Write / From-Idea modes can INSERT a new scripts row
+   *  (the parsha_id FK) before advancing. Without it those modes
+   *  fall back to the AI default script. */
+  parshaId: string;
   scripts: Script[];
   defaultScript: Script;
   /** Receives the script_id the operator finally selected. The connected
@@ -50,6 +55,16 @@ interface Props {
    *  the original. */
   onAdvance: (scriptId: string) => void;
   advancing?: boolean;
+}
+
+/** Draft state for Write / From-Idea modes. Lifted to Phase1Script so
+ *  the AdvanceBar can read whichever mode is active and create a new
+ *  script row from that content on Generate. Pick mode is unaffected
+ *  (it uses selectedScriptId). */
+interface CustomDraft {
+  title: string;
+  text: string;
+  tldr: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +121,30 @@ const textareaStyle: React.CSSProperties = {
   fontFamily: 'var(--ff-body)',
   resize: 'vertical',
   boxSizing: 'border-box',
+};
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 12px',
+  marginBottom: 10,
+  border: '1px solid var(--ink-100)',
+  borderRadius: 8,
+  fontSize: 15,
+  lineHeight: 1.4,
+  background: 'white',
+  color: 'var(--ink-900)',
+  fontFamily: 'var(--ff-body)',
+  boxSizing: 'border-box',
+  minHeight: 44,
+};
+
+const inputLabelStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 12,
+  fontWeight: 500,
+  color: 'var(--ink-700)',
+  marginBottom: 4,
+  marginTop: 8,
 };
 
 // ---------------------------------------------------------------------------
@@ -371,11 +410,34 @@ function PickMode({
 // Mode: Write my own (includes inline "Polish with AI" magic button)
 // ---------------------------------------------------------------------------
 
-function WriteMode({ parshaSlug }: { parshaSlug: string }) {
+function WriteMode({
+  parshaSlug,
+  draft,
+  onDraftChange,
+}: {
+  parshaSlug: string;
+  /** Controlled by Phase1Script so Generate clip plan can read the
+   *  title + text + tldr and create a scripts row. */
+  draft: CustomDraft;
+  onDraftChange: (next: CustomDraft) => void;
+}) {
+  // Text persists across refreshes via localStorage; title + tldr live
+  // in lifted state (less critical to survive a tab-close).
   const [localText, setLocalText] = useLocalStorageDraft<string>(
     `script.${parshaSlug}.custom`,
-    '',
+    draft.text,
   );
+  // Mirror localStorage text into the lifted draft so the advance bar
+  // sees the same value. useEffect (not inline conditional setState) so
+  // we don't trigger an update during render.
+  useEffect(() => {
+    if (localText !== draft.text) {
+      onDraftChange({ ...draft, text: localText });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localText]);
+  const setTitle = (t: string) => onDraftChange({ ...draft, title: t });
+  const setTldr = (t: string) => onDraftChange({ ...draft, tldr: t });
 
   const [polishState, setPolishState] = useState<PolishState>({
     original: '',
@@ -434,13 +496,33 @@ function WriteMode({ parshaSlug }: { parshaSlug: string }) {
 
       {!isReviewing ? (
         <>
+          <label style={inputLabelStyle}>Title <span style={{ color: 'var(--tassel)' }}>*</span></label>
+          <input
+            type="text"
+            placeholder="Short punchy title — shown on the website"
+            value={draft.title}
+            onChange={(e) => setTitle(e.target.value)}
+            disabled={isPolishing}
+            style={inputStyle}
+            maxLength={120}
+          />
+          <label style={inputLabelStyle}>Summary (optional)</label>
+          <input
+            type="text"
+            placeholder="1–2 sentence description for torahtaichi.com"
+            value={draft.tldr}
+            onChange={(e) => setTldr(e.target.value)}
+            disabled={isPolishing}
+            style={inputStyle}
+            maxLength={300}
+          />
+          <label style={inputLabelStyle}>Voiceover script</label>
           <textarea
             placeholder="Start writing your voiceover script here…"
             value={localText}
             onChange={(e) => setLocalText(e.target.value)}
             disabled={isPolishing}
             style={{ ...textareaStyle, minHeight: 280, opacity: isPolishing ? 0.6 : 1 }}
-            autoFocus
           />
           <MetricsRow text={localText} />
           {hasText && (
@@ -519,11 +601,21 @@ function WriteMode({ parshaSlug }: { parshaSlug: string }) {
 // Mode: From an idea (text or microphone -> AI draft)
 // ---------------------------------------------------------------------------
 
-function FromIdeaMode({ parshaSlug }: { parshaSlug: string }) {
+function FromIdeaMode({
+  parshaSlug,
+  draft,
+  onDraftChange,
+}: {
+  parshaSlug: string;
+  /** Controlled by Phase1Script so Generate clip plan can create a
+   *  scripts row from Claude's output. */
+  draft: CustomDraft;
+  onDraftChange: (next: CustomDraft) => void;
+}) {
   const [idea, setIdea] = useState('');
-  const [status, setStatus] = useState<FromIdeaStatus>('idle');
-  const [draftText, setDraftText] = useState('');
-  const [draftTitle, setDraftTitle] = useState('');
+  const [status, setStatus] = useState<FromIdeaStatus>(
+    draft.text.trim() ? 'done' : 'idle',
+  );
 
   async function generateScript() {
     if (!idea.trim()) return;
@@ -534,7 +626,12 @@ function FromIdeaMode({ parshaSlug }: { parshaSlug: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idea, parshaSlug }),
       });
-      const json = (await res.json()) as { draftText?: string; title?: string; error?: string };
+      const json = (await res.json()) as {
+        draftText?: string;
+        title?: string;
+        tldr?: string;
+        error?: string;
+      };
       if (!res.ok || json.error) {
         toast.error('Script generation failed.', {
           description: json.error ?? `HTTP ${res.status}`,
@@ -542,14 +639,20 @@ function FromIdeaMode({ parshaSlug }: { parshaSlug: string }) {
         setStatus('idle');
         return;
       }
-      setDraftText(json.draftText ?? '');
-      setDraftTitle(json.title ?? 'Draft script');
+      onDraftChange({
+        title: json.title ?? 'Draft script',
+        text: json.draftText ?? '',
+        tldr: json.tldr ?? '',
+      });
       setStatus('done');
     } catch (e) {
       toast.error('Script generation request failed.', { description: (e as Error).message });
       setStatus('idle');
     }
   }
+  const setTitle = (t: string) => onDraftChange({ ...draft, title: t });
+  const setText = (t: string) => onDraftChange({ ...draft, text: t });
+  const setTldr = (t: string) => onDraftChange({ ...draft, tldr: t });
 
   const isGenerating = status === 'generating';
   const isDone = status === 'done';
@@ -600,18 +703,16 @@ function FromIdeaMode({ parshaSlug }: { parshaSlug: string }) {
           <div
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
+              justifyContent: 'flex-end',
               alignItems: 'center',
-              marginBottom: 10,
+              marginBottom: 4,
             }}
           >
-            <strong style={{ fontSize: 14, color: 'var(--ink-900)' }}>{draftTitle}</strong>
             <button
               type="button"
               onClick={() => {
                 setStatus('idle');
-                setDraftText('');
-                setDraftTitle('');
+                onDraftChange({ title: '', text: '', tldr: '' });
               }}
               style={{
                 background: 'none',
@@ -627,12 +728,30 @@ function FromIdeaMode({ parshaSlug }: { parshaSlug: string }) {
               Try different idea
             </button>
           </div>
+          <label style={inputLabelStyle}>Title <span style={{ color: 'var(--tassel)' }}>*</span></label>
+          <input
+            type="text"
+            value={draft.title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={inputStyle}
+            maxLength={120}
+          />
+          <label style={inputLabelStyle}>Summary (optional)</label>
+          <input
+            type="text"
+            value={draft.tldr}
+            onChange={(e) => setTldr(e.target.value)}
+            placeholder="1–2 sentence description for torahtaichi.com"
+            style={inputStyle}
+            maxLength={300}
+          />
+          <label style={inputLabelStyle}>Voiceover script</label>
           <textarea
-            value={draftText}
-            onChange={(e) => setDraftText(e.target.value)}
+            value={draft.text}
+            onChange={(e) => setText(e.target.value)}
             style={{ ...textareaStyle, minHeight: 280 }}
           />
-          <MetricsRow text={draftText} />
+          <MetricsRow text={draft.text} />
         </>
       )}
     </div>
@@ -699,13 +818,60 @@ function DiffView({ changes }: { changes: Change[] }) {
 // Root component
 // ---------------------------------------------------------------------------
 
-export function Phase1Script({ parshaSlug, scripts, defaultScript, onAdvance, advancing = false }: Props) {
+export function Phase1Script({
+  parshaSlug,
+  parshaId,
+  scripts,
+  defaultScript,
+  onAdvance,
+  advancing = false,
+}: Props) {
   const [activeTab, setActiveTab] = useState<TabKind>('pick');
   // selectedScriptId lives here so PickMode (controlled) and the
-  // advance button stay in sync. Write/From-idea modes route to
-  // defaultScript.id for now — those flows don't yet create a new
-  // script row, so the plan is generated from the default.
+  // advance button stay in sync.
   const [selectedScriptId, setSelectedScriptId] = useState<string>(defaultScript.id);
+  // Custom drafts for Write / From-Idea. Each Generate-clip-plan press
+  // from those tabs inserts a new scripts row from this state. Without
+  // lifting it here, the modes were dead-ends (text in localStorage /
+  // useState only, advance fell back to defaultScript.id — the bug
+  // Yonah caught 2026-05-28).
+  const [writeDraft, setWriteDraft] = useState<CustomDraft>({ title: '', text: '', tldr: '' });
+  const [ideaDraft, setIdeaDraft] = useState<CustomDraft>({ title: '', text: '', tldr: '' });
+  const [creating, setCreating] = useState(false);
+
+  async function handleAdvance() {
+    if (activeTab === 'pick') {
+      onAdvance(selectedScriptId);
+      return;
+    }
+    const draft = activeTab === 'write' ? writeDraft : ideaDraft;
+    if (!draft.title.trim()) {
+      toast.error('Title is required.', {
+        description: 'It becomes the headline on torahtaichi.com.',
+      });
+      return;
+    }
+    if (!draft.text.trim()) {
+      toast.error('Script text is required.');
+      return;
+    }
+    setCreating(true);
+    try {
+      const result = await createCustomScript({
+        parshaId,
+        title: draft.title,
+        draftText: draft.text,
+        tldr: draft.tldr,
+      });
+      if (!result.ok) {
+        toast.error('Could not save your script.', { description: result.error });
+        return;
+      }
+      onAdvance(result.scriptId);
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <section>
@@ -732,11 +898,23 @@ export function Phase1Script({ parshaSlug, scripts, defaultScript, onAdvance, ad
         />
       )}
 
-      {activeTab === 'write' && <WriteMode parshaSlug={parshaSlug} />}
+      {activeTab === 'write' && (
+        <WriteMode
+          parshaSlug={parshaSlug}
+          draft={writeDraft}
+          onDraftChange={setWriteDraft}
+        />
+      )}
 
-      {activeTab === 'from-idea' && <FromIdeaMode parshaSlug={parshaSlug} />}
+      {activeTab === 'from-idea' && (
+        <FromIdeaMode
+          parshaSlug={parshaSlug}
+          draft={ideaDraft}
+          onDraftChange={setIdeaDraft}
+        />
+      )}
 
-      <AdvanceBar onAdvance={() => onAdvance(selectedScriptId)} isPending={advancing} />
+      <AdvanceBar onAdvance={handleAdvance} isPending={advancing || creating} />
     </section>
   );
 }

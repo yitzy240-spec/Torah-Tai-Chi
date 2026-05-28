@@ -21,13 +21,20 @@ Script guidelines:
 - Target length: ~130–156 words (spoken at ~2.6 words per second = 50–60 seconds).
 - Tone: warm, accessible, gently poetic. Not preachy. Short sentences.
 - Structure: brief Torah insight → connect to Tai Chi movement → practical takeaway.
-- Include phonetic spellings for Hebrew words (e.g., "chesed (KHEH-sed)") and Tai Chi move names (e.g., "Wave Hands Like Clouds") so the TTS voiceover reads them correctly.
+
+Phonetics policy (must match Modal's clip-plan generator):
+- Hebrew words that need pronunciation guidance appear in PHONETIC FORM ONLY, not paired with the standard spelling.
+  - Correct: "the path of KHEH-sed" / "in Vah-yeek-RAH we read"
+  - Wrong: "chesed (KHEH-sed)" / "Vayikra (Vah-yeek-RAH)" — never use parens to double-render.
+- Hyphenated, with CAPS on the stressed syllable. Aleph-bet letters English speakers see as "Ch" in transliteration → use "H" in phonetics (chesed → KHEH-sed, never CHEH-sed).
+- Tai Chi move names ("Wave Hands Like Clouds", "White Crane Spreads Its Wings") are NOT phonetics — keep them in canonical English form.
 - Do NOT include stage directions, music cues, or clip breaks — only the spoken voiceover text.
 
 Respond with JSON in this exact format (no markdown fences):
 {
-  "title": "Short punchy title (5–8 words)",
-  "draftText": "The full voiceover script..."
+  "title": "Short punchy title (5–8 words). This becomes the video's display title.",
+  "tldr": "1-2 sentence summary of the concept, used as the website description.",
+  "draftText": "The full voiceover script (phonetics-only form, per the rules above)."
 }`;
 
 export async function POST(req: NextRequest) {
@@ -60,17 +67,18 @@ export async function POST(req: NextRequest) {
     // Strip markdown fences if the model added them anyway
     const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
 
-    let parsed: { title?: string; draftText?: string };
+    let parsed: { title?: string; tldr?: string; draftText?: string };
     try {
       parsed = JSON.parse(cleaned);
     } catch {
       // Fallback: return raw text as draftText if JSON parse fails
-      return NextResponse.json({ draftText: raw, title: 'Draft script' });
+      return NextResponse.json({ draftText: raw, title: 'Draft script', tldr: '' });
     }
 
     return NextResponse.json({
       draftText: parsed.draftText ?? raw,
       title: parsed.title ?? 'Draft script',
+      tldr: parsed.tldr ?? '',
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

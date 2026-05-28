@@ -33,12 +33,12 @@ export function Phase1ScriptConnected({
   defaultScript,
 }: Props) {
   const router = useRouter();
-  // parshaId is intentionally not in the URL — Phase 2 looks it up
-  // from the slug. The scriptId in the URL is set from the operator's
-  // current PickMode selection (passed up via onAdvance), NOT from the
-  // server-rendered prop — otherwise 'Try another' would route to the
-  // original script every time.
-  void parshaId;
+  // parshaId is forwarded into Phase1Script (Write / From-Idea modes
+  // need it to INSERT a new scripts row before advancing). The URL
+  // itself still only carries script_id — Phase 2 looks parsha up by
+  // slug. The scriptId in the URL comes from whichever mode's onAdvance
+  // fires: Pick → selected existing script, Write/FromIdea → freshly
+  // inserted custom script's id.
 
   // Prefetch the default-script Phase 2 URL on mount (common case).
   // If the operator picks an alternate, the actual push uses the
@@ -58,6 +58,7 @@ export function Phase1ScriptConnected({
   return (
     <Phase1Script
       parshaSlug={parshaSlug}
+      parshaId={parshaId}
       scripts={scripts}
       defaultScript={defaultScript}
       onAdvance={handleAdvance}
