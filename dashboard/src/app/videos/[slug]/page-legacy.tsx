@@ -12,7 +12,7 @@ import type { EditableClipVersion } from '@/components/editable-clip-card';
 import { EditableClipList } from '@/components/editable-clip-list';
 import { EditingHelpModal } from '@/components/editing-help-modal';
 import { TeachingTextEditor } from '@/components/teaching-text-editor';
-import { PLATFORMS, type Platform, type CaptionField } from '@/lib/platforms';
+import { PLATFORMS, ACTIVE_PLATFORMS, type Platform, type CaptionField } from '@/lib/platforms';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 import { pickActiveVersion, resolveInitialSelectedId } from '@/lib/active-version';
@@ -1138,7 +1138,14 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
             jobId={latestJobId}
             captions={captionFields}
             parshaSlug={parsha.slug}
-            connectedPlatforms={connectedPlatforms}
+            // Use ACTIVE_PLATFORMS instead of the runtime connectedPlatforms
+            // check — getConnectedPlatforms() returns no YouTube whenever
+            // the OAuth status fetch fails or stalls, which silently hides
+            // the YouTube title + description editor mid-flow (Yonah 2026-05-28
+            // could not customize the YT post on the legacy page). The
+            // captions UI only needs to know which platforms we SUPPORT, not
+            // whether they happen to be reachable at this exact moment.
+            connectedPlatforms={[...ACTIVE_PLATFORMS]}
           />
         </div>
 
@@ -1245,7 +1252,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
                     mode="now"
                     alreadyPublishedToWebsite={videoPublishedToSite}
                     parshaSlug={parsha.slug}
-                    connectedPlatforms={connectedPlatforms}
+                    connectedPlatforms={[...ACTIVE_PLATFORMS]}
                     versionLabel={selectedVersionLabel}
                     parshaName={parsha.name}
                     replacing={publishReplacing}
@@ -1258,7 +1265,7 @@ export default async function VideoDetailPage({ params, searchParams }: PageProp
                     mode="schedule"
                     variant="secondary"
                     parshaSlug={parsha.slug}
-                    connectedPlatforms={connectedPlatforms}
+                    connectedPlatforms={[...ACTIVE_PLATFORMS]}
                     versionLabel={selectedVersionLabel}
                     parshaName={parsha.name}
                     replacing={publishReplacing}

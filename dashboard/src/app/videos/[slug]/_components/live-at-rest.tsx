@@ -94,9 +94,16 @@ export function LiveAtRest(p: Props) {
     latestPostByPlatform[post.platform] = post;
   }
 
-  // Only show cards for platforms that have a published post.
-  // On the live page we show any platform that has a published post — we do NOT
-  // gate on connectedPlatforms because a platform may have been posted to before
+  // (Legacy comment retained for context — superseded by the isConnected
+  // gate below.) Original behavior: show cards only when a published
+  // post existed. That made the page useless when the operator
+  // published to website FIRST and only then wanted to post to FB/IG/YT
+  // (Yonah's 2026-05-28 trap: after Publish to website, no path back to
+  // posting). Cards now render for any CONNECTED platform regardless of
+  // post state — the cards themselves handle unposted / posted / failed
+  // / scheduled internally.
+  //
+  // Original gating logic:
   // its Buffer token expired, or simply because the live page is a status display
   // and should always show what actually got posted.
   const postedPlatforms = new Set(
