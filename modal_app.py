@@ -1372,16 +1372,24 @@ def _build_spoken_script(clips_in_order: list[dict]) -> str:
 
 
 def _resolve_video_title_fields(sb, job_id: str) -> dict:
-    """Return {title, subtitle, description} for the videos row at stitch time.
+    """Return {title, subtitle, description, website_caption} for the
+    videos row at stitch time.
 
-    Resolution order (spec §11.6):
+    Resolution order (spec §11.6, extended 2026-05-28):
     1. Look up jobs.script_id + jobs.parsha_id on the given job.
     2. If script_id is NULL (regen job), walk the regen_of_job_id chain
        (bounded at 25 hops, matching the website chain-walk depth) until
        we find a job with a non-NULL script_id.
     3. Fetch scripts.title + scripts.tldr for the resolved script_id.
     4. Fetch parshiot.name for the resolved parsha_id.
-    5. If anything fails (row missing, chain exhausted), return nulls so
+    5. **Carry forward operator edits**: if a prior video row exists for
+       the same parsha_id, override the script-derived defaults with the
+       prior row's non-empty title / subtitle / description /
+       website_caption. Without this, every clips-only re-render INSERTed
+       a fresh videos row that wiped the operator's Phase 5 Site-card
+       edits (2026-05-28 audit finding: site-field edits stranded on the
+       OLD video row, new render shows raw scripts.title).
+    6. If anything fails (row missing, chain exhausted), return nulls so
        the videos insert still succeeds and the website falls back to
        A-tight gracefully.
     """
@@ -1410,7 +1418,10 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
             current_id = parent
 
         if not script_id:
-            return {"title": None, "subtitle": None, "description": None}
+            return {
+                "title": None, "subtitle": None,
+                "description": None, "website_caption": None,
+            }
 
         script_row = (
             sb.table("scripts")
@@ -1433,17 +1444,61 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
             ) or {}
             parsha_name = parsha_row.get("name")
 
-        return {
+        result = {
             "title": parsha_name,
             "subtitle": script_row.get("title"),
             "description": script_row.get("tldr"),
+            "website_caption": None,
         }
+
+        # Carry-forward step. Only runs when we have a parsha_id (we do,
+        # except in degenerate cases). The query excludes the current
+        # job's row because the insert hasn't happened yet — the prior
+        # rows are all previous renders of THIS parsha.
+        if parsha_id:
+            try:
+                prior_rows = (
+                    sb.table("videos")
+                    .select("title, subtitle, description, website_caption")
+                    .eq("parsha_id", parsha_id)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                    .data
+                ) or []
+                if prior_rows:
+                    prior = prior_rows[0]
+                    for field in (
+                        "title", "subtitle", "description", "website_caption",
+                    ):
+                        v = prior.get(field)
+                        if v is None:
+                            continue
+                        if isinstance(v, str) and not v.strip():
+                            continue
+                        # Non-empty prior value — operator edited OR
+                        # initial Modal default. Either way, preserve.
+                        result[field] = v
+            except Exception as cf_err:
+                # Carry-forward failure shouldn't block the stitch.
+                # Worst case: operator's old site edits are lost; the
+                # new row still has script-derived defaults.
+                print(
+                    f"[_resolve_video_title_fields] carry-forward failed "
+                    f"for parsha {parsha_id}: "
+                    f"{type(cf_err).__name__}: {cf_err}"
+                )
+
+        return result
     except Exception as e:
         print(
             f"[_resolve_video_title_fields] failed for job {job_id}: "
             f"{type(e).__name__}: {e}; title/subtitle/description will be NULL"
         )
-        return {"title": None, "subtitle": None, "description": None}
+        return {
+            "title": None, "subtitle": None,
+            "description": None, "website_caption": None,
+        }
 
 
 def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:

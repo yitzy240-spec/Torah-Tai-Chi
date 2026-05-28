@@ -18,7 +18,7 @@
 import { createServiceClient } from '@/lib/supabase/service';
 import { createUpdate, listProfiles } from '@/lib/buffer';
 import { getConnection as getYouTubeConnection, uploadVideo as uploadToYouTube } from '@/lib/youtube';
-import { PLATFORMS, BUFFER_PLATFORMS, type Platform } from '@/lib/platforms';
+import { PLATFORMS, BUFFER_PLATFORMS, ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
 import { logEvent, type EventActor } from '@/lib/events';
 import { getCanonicalClipPlan } from '@/lib/clip-plan';
 
@@ -146,14 +146,21 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
   const errors: string[] = [];
 
   // Yonah can opt out of specific channels per-post. When
-  // selectedPlatforms is undefined, post to every platform that has a
-  // caption (legacy behavior — used by autopilot webhooks too).
+  // selectedPlatforms is undefined, post to every ACTIVE platform that
+  // has a caption — autopilot path (no explicit selection from the
+  // operator). ACTIVE_PLATFORMS excludes deprecated channels (TikTok
+  // as of 2026-05-28), so Modal-generated captions for retired
+  // platforms don't trigger spurious "no Buffer profile found" errors
+  // every autopilot run. The dashboard sheet always passes an explicit
+  // selectedPlatforms list (also filtered to active channels via the
+  // posting-cards UI), so selection-driven flows are unaffected.
   const selectedSet = args.selectedPlatforms
     ? new Set(args.selectedPlatforms)
     : null;
+  const activeSet = new Set<Platform>(ACTIVE_PLATFORMS);
   const requested = PLATFORMS
     .filter((p) => args.captions[p])
-    .filter((p) => (selectedSet ? selectedSet.has(p) : true));
+    .filter((p) => (selectedSet ? selectedSet.has(p) : activeSet.has(p)));
   const needsBuffer = requested.some((p) => p !== 'youtube');
   const needsYouTube = requested.includes('youtube');
 
@@ -199,9 +206,11 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
     // posts on Instagram + Twitter because they had captions and the
     // loop only checked `if (!caption) continue`. (Yonah, 2026-05-07,
     // twice tried to post to one channel and it went to all three.)
-    // When selectedSet is null (autopilot webhook, no user selection)
-    // the legacy "post everywhere with a caption" behavior is preserved.
     if (selectedSet && !selectedSet.has(platform)) continue;
+    // Autopilot path (no selectedSet) skips deprecated channels so we
+    // don't keep logging 'No Buffer profile for tiktok' on every run
+    // after TikTok was disconnected 2026-05-28.
+    if (!selectedSet && !activeSet.has(platform)) continue;
 
     const profile = profiles.find(
       (p) => p.service.toLowerCase() === platform || p.formatted_service?.toLowerCase().includes(platform),
