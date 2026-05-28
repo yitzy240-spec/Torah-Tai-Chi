@@ -189,9 +189,16 @@ export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }
       )
     : CAPTION_FIELDS;
 
-  const rows = allowedFields
-    .map((f) => ({ field: f, caption: captions[f] ?? null }))
-    .filter((r): r is { field: CaptionField; caption: string } => !!r.caption);
+  // Render one row per allowed CAPTION_FIELD regardless of whether the
+  // AI generated a caption for it. Empty-string rows are still editable,
+  // so the operator can type a caption manually when Modal failed to
+  // produce one (Yonah 2026-05-28: YouTube caption was missing from
+  // the editor entirely because the prior filter required a non-empty
+  // value — even with YT reconnected, the field still didn't render).
+  const rows = allowedFields.map((f) => ({
+    field: f,
+    caption: (captions[f] ?? '') as string,
+  }));
 
   if (rows.length === 0) {
     return (
@@ -205,7 +212,7 @@ export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }
           fontVariationSettings: '"opsz" 14, "SOFT" 50',
         }}
       >
-        No captions yet — generate the video to populate them.
+        No active platforms configured.
       </p>
     );
   }
@@ -418,14 +425,15 @@ export function CaptionsList({ jobId, captions, parshaSlug, connectedPlatforms }
                   <span
                     style={{
                       fontSize: '13px',
-                      color: 'var(--ink-700)',
+                      color: caption ? 'var(--ink-700)' : 'var(--ink-400)',
+                      fontStyle: caption ? 'normal' : 'italic',
                       lineHeight: 1.45,
                       overflowWrap: 'anywhere',
                       whiteSpace: 'pre-wrap',
                       display: 'block',
                     }}
                   >
-                    {caption}
+                    {caption || 'No caption — click Edit to write one.'}
                   </span>
                 </div>
                 <button
