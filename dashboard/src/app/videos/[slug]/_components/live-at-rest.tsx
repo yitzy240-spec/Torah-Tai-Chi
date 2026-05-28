@@ -21,7 +21,7 @@ import { YouTubeCard } from './posting-cards/youtube-card';
 import { FacebookCard } from './posting-cards/facebook-card';
 import { XCard } from './posting-cards/x-card';
 import { PlatformIcon } from '@/components/platform-icon';
-import type { Platform } from '@/lib/platforms';
+import { ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
 
 export interface PlatformStatus {
   platform: string;
@@ -94,34 +94,36 @@ export function LiveAtRest(p: Props) {
     latestPostByPlatform[post.platform] = post;
   }
 
-  // (Legacy comment retained for context — superseded by the isConnected
-  // gate below.) Original behavior: show cards only when a published
-  // post existed. That made the page useless when the operator
-  // published to website FIRST and only then wanted to post to FB/IG/YT
-  // (Yonah's 2026-05-28 trap: after Publish to website, no path back to
-  // posting). Cards now render for any CONNECTED platform regardless of
-  // post state — the cards themselves handle unposted / posted / failed
-  // / scheduled internally.
+  // Original behavior gated cards on `hasPostedPost` — show a card only
+  // when a published post for that platform existed. That made the page
+  // useless when the operator published to website FIRST and only then
+  // wanted to post to FB/IG/YT (Yonah 2026-05-28: after Publish to
+  // website, no path back to posting). Now: render a card for every
+  // ACTIVE platform. Each card handles its own unposted / posted /
+  // failed / scheduled state internally.
   //
-  // Original gating logic:
-  // its Buffer token expired, or simply because the live page is a status display
-  // and should always show what actually got posted.
+  // We deliberately do NOT gate on connectedPlatforms (the runtime
+  // Buffer/YT auth check). Same reason as the legacy page: a transient
+  // Buffer outage shouldn't hide every card and block the operator from
+  // editing. If a platform truly isn't connected, clicking Post surfaces
+  // a clear platform-specific error — better than mysteriously-missing
+  // cards.
   const postedPlatforms = new Set(
     Object.entries(latestPostByPlatform)
       .filter(([, post]) => post.status === 'published')
       .map(([platform]) => platform),
   );
-
-  const hasPostedPost = (pl: Platform | 'twitter') => postedPlatforms.has(pl);
+  const activeSet = new Set<string>(ACTIVE_PLATFORMS);
+  const shouldShowCard = (pl: Platform) => activeSet.has(pl);
 
   const captionFor = (key: string): string => p.captions[key] ?? '';
 
   const jobId = p.liveJobId ?? '';
 
-  // Show the social section when there are published posts, regardless of jobId.
-  // jobId may be null for legacy videos posted before the job pipeline was set up,
-  // but they may still have posts.
-  const showSocialSection = postedPlatforms.size > 0;
+  // Section header shows whenever any active platform exists (always true
+  // for non-empty ACTIVE_PLATFORMS) OR whenever there's a published post.
+  const showSocialSection =
+    ACTIVE_PLATFORMS.length > 0 || postedPlatforms.size > 0;
 
   return (
     <section style={{ width: '100%' }}>
@@ -319,7 +321,7 @@ export function LiveAtRest(p: Props) {
               still live on TikTok itself; we just stop surfacing them
               in the dashboard. */}
 
-          {hasPostedPost('instagram') && (
+          {shouldShowCard('instagram') && (
             <InstagramCard
               jobId={jobId}
               videoId={p.videoId}
@@ -331,7 +333,7 @@ export function LiveAtRest(p: Props) {
             />
           )}
 
-          {hasPostedPost('youtube') && (
+          {shouldShowCard('youtube') && (
             <YouTubeCard
               jobId={jobId}
               videoId={p.videoId}
@@ -346,7 +348,7 @@ export function LiveAtRest(p: Props) {
             />
           )}
 
-          {hasPostedPost('facebook') && (
+          {shouldShowCard('facebook') && (
             <FacebookCard
               jobId={jobId}
               videoId={p.videoId}
@@ -359,7 +361,7 @@ export function LiveAtRest(p: Props) {
           )}
 
           {/* X platform key is 'twitter' in the DB */}
-          {hasPostedPost('twitter') && (
+          {shouldShowCard('twitter') && (
             <XCard
               jobId={jobId}
               videoId={p.videoId}

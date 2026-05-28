@@ -51,36 +51,44 @@ type LatestLiveVideo = {
 async function getLatestLiveVideo(): Promise<LatestLiveVideo | null> {
   const supabase = await createClient();
 
-  // Fetch the most recently created video that's published to the website.
-  // Join through jobs → parshiot to get the parsha name/slug.
-  // videos.parsha_id is denormalized (migration 20260426_videos_publish_gate.sql)
-  // so we can join directly.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: rawData } = await (supabase
+  // Two queries instead of a PostgREST embed. The embed
+  // parshiot!inner(name, slug) was the same pattern that silently
+  // failed in production earlier (Server-Components render error,
+  // 2026-05-26) on clips→jobs and clip_plans→jobs. Yonah 2026-05-28:
+  // "the main video page is not showing the new video or even the
+  // Shavuot video" — likely the embed schema-cache resolution failing
+  // again, returning null and hiding the Latest live card entirely.
+  const { data: vRow } = await supabase
     .from('videos')
-    .select(
-      'id, thumb_path, title, created_at, ' +
-      'parshiot!inner(name, slug)',
-    )
+    .select('id, parsha_id, thumb_path, title, created_at')
     .eq('published_to_website', true)
     .order('created_at', { ascending: false })
     .limit(1)
-    .maybeSingle() as any);
+    .maybeSingle();
 
-  if (!rawData) return null;
+  if (!vRow) return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = rawData as any;
-  const parshiaRel = data.parshiot;
-  const parshia = (Array.isArray(parshiaRel) ? parshiaRel[0] : parshiaRel) ?? null;
+  let parshaName = 'Unknown';
+  let parshaSlug = '';
+  if (vRow.parsha_id) {
+    const { data: pRow } = await supabase
+      .from('parshiot')
+      .select('name, slug')
+      .eq('id', vRow.parsha_id as string)
+      .maybeSingle();
+    if (pRow) {
+      parshaName = (pRow.name as string) ?? 'Unknown';
+      parshaSlug = (pRow.slug as string) ?? '';
+    }
+  }
 
   return {
-    videoId: data.id as string,
-    thumbUrl: data.thumb_path ? publicVideoUrl(data.thumb_path as string) : null,
-    parshaName: parshia?.name ?? 'Unknown',
-    parshaSlug: parshia?.slug ?? '',
-    displayTitle: data.title ?? null,
-    liveSince: data.created_at ?? null,
+    videoId: vRow.id as string,
+    thumbUrl: vRow.thumb_path ? publicVideoUrl(vRow.thumb_path as string) : null,
+    parshaName,
+    parshaSlug,
+    displayTitle: (vRow.title as string | null) ?? null,
+    liveSince: (vRow.created_at as string | null) ?? null,
   };
 }
 
