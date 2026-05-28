@@ -28,8 +28,11 @@ tighten the voiceover as needed to fit the time budget, pick the settings
 and camera directions, and write the post captions.
 
 CHARACTER (locked by reference images — do not re-describe in every prompt):
-- Rav Eli: Pixar-style 3D mid-50s Jewish man, salt-and-pepper beard, brown
-  leather kippah, navy mandarin-collar shirt with Torah Tai Chi yin-yang logo.
+- Rav Eli: Pixar-style 3D mid-50s Jewish man, salt-and-pepper beard,
+  small dark navy KNIT kippah (uniform soft fabric, single color
+  throughout — no contrasting trim, no edge band, no leather rim, no
+  visible stitching at the perimeter), navy mandarin-collar shirt with
+  Torah Tai Chi yin-yang logo.
 
 VIDEO STRUCTURE:
 - **Target 40-55 seconds total** (hard limits 28-90s via schema). Aim for
@@ -229,7 +232,12 @@ Compose visual_prompt in this order:
 2. Framing cue: specify the shot AND frame proportions. For any clip with
    Rav Eli on-screen, include: "9:16 vertical portrait frame. Rav Eli
    centered with natural human proportions — not elongated, not
-   compressed." Then the camera-direction verb (see list below).
+   compressed. Kippah is uniform navy knit fabric, smooth single-color
+   throughout." Then the camera-direction verb (see list below).
+   (The kippah note exists because Seedance hallucinates a white/leather
+   edge band on Rav Eli's kippah even though the references show a clean
+   knit. Phrased positively — diffusion models don't reliably honor
+   'no rim' / 'no trim' negations.)
 3. Scene tag:
      - For DOJO clips: ONE brief line — "In the Torah Tai Chi dojo:
        warm cedar floor, pale linen walls, soft morning light through

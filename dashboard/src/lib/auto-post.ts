@@ -84,6 +84,13 @@ export interface AutoPostArgs {
    *  webhooks rely on the omit-default; the dashboard sheet always
    *  passes an explicit list). */
   selectedPlatforms?: readonly Platform[];
+  /** Optional operator-picked YouTube thumbnail URL (from
+   *  saveYouTubeThumbnail). When set, overrides the auto-extracted
+   *  thumbnail at videos.thumb_path for the YouTube upload only —
+   *  Buffer-side thumbnails stay on the auto-extracted one. Without
+   *  this passthrough, operator's custom frame selection in the
+   *  YouTube card was a phantom (uploaded to storage but never used). */
+  youtubeThumbnailUrl?: string;
 }
 
 export interface AutoPostResult {
@@ -97,7 +104,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
   // Fetch video URL from storage
   const { data: video } = await supabase
     .from('videos')
-    .select('mp4_path, thumb_path')
+    .select('mp4_path, thumb_path, job_id')
     .eq('id', args.videoId)
     .single();
 
@@ -110,6 +117,29 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
   if (video?.thumb_path) {
     const { data: urlData } = supabase.storage.from('videos').getPublicUrl(video.thumb_path);
     thumbUrl = urlData?.publicUrl;
+  }
+
+  // Operator's per-platform metadata edits live on clip_plans.
+  // social_metadata: { facebook?: {type, firstComment?},
+  //                    instagram?: {type, firstComment?} }
+  // youtube_tags: string[]  (replaces hardcoded ['Torah','Tai Chi','Shorts']
+  //                          when operator edits the YT card)
+  // Fetched up front so the Buffer loop + YouTube upload both see them.
+  // Before this, all three were phantom edits — the operator could save
+  // them and the UI showed the saved value, but autoPost ignored them.
+  let socialMetadata: Record<string, { type?: 'reel' | 'post'; firstComment?: string }> = {};
+  let youtubeTags: string[] | null = null;
+  if (video?.job_id) {
+    const plan = await getCanonicalClipPlan(supabase, video.job_id as string);
+    if (plan) {
+      const { data: cpRow } = await supabase
+        .from('clip_plans')
+        .select('social_metadata, youtube_tags')
+        .eq('id', plan.id)
+        .maybeSingle();
+      socialMetadata = (cpRow?.social_metadata as typeof socialMetadata | null) ?? {};
+      youtubeTags = (cpRow?.youtube_tags as string[] | null) ?? null;
+    }
   }
 
   const results: Array<{ platform: Platform; externalId: string }> = [];
@@ -190,6 +220,18 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
       continue;
     }
 
+    // Operator's per-platform overrides for this Buffer call.
+    // facebookType: operator's Reel/Post choice from the FB card (FB
+    //   default stays 'reel' for video — operator can override to 'post').
+    // firstComment: auto-comment posted right after the main post; works
+    //   on FB; Buffer has a known issue where IG silently drops it (we
+    //   pass it anyway so it lights up the moment Buffer fixes their side).
+    const platformMeta = socialMetadata[platform] ?? {};
+    const facebookType = platform === 'facebook' ? platformMeta.type : undefined;
+    const firstComment = platform === 'facebook' || platform === 'instagram'
+      ? (platformMeta.firstComment || undefined)
+      : undefined;
+
     try {
       const update = await withRetry(() => createUpdate({
         token: bufferToken!,
@@ -197,6 +239,8 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         text: caption,
         mediaUrl,
         mediaType: 'video',
+        facebookType,
+        firstComment,
         // thumbnailUrl removed: shipping a 720×1280 PNG via
         // assets.videos[0].thumbnailUrl caused Buffer-accepted-but-
         // IG-rejected ("issue with the media attached") on Yonah's
@@ -327,6 +371,15 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         description = rest.length > 0 ? rest.join('\n').trim() : caption;
       }
 
+      // Operator overrides for the YouTube upload:
+      //   args.youtubeThumbnailUrl: operator's hand-picked cover frame
+      //     (from saveYouTubeThumbnail). Falls back to the auto-extracted
+      //     videos.thumb_path when not provided. Before this passthrough
+      //     the custom thumbnail was uploaded to storage but never used.
+      //   youtubeTags (from clip_plans.youtube_tags): operator-edited tag
+      //     list. Falls back to ['Torah','Tai Chi','Shorts'] when the
+      //     operator hasn't customized — preserves the historic default
+      //     for any video predating the editable-tags UI.
       try {
         const ytVideo = await withRetry(() => uploadToYouTube({
           videoUrl: mediaUrl!,
@@ -334,8 +387,10 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
           description,
           // shareNow → public immediately (no publishAt); otherwise private + scheduled
           publishAt: args.shareNow ? undefined : args.scheduledAt,
-          thumbnailUrl: thumbUrl,
-          tags: ['Torah', 'Tai Chi', 'Shorts'],
+          thumbnailUrl: args.youtubeThumbnailUrl ?? thumbUrl,
+          tags: (youtubeTags && youtubeTags.length > 0)
+            ? youtubeTags
+            : ['Torah', 'Tai Chi', 'Shorts'],
         }));
 
         const youtubeUrl = `https://youtube.com/shorts/${ytVideo.id}`;

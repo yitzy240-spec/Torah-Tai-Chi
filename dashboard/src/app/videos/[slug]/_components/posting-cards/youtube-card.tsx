@@ -148,7 +148,18 @@ export function YouTubeCard({
   async function onPost() {
     setError(null);
     startPosting(async () => {
-      const res = await postToPlatform(videoId, 'youtube', { youtube: captionForPost }, { shareNow: true });
+      const res = await postToPlatform(
+        videoId,
+        'youtube',
+        { youtube: captionForPost },
+        {
+          shareNow: true,
+          // Operator's hand-picked cover frame (uploaded via the
+          // FramePicker → saveYouTubeThumbnail flow). When null, autoPost
+          // falls back to videos.thumb_path (auto-extracted at stitch).
+          youtubeThumbnailUrl: pickedThumbUrl ?? undefined,
+        },
+      );
       if (!res.ok) setError(res.error ?? 'Post failed');
     });
   }
@@ -238,7 +249,16 @@ export function YouTubeCard({
 
       <ScheduleForLaterSheet open={scheduleOpen} onOpenChange={setScheduleOpen} platform="YouTube"
         onSchedule={async (when) => {
-          const res = await postToPlatform(videoId, 'youtube', { youtube: captionForPost }, { scheduledAt: when, shareNow: false });
+          const res = await postToPlatform(
+            videoId,
+            'youtube',
+            { youtube: captionForPost },
+            {
+              scheduledAt: when,
+              shareNow: false,
+              youtubeThumbnailUrl: pickedThumbUrl ?? undefined,
+            },
+          );
           if (!res.ok) setError(res.error ?? 'Schedule failed');
         }} />
     </div>

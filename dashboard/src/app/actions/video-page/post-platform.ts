@@ -12,7 +12,14 @@ export async function postToPlatform(
   videoId: string,
   platform: Platform,
   captions: Partial<Record<Platform, string>>,
-  options: { scheduledAt?: Date; shareNow?: boolean } = {},
+  options: {
+    scheduledAt?: Date;
+    shareNow?: boolean;
+    /** Operator-picked YouTube thumbnail (from saveYouTubeThumbnail).
+     *  Forwarded to autoPost only when platform === 'youtube'; ignored
+     *  otherwise. */
+    youtubeThumbnailUrl?: string;
+  } = {},
 ): Promise<{ ok: boolean; error?: string }> {
   const userClient = await createClient();
   const { data: { user } } = await userClient.auth.getUser();
@@ -24,6 +31,7 @@ export async function postToPlatform(
     selectedPlatforms: [platform],
     scheduledAt: options.scheduledAt ?? new Date(),
     shareNow: options.shareNow ?? true,
+    youtubeThumbnailUrl: platform === 'youtube' ? options.youtubeThumbnailUrl : undefined,
   });
 
   if (res.error) return { ok: false, error: res.error };

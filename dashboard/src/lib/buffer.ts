@@ -155,6 +155,17 @@ export type CreateUpdateArgs = {
    *  for the target channel. Used to attach per-network metadata — e.g.
    *  Instagram rejects posts without a type hint (post | story | reel). */
   channelService?: string;
+  /** Operator override for Facebook post-type. When set, overrides the
+   *  media-kind default ('reel' for video, 'post' for image). Required
+   *  because Yonah's FB card lets the operator pick Reel vs Post but
+   *  the toggle was a phantom — auto-post forced the default. */
+  facebookType?: 'reel' | 'post';
+  /** Auto-comment posted immediately after the main post publishes.
+   *  Sent via metadata.<platform>.firstComment per Buffer's GraphQL
+   *  schema (added Feb 2026). Works on FB; Buffer has an open issue
+   *  where IG silently drops it — we pass it anyway so it lights up
+   *  whenever they fix it. */
+  firstComment?: string;
 };
 
 interface CreatePostResponse {
@@ -206,7 +217,7 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
   // optional metadata, but Buffer's API surface for those is sparse —
   // see CreateUpdateArgs JSDoc and the audit note in commit 00b88d4 for
   // why deeper TikTok controls (privacy, duet, stitch) aren't reachable.
-  const metadata: Record<string, unknown> = {};
+  const metadata: Record<string, Record<string, unknown>> = {};
   if (a.channelService === 'instagram' && assets) {
     // Buffer requires BOTH `type` and `shouldShareToFeed` — the latter controls
     // whether the reel/post also appears in the main feed (reels default to
@@ -214,17 +225,16 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
     metadata.instagram = {
       type: a.mediaType === 'video' ? 'reel' : 'post',
       shouldShareToFeed: true,
+      ...(a.firstComment ? { firstComment: a.firstComment } : {}),
     };
   }
   if (a.channelService === 'facebook' && assets) {
     // PostTypeFacebook is non-nullable on FacebookPostMetadataInput per
-    // Buffer's schema. Mirror our IG behavior: 'reel' for video, 'post'
-    // for image. Without this Buffer was either picking a default type
-    // or silently dropping FB posts (Yonah's Buffer setup didn't show any
-    // FB posts in the recent posts table — channel may not be wired up,
-    // but the metadata needs to be correct for when it is).
+    // Buffer's schema. Default to 'reel' for video / 'post' for image;
+    // operator can override via facebookType (FB card's Reel/Post toggle).
     metadata.facebook = {
-      type: a.mediaType === 'video' ? 'reel' : 'post',
+      type: a.facebookType ?? (a.mediaType === 'video' ? 'reel' : 'post'),
+      ...(a.firstComment ? { firstComment: a.firstComment } : {}),
     };
   }
 
