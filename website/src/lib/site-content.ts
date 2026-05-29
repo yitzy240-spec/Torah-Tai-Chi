@@ -111,14 +111,14 @@ const FALLBACKS: SiteContentMap = {
   // TikTok was retired 2026-05-28 in favor of Facebook (no traction); X
   // was added 2026-05-29. Tiktok fallbacks kept as historical reference
   // but no UI surface references them anymore.
-  'social.url.youtube': 'https://youtube.com/@torahtaichi',
-  'social.url.instagram': 'https://instagram.com/torahtaichi',
-  'social.url.facebook': 'https://facebook.com/torahtaichi',
-  'social.url.x': 'https://x.com/torahtaichi',
-  'social.handle.youtube': '@torahtaichi',
-  'social.handle.instagram': '@torahtaichi',
-  'social.handle.facebook': '@torahtaichi',
-  'social.handle.x': '@torahtaichi',
+  'social.url.youtube': 'https://www.youtube.com/@TorahTai_Chi',
+  'social.url.instagram': 'https://instagram.com/torah_taichi',
+  'social.url.facebook': 'https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/',
+  'social.url.x': 'https://x.com/Torah_TaiChi',
+  'social.handle.youtube': '@TorahTai_Chi',
+  'social.handle.instagram': '@torah_taichi',
+  'social.handle.facebook': 'Torah Tai Chi',
+  'social.handle.x': '@Torah_TaiChi',
 };
 
 /**

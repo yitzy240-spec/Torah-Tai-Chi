@@ -1,7 +1,7 @@
-// One-shot: revert FB + YT to the previously-good vanity URLs.
-// Buffer's service_username for FB Page / YT channel returns the
-// display NAME ('Torah Tai Chi' with spaces), not the vanity URL
-// slug. The previous sync wrote broken URLs.
+// One-shot: set FB + YT to the real connected URLs Yonah confirmed
+// (2026-05-29). FB Page hasn't claimed a vanity URL so the canonical
+// URL is the /people/<name>/<numeric_id>/ form; display handle is the
+// Page name. YouTube @handle is TorahTai_Chi (underscore).
 import { parse as parseEnv } from 'dotenv';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -16,10 +16,10 @@ for (const rel of ['dashboard/.env.production.local', '.env', 'website/.env.loca
 }
 
 const FIXES: Array<[string, string]> = [
-  ['social.url.facebook',    'https://facebook.com/torahtaichi'],
-  ['social.handle.facebook', '@torahtaichi'],
-  ['social.url.youtube',     'https://youtube.com/@torahtaichi'],
-  ['social.handle.youtube',  '@torahtaichi'],
+  ['social.url.facebook',    'https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/'],
+  ['social.handle.facebook', 'Torah Tai Chi'],
+  ['social.url.youtube',     'https://www.youtube.com/@TorahTai_Chi'],
+  ['social.handle.youtube',  '@TorahTai_Chi'],
 ];
 
 (async () => {
