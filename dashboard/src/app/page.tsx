@@ -15,7 +15,9 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { getThisWeekParsha, getUpcomingWeeks, getUpcomingHolidays, HEBCAL_TO_SLUG } from '@/lib/hebcal';
 import { publicVideoUrl } from '@/lib/storage-url';
+import { ACTIVE_PLATFORMS } from '@/lib/platforms';
 import { StartNextVideoPicker } from '@/components/start-next-video-picker';
+import { PlatformIcon } from '@/components/platform-icon';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -44,7 +46,15 @@ type LatestLiveVideo = {
   parshaName: string;
   parshaSlug: string;
   displayTitle: string | null;
+  description: string | null;
   liveSince: string | null;
+  /** Lowercase platform slugs the video has been published to
+   *  (filtered to ACTIVE_PLATFORMS in render order). Drives the
+   *  small badge row under the title. */
+  postedPlatforms: string[];
+  /** Public website URL — drives the "View on torahtaichi.com"
+   *  secondary link inside the card. */
+  websiteUrl: string;
 };
 
 // ─── Data fetchers ──────────────────────────────────────────────────────────
@@ -61,7 +71,7 @@ async function getLatestLiveVideo(): Promise<LatestLiveVideo | null> {
   // again, returning null and hiding the Latest live card entirely.
   const { data: vRow } = await supabase
     .from('videos')
-    .select('id, parsha_id, thumb_path, title, created_at')
+    .select('id, parsha_id, thumb_path, title, subtitle, description, created_at')
     .eq('published_to_website', true)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -83,13 +93,32 @@ async function getLatestLiveVideo(): Promise<LatestLiveVideo | null> {
     }
   }
 
+  // Which active platforms is the video actually live on? Operators
+  // wanted the Today card to surface this at a glance instead of
+  // having to click into the video page to find out (Yonah 2026-05-29).
+  const { data: postRows } = await supabase
+    .from('posts')
+    .select('platform')
+    .eq('video_id', vRow.id as string)
+    .eq('status', 'published');
+  const postedSet = new Set((postRows ?? []).map((r) => r.platform as string));
+  // Preserve ACTIVE_PLATFORMS render order — IG/YT/FB/X — so the icon
+  // row reads the same on every card.
+  const postedPlatforms = ACTIVE_PLATFORMS.filter((p) => postedSet.has(p));
+
   return {
     videoId: vRow.id as string,
     thumbUrl: vRow.thumb_path ? publicVideoUrl(vRow.thumb_path as string) : null,
     parshaName,
     parshaSlug,
-    displayTitle: (vRow.title as string | null) ?? null,
+    // videos.subtitle holds the creative title (snapshotted from scripts.title
+    // at stitch); videos.title is the parsha name. See migration
+    // 20260517_video_page_redesign.sql.
+    displayTitle: (vRow.subtitle as string | null) ?? (vRow.title as string | null) ?? null,
+    description: (vRow.description as string | null) ?? null,
     liveSince: (vRow.created_at as string | null) ?? null,
+    postedPlatforms: [...postedPlatforms],
+    websiteUrl: `https://torahtaichi.com/${parshaSlug}`,
   };
 }
 
@@ -301,6 +330,35 @@ function LatestLiveCard({
             </div>
           )}
 
+          {video.description && (
+            <div
+              style={{
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+                fontSize: '13px',
+                color: 'var(--ink-500)',
+                lineHeight: 1.4,
+                marginBottom: '8px',
+                fontVariationSettings: '"opsz" 14, "SOFT" 50',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {video.description}
+            </div>
+          )}
+
+          {/* Status row: LIVE pill + posted-on platform icons */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              flexWrap: 'wrap',
+            }}
+          >
           {liveSince && (
             <div
               style={{
@@ -330,6 +388,31 @@ function LatestLiveCard({
               LIVE since {liveSince}
             </div>
           )}
+
+          {/* Posted-on icons — IG/YT/FB/X badges. Each shows when the
+              video has a published post on that platform. Operator
+              scans this to see distribution at a glance. */}
+          {video.postedPlatforms.length > 0 && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: 'var(--ink-500)',
+              }}
+              aria-label={`Posted on ${video.postedPlatforms.join(', ')}`}
+              title={`Posted on ${video.postedPlatforms.join(', ')}`}
+            >
+              {video.postedPlatforms.map((pl) => (
+                <PlatformIcon
+                  key={pl}
+                  name={pl as 'instagram' | 'youtube' | 'facebook' | 'twitter'}
+                  size={14}
+                />
+              ))}
+            </div>
+          )}
+          </div>
         </div>
 
         {/* Arrow */}

@@ -23,6 +23,7 @@ import { getPhase3Props } from './_data/phase-3-data';
 import { getPhase4Props } from './_data/phase-4-data';
 import { getPhase5Props } from './_data/phase-5-data';
 import { getLiveAtRestProps } from './_data/live-at-rest-data';
+import { BackToTodayLink } from './_components/back-to-today-link';
 import { BilingualHeader } from './_components/bilingual-header';
 import { CompressedStepper } from './_components/compressed-stepper';
 import { PersistentLiveStrip } from './_components/persistent-live-strip';
@@ -541,6 +542,7 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
   if (state.kind === 'empty') {
     return (
       <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
+        <BackToTodayLink />
         <BilingualHeader
           hebrewName={parsha.hebrew_name}
           book={parsha.book}
@@ -566,6 +568,7 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
 
   return (
     <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 16px' }}>
+      <BackToTodayLink />
       <BilingualHeader
         hebrewName={parsha.hebrew_name}
         book={parsha.book}

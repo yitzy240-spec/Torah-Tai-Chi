@@ -29,3 +29,11 @@ export function FacebookIcon() {
     </svg>
   );
 }
+
+export function XIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true">
+      <path d="M18.244 2H21.5l-7.41 8.47L23 22h-6.83l-5.36-7-6.13 7H1.42l7.93-9.06L1.5 2h6.99l4.84 6.4L18.244 2zm-1.2 18h1.89L7.04 4H5.04l12 16z"/>
+    </svg>
+  );
+}

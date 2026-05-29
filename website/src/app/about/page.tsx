@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Brand from "@/components/Brand";
-import { TikTokIcon, YouTubeIcon, InstagramIcon, FacebookIcon } from "@/components/SocialIcons";
+import { YouTubeIcon, InstagramIcon, FacebookIcon, XIcon } from "@/components/SocialIcons";
 import { getSiteContent } from "@/lib/site-content";
 
 // ISR: revalidate every 60 s
@@ -79,13 +79,6 @@ export default async function AboutPage() {
           <h2>{c['about.section.where_to_find.heading']}</h2>
           <ul className="social-list">
             <li>
-              <a href={c['social.url.tiktok']} target="_blank" rel="noopener noreferrer">
-                <span className="si"><TikTokIcon /></span>
-                <span className="sn">TikTok</span>
-                <span className="sh">{c['social.handle.tiktok']}</span>
-              </a>
-            </li>
-            <li>
               <a href={c['social.url.youtube']} target="_blank" rel="noopener noreferrer">
                 <span className="si"><YouTubeIcon /></span>
                 <span className="sn">YouTube</span>
@@ -104,6 +97,13 @@ export default async function AboutPage() {
                 <span className="si"><FacebookIcon /></span>
                 <span className="sn">Facebook</span>
                 <span className="sh">{c['social.handle.facebook']}</span>
+              </a>
+            </li>
+            <li>
+              <a href={c['social.url.x']} target="_blank" rel="noopener noreferrer">
+                <span className="si"><XIcon /></span>
+                <span className="sn">X</span>
+                <span className="sh">{c['social.handle.x']}</span>
               </a>
             </li>
           </ul>
