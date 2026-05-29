@@ -108,14 +108,17 @@ const FALLBACKS: SiteContentMap = {
   'share.watch_on_label': 'Watch on',
   // ── SOCIAL URLS + HANDLES ─────────────────────────────────────────
   // Single source of truth — the nav, footer, and about page all read these.
-  'social.url.tiktok': 'https://tiktok.com/@torahtaichi',
+  // TikTok was retired 2026-05-28 in favor of Facebook (no traction); X
+  // was added 2026-05-29. Tiktok fallbacks kept as historical reference
+  // but no UI surface references them anymore.
   'social.url.youtube': 'https://youtube.com/@torahtaichi',
   'social.url.instagram': 'https://instagram.com/torahtaichi',
   'social.url.facebook': 'https://facebook.com/torahtaichi',
-  'social.handle.tiktok': '@torahtaichi',
+  'social.url.x': 'https://x.com/torahtaichi',
   'social.handle.youtube': '@torahtaichi',
   'social.handle.instagram': '@torahtaichi',
-  'social.handle.facebook': '/torahtaichi',
+  'social.handle.facebook': '@torahtaichi',
+  'social.handle.x': '@torahtaichi',
 };
 
 /**

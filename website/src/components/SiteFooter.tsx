@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Brand from "./Brand";
-import { TikTokIcon, YouTubeIcon, InstagramIcon, FacebookIcon } from "./SocialIcons";
+import { YouTubeIcon, InstagramIcon, FacebookIcon, XIcon } from "./SocialIcons";
 import { getSiteContent } from "@/lib/site-content";
 
 export default async function SiteFooter() {
@@ -36,9 +36,6 @@ export default async function SiteFooter() {
             {c['footer.contact_email']}
           </a>
           <div className="footer-socials">
-            <a href={c['social.url.tiktok']} aria-label="TikTok" target="_blank" rel="noopener noreferrer">
-              <TikTokIcon />
-            </a>
             <a href={c['social.url.youtube']} aria-label="YouTube" target="_blank" rel="noopener noreferrer">
               <YouTubeIcon />
             </a>
@@ -47,6 +44,9 @@ export default async function SiteFooter() {
             </a>
             <a href={c['social.url.facebook']} aria-label="Facebook" target="_blank" rel="noopener noreferrer">
               <FacebookIcon />
+            </a>
+            <a href={c['social.url.x']} aria-label="X" target="_blank" rel="noopener noreferrer">
+              <XIcon />
             </a>
           </div>
         </div>
