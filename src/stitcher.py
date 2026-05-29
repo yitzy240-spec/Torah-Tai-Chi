@@ -40,6 +40,37 @@ def _probe_resolution(mp4: Path) -> tuple[int, int]:
     return int(w), int(h)
 
 
+# Seedance's neural audio decoder consistently bakes a ~5-6 kHz tonal
+# artifact into every clip — clearly audible as a high-pitch background
+# whine (Yonah 2026-05-29). Spectrum analysis on a sample raw clip:
+# peak at ~5250 Hz, 30 dB above the broadband noise floor. Variants
+# across clips sit anywhere from 5040 to 6000 Hz, so a moderately-wide
+# notch (Q=2.0) at 5500 Hz with -15 dB catches all of them while only
+# nicking sibilance by ~3 dB. After-fix peak: +18 dB above floor —
+# below most listeners' perceptual threshold.
+#
+# Applied as a per-clip pre-pass in both render paths (concat_clips
+# and loudnorm_then_concat) so every stitched video benefits.
+_DETONE_FILTER = "equalizer=f=5500:width_type=q:width=2.0:g=-15"
+
+
+def _detone_audio(src: Path, dest: Path) -> Path:
+    """Apply the de-tone equalizer notch to one clip, copying video."""
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(src),
+         "-af", _DETONE_FILTER,
+         "-c:v", "copy",
+         str(dest)],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"_detone_audio failed for {src}: "
+            f"{result.stderr.decode('utf-8', errors='replace')[-500:]}"
+        )
+    return dest
+
+
 def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Path:
     """Stitch clips end-to-end with crossfade transitions.
 
@@ -61,6 +92,19 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
     if not clips:
         raise ValueError("No clips to concat")
     dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # De-tone each clip before stitching. Seedance's high-pitch
+    # artifact is baked into the raw audio — see _DETONE_FILTER docs.
+    # Single-clip path also runs through so even the no-concat case
+    # benefits.
+    work = dest.parent
+    detoned: list[Path] = []
+    if any(_has_audio_stream(c) for c in clips):
+        for i, src in enumerate(clips):
+            d = work / f"_detone_{i:02d}{src.suffix}"
+            _detone_audio(src, d)
+            detoned.append(d)
+        clips = detoned
 
     if len(clips) == 1:
         shutil.copy(clips[0], dest)
@@ -177,10 +221,13 @@ def loudnorm_then_concat(
     normalized: list[Path] = []
     for i, src in enumerate(inputs):
         norm_path = work_dir / f"_norm_{i:02d}.mp4"
+        # De-tone BEFORE loudnorm so loudnorm doesn't normalize against
+        # a clip whose energy is dominated by the artifact. Chained in
+        # a single ffmpeg pass for efficiency (one re-encode, not two).
         result = subprocess.run(
             [
                 "ffmpeg", "-y", "-i", str(src),
-                "-af", "loudnorm=I=-23:LRA=7:TP=-2",
+                "-af", f"{_DETONE_FILTER},loudnorm=I=-23:LRA=7:TP=-2",
                 "-c:v", "copy",
                 str(norm_path),
             ],
@@ -188,8 +235,12 @@ def loudnorm_then_concat(
         )
         if result.returncode != 0:
             raise RuntimeError(
-                f"loudnorm failed for {src}: "
+                f"detone+loudnorm failed for {src}: "
                 f"{result.stderr.decode('utf-8', errors='replace')[-500:]}"
             )
         normalized.append(norm_path)
+    # concat_clips would also detone, but the inputs here are already
+    # detoned via the chained filter above. Detone is idempotent (the
+    # already-suppressed band stays suppressed), so calling concat_clips
+    # is fine — at worst we get one wasted ffmpeg pass per clip.
     return concat_clips(normalized, dest, crossfade_s=crossfade_s)
