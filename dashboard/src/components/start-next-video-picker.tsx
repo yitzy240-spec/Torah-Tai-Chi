@@ -213,12 +213,50 @@ function ParshaPickerSheet({
     });
   }
 
-  const bookOrder = ['Bereishit', 'Shemot', 'Vayikra', 'Bamidbar', 'Devarim'];
+  // Section order in the picker. Torah books first in canonical order,
+  // then 'Holiday' last so the section reads top-to-bottom like a
+  // Chumash followed by the calendar (Tishrei → Av). Originally the
+  // picker only iterated the 5 Torah books and silently dropped holidays
+  // — Yonah 2026-05-29: "the parsha lists should include the holidays".
+  const bookOrder = ['Bereishit', 'Shemot', 'Vayikra', 'Bamidbar', 'Devarim', 'Holiday'];
+
+  // Within the Holiday group, sort by Jewish-calendar order rather than
+  // alphabetically — matches how an operator thinks about the year. Any
+  // future holiday not in this list falls through to alphabetic at the
+  // end of the group.
+  const holidayOrder: Record<string, number> = {
+    'rosh-hashana':    1,
+    'yom-kippur':      2,
+    'sukkot':          3,
+    'shemini-atzeret': 4,
+    'simchat-torah':   5,
+    'chanukah':        6,
+    'tu-bishvat':      7,
+    'purim':           8,
+    'pesach':          9,
+    'yom-hashoah':    10,
+    'yom-hazikaron':  11,
+    'yom-haatzmaut':  12,
+    'lag-baomer':     13,
+    'shavuot':        14,
+    'tisha-bav':      15,
+  };
+
   const grouped: Record<string, ParshaOption[]> = {};
   for (const p of allParshiot) {
     const book = p.book;
     if (!grouped[book]) grouped[book] = [];
     grouped[book].push(p);
+  }
+  // Sort the Holiday group by calendar order. Torah books arrive
+  // pre-sorted by parshiot.order from the server query.
+  if (grouped['Holiday']) {
+    grouped['Holiday'].sort((a, b) => {
+      const oa = holidayOrder[a.slug] ?? 999;
+      const ob = holidayOrder[b.slug] ?? 999;
+      if (oa !== ob) return oa - ob;
+      return a.name.localeCompare(b.name);
+    });
   }
 
   return (
@@ -234,7 +272,7 @@ function ParshaPickerSheet({
           fontVariationSettings: '"opsz" 28, "SOFT" 20',
         }}
       >
-        Pick a parsha
+        Pick a parsha or holiday
       </h2>
 
       {error && (
@@ -253,6 +291,9 @@ function ParshaPickerSheet({
       {bookOrder.map((book) => {
         const parshiot = grouped[book];
         if (!parshiot || parshiot.length === 0) return null;
+        // 'Holiday' in the DB reads better as 'Holidays' in the section
+        // header (plural matches the multi-row list).
+        const sectionLabel = book === 'Holiday' ? 'Holidays' : book;
         return (
           <div key={book} style={{ marginBottom: '20px' }}>
             <div
@@ -265,7 +306,7 @@ function ParshaPickerSheet({
                 marginBottom: '8px',
               }}
             >
-              {book}
+              {sectionLabel}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               {parshiot.map((p) => {
@@ -610,14 +651,14 @@ export function StartNextVideoPicker({
           </div>
         )}
 
-        {/* Card 2: Pick a different parsha */}
+        {/* Card 2: Pick a different parsha or holiday */}
         <button
           onClick={() => setShowParshaPicker(true)}
           style={cardBase}
         >
-          <div style={cardLabel}>All 54 parshiot</div>
-          <div style={cardTitle}>Pick a different parsha</div>
-          <div style={cardSub}>Browse all weekly portions</div>
+          <div style={cardLabel}>All parshiot &amp; holidays</div>
+          <div style={cardTitle}>Pick a different one</div>
+          <div style={cardSub}>Browse all weekly portions and Yom Tovim</div>
           <div style={ctaBtn}>Browse →</div>
         </button>
 
