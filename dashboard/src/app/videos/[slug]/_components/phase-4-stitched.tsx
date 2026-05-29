@@ -96,7 +96,15 @@ export function Phase4Stitched({
 
   return (
     <section>
-      {/* Full-bleed 9:16 player */}
+      {/* 9:16 vertical player wrapped so it stays phone-shaped on
+          desktop. Without maxWidth, width:100% + aspect-ratio 9/16
+          rendered a viewport-spanning vertical column the operator
+          couldn't see in one glance (Yonah 2026-05-29 screenshot:
+          only player + Continue button visible, nothing else above the
+          fold). The wrapper container keeps the scrub markers + clip
+          labels aligned under the centered player on desktop and the
+          full width on mobile (where maxWidth doesn't bind). */}
+      <div style={{ maxWidth: 360, margin: '0 auto' }}>
       <video
         ref={videoRef}
         src={videoUrl}
@@ -205,6 +213,7 @@ export function Phase4Stitched({
           ))}
         </div>
       )}
+      </div>
 
       {/* Sticky bottom action bar */}
       <div
