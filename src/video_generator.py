@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from pathlib import Path
 from typing import Optional
 from src.kie_client import KieClient
@@ -10,6 +11,44 @@ SEEDANCE_MODEL = "bytedance/seedance-2"
 MAX_REFS = 9
 MAX_DOJO_REFS = 4  # was 3; bumped to improve dojo setting consistency
                    # (previous 2 dojo + 7 char ratio let dojo drift across clips)
+
+
+# Words Seedance's TTS mispronounces badly enough to produce audibly
+# distorted output. The script-generator system prompt already
+# instructs Claude to use phonetic / English-equivalent forms when
+# IT writes scripts, but the operator can edit voiceovers per-clip
+# in Phase 2 — and as of 2026-05-28 Modal honors those edits at
+# render time (clips_only_job pulls voiceover from the clips table).
+# Without normalization, the operator's edit "the cultivation of
+# Chi in the HEART" bypasses Claude's policy and Seedance produces
+# harmonic distortion on the bare "Chi" syllable. Yonah heard this
+# at 0:25 of Naso 2026-05-28.
+#
+# Conservative: only words we have CONFIRMED produce distortion.
+# Word boundaries (\b) so 'machine' / 'China' / 'chiropractor'
+# aren't touched. Case-preserving via separate patterns per case
+# variant so 'Chi' → 'Chee' and 'chi' → 'chee'.
+_TTS_REPLACEMENTS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bChi\b"),    "Chee"),
+    (re.compile(r"\bchi\b"),    "chee"),
+    (re.compile(r"\bCHI\b"),    "CHEE"),
+    # Same word, transliterated differently. Same distortion risk.
+    (re.compile(r"\bQi\b"),     "Chee"),
+    (re.compile(r"\bqi\b"),     "chee"),
+    (re.compile(r"\bQI\b"),     "CHEE"),
+]
+
+
+def normalize_voiceover_for_tts(text: str) -> str:
+    """Apply known-good substitutions before sending voiceover to
+    Seedance. Safety net for operator-edited voiceovers that bypass
+    the script-generator's phonetic policy. Expand the table when
+    new distortion-prone words are confirmed via spectrum analysis.
+    """
+    out = text
+    for pat, repl in _TTS_REPLACEMENTS:
+        out = pat.sub(repl, out)
+    return out
 
 
 def _select_refs(character_ref_urls: list[str], dojo_ref_urls: list[str],
@@ -79,9 +118,15 @@ def build_seedance_input(
         "center.\n"
         if reference_video_url else ""
     )
+    normalized_vo = normalize_voiceover_for_tts(clip.voiceover)
+    if normalized_vo != clip.voiceover:
+        print(
+            f"[tts-normalize] clip {clip.index}: applied substitutions "
+            f"({len(clip.voiceover)} chars → {len(normalized_vo)} chars)"
+        )
     prompt = (
         f"{clip.visual_prompt}\n\n"
-        f'Character speaks: "{clip.voiceover}"\n'
+        f'Character speaks: "{normalized_vo}"\n'
         f"{emotive_clause}"
         f"{voice_clause}"
         f"{STYLE_LOCK}"

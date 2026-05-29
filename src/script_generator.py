@@ -171,8 +171,13 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
   Tai-chi vocabulary — use the ENGLISH terms that practitioners say in
   English-speaking classes. Do NOT use transliterated Chinese (no "song",
   "zhan zhuang", "jin", "peng", "kua", "yi", "ting jin", etc.) in the
-  voiceover. If Yonah's draft uses a transliterated Chinese term, render
-  it as the English equivalent below:
+  voiceover. The bare two/three-letter Chinese words are especially bad
+  for the TTS — Seedance produces harmonic distortion on "Chi" / "Qi"
+  (confirmed via spectrum analysis 2026-05-29 on Yonah's Naso clip 2
+  at the word "Chi"). Render "Chi" / "qi" as "chee" (phonetic) or
+  "energy" (translation) — never the bare two/three-letter form.
+  If Yonah's draft uses a transliterated Chinese term, render it as
+  the English equivalent below:
     song            -> "release" (or "soft release", context permitting)
     zhan zhuang     -> "standing meditation" (or just "the standing practice")
     jin             -> "trained strength" (or "intention-led force")
