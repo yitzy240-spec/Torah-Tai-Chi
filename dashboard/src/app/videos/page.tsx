@@ -38,6 +38,16 @@ async function getVideoCards(): Promise<VideoCard[]> {
   const cards: VideoCard[] = [];
   const seenParshaIds = new Set<string>();
 
+  // The new-flow editor decomposes a parsha's work across multiple
+  // job kinds (plan-only → clips-only → compose → optional clips-only
+  // regens). Any of them belong on this parsha's card. The pre-cutover
+  // filter (`kind === 'parsha'` only) was leaving every new-flow parsha
+  // off the list entirely — Yonah 2026-06-01 reported seeing only the
+  // 5 legacy `parsha`-kind videos even though many newer ones exist.
+  const PARSHA_DRAFT_KINDS = new Set([
+    'parsha', 'plan-only', 'clips-only', 'compose', null,
+  ]);
+
   for (const row of data as unknown as JobRow[]) {
     const kind = (row.kind ?? 'parsha').toLowerCase();
     const videoRel = row.videos;
@@ -51,7 +61,7 @@ async function getVideoCards(): Promise<VideoCard[]> {
       : IN_FLIGHT_STATUSES.has(row.status) ? 'in_flight'
       : 'other';
 
-    if (kind === 'parsha' && row.parsha_id) {
+    if (row.parsha_id && PARSHA_DRAFT_KINDS.has(kind)) {
       if (seenParshaIds.has(row.parsha_id)) continue; // latest-per-parsha only
       seenParshaIds.add(row.parsha_id);
       cards.push({

@@ -433,6 +433,13 @@ async function PhaseBody({
     const draftVideoId = draftJobForState?.videoId ?? null;
     const clipPlanId = draftJobForState?.clipPlanId ?? null;
 
+    // Same publish-races-state guard as Phase 5. If the user just went
+    // live and there's no remaining draft video, fall through to the
+    // live-at-rest page rather than dead-end on "Stitching in progress…".
+    if (state.kind === 'live-and-draft' && !draftVideoId) {
+      redirect(`/videos/${parsha.slug}`);
+    }
+
     if (!draftJobId || !draftVideoId) {
       return (
         <PhaseErrorBoundary phaseLabel="Phase 4 (stitched video)">
@@ -461,6 +468,20 @@ async function PhaseBody({
         : null;
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const draftVideoId = draftJobForState?.videoId ?? null;
+
+    // After Yonah hits "Publish to website" on a Phase 5 draft, the
+    // page revalidates and the just-published video is no longer a
+    // draft — it's the LIVE row. selectPageState then resolves
+    // draftJobId to the next-best candidate (often the plan-only
+    // ancestor with no videoId), which crashed Phase 5 into a
+    // "Video not yet available" dead-end (Yonah 2026-06-01 Beha'alotcha).
+    // The right next surface IS the live-at-rest page — that's where the
+    // social-posting controls, captions, and edit-site-info UI live.
+    // Redirect to /videos/{slug} (no ?phase) to fall through to the
+    // live-at-rest branch.
+    if (state.kind === 'live-and-draft' && !draftVideoId) {
+      redirect(`/videos/${parsha.slug}`);
+    }
 
     if (!draftJobId || !draftVideoId) {
       return (
