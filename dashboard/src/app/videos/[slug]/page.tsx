@@ -39,6 +39,40 @@ import { PlanGeneratingCard } from './_components/plan-generating-card';
 import { PhaseErrorBoundary } from './_components/phase-error-boundary';
 import type { ShellData } from './_data/shell-data';
 
+/**
+ * Walk up the regen_of_job_id chain to find the plan-only ancestor.
+ *
+ * Why: `state.draftJobId` is whatever job most recently advanced the
+ * draft. Once a compose job exists, that becomes the draftJobId — but
+ * the compose job owns the stitched mp4, not the editable clip
+ * metadata. Phase 2 (plan review) and Phase 3 (clips) MUST operate on
+ * the plan-only root, because that's where the per-clip
+ * voiceover/visual_prompt/motion_ref_slug rows live. Without this
+ * traversal, navigating BACK to Phase 2 or 3 from Phase 4 or 5
+ * (Yonah's 2026-06-01 "back to clips" report) lands on the compose
+ * job's empty clip set and renders nothing.
+ *
+ * Returns the input id if it's already a plan-only / root (regenOfJobId
+ * is null), or null if the chain breaks.
+ */
+function resolvePlanJobId(
+  jobsForState: ShellData['jobsForState'],
+  jobId: string | null,
+): string | null {
+  if (!jobId) return null;
+  let current: string | null = jobId;
+  const seen = new Set<string>();
+  while (current !== null) {
+    if (seen.has(current)) return null; // cycle guard, shouldn't happen
+    seen.add(current);
+    const job = jobsForState.find((j) => j.id === current);
+    if (!job) return null;
+    if (!job.regenOfJobId) return current; // root reached
+    current = job.regenOfJobId;
+  }
+  return null;
+}
+
 interface PageProps {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -149,10 +183,17 @@ async function PhaseBody({
   // Phase 2: Plan review
   // -------------------------------------------------------------------------
   if (showDraftView && phase === 2) {
-    const draftJobId =
+    const stateDraftJobId =
       state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
         ? state.draftJobId
         : null;
+    // Same plan-only-ancestor resolution as Phase 3 — the clipPlanId
+    // and clip metadata live on the plan-only root, not on the
+    // compose/clips-only descendants. Navigating BACK to Phase 2 from
+    // Phase 4 used to hit the compose job and fall into an infinite
+    // "Starting clip plan…" spinner because compose jobs have no
+    // clipPlanId. (2026-06-01 audit alongside the Phase 3 fix.)
+    const draftJobId = resolvePlanJobId(jobsForState, stateDraftJobId);
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const clipPlanId = draftJobForState?.clipPlanId ?? null;
 
@@ -346,12 +387,21 @@ async function PhaseBody({
   // Phase 3: Clips
   // -------------------------------------------------------------------------
   if (showDraftView && phase === 3) {
-    const draftJobId =
+    const stateDraftJobId =
       state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
         ? state.draftJobId
         : null;
+    // Resolve to plan-only ancestor — Phase 3 reads clip metadata from
+    // the plan-only root, not the compose/clips-only descendants. See
+    // resolvePlanJobId() docstring for the rationale.
+    const draftJobId = resolvePlanJobId(jobsForState, stateDraftJobId);
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
-    const draftVideoId = draftJobForState?.videoId ?? null;
+    // For the videoId we still want the latest compose's video (the
+    // stitched mp4 surface used by Phase 3 navigation/preview), not
+    // the plan-only's (which is null). Look it up from the original
+    // state.draftJobId.
+    const stateJobForVideo = jobsForState.find((jj) => jj.id === stateDraftJobId);
+    const draftVideoId = stateJobForVideo?.videoId ?? draftJobForState?.videoId ?? null;
 
     if (!draftVideoId || !draftJobId) {
       return (

@@ -56,6 +56,13 @@ export type ShellData = {
     scriptId: string | null;
     videoId: string | null;
     clipPlanId: string | null;
+    /** Parent job for clips-only / compose / regen jobs. NULL on the
+     *  plan-only root. Surfaced so page.tsx can resolve back to the
+     *  plan-only ancestor when entering Phase 2 or Phase 3 from a
+     *  later phase — without this, "Back to clips" from Phase 4 lands
+     *  on the compose job, which has zero plan clips, and the page
+     *  renders empty (2026-06-01 Yonah report). */
+    regenOfJobId: string | null;
     completedAt: string | null;
     triggeredAt: string;
   }>;
@@ -152,6 +159,7 @@ export async function fetchPageShellData(
       scriptId: j.script_id,
       videoId: video?.id ?? null,
       clipPlanId: clipPlanByJobId.get(j.id) ?? null,
+      regenOfJobId: j.regen_of_job_id,
       completedAt: j.completed_at,
       triggeredAt: j.triggered_at,
     };
