@@ -33,18 +33,26 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
     const parsha = await getParshaBySlug(slug);
     if (!parsha) return { title: "Teaching" };
-    const excerpt = parsha.atightScript
-      ? parsha.atightScript.slice(0, 160).replace(/\s+\S*$/, "") + "…"
-      : `Parshat ${parsha.name}. A Torah Tai Chi teaching — where tradition meets the body.`;
+    // Prefer the operator-set creative copy from the dashboard editor.
+    // videoSubtitle is the per-video teaching headline ("Who Moved My
+    // Cloud?…"); videoDescription is the marketing body. Both fall back
+    // to derived defaults when the operator hasn't set them.
+    const excerpt = parsha.videoDescription
+      ?? (parsha.atightScript
+        ? parsha.atightScript.slice(0, 160).replace(/\s+\S*$/, "") + "…"
+        : `Parshat ${parsha.name}. A Torah Tai Chi teaching — where tradition meets the body.`);
+    const headlineTitle = parsha.videoSubtitle
+      ? `${parsha.name} · ${parsha.videoSubtitle}`
+      : `${parsha.name} · Torah Tai Chi`;
     const ogImageUrl = `/og/parsha/${slug}`;
     return {
-      title: parsha.name,
+      title: parsha.videoSubtitle ?? parsha.name,
       description: excerpt,
       alternates: {
         canonical: `https://torahtaichi.com/videos/${slug}`,
       },
       openGraph: {
-        title: `${parsha.name} · Torah Tai Chi`,
+        title: headlineTitle,
         description: excerpt,
         type: "video.other",
         url: `https://torahtaichi.com/videos/${slug}`,
@@ -53,7 +61,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       },
       twitter: {
         card: "summary_large_image",
-        title: `${parsha.name} · Torah Tai Chi`,
+        title: headlineTitle,
         description: excerpt,
       },
     };
@@ -153,6 +161,9 @@ export default async function VideoDetailPage({ params }: Props) {
               </div>
             </div>
             <div className="vd-meta">{BOOK_SHORT[parsha.book] ?? parsha.book}</div>
+            {parsha.videoSubtitle && (
+              <p className="vd-subtitle">{parsha.videoSubtitle}</p>
+            )}
           </header>
 
           <div className="vd-player-wrap stagger">

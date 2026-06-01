@@ -26,6 +26,17 @@ export interface Parsha {
    *  the snapshot wasn't written. */
   atightScript?: string;
   atightTitle?: string;
+  /** Creative subtitle the operator set in the dashboard editor — the
+   *  per-video teaching headline (e.g. "Who Moved My Cloud? — Torah
+   *  Tai Chi and Managing Change"). Distinct from `name` which is just
+   *  the parsha's canonical Hebrew/English name. Snapshotted from
+   *  videos.subtitle at publish time. Null when the operator hasn't
+   *  set one. */
+  videoSubtitle?: string | null;
+  /** Marketing/description copy for the video, snapshotted from
+   *  videos.description at publish time. Used by metadata + (optional)
+   *  page-body lead paragraph. Null when unset. */
+  videoDescription?: string | null;
   /** Feature B: full public URL for the video thumbnail, or null if none yet */
   thumbUrl?: string | null;
   /** Public URL for the rendered mp4 — present iff the video has been
@@ -99,6 +110,8 @@ export async function getAllParshiot(): Promise<Parsha[]> {
   const spokenScriptMap = new Map<string, string | null>();
   const postUrlsMap = new Map<string, Parsha["postUrls"]>();
   const titleMap = new Map<string, string | null>();
+  const subtitleMap = new Map<string, string | null>();
+  const descriptionMap = new Map<string, string | null>();
   const videoPublishedAtMap = new Map<string, string>();
   for (const v of (videosResult.data ?? []) as Array<{
     parsha_id: string | null;
@@ -124,6 +137,8 @@ export async function getAllParshiot(): Promise<Parsha[]> {
     // Fall back to A-tight script title for old rows where the snapshot
     // wasn't yet written.
     titleMap.set(v.parsha_id, v.title ?? null);
+    subtitleMap.set(v.parsha_id, v.subtitle ?? null);
+    descriptionMap.set(v.parsha_id, v.description ?? null);
     if (v.created_at) videoPublishedAtMap.set(v.parsha_id, v.created_at);
   }
 
@@ -147,6 +162,8 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       // actual voiceovers); fall back to the draft when none exists yet.
       atightScript: spoken ?? script?.draft_text,
       atightTitle: resolvedTitle,
+      videoSubtitle: subtitleMap.get(row.id) ?? null,
+      videoDescription: descriptionMap.get(row.id) ?? null,
       thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
       videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
       websiteCaption: captionMap.get(row.id) ?? null,
@@ -222,6 +239,8 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     kind: ((parshaData as { kind?: string }).kind === 'holiday' ? 'holiday' : 'parsha') as 'parsha' | 'holiday',
     atightScript: spoken ?? atightFallback.data?.draft_text,
     atightTitle: resolvedTitle,
+    videoSubtitle: videoData?.subtitle ?? null,
+    videoDescription: videoData?.description ?? null,
     thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
     videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
     websiteCaption: videoData?.website_caption ?? null,
