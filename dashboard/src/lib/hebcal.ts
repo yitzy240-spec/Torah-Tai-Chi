@@ -49,69 +49,16 @@ function holidaySlugFor(title: string): string | null {
   return null;
 }
 
-export const HEBCAL_TO_SLUG: Record<string, string> = {
-  "Bereshit":           "bereishit",
-  "Noach":              "noach",
-  "Lech-Lecha":         "lech-lecha",
-  "Vayera":             "vayera",
-  "Chayei Sara":        "chayei-sarah",
-  "Toldot":             "toldot",
-  "Vayetzei":           "vayetzei",
-  "Vayishlach":         "vayishlach",
-  "Vayeshev":           "vayeshev",
-  "Miketz":             "miketz",
-  "Vayigash":           "vayigash",
-  "Vayechi":            "vayechi",
-  "Shemot":             "shemot",
-  "Vaera":              "vaera",
-  "Bo":                 "bo",
-  "Beshalach":          "beshalach",
-  "Yitro":              "yitro",
-  "Mishpatim":          "mishpatim",
-  "Terumah":            "terumah",
-  "Tetzaveh":           "tetzaveh",
-  "Ki Tisa":            "ki-tisa",
-  "Vayakhel":           "vayakhel",
-  "Pekudei":            "pekudei",
-  "Vayakhel-Pekudei":   "vayakhel",
-  "Vayikra":            "vayikra",
-  "Tzav":               "tzav",
-  "Shmini":             "shemini",
-  "Tazria":             "tazria",
-  "Metzora":            "metzora",
-  "Tazria-Metzora":     "tazria",
-  "Achrei Mot":         "acharei-mot",
-  "Kedoshim":           "kedoshim",
-  "Achrei Mot-Kedoshim":"acharei-mot",
-  "Emor":               "emor",
-  "Behar":              "behar",
-  "Bechukotai":         "bechukotai",
-  "Behar-Bechukotai":   "behar",
-  "Bamidbar":           "bamidbar",
-  "Nasso":              "naso",
-  "Beha'alotcha":       "behaalotcha",
-  "Sh'lach":            "shelach",
-  "Korach":             "korach",
-  "Chukat":             "chukat",
-  "Balak":              "balak",
-  "Chukat-Balak":       "chukat",
-  "Pinchas":            "pinchas",
-  "Matot":              "matot",
-  "Masei":              "masei",
-  "Matot-Masei":        "matot",
-  "Devarim":            "devarim",
-  "Vaetchanan":         "vaetchanan",
-  "Eikev":              "eikev",
-  "Re'eh":              "reeh",
-  "Shoftim":            "shoftim",
-  "Ki Teitzei":         "ki-teitzei",
-  "Ki Tavo":            "ki-tavo",
-  "Nitzavim":           "nitzavim",
-  "Vayeilech":          "vayeilech",
-  "Nitzavim-Vayeilech": "nitzavim",
-  "Ha'Azinu":           "haazinu",
-  "Vezot Haberakhah":   "vezot-haberachah",
-};
+// The slug map + punctuation-insensitive resolver lives in a Next-free
+// sibling module so it can be unit-tested directly (next/cache breaks
+// node --test imports).
+export {
+  HEBCAL_TO_SLUG,
+  resolveParshaSlug,
+  getUnresolvedHebcalNames,
+  _resetUnresolvedHebcalNamesForTest,
+} from './hebcal-slug';
+import { resolveParshaSlug } from './hebcal-slug';
 
 function combinedPartner(title: string): string | undefined {
   if (!title.includes("-")) return undefined;
@@ -128,7 +75,7 @@ interface HebcalItem {
 
 function parshaFromItem(item: HebcalItem, holidays: HebcalItem[]): ShabbatParsha | null {
   const rawName = item.title.replace(/^Parashat\s+/, "").replace(/^Shabbat\s+/, "").trim();
-  const slug = HEBCAL_TO_SLUG[rawName];
+  const slug = resolveParshaSlug(item.title);
   if (!slug) return null;
 
   const holiday = holidays.find((h) => h.category === "holiday")?.title;
