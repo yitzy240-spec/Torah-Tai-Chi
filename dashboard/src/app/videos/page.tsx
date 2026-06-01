@@ -63,6 +63,14 @@ async function getVideoCards(): Promise<VideoCard[]> {
 
     if (row.parsha_id && PARSHA_DRAFT_KINDS.has(kind)) {
       if (seenParshaIds.has(row.parsha_id)) continue; // latest-per-parsha only
+      // Only show parshiot where actual work happened: a video must
+      // exist OR a job is currently in flight. Otherwise we surface
+      // "plan generated but never rendered" parshiot as "Video ready",
+      // which Yonah hit 2026-06-01 (Beshalach, Pekudei, Shemini, Yitro,
+      // etc. all flashed up as ready when they weren't).
+      // These plan-only-stub parshiot are still reachable from /parshiot;
+      // they just don't deserve a card in the "Videos" surface.
+      if (!video && state !== 'in_flight') continue;
       seenParshaIds.add(row.parsha_id);
       cards.push({
         key: `parsha:${row.parsha_id}`,
