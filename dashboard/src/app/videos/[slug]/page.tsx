@@ -561,6 +561,13 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
   const sp = await searchParams;
 
   const continueParam = sp.continue === '1';
+  // Phase 3 was retired 2026-06-01 — it was a slimmer post-stitch
+  // editor that confused operators expecting the same surface as Phase
+  // 2. Any ?phase=3 URL (back buttons, bookmarks, stepper links) now
+  // redirects to ?phase=2, the canonical full editor.
+  if (Number(sp.phase) === 3) {
+    redirect(`/videos/${slug}?phase=2`);
+  }
   const phaseParam =
     Number.isInteger(Number(sp.phase)) &&
     Number(sp.phase) >= 1 &&

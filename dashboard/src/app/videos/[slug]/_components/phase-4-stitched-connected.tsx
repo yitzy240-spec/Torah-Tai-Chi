@@ -26,7 +26,13 @@ export function Phase4StitchedConnected({ parshaSlug, ...rest }: Props) {
   }
 
   function handleBack() {
-    router.push(`/videos/${parshaSlug}?phase=3`);
+    // Phase 3 used to be a slimmer post-stitch iteration surface
+    // (motion picker + version flip + re-render only). Operators
+    // expect the SAME editor they used pre-stitch (voiceover, scene
+    // direction, refs, motion, versions) — splitting them into two
+    // surfaces wasn't serving a real workflow (Yonah 2026-06-01).
+    // "Back to clips" now lands on Phase 2, the full editor.
+    router.push(`/videos/${parshaSlug}?phase=2`);
     router.refresh();
   }
 

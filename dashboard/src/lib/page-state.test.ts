@@ -1,7 +1,7 @@
 // dashboard/src/lib/page-state.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectPageState } from './page-state';
+import { selectPageState } from './page-state.ts';
 
 const base = { jobs: [], videos: [], posts: [], clipsByJobId: {}, hasScripts: false };
 
@@ -27,7 +27,9 @@ test('draft-in-progress: in-flight job, no live video -> draft', () => {
     clipsByJobId: { j1: [{ storagePath: '/clips/0.mp4' }] },
   });
   assert.equal(s.kind, 'draft-in-progress');
-  if (s.kind === 'draft-in-progress') assert.equal(s.phase, 3);
+  // Phase 3 was retired 2026-06-01 — clips with renders but no
+  // stitched video now resolve to Phase 2 (the full editor).
+  if (s.kind === 'draft-in-progress') assert.equal(s.phase, 2);
 });
 
 test('live-at-rest: published video, no draft -> live-at-rest', () => {

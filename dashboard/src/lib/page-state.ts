@@ -107,7 +107,12 @@ function phaseFor(
   clips: Array<{ storagePath: string | null }>,
 ): DraftPhase {
   if (job.videoId) return 4; // Stitched video exists
-  if (clips.length > 0 && clips.some((c) => c.storagePath)) return 3; // Some clips rendered
+  // Phase 3 was retired 2026-06-01 — it was a slimmer post-stitch
+  // editor that confused operators expecting the same surface as
+  // Phase 2. Clips that have rendered but not yet been composed now
+  // resolve to Phase 2 (the full editor with version chips), where
+  // the operator can keep iterating or trigger compose.
+  if (clips.length > 0 && clips.some((c) => c.storagePath)) return 2;
   // Plan-only job (queued / generating_plan / done) → Phase 2.
   // This is the "plan being generated, then reviewed" surface — clipPlanId
   // may be null while Modal is still generating; the Phase 2 UI handles that
