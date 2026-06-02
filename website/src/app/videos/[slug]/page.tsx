@@ -16,16 +16,24 @@ interface Props {
 }
 
 export async function generateStaticParams() {
+  // Pre-generate ONLY parshiot/holidays that have a published video at
+  // build time. With dynamicParams=true (set at the top of this file),
+  // any other slug a visitor reaches generates on-demand and caches per
+  // the revalidate window. This was the build-time fix for repeated
+  // /videos/pesach and /videos/simchat-torah SSG timeouts (Supabase
+  // round-trips for those specific slugs occasionally exceed the 60 s
+  // worker cap, failing the whole Vercel deploy; Yonah 2026-06-02 saw
+  // my /videos page-filter changes not land because of this).
   try {
     const parshiot = await getAllParshiot();
-    if (parshiot.length > 0) {
-      return parshiot.map((p) => ({ slug: p.slug }));
+    const withVideo = parshiot.filter((p) => p.videoPublishedAt);
+    if (withVideo.length > 0) {
+      return withVideo.map((p) => ({ slug: p.slug }));
     }
   } catch {
-    // fall through to static list
+    // fall through to empty array — every page generates on demand
   }
-  // Fallback: use all known parsha slugs from the Hebrew names map
-  return ALL_PARSHA_SLUGS.map((slug) => ({ slug }));
+  return [];
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
