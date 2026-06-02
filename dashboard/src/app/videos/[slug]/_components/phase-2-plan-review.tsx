@@ -65,7 +65,8 @@ import { TierPickerSheet, type TierChoice } from './_shared/tier-picker-sheet';
 import { BottomSheet } from './bottom-sheet';
 import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
-import type { ClipVersion } from '../_data/phase-2-data';
+import type { ClipVersion, PendingRender } from '../_data/phase-2-data';
+import { cancelJob } from '@/app/actions/cancel-job';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { composeVideo } from '@/app/actions/compose-video';
 
@@ -94,6 +95,11 @@ interface Props {
    *  + player. Separate from initialClips so useRealtimeRows refetches
    *  don't clobber the player; the merge happens at display time. */
   initialVersionsByIndex: Record<number, ClipVersion[]>;
+  /** In-flight clips-only renders per index. Each clip card seeds its
+   *  rendering state from this on mount, so a refresh during an active
+   *  render no longer wipes the spinner (and stops the operator from
+   *  re-firing Modal on a clip that's still going). */
+  initialPendingByIndex: Record<number, PendingRender>;
   initialResolution: Resolution; // default tier comes from the plan-only job (or fallback)
   initialModelTier: ModelTier;
   moves: TaiChiMove[]; // server-fetched library, passed in from page-new
@@ -108,6 +114,7 @@ export function Phase2PlanReview({
   clipPlanId,
   initialClips,
   initialVersionsByIndex,
+  initialPendingByIndex,
   initialResolution,
   initialModelTier,
   moves,
@@ -313,6 +320,7 @@ export function Phase2PlanReview({
           prevRendered={i === 0 || !!clips[i - 1].storage_path}
           prevIndex={i === 0 ? null : i - 1}
           tier={tier}
+          initialPending={initialPendingByIndex[c.index] ?? null}
         />
       ))}
 
@@ -394,9 +402,14 @@ interface CardProps {
   prevRendered: boolean; // true if the prior clip has an mp4 (or this is clip 0)
   prevIndex: number | null; // 0-based index of the prior clip, null on clip 0
   tier: TierChoice; // chosen render tier — passed into triggerClips
+  /** Server-fetched in-flight render for this index, if any. The card
+   *  seeds its spinner state from this so a refresh during render shows
+   *  the spinner instead of an idle Re-render button. Null when no
+   *  clips-only job is in flight for this index. */
+  initialPending: PendingRender | null;
 }
 
-function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, versions, prevRendered, prevIndex, tier }: CardProps) {
+function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, versions, prevRendered, prevIndex, tier, initialPending }: CardProps) {
   const router = useRouter();
   const [motionPickerOpen, setMotionPickerOpen] = useState(false);
 
@@ -460,9 +473,20 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   // can resolve by refreshing or tapping Generate again). Showing
   // elapsed time + a soft 'taking longer than usual' hint after 5 min
   // gives them the context without us pretending to know it failed.
-  const [thisRendering, setThisRendering] = useState(false);
-  const [liveJobId, setLiveJobId] = useState<string | null>(null);
-  const [renderStartedAt, setRenderStartedAt] = useState<number | null>(null);
+  // Seed render state from the server-fetched in-flight job, if any.
+  // Without this, a refresh mid-render wipes the spinner (the previous
+  // local state never survived) and the card snaps back to an enabled
+  // Re-render button — Yonah's 2026-06-02 Beha'alotcha clip-4 report
+  // (he refreshed, saw the OLD version with a clickable Re-render, and
+  // was one tap away from spending a second Kie render on the same clip).
+  const [thisRendering, setThisRendering] = useState<boolean>(() => initialPending !== null);
+  const [liveJobId, setLiveJobId] = useState<string | null>(
+    () => initialPending?.jobId ?? null,
+  );
+  const [renderStartedAt, setRenderStartedAt] = useState<number | null>(
+    () => (initialPending ? new Date(initialPending.startedAt).getTime() : null),
+  );
+  const [cancelling, setCancelling] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   // Persistent failure surface — mirrors Phase 3's failed-card pattern.
   // The 12s toast in the liveJob effect is the immediate signal; this
@@ -518,6 +542,14 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       router.refresh();
       return;
     }
+    if (liveJob.status === 'cancelled') {
+      setThisRendering(false);
+      setLiveJobId(null);
+      setRenderStartedAt(null);
+      setCancelling(false);
+      router.refresh();
+      return;
+    }
     if (liveJob.status === 'failed') {
       setThisRendering(false);
       setLiveJobId(null);
@@ -539,6 +571,27 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       });
     }
   }, [liveJob, clip.index, router]);
+
+  // Cancel the in-flight render. The cancelJob action just marks the
+  // jobs row as 'cancelled' — Modal keeps running to completion (Modal
+  // can't kill a function from outside cleanly), so any cost already
+  // spent on Kie is sunk. The realtime listener picks up the status
+  // change and clears the spinner. We surface this honestly in the
+  // toast so Yonah doesn't expect an instant Modal stop.
+  async function cancelThisRender() {
+    if (!liveJobId || cancelling) return;
+    setCancelling(true);
+    const result = await cancelJob(liveJobId);
+    if (result.error) {
+      setCancelling(false);
+      toast.error("Couldn't cancel.", { description: result.error });
+      return;
+    }
+    toast.success('Render dismissed.', {
+      description: 'Modal may keep running in the background — any spent credits are sunk.',
+      duration: 6000,
+    });
+  }
 
   async function generateThisClip() {
     if (thisRendering) return;
@@ -1102,6 +1155,28 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
             </button>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
+          {thisRendering && liveJobId && (
+            <div style={{ marginTop: 6, textAlign: 'right' }}>
+              <button
+                type="button"
+                onClick={cancelThisRender}
+                disabled={cancelling}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: '4px 0',
+                  fontSize: 11.5,
+                  color: 'var(--ink-500)',
+                  textDecoration: 'underline',
+                  fontFamily: 'var(--ff-display)',
+                  fontStyle: 'italic',
+                  cursor: cancelling ? 'wait' : 'pointer',
+                }}
+              >
+                {cancelling ? 'Cancelling…' : 'Cancel render'}
+              </button>
+            </div>
+          )}
           {thisRendering && elapsedHint && (
             <div
               style={{
@@ -1222,6 +1297,28 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
             )}
           </button>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+      {!clip.storage_path && thisRendering && liveJobId && (
+        <div style={{ marginTop: 6, textAlign: 'right' }}>
+          <button
+            type="button"
+            onClick={cancelThisRender}
+            disabled={cancelling}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: '4px 0',
+              fontSize: 11.5,
+              color: 'var(--ink-500)',
+              textDecoration: 'underline',
+              fontFamily: 'var(--ff-display)',
+              fontStyle: 'italic',
+              cursor: cancelling ? 'wait' : 'pointer',
+            }}
+          >
+            {cancelling ? 'Cancelling…' : 'Cancel render'}
+          </button>
         </div>
       )}
       {thisRendering && elapsedHint && (

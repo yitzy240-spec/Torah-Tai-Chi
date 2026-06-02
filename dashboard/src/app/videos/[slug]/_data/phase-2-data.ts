@@ -34,6 +34,16 @@ export type ClipVersion = {
   modelTier: string | null;
 };
 
+/** An in-flight clips-only render targeting this clip index. Surfaced
+ *  from the server so a tab reload (or a tab open from cold) still
+ *  shows the spinner instead of dropping the operator back onto a
+ *  Re-render button that re-fires Modal. Newest job wins if more than
+ *  one is pending for the same index. */
+export type PendingRender = {
+  jobId: string;
+  startedAt: string;
+};
+
 export type Phase2Props = {
   parshaSlug: string;
   jobId: string;
@@ -43,6 +53,10 @@ export type Phase2Props = {
    *  version chips + player source. Lives separately from initialClips
    *  so useRealtimeRows refetches don't clobber the overlay. */
   initialVersionsByIndex: Record<number, ClipVersion[]>;
+  /** In-flight clips-only renders per index. The clip card seeds its
+   *  rendering spinner from this on mount so refresh-mid-render no
+   *  longer shows an idle Re-render button. */
+  initialPendingByIndex: Record<number, PendingRender>;
   initialResolution: Resolution;
   initialModelTier: ModelTier;
   moves: TaiChiMove[];
@@ -73,20 +87,35 @@ export async function getPhase2Props(
   // invisible to Phase 2's chip row. Mirror Phase 3's data fetcher
   // (phase-3-data.ts:7-14): rendered versions from ANY child job,
   // identified solely by regen_of_job_id + status='done'.
-  const [clipsResult, jobDetailsResult, moves, clipsOnlyJobsResult] = await Promise.all([
-    supabase
-      .from('clips')
-      .select('id, index, voiceover, visual_prompt, duration_s, storage_path, motion_ref_slug, reference_image_paths, chain_broken')
-      .eq('job_id', draftJobId)
-      .order('index'),
-    supabase.from('jobs').select('resolution, model_tier').eq('id', draftJobId).single(),
-    listTaiChiMoves(),
-    supabase
-      .from('jobs')
-      .select('id')
-      .eq('regen_of_job_id', draftJobId)
-      .eq('status', 'done'),
-  ]);
+  // Pending clips-only jobs use the same regen_of_job_id link as the
+  // done jobs above. We exclude terminal statuses (done/failed/cancelled)
+  // — anything else (queued, generating_clips, etc.) is in-flight and
+  // the operator MUST see a spinner for it. Without this query, a refresh
+  // mid-render wipes the local React spinner state and the card snaps
+  // back to "Re-render", inviting the operator to fire Modal a second
+  // time on the same clip (Yonah's 2026-06-02 Beha'alotcha clip-4 report).
+  const [clipsResult, jobDetailsResult, moves, clipsOnlyJobsResult, pendingJobsResult] =
+    await Promise.all([
+      supabase
+        .from('clips')
+        .select('id, index, voiceover, visual_prompt, duration_s, storage_path, motion_ref_slug, reference_image_paths, chain_broken')
+        .eq('job_id', draftJobId)
+        .order('index'),
+      supabase.from('jobs').select('resolution, model_tier').eq('id', draftJobId).single(),
+      listTaiChiMoves(),
+      supabase
+        .from('jobs')
+        .select('id')
+        .eq('regen_of_job_id', draftJobId)
+        .eq('status', 'done'),
+      supabase
+        .from('jobs')
+        .select('id, clip_indexes, triggered_at')
+        .eq('regen_of_job_id', draftJobId)
+        .eq('kind', 'clips-only')
+        .not('status', 'in', '(done,failed,cancelled)')
+        .order('triggered_at', { ascending: false }),
+    ]);
 
   // Build the per-index version list: every rendered clip row under any
   // done child job (any kind). Ordered newest-first so the default
@@ -150,6 +179,25 @@ export async function getPhase2Props(
   }));
   const initialVersionsByIndex: Record<number, ClipVersion[]> = Object.fromEntries(versionsByIndex);
 
+  // Walk pending jobs newest-first; first job to claim an index wins. A
+  // clips-only row with clip_indexes=NULL means "all clips" (the bulk
+  // "Generate all"/"Generate remaining" path), so we stamp every plan
+  // index. The loop is small (in practice 0 or 1 pending jobs) so the
+  // O(jobs * clips) walk is negligible.
+  const planIndexes = initialClips.map((c) => c.index);
+  const initialPendingByIndex: Record<number, PendingRender> = {};
+  for (const j of pendingJobsResult.data ?? []) {
+    const indexes =
+      (j.clip_indexes as number[] | null) === null ? planIndexes : (j.clip_indexes as number[]);
+    for (const idx of indexes) {
+      if (initialPendingByIndex[idx]) continue; // newer job already claimed
+      initialPendingByIndex[idx] = {
+        jobId: j.id as string,
+        startedAt: j.triggered_at as string,
+      };
+    }
+  }
+
   const draftJobDetails = jobDetailsResult.data;
   const resolution = (draftJobDetails?.resolution as Resolution | null) ?? '720p';
   const modelTier = (draftJobDetails?.model_tier as ModelTier | null) ?? 'standard';
@@ -160,6 +208,7 @@ export async function getPhase2Props(
     clipPlanId,
     initialClips,
     initialVersionsByIndex,
+    initialPendingByIndex,
     initialResolution: resolution,
     initialModelTier: modelTier,
     moves,
