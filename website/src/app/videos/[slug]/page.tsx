@@ -164,6 +164,9 @@ export default async function VideoDetailPage({ params }: Props) {
             {parsha.videoSubtitle && (
               <p className="vd-subtitle">{parsha.videoSubtitle}</p>
             )}
+            {parsha.videoDescription && (
+              <p className="vd-description">{parsha.videoDescription}</p>
+            )}
           </header>
 
           <div className="vd-player-wrap stagger">

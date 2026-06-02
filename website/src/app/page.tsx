@@ -55,11 +55,17 @@ export default async function HomePage() {
     .filter((p) => !!p.thumbUrl)
     .slice(0, 8)
     .map((p) => {
-      // Prefer the marketing-voice website caption (mirrored from the
-      // Instagram caption). Fall back to the spoken script when no
-      // caption is set yet. Trim either source to the end of the first
-      // sentence past 90 chars so previews don't chop mid-word.
-      const text = (p.websiteCaption ?? p.atightScript ?? '').trim();
+      // Source priority for the carousel preview:
+      //   1. videoDescription — what Yonah actively edits in the dashboard
+      //      editor's Site Info card. ALWAYS wins when set, even if a
+      //      website_caption exists, so operator edits flow to the
+      //      homepage in real time (Yonah 2026-06-02: "the description
+      //      isn't updating on the card — different texts").
+      //   2. websiteCaption — auto-snapshotted from the Instagram caption.
+      //   3. atightScript — the spoken-script snapshot.
+      // Trim to the end of the first sentence past 90 chars so previews
+      // don't chop mid-word.
+      const text = (p.videoDescription ?? p.websiteCaption ?? p.atightScript ?? '').trim();
       let preview = text;
       if (preview.length > 200) {
         const minCut = preview.slice(0, 90);
