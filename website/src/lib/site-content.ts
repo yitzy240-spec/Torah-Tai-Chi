@@ -38,10 +38,13 @@ const FALLBACKS: SiteContentMap = {
   'home.about.body':
     'Torah Tai Chi lives at the intersection of Jewish wisdom and the Chinese internal arts. Each week we draw a teaching from Torah \u2014 sometimes the parsha, sometimes a holiday, sometimes an idea worth turning over \u2014 about character, restraint, holiness, and each carries a parallel in the body: rooting, yielding, releasing tension without collapsing structure.',
   // ── VIDEOS LIST ───────────────────────────────────────────────────
+  // Yonah-authored copy (2026-06-02). "The Teachings" kicker stays;
+  // title + subtitle reframed to cover holidays/special videos, not
+  // just the 54 parshiot.
   'videos.kicker': 'THE TEACHINGS',
-  'videos.title': 'The weekly teachings',
+  'videos.title': 'The annual Torah Tai Chi cycle of wisdom',
   'videos.subtitle':
-    'Fifty-four parshiot. One cycle through the Torah, told through the body.',
+    'Weekly Torah portion and holiday videos to build your Torah knowledge.',
   // ── VIDEO DETAIL ──────────────────────────────────────────────────
   'video_detail.back_link': '\u2190 All teachings',
   'video_detail.script.kicker': 'The teaching',

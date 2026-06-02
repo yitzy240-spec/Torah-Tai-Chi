@@ -451,6 +451,11 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 @media(max-width:700px){.page-header{padding:40px 20px 0}}
 .page-kicker{font-family:var(--ff-body);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cedar-600);margin-bottom:16px;}
 .page-header h1{font-family:var(--ff-display);font-weight:400;font-size:clamp(36px,5vw,60px);line-height:1.05;letter-spacing:-.03em;margin:0 0 16px 0;color:var(--ink-900);font-variation-settings:"opsz" 144,"SOFT" 20;}
+/* Modifier for pages with longer titles that need to fit on one line
+   (e.g. /videos: "The annual Torah Tai Chi cycle of wisdom"). Drops
+   the upper clamp so desktop doesn't overflow; preserves the lower
+   clamp so mobile stays readable. */
+.page-header--compact h1{font-size:clamp(28px,3.6vw,44px);}
 .page-subtitle{font-family:var(--ff-reading);font-style:italic;font-size:18px;line-height:1.5;color:var(--ink-500);max-width:52ch;margin:0 auto;font-variation-settings:"opsz" 18,"SOFT" 50;}
 
 /* ===== FILTER BAR ===== */

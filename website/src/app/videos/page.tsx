@@ -52,11 +52,12 @@ export default async function VideosPage() {
     hebrewName: p.hebrewName,
     thumbUrl: p.thumbUrl ?? null,
     isCurrentWeek: p.slug === currentWeekSlug,
+    videoPublishedAt: p.videoPublishedAt ?? null,
   }));
 
   return (
     <>
-      <header className="page-header stagger">
+      <header className="page-header page-header--compact stagger">
         <div className="page-kicker">{content['videos.kicker']}</div>
         <h1>{content['videos.title']}</h1>
         <p className="page-subtitle">

@@ -11,6 +11,10 @@ interface ParshaItem {
   hebrewName: string;
   thumbUrl?: string | null;
   isCurrentWeek?: boolean;
+  /** ISO timestamp the parsha's video was published (videos.created_at).
+   *  Drives the "All" tab's reverse-chronological sort — most recently
+   *  produced video first (Yonah 2026-06-02). Null when no video yet. */
+  videoPublishedAt?: string | null;
 }
 
 interface VideosFilterProps {
@@ -46,7 +50,19 @@ export default function VideosFilter({ parshiot }: VideosFilterProps) {
 
   const filtered =
     active === "All"
-      ? parshiot
+      // "All" → most recent video first, then anything else in canonical
+      // Torah order (Yonah 2026-06-02). Parshiot without a published
+      // video sink to the bottom in canonical order — they aren't dead
+      // links (the detail page still works), they just don't get
+      // priority over actual content.
+      ? [...parshiot].sort((a, b) => {
+          const aT = a.videoPublishedAt;
+          const bT = b.videoPublishedAt;
+          if (aT && bT) return bT.localeCompare(aT); // both have videos → newest first
+          if (aT && !bT) return -1; // a has video, b doesn't → a first
+          if (!aT && bT) return 1;  // b has video, a doesn't → b first
+          return 0; // neither has video → preserve canonical order
+        })
       : parshiot.filter((p) => normaliseBook(p.book) === active);
 
   return (
