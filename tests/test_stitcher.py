@@ -19,6 +19,12 @@ def _make_test_clip(path: Path, seconds: int = 2, color: str = "blue") -> None:
 
 @pytest.mark.slow
 def test_concat_clips_produces_expected_duration(tmp_path):
+    """Two-clip concat duration matches sum-of-sources PLUS one
+    still-frame prepend on the second clip. Old crossfade subtracted
+    overlap; new still-frame approach ADDS the prepend (no overlap,
+    no crossfade). For 2s + 3s sources with a 0.5s prepend on clip 2:
+    total ≈ 5.5s."""
+    from src.stitcher import _STILL_FRAME_PRE_S
     c1 = tmp_path / "a.mp4"
     c2 = tmp_path / "b.mp4"
     _make_test_clip(c1, seconds=2, color="blue")
@@ -28,34 +34,42 @@ def test_concat_clips_produces_expected_duration(tmp_path):
     result = concat_clips([c1, c2], out)
 
     assert result.exists()
-    # 2s + 3s - 0.3s crossfade = 4.7s
     probe = subprocess.run([
         "ffprobe", "-v", "error", "-show_entries",
         "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
         str(out)
     ], check=True, capture_output=True, text=True)
     duration = float(probe.stdout.strip())
-    # 2s + 3s - 0.5s crossfade = 4.5s
-    assert 4.2 <= duration <= 4.8
+    expected = 2 + 3 + _STILL_FRAME_PRE_S  # 5.5s
+    # ±0.2s tolerance for ffmpeg's frame-boundary rounding.
+    assert expected - 0.2 <= duration <= expected + 0.2
 
 
 @pytest.mark.slow
-def test_concat_single_clip_copies_through(tmp_path):
+def test_concat_single_clip_through(tmp_path):
+    """Single-clip path detones the audio (re-encodes) and writes to
+    dest. Output exists and is roughly the same duration as input —
+    file size differs from input because audio is re-encoded."""
     c1 = tmp_path / "only.mp4"
     _make_test_clip(c1, seconds=2, color="green")
     out = tmp_path / "out.mp4"
     concat_clips([c1], out)
     assert out.exists()
-    assert out.stat().st_size == c1.stat().st_size
+    probe = subprocess.run([
+        "ffprobe", "-v", "error", "-show_entries",
+        "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+        str(out)
+    ], check=True, capture_output=True, text=True)
+    assert 1.8 <= float(probe.stdout.strip()) <= 2.2
 
 
 @pytest.mark.slow
 def test_concat_four_clips_duration(tmp_path):
-    """Smoke test: four clips concat to roughly the sum-of-durations
-    minus the crossfade overlap. Crossfade-duration arithmetic asserted
-    a hardcoded 7.5s based on a 0.5s crossfade; the value has changed
-    with prompt iterations (now 0.35s fade) so we assert a loose
-    upper-bound instead."""
+    """Four-clip concat: sum-of-sources PLUS still-frame prepends on
+    clips 1, 2, 3 (the non-first clips). For 2 + 3 + 2 + 2 = 9s
+    source content + 3 × 0.5s prepends = 10.5s total. Loose bound to
+    survive prepend-duration tuning."""
+    from src.stitcher import _STILL_FRAME_PRE_S
     clips = []
     for i, (sec, color) in enumerate([(2, "blue"), (3, "red"), (2, "green"), (2, "yellow")]):
         p = tmp_path / f"c{i}.mp4"
@@ -69,6 +83,5 @@ def test_concat_four_clips_duration(tmp_path):
         str(out)
     ], check=True, capture_output=True, text=True)
     duration = float(probe.stdout.strip())
-    # Sum is 9s; crossfade overlap subtracts up to 3 * 0.5 = 1.5s.
-    # Loose bound that survives crossfade-duration tuning.
-    assert 7.0 <= duration <= 9.0
+    expected = 9 + 3 * _STILL_FRAME_PRE_S  # 10.5s for 0.5s prepend
+    assert expected - 0.3 <= duration <= expected + 0.3
