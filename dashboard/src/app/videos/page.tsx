@@ -7,6 +7,22 @@ const IN_FLIGHT_STATUSES = new Set([
   'generating_clips', 'stitching',
 ]);
 
+// Maximum time a job can sit in any in-flight status before we treat
+// it as abandoned and stop showing it on /videos. Beshalach had a
+// plan-only row stuck at status='queued' from 2026-05-20 — Modal
+// never picked up the trigger — and the videos page kept showing the
+// card as "generating" 13 days later (Yonah 2026-06-02 report).
+// 2h is generously above the longest legitimate pipeline run we've
+// ever observed (clips_only ~10-13 min, regen agent ~15 min).
+// Anything older is either dead or in such bad shape it shouldn't
+// pretend otherwise on a status dashboard.
+const STALE_IN_FLIGHT_MS = 2 * 60 * 60 * 1000;
+
+function isFreshInFlight(status: string, triggeredAt: string): boolean {
+  if (!IN_FLIGHT_STATUSES.has(status)) return false;
+  return Date.now() - new Date(triggeredAt).getTime() < STALE_IN_FLIGHT_MS;
+}
+
 interface JobRow {
   id: string;
   kind: string | null;
@@ -66,7 +82,7 @@ async function getVideoCards(): Promise<VideoCard[]> {
     if (!row.parsha_id) continue;
     const v = Array.isArray(row.videos) ? row.videos[0] : row.videos;
     if (v?.published_to_website) parshaHasPublished.add(row.parsha_id);
-    if (IN_FLIGHT_STATUSES.has(row.status)) parshaHasInFlight.add(row.parsha_id);
+    if (isFreshInFlight(row.status, row.triggered_at)) parshaHasInFlight.add(row.parsha_id);
   }
 
   const cards: VideoCard[] = [];
@@ -82,7 +98,7 @@ async function getVideoCards(): Promise<VideoCard[]> {
     const state: VideoCard['state'] =
       row.status === 'done' ? 'done'
       : row.status === 'failed' ? 'failed'
-      : IN_FLIGHT_STATUSES.has(row.status) ? 'in_flight'
+      : isFreshInFlight(row.status, row.triggered_at) ? 'in_flight'
       : 'other';
 
     if (row.parsha_id && PARSHA_DRAFT_KINDS.has(kind)) {
