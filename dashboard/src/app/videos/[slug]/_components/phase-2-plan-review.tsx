@@ -40,8 +40,9 @@
 // Realtime subscription on clips via useRealtimeRows.
 
 'use client';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useLocalStorageDraft } from '@/hooks/use-localstorage-draft';
 import { useOptimisticSave } from '@/hooks/use-optimistic-save';
@@ -133,6 +134,53 @@ export function Phase2PlanReview({
     modelTier: initialModelTier,
   });
   const [tierPickerOpen, setTierPickerOpen] = useState(false);
+  const router = useRouter();
+
+  // Progressive clearing for "Generate all" (and any other multi-clip
+  // pending render). The per-card job listener watches the JOB row, but
+  // the job only flips to status='done' once EVERY clip has rendered —
+  // so without this subscription, every card stays spinning for the
+  // full 10–13 minutes even if clip 1 actually finished after 2.
+  //
+  // We collect the unique in-flight job ids from initialPendingByIndex
+  // and subscribe to clip INSERTs under each one. Modal writes each
+  // rendered clip atomically with storage_path set (modal_app.py line
+  // 6058-6071), so every clip landing produces exactly one INSERT we
+  // care about. On INSERT we router.refresh() — the server re-runs
+  // phase-2-data, which now sees that clip in versionsByIndex and
+  // removes its index from initialPendingByIndex. The affected card's
+  // sync effect (see PlanClipCard) then clears its local spinner.
+  // (Yonah 2026-06-02: "they wont return at the same time, so they
+  // should clear up as they finish.")
+  const pendingJobIds = useMemo(
+    () =>
+      Array.from(
+        new Set(Object.values(initialPendingByIndex).map((p) => p.jobId)),
+      ),
+    [initialPendingByIndex],
+  );
+  useEffect(() => {
+    if (pendingJobIds.length === 0) return;
+    const supabase = createClient();
+    const channels = pendingJobIds.map((pjId) =>
+      supabase
+        .channel(`pending-clips:${pjId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'clips', filter: `job_id=eq.${pjId}` },
+          () => router.refresh(),
+        )
+        .subscribe(),
+    );
+    // Defensive 15s poll — matches the per-card useRealtimeRow pattern.
+    // If Realtime drops, we still pick up progressively-landed clips on
+    // the next tick. router.refresh dedupes its own pending request.
+    const pollId = setInterval(() => router.refresh(), 15_000);
+    return () => {
+      clearInterval(pollId);
+      channels.forEach((ch) => supabase.removeChannel(ch));
+    };
+  }, [pendingJobIds, router]);
 
   // Realtime tracks ONLY the plan-only's own clip rows (those carry the
   // editable metadata — voiceover, scene direction, motion ref, etc.).
@@ -519,6 +567,37 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       setLastFailedError(null);
     }
   }, [clip.storage_path]);
+
+  // Progressive-landing success path — a NEW version chip appeared in
+  // versionsByIndex while this card was rendering. Used by the
+  // Phase2-level realtime subscription on in-flight job ids: when
+  // Modal writes the clip row for our index, that sub fires
+  // router.refresh, the server re-fetches versions, and this effect
+  // catches the newcomer. Without this, all 13 cards in a "Generate
+  // all" stay spinning until the WHOLE job flips done — Yonah's
+  // 2026-06-02 ask: "they wont return at the same time, so they
+  // should clear up as they finish."
+  //
+  // Identified by versions[0].clipId, which is server-authoritative
+  // (newest-first ordering in phase-2-data). The ref starts at whatever
+  // version was already there on mount; any later transition to a
+  // different clipId is "ours" if we were rendering.
+  const latestVersionClipId = versions[0]?.clipId ?? null;
+  const lastSeenLatestVersionRef = useRef<string | null>(latestVersionClipId);
+  useEffect(() => {
+    const prev = lastSeenLatestVersionRef.current;
+    if (
+      latestVersionClipId !== null &&
+      latestVersionClipId !== prev &&
+      thisRendering
+    ) {
+      setThisRendering(false);
+      setLiveJobId(null);
+      setRenderStartedAt(null);
+      setLastFailedError(null);
+    }
+    lastSeenLatestVersionRef.current = latestVersionClipId;
+  }, [latestVersionClipId, thisRendering]);
 
   // Live elapsed-time tick — only runs while rendering, so we don't burn
   // setInterval cycles when nothing's in flight.

@@ -87,14 +87,24 @@ export async function getPhase2Props(
   // invisible to Phase 2's chip row. Mirror Phase 3's data fetcher
   // (phase-3-data.ts:7-14): rendered versions from ANY child job,
   // identified solely by regen_of_job_id + status='done'.
-  // Pending clips-only jobs use the same regen_of_job_id link as the
-  // done jobs above. We exclude terminal statuses (done/failed/cancelled)
-  // — anything else (queued, generating_clips, etc.) is in-flight and
-  // the operator MUST see a spinner for it. Without this query, a refresh
-  // mid-render wipes the local React spinner state and the card snaps
-  // back to "Re-render", inviting the operator to fire Modal a second
-  // time on the same clip (Yonah's 2026-06-02 Beha'alotcha clip-4 report).
-  const [clipsResult, jobDetailsResult, moves, clipsOnlyJobsResult, pendingJobsResult] =
+  // Child-job slate, both queries:
+  //   - versionJobs: ANY non-cancelled, non-failed child job. Includes
+  //     in-flight clips-only jobs because Modal writes per-clip rows
+  //     atomically with storage_path as each clip lands (modal_app.py
+  //     line 6058-6071). When the operator fires "Generate all", clip 1
+  //     can finish 4 min before clip 12 — we want clip 1's card to drop
+  //     its spinner and show the new version chip immediately, not wait
+  //     for the whole job to flip to status='done'. (Yonah 2026-06-02:
+  //     "they wont return at the same time, so they should clear up as
+  //     they finish.") Failed/cancelled jobs are excluded because their
+  //     output is partial-by-design — surfacing those partials as
+  //     versions would conflate "I picked this" with "this is from a
+  //     job I abandoned."
+  //   - pendingJobs: clips-only child jobs in a non-terminal status.
+  //     For each pending job × index, we'll later skip indexes that
+  //     already have a rendered clip — so the per-clip spinner clears
+  //     as soon as that clip lands, even while siblings still render.
+  const [clipsResult, jobDetailsResult, moves, versionJobsResult, pendingJobsResult] =
     await Promise.all([
       supabase
         .from('clips')
@@ -107,7 +117,7 @@ export async function getPhase2Props(
         .from('jobs')
         .select('id')
         .eq('regen_of_job_id', draftJobId)
-        .eq('status', 'done'),
+        .not('status', 'in', '(failed,cancelled)'),
       supabase
         .from('jobs')
         .select('id, clip_indexes, triggered_at')
@@ -118,27 +128,36 @@ export async function getPhase2Props(
     ]);
 
   // Build the per-index version list: every rendered clip row under any
-  // done child job (any kind). Ordered newest-first so the default
-  // selection (chips[0]) is always the most recent render. The job's
-  // resolution / model_tier are joined client-side after a separate
-  // jobs SELECT — using a PostgREST embed for this caused a schema-
-  // cache resolution failure in prod on the earlier clip_plans→jobs
-  // embed (Server Components render error 2026-05-26). Two queries by
-  // primary key are robust and effectively as fast.
-  const clipsOnlyJobIds = (clipsOnlyJobsResult.data ?? []).map((j) => j.id as string);
+  // non-aborted child job (any kind, any status that isn't failed or
+  // cancelled). Including in-flight jobs is intentional — Modal writes
+  // each clip atomically as it finishes (modal_app.py line 6058-6071),
+  // so clip 1 from an in-flight "Generate all" job shows up here as soon
+  // as it lands and the operator stops staring at a spinner on a card
+  // whose work is already done. Ordered newest-first so the default
+  // selection is always the most recent render. The job's resolution /
+  // model_tier are joined client-side after a separate jobs SELECT —
+  // using a PostgREST embed for this caused a schema-cache resolution
+  // failure in prod on the earlier clip_plans→jobs embed (Server
+  // Components render error 2026-05-26). Two queries by primary key are
+  // robust and effectively as fast.
+  const versionJobIds = (versionJobsResult.data ?? []).map((j) => j.id as string);
   const versionsByIndex = new Map<number, ClipVersion[]>();
-  if (clipsOnlyJobIds.length > 0) {
+  // Track which (jobId, index) pairs have already rendered — used below
+  // to skip them when stamping pendingByIndex, so the per-clip spinner
+  // clears as soon as its clip mp4 lands.
+  const renderedByJobIndex = new Set<string>();
+  if (versionJobIds.length > 0) {
     const [renderedClipsResult, jobsTierResult] = await Promise.all([
       supabase
         .from('clips')
         .select('id, index, storage_path, created_at, job_id')
-        .in('job_id', clipsOnlyJobIds)
+        .in('job_id', versionJobIds)
         .not('storage_path', 'is', null)
         .order('created_at', { ascending: false }),
       supabase
         .from('jobs')
         .select('id, resolution, model_tier')
-        .in('id', clipsOnlyJobIds),
+        .in('id', versionJobIds),
     ]);
     const tierByJobId = new Map<string, { resolution: string | null; modelTier: string | null }>();
     for (const j of jobsTierResult.data ?? []) {
@@ -149,7 +168,8 @@ export async function getPhase2Props(
     }
     for (const r of renderedClipsResult.data ?? []) {
       const idx = r.index as number;
-      const tier = tierByJobId.get(r.job_id as string);
+      const jobId = r.job_id as string;
+      const tier = tierByJobId.get(jobId);
       const list = versionsByIndex.get(idx) ?? [];
       list.push({
         clipId: r.id as string,
@@ -159,6 +179,7 @@ export async function getPhase2Props(
         modelTier: tier?.modelTier ?? null,
       });
       versionsByIndex.set(idx, list);
+      renderedByJobIndex.add(`${jobId}:${idx}`);
     }
   }
 
@@ -182,17 +203,22 @@ export async function getPhase2Props(
   // Walk pending jobs newest-first; first job to claim an index wins. A
   // clips-only row with clip_indexes=NULL means "all clips" (the bulk
   // "Generate all"/"Generate remaining" path), so we stamp every plan
-  // index. The loop is small (in practice 0 or 1 pending jobs) so the
-  // O(jobs * clips) walk is negligible.
+  // index. We SKIP any index that already has a rendered clip under
+  // this job — when "Generate all" is in flight and clip 1 just landed,
+  // clip 1's card must clear immediately while clips 2..N keep spinning
+  // (Yonah 2026-06-02). The loop is small (in practice 0 or 1 pending
+  // jobs) so the O(jobs * clips) walk is negligible.
   const planIndexes = initialClips.map((c) => c.index);
   const initialPendingByIndex: Record<number, PendingRender> = {};
   for (const j of pendingJobsResult.data ?? []) {
+    const jobId = j.id as string;
     const indexes =
       (j.clip_indexes as number[] | null) === null ? planIndexes : (j.clip_indexes as number[]);
     for (const idx of indexes) {
       if (initialPendingByIndex[idx]) continue; // newer job already claimed
+      if (renderedByJobIndex.has(`${jobId}:${idx}`)) continue; // already landed
       initialPendingByIndex[idx] = {
-        jobId: j.id as string,
+        jobId,
         startedAt: j.triggered_at as string,
       };
     }
