@@ -87,7 +87,11 @@ interface PostsResponse {
   };
 }
 
-async function getOrgId(token: string): Promise<string> {
+// Org id for a Buffer token never changes (the token IS scoped to one
+// account/org). Cache for 24h — would be safe to cache forever; 24h is
+// just a defensive ceiling in case the token gets reissued and the
+// dashboard happens to be using an old deploy.
+async function getOrgIdUncached(token: string): Promise<string> {
   const data = await gql<{ account: { organizations: Array<{ id: string }> } }>(
     token,
     `{ account { organizations { id } } }`,
@@ -97,12 +101,27 @@ async function getOrgId(token: string): Promise<string> {
   return id;
 }
 
+const getOrgId = unstable_cache(
+  async (token: string) => getOrgIdUncached(token),
+  ['buffer-org-id'],
+  { revalidate: 86400, tags: ['buffer-profiles'] },
+);
+
 /**
  * Fetch the platform-direct URL for a set of Buffer post ids.
  * Returns a map of id → externalLink (may be null if the post is still
  * queued/scheduled and hasn't been published to the network yet).
+ *
+ * 1-hour cache: callers (refreshVideoPostUrls) already filter to posts
+ * with post_url IS NULL — so once we resolve a URL, it gets written to
+ * the DB and we never ask Buffer about that id again. The cache here
+ * only matters for posts still in flight (Buffer hasn't returned the
+ * platform URL yet, typically 1-5 min after the post hits Buffer). For
+ * those, asking Buffer once an hour instead of on every page render is
+ * the right cadence — and prevents LiveAtRest from re-hitting Buffer
+ * every time Yonah refreshes /videos/[slug].
  */
-export async function getPostExternalLinks(
+async function getPostExternalLinksUncached(
   token: string,
   postIds: string[],
 ): Promise<Record<string, string | null>> {
@@ -119,6 +138,19 @@ export async function getPostExternalLinks(
   return out;
 }
 
+export const getPostExternalLinks = unstable_cache(
+  async (token: string, postIds: string[]) => getPostExternalLinksUncached(token, postIds),
+  ['buffer-post-external-links'],
+  { revalidate: 3600, tags: ['buffer-post-links'] },
+);
+
+// Exported for /channels page, which IS the freshness source-of-truth
+// (the page Yonah visits after connecting/disconnecting platforms in
+// Buffer's UI). Everywhere else should use the cached `listProfiles`.
+export async function listProfilesFresh(token: string): Promise<BufferProfile[]> {
+  return listProfilesUncached(token);
+}
+
 async function listProfilesUncached(token: string): Promise<BufferProfile[]> {
   const data = await gql<AccountChannelsResponse>(token, LIST_CHANNELS_QUERY);
   const channels = data.account?.organizations?.flatMap((o) => o.channels ?? []) ?? [];
@@ -132,21 +164,22 @@ async function listProfilesUncached(token: string): Promise<BufferProfile[]> {
     }));
 }
 
-// 5-minute cache on listProfiles. Yonah 2026-06-02: hit Buffer's GraphQL
-// rate limit while clicking Post to Instagram because the dashboard fires
-// listProfiles on EVERY render of /videos/[slug] Phase 5, /videos/[slug]
-// LiveAtRest, /channels, /compose, AND inside autoPost itself — every
-// click + navigation = a fresh Buffer call, no caching. He'd been on Beha
-// all day, so by post-time he'd quietly racked up dozens of calls in a
-// short window and tripped Buffer's per-token throttle. Channel list
-// genuinely doesn't change minute-to-minute (only when he connects /
-// disconnects a platform via /channels), so a 5-min TTL is safe. Tags
-// let us bust the cache explicitly if /channels ever needs to force-fresh
-// (revalidateTag('buffer-profiles')); not wired yet but cheap to keep.
+// 24-hour cache on listProfiles. Yonah 2026-06-02: hit Buffer's free-tier
+// 100/day cap mid-iteration because every render of /videos/[slug] (Phase
+// 5 + LiveAtRest), every /channels visit, every /compose visit, every
+// Post click, and every Modal autopilot webhook all fired listProfiles
+// uncached. Channel set only changes when the operator connects or
+// disconnects a platform inside /channels — a once-a-month event at most.
+// 24h is safe; /channels page calls revalidateTag('buffer-profiles')
+// on render so a manual connect/disconnect there shows up everywhere
+// else immediately on the next page load. Yonah pushed back on the
+// initial 5-min TTL ("we dont expect these to change every 5 minutes")
+// — he's right, the data is effectively static between channel-mgmt
+// sessions.
 export const listProfiles = unstable_cache(
   async (token: string) => listProfilesUncached(token),
   ['buffer-list-profiles'],
-  { revalidate: 300, tags: ['buffer-profiles'] },
+  { revalidate: 86400, tags: ['buffer-profiles'] },
 );
 
 export type CreateUpdateArgs = {

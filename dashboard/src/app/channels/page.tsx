@@ -1,6 +1,10 @@
 import { PlatformIcon } from '@/components/platform-icon';
 import { createClient } from '@/lib/supabase/server';
-import { listProfiles } from '@/lib/buffer';
+// /channels intentionally uses the uncached fresh path — this is the
+// "source of truth" page Yonah visits when he wants to see what Buffer
+// actually says about his connections. Cached listProfiles serves
+// every other render across the app (24h TTL, see lib/buffer.ts).
+import { listProfilesFresh as listProfiles } from '@/lib/buffer';
 import { getConnection as getYouTubeConnection } from '@/lib/youtube';
 import Link from 'next/link';
 
