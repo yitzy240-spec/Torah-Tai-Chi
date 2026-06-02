@@ -16,7 +16,10 @@ interface JobRow {
   triggered_at: string;
   parsha_id: string | null;
   parshiot: { name: string; slug: string } | { name: string; slug: string }[] | null;
-  videos: { id: string; thumb_path: string | null }[] | { id: string; thumb_path: string | null } | null;
+  videos:
+    | { id: string; thumb_path: string | null; published_to_website: boolean | null }[]
+    | { id: string; thumb_path: string | null; published_to_website: boolean | null }
+    | null;
 }
 
 async function getVideoCards(): Promise<VideoCard[]> {
@@ -28,15 +31,15 @@ async function getVideoCards(): Promise<VideoCard[]> {
     .from('jobs')
     .select(
       'id, kind, status, status_message, topic, triggered_at, parsha_id, ' +
-      'parshiot!jobs_parsha_id_fkey(name, slug), videos(id, thumb_path)'
+      'parshiot!jobs_parsha_id_fkey(name, slug), ' +
+      'videos(id, thumb_path, published_to_website)'
     )
     .order('triggered_at', { ascending: false })
     .limit(200);
 
   if (error || !data) return [];
 
-  const cards: VideoCard[] = [];
-  const seenParshaIds = new Set<string>();
+  const rows = data as unknown as JobRow[];
 
   // The new-flow editor decomposes a parsha's work across multiple
   // job kinds (plan-only → clips-only → compose → optional clips-only
@@ -48,7 +51,28 @@ async function getVideoCards(): Promise<VideoCard[]> {
     'parsha', 'plan-only', 'clips-only', 'compose', null,
   ]);
 
-  for (const row of data as unknown as JobRow[]) {
+  // Pre-pass: for each parsha_id, determine if ANY of its jobs has a
+  // PUBLISHED video, and whether any job is currently in flight.
+  // /videos should only surface parshiot that are either live on the
+  // site (published) or have work actively in progress (Yonah
+  // 2026-06-02). Unpublished done drafts belong in the per-parsha
+  // editor (/videos/{slug}), not the catalog. Includes parshiot of
+  // kind='holiday' on the parshiot table — those are pulled in the
+  // same way (holidays publish via the same pipeline, just have a
+  // different kind in the parshiot table).
+  const parshaHasPublished = new Set<string>();
+  const parshaHasInFlight = new Set<string>();
+  for (const row of rows) {
+    if (!row.parsha_id) continue;
+    const v = Array.isArray(row.videos) ? row.videos[0] : row.videos;
+    if (v?.published_to_website) parshaHasPublished.add(row.parsha_id);
+    if (IN_FLIGHT_STATUSES.has(row.status)) parshaHasInFlight.add(row.parsha_id);
+  }
+
+  const cards: VideoCard[] = [];
+  const seenParshaIds = new Set<string>();
+
+  for (const row of rows) {
     const kind = (row.kind ?? 'parsha').toLowerCase();
     const videoRel = row.videos;
     const video = Array.isArray(videoRel) ? videoRel[0] : videoRel;
@@ -63,14 +87,14 @@ async function getVideoCards(): Promise<VideoCard[]> {
 
     if (row.parsha_id && PARSHA_DRAFT_KINDS.has(kind)) {
       if (seenParshaIds.has(row.parsha_id)) continue; // latest-per-parsha only
-      // Only show parshiot where actual work happened: a video must
-      // exist OR a job is currently in flight. Otherwise we surface
-      // "plan generated but never rendered" parshiot as "Video ready",
-      // which Yonah hit 2026-06-01 (Beshalach, Pekudei, Shemini, Yitro,
-      // etc. all flashed up as ready when they weren't).
-      // These plan-only-stub parshiot are still reachable from /parshiot;
-      // they just don't deserve a card in the "Videos" surface.
-      if (!video && state !== 'in_flight') continue;
+      // Qualifying gate: this parsha has at least one published video
+      // OR has an in-flight job somewhere. Parshiot with only
+      // unpublished drafts don't show — they're still reachable via
+      // /parshiot or the per-parsha editor.
+      const qualifies =
+        parshaHasPublished.has(row.parsha_id) ||
+        parshaHasInFlight.has(row.parsha_id);
+      if (!qualifies) continue;
       seenParshaIds.add(row.parsha_id);
       cards.push({
         key: `parsha:${row.parsha_id}`,
