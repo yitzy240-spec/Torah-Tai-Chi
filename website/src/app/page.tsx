@@ -51,8 +51,20 @@ export default async function HomePage() {
   // placeholder cards looked like "everything's coming soon" — better
   // to show fewer real cards swipeable as a row than to fill the grid
   // with placeholder thumbs. Full library is still /videos.
+  //
+  // Sort: newest published first ("Recent teachings" — by name and by
+  // Yonah's expectation). The default order from getAllParshiot is
+  // canonical Torah sequence, which pushes holidays (Shavuot, Pesach,
+  // etc.) to the end of the list because their `order` value places
+  // them after the 54 parshiot — Yonah 2026-06-02 hit this with
+  // Shavuot stuck at carousel position 8. videoPublishedAt DESC also
+  // matches the /videos page "All" pill's sort, so the homepage and
+  // catalog stay consistent.
   const carouselCards: CarouselCard[] = withScript
-    .filter((p) => !!p.thumbUrl)
+    .filter((p) => !!p.thumbUrl && !!p.videoPublishedAt)
+    .sort((a, b) =>
+      (b.videoPublishedAt ?? '').localeCompare(a.videoPublishedAt ?? '')
+    )
     .slice(0, 8)
     .map((p) => {
       // Source priority for the carousel preview:
