@@ -1,5 +1,5 @@
 import pytest
-from src.video_generator import build_seedance_input
+from src.video_generator import build_seedance_input, _inject_sentence_beats
 from src.models import Clip
 from src.settings import STYLE_LOCK
 
@@ -155,3 +155,93 @@ def test_build_seedance_input_drops_first_frame_when_reference_video_set():
     ]
     # Identity falls back to reference_image_urls when chain frame drops.
     assert "https://x/c0.png" in payload["reference_image_urls"]
+
+
+# ─── Sentence-beat cadence ────────────────────────────────────────────────
+# Spec: docs/superpowers/specs/2026-06-02-sentence-beats-cadence-design.md
+# Plan: docs/superpowers/plans/2026-06-02-sentence-beats-cadence.md
+# Verified technique: third-person stage direction between Character
+# speaks: blocks produces a real pause without breaking lip-sync
+# (2026-06-01 single-clip Seedance test render).
+
+
+def test_inject_sentence_beats_single_sentence_unchanged():
+    """Single-sentence voiceover renders as one Character speaks: block
+    with no beat — back-compat with pre-cadence behavior."""
+    out = _inject_sentence_beats("When Yaakov wrestled the angel, he did not run.")
+    assert out == 'Character speaks: "When Yaakov wrestled the angel, he did not run."\n'
+    assert "holds the moment" not in out
+
+
+def test_inject_sentence_beats_two_sentences_one_beat():
+    """Two sentences produce two Character speaks: blocks separated by
+    exactly one beat line."""
+    out = _inject_sentence_beats(
+        "When Yaakov wrestled the angel, he did not run. He stayed in contact until dawn."
+    )
+    expected = (
+        'Character speaks: "When Yaakov wrestled the angel, he did not run."\n'
+        'Rav Eli holds the moment, breathes calmly, then continues:\n'
+        'Character speaks: "He stayed in contact until dawn."\n'
+    )
+    assert out == expected
+    assert out.count("Character speaks:") == 2
+    assert out.count("holds the moment") == 1
+
+
+def test_inject_sentence_beats_three_sentences_two_beats():
+    """Three sentences produce three blocks separated by two beats —
+    confirms the beat is inserted between every adjacent pair, not just
+    the first."""
+    out = _inject_sentence_beats("He walked. He thought. He prayed.")
+    assert out.count("Character speaks:") == 3
+    assert out.count("holds the moment") == 2
+    lines = [ln for ln in out.split("\n") if ln]
+    assert lines[0].startswith("Character speaks:")
+    assert lines[-1].startswith("Character speaks:")
+
+
+def test_inject_sentence_beats_abbreviation_does_not_split():
+    """`Dr. Cohen said hello. He walked away.` should split at ONE
+    boundary (between `hello.` and `He`) — not at `Dr. Cohen`. The
+    abbreviation pre-mask handles this."""
+    out = _inject_sentence_beats("Dr. Cohen said hello. He walked away.")
+    assert out.count("Character speaks:") == 2
+    assert out.count("holds the moment") == 1
+    # The Dr. abbreviation survives unchanged in the rendered output
+    assert '"Dr. Cohen said hello."' in out
+
+
+def test_inject_sentence_beats_empty_string_does_not_crash():
+    """Empty voiceover renders as a single empty block — no crash."""
+    out = _inject_sentence_beats("")
+    assert out == 'Character speaks: ""\n'
+    assert "holds the moment" not in out
+
+
+def test_build_seedance_input_voiceover_gets_sentence_beats():
+    """End-to-end: a clip with a two-sentence voiceover produces a
+    payload['prompt'] containing TWO Character speaks: blocks and ONE
+    beat between them. Verifies the helper is wired in."""
+    clip = Clip(
+        index=0,
+        voiceover="When Yaakov wrestled the angel, he did not run. He stayed until dawn.",
+        visual_prompt="Rav Eli sits, dolly in, soft morning light",
+        duration_s=10,
+        setting_id="DOJO",
+    )
+    payload = build_seedance_input(
+        clip,
+        character_ref_urls=["https://x/a.png"],
+        dojo_ref_urls=["https://x/dojo1.png"],
+        first_frame_url=None,
+        audio_url=None,
+        resolution="720p",
+    )
+    prompt = payload["prompt"]
+    assert prompt.count("Character speaks:") == 2
+    assert "Rav Eli holds the moment, breathes calmly, then continues:" in prompt
+    first_idx = prompt.index('"When Yaakov wrestled the angel, he did not run."')
+    beat_idx = prompt.index("holds the moment")
+    second_idx = prompt.index('"He stayed until dawn."')
+    assert first_idx < beat_idx < second_idx

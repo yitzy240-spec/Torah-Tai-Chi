@@ -39,6 +39,55 @@ _TTS_REPLACEMENTS: list[tuple[re.Pattern, str]] = [
 ]
 
 
+# Verified third-person stage direction inserted between adjacent
+# sentences in the voiceover. Tested 2026-06-01 via single-clip
+# Seedance render — produces a clean ~1.4s pause with mouth closed
+# and no leaked stage direction (see
+# docs/superpowers/specs/2026-06-02-sentence-beats-cadence-design.md).
+# Within the prompt, Seedance treats this as a director note (because
+# it's third-person, present-tense, ending with a colon) rather than
+# character speech — the model holds the mouth still and resyncs
+# before the next `Character speaks:` block.
+_BEAT_TEXT = "Rav Eli holds the moment, breathes calmly, then continues:"
+
+# Common short abbreviations that end with a period followed by a
+# proper noun. The base sentence-split regex (period + whitespace +
+# capital) would false-split on `Dr. Smith` etc. — pre-mask them so
+# the operator's natural prose ("Dr. Cohen said hello. He walked
+# away.") splits at ONE boundary, not two.
+_ABBREV_MASK = re.compile(r'\b(Dr|Mr|Mrs|Ms|St|Sr|Jr|vs|etc)\.(\s+)(?=[A-Z])')
+_SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+(?=[A-Z])')
+
+
+def _inject_sentence_beats(voiceover: str) -> str:
+    """Render a voiceover as one or more `Character speaks: "..."` blocks
+    with the verified beat line between adjacent sentences.
+
+    Single-sentence voiceovers render identically to the pre-beat
+    behavior so the change is a no-op for short clips. The split regex
+    requires sentence-end punctuation followed by whitespace and a
+    capital letter; common short abbreviations (Dr., Mr., etc.) are
+    pre-masked so they don't false-split.
+    """
+    # Mask abbreviation periods with a placeholder so the split regex
+    # skips them. We use a NUL byte (\x00) which can't appear in real
+    # voiceover text.
+    masked = _ABBREV_MASK.sub(
+        lambda m: f"{m.group(1)}\x00{m.group(2)}",
+        voiceover.strip(),
+    )
+    sentences = _SENTENCE_SPLIT.split(masked)
+    sentences = [s.replace('\x00', '.').strip() for s in sentences if s.strip()]
+    if len(sentences) <= 1:
+        return f'Character speaks: "{voiceover}"\n'
+    parts: list[str] = []
+    for i, s in enumerate(sentences):
+        parts.append(f'Character speaks: "{s}"')
+        if i < len(sentences) - 1:
+            parts.append(_BEAT_TEXT)
+    return "\n".join(parts) + "\n"
+
+
 def normalize_voiceover_for_tts(text: str) -> str:
     """Apply known-good substitutions before sending voiceover to
     Seedance. Safety net for operator-edited voiceovers that bypass
@@ -126,7 +175,7 @@ def build_seedance_input(
         )
     prompt = (
         f"{clip.visual_prompt}\n\n"
-        f'Character speaks: "{normalized_vo}"\n'
+        f"{_inject_sentence_beats(normalized_vo)}"
         f"{emotive_clause}"
         f"{voice_clause}"
         f"{STYLE_LOCK}"
