@@ -9,6 +9,8 @@
  * as the old REST client so callers don't have to change.
  */
 
+import { unstable_cache } from 'next/cache';
+
 const BUFFER_GRAPHQL = 'https://api.buffer.com/graphql';
 
 export type BufferProfile = {
@@ -117,7 +119,7 @@ export async function getPostExternalLinks(
   return out;
 }
 
-export async function listProfiles(token: string): Promise<BufferProfile[]> {
+async function listProfilesUncached(token: string): Promise<BufferProfile[]> {
   const data = await gql<AccountChannelsResponse>(token, LIST_CHANNELS_QUERY);
   const channels = data.account?.organizations?.flatMap((o) => o.channels ?? []) ?? [];
   return channels
@@ -129,6 +131,23 @@ export async function listProfiles(token: string): Promise<BufferProfile[]> {
       formatted_service: (c.service ?? '').replace(/^\w/, (m) => m.toUpperCase()),
     }));
 }
+
+// 5-minute cache on listProfiles. Yonah 2026-06-02: hit Buffer's GraphQL
+// rate limit while clicking Post to Instagram because the dashboard fires
+// listProfiles on EVERY render of /videos/[slug] Phase 5, /videos/[slug]
+// LiveAtRest, /channels, /compose, AND inside autoPost itself — every
+// click + navigation = a fresh Buffer call, no caching. He'd been on Beha
+// all day, so by post-time he'd quietly racked up dozens of calls in a
+// short window and tripped Buffer's per-token throttle. Channel list
+// genuinely doesn't change minute-to-minute (only when he connects /
+// disconnects a platform via /channels), so a 5-min TTL is safe. Tags
+// let us bust the cache explicitly if /channels ever needs to force-fresh
+// (revalidateTag('buffer-profiles')); not wired yet but cheap to keep.
+export const listProfiles = unstable_cache(
+  async (token: string) => listProfilesUncached(token),
+  ['buffer-list-profiles'],
+  { revalidate: 300, tags: ['buffer-profiles'] },
+);
 
 export type CreateUpdateArgs = {
   token: string;

@@ -62,18 +62,45 @@ export function selectPageState(input: PageStateInput): PageState {
   // clips.storage_path realtime path on the Phase 2/3 cards.
   const isDraftKind = (k: string | null) =>
     k === null || k === 'parsha' || k === 'plan-only' || k === 'compose' || k === 'video_topic';
-  const inFlightJob = jobs.find((j) => IN_FLIGHT.has(j.status) && isDraftKind(j.kind));
   const liveVideoIds = new Set(liveVideo ? [liveVideo.id] : []);
+
+  // Cutoff: a "draft" compose/parsha must have been triggered AFTER the
+  // live video's job. Without this, every previous compose attempt for
+  // a parsha (e.g. v3-draft → v3-publish → v4-publish leaves v3-draft
+  // forever flagged as "the unpublished draft") permanently kicks the
+  // page into Phase 5 of the older draft instead of the live-at-rest
+  // surface. Yonah 2026-06-02: Beha had a compose at 13:27 followed by
+  // a published compose at 14:34 — the 13:27 one kept showing as the
+  // current draft, so /videos/beha-alotcha?phase=5 rendered the SiteCard
+  // for the older draft with isLive=false ("not yet published") even
+  // though v4 was live on torahtaichi.com. Job triggered_at is the
+  // right ordering signal — video.created_at would also work but jobs
+  // is already on the input shape.
+  const liveJobTriggeredAt = liveVideo
+    ? jobs.find((j) => j.id === liveVideo.jobId)?.triggeredAt ?? null
+    : null;
+  const isAfterLive = (j: { triggeredAt: string }) =>
+    liveJobTriggeredAt === null || j.triggeredAt > liveJobTriggeredAt;
+
+  // Same cutoff for in-flight and plan-only-awaiting: a stale queued
+  // job from before the publish point isn't a current draft. Pairs with
+  // the /videos page staleness filter (2h) — that's a UI-list defense;
+  // this is the parsha-state-of-the-world correctness.
+  const inFlightJob = jobs.find(
+    (j) => IN_FLIGHT.has(j.status) && isDraftKind(j.kind) && isAfterLive(j),
+  );
+
   const doneUnpublished = jobs.find(
     (j) =>
       j.status === 'done' &&
       isDraftKind(j.kind) &&
       j.kind !== 'plan-only' &&
       j.videoId !== null &&
-      !liveVideoIds.has(j.videoId),
+      !liveVideoIds.has(j.videoId) &&
+      isAfterLive(j),
   );
   const planOnlyAwaiting = jobs.find(
-    (j) => j.kind === 'plan-only' && j.status === 'done' && !j.videoId,
+    (j) => j.kind === 'plan-only' && j.status === 'done' && !j.videoId && isAfterLive(j),
   );
   const draftJob = inFlightJob ?? doneUnpublished ?? planOnlyAwaiting;
 

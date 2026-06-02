@@ -66,6 +66,10 @@ async function withRetry<T>(fn: () => Promise<T>, delays = [200, 1000]): Promise
       return await fn();
     } catch (e) {
       lastErr = e;
+      // Don't retry on rate-limit: hammering Buffer with 2 more requests
+      // 200ms/1s apart just deepens the limit window. Surface immediately
+      // so the operator sees a clean "rate-limited" message and can wait.
+      if (String(e).includes('HTTP 429')) throw e;
       if (i < delays.length) await new Promise((r) => setTimeout(r, delays[i]));
     }
   }
@@ -182,17 +186,26 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
     try {
       profiles = await withRetry(() => listProfiles(bufferToken));
     } catch (e) {
-      const msg = `Failed to fetch Buffer profiles: ${String(e)}. Check Settings → Buffer.`;
+      const rawErr = String(e);
+      const is429 = rawErr.includes('HTTP 429');
+      // 429 surfaces to the operator as a wait-and-retry message. Settings
+      // are fine — they just need to give Buffer's throttle window a minute.
+      // The 5-min listProfiles cache (see lib/buffer.ts) prevents the
+      // routine page-load / autoPost calls from saturating Buffer's per-
+      // token rate limit, so this should be vanishingly rare going forward.
+      const userMsg = is429
+        ? "Buffer is rate-limiting us — wait about a minute and tap Post again."
+        : `Couldn't reach Buffer: ${rawErr}. Check Settings → Buffer.`;
       await logEvent({
         actor: 'buffer',
         level: 'error',
         event: 'schedule.topic.error',
         subjectType: 'video',
         subjectId: args.videoId,
-        message: msg,
-        details: { stage: 'listProfiles', error: String(e) },
+        message: userMsg,
+        details: { stage: 'listProfiles', error: rawErr, rate_limited: is429 },
       });
-      return { error: msg };
+      return { error: userMsg };
     }
   }
 
