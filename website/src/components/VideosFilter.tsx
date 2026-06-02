@@ -15,13 +15,28 @@ interface ParshaItem {
    *  Drives the "All" tab's reverse-chronological sort — most recently
    *  produced video first (Yonah 2026-06-02). Null when no video yet. */
   videoPublishedAt?: string | null;
+  /** 'parsha' for weekly Torah portions, 'holiday' for Shavuot/Pesach/
+   *  Sukkot/etc. and ad-hoc special videos. Drives the "Holidays and
+   *  Events" filter pill. */
+  kind?: 'parsha' | 'holiday';
 }
 
 interface VideosFilterProps {
   parshiot: ParshaItem[];
 }
 
-const BOOKS = ["All", "Bereishit", "Shemot", "Vayikra", "Bamidbar", "Devarim"];
+// Filter-pill definitions. Each has a Hebrew/primary label and an
+// optional English subtitle shown smaller underneath (Yonah 2026-06-02).
+// Order matters: "All" first, books in Torah sequence, holidays last.
+const FILTER_PILLS: Array<{ key: string; label: string; sub?: string }> = [
+  { key: 'All' },
+  { key: 'Bereishit', label: 'Bereishit', sub: 'Genesis' },
+  { key: 'Shemot',    label: 'Shemot',    sub: 'Exodus' },
+  { key: 'Vayikra',   label: 'Vayikra',   sub: 'Leviticus' },
+  { key: 'Bamidbar',  label: 'Bamidbar',  sub: 'Numbers' },
+  { key: 'Devarim',   label: 'Devarim',   sub: 'Deuteronomy' },
+  { key: 'Holidays',  label: 'Holidays and Events' },
+].map((p) => ({ ...p, label: p.label ?? p.key }));
 
 const BOOK_NORMALIZE: Record<string, string> = {
   Bereishit: "Bereishit",
@@ -48,33 +63,52 @@ function normaliseBook(book: string): string {
 export default function VideosFilter({ parshiot }: VideosFilterProps) {
   const [active, setActive] = useState("All");
 
-  const filtered =
-    active === "All"
-      // "All" → most recent video first, then anything else in canonical
-      // Torah order (Yonah 2026-06-02). Parshiot without a published
-      // video sink to the bottom in canonical order — they aren't dead
-      // links (the detail page still works), they just don't get
-      // priority over actual content.
-      ? [...parshiot].sort((a, b) => {
-          const aT = a.videoPublishedAt;
-          const bT = b.videoPublishedAt;
-          if (aT && bT) return bT.localeCompare(aT); // both have videos → newest first
-          if (aT && !bT) return -1; // a has video, b doesn't → a first
-          if (!aT && bT) return 1;  // b has video, a doesn't → b first
-          return 0; // neither has video → preserve canonical order
-        })
-      : parshiot.filter((p) => normaliseBook(p.book) === active);
+  // Universal rule: only show parshiot/holidays that ACTUALLY have a
+  // video. "Coming soon" cards were noise (Yonah 2026-06-02). The one
+  // exception is the upcoming weekly parsha (isCurrentWeek=true) which
+  // surfaces in the "All" view even before its video lands so visitors
+  // who arrive between renders see what's coming next.
+  const hasVideoOrUpcoming = (p: ParshaItem) =>
+    Boolean(p.videoPublishedAt) || Boolean(p.isCurrentWeek);
+
+  let filtered: ParshaItem[];
+  if (active === 'All') {
+    // "All" → published videos newest first (most recent backwards);
+    // upcoming-week parsha without a video lands at the very top so
+    // visitors see what's next.
+    filtered = parshiot.filter(hasVideoOrUpcoming).sort((a, b) => {
+      if (a.isCurrentWeek && !a.videoPublishedAt) return -1;
+      if (b.isCurrentWeek && !b.videoPublishedAt) return 1;
+      const aT = a.videoPublishedAt ?? '';
+      const bT = b.videoPublishedAt ?? '';
+      return bT.localeCompare(aT);
+    });
+  } else if (active === 'Holidays') {
+    filtered = parshiot.filter(
+      (p) => p.kind === 'holiday' && hasVideoOrUpcoming(p),
+    );
+  } else {
+    // A book pill — canonical Torah order, only ones with videos.
+    filtered = parshiot.filter(
+      (p) => p.kind !== 'holiday'
+        && normaliseBook(p.book) === active
+        && hasVideoOrUpcoming(p),
+    );
+  }
 
   return (
     <>
       <div className="filter-bar">
-        {BOOKS.map((book) => (
+        {FILTER_PILLS.map((pill) => (
           <button
-            key={book}
-            className={`filter-pill${active === book ? " active" : ""}`}
-            onClick={() => setActive(book)}
+            key={pill.key}
+            className={`filter-pill${active === pill.key ? " active" : ""}${pill.sub ? " filter-pill--stacked" : ""}`}
+            onClick={() => setActive(pill.key)}
           >
-            {book}
+            <span className="filter-pill-label">{pill.label}</span>
+            {pill.sub && (
+              <span className="filter-pill-sub">({pill.sub})</span>
+            )}
           </button>
         ))}
       </div>

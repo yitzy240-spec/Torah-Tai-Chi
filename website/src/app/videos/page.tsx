@@ -53,6 +53,7 @@ export default async function VideosPage() {
     thumbUrl: p.thumbUrl ?? null,
     isCurrentWeek: p.slug === currentWeekSlug,
     videoPublishedAt: p.videoPublishedAt ?? null,
+    kind: p.kind,
   }));
 
   return (
