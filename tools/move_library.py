@@ -55,6 +55,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--query-override", help="Per-slug query override in format 'slug=search query'.")
     p.add_argument("--describe", action="store_true",
                    help="Skip download pipeline; generate/refresh motion_description sidecar JSONs for existing clips.")
+    p.add_argument("--force", action="store_true",
+                   help="Re-process slugs even if a .mp4 already exists at the destination. Use for replacing broken/low-res clips.")
+    p.add_argument("--min-pixels", type=int, default=409_600,
+                   help="Minimum width*height for accepted candidates. Seedance reference_video_urls floor is 409600.")
+    p.add_argument("--max-pixels", type=int, default=927_408,
+                   help="Maximum width*height for accepted candidates. Seedance reference_video_urls ceiling is 927408.")
     return p.parse_args(argv)
 
 
@@ -123,8 +129,10 @@ def main(args: argparse.Namespace) -> int:
     priority_rank = {"high": 0, "medium": 1, "low": 2}
     moves.sort(key=lambda m: (priority_rank[m.priority], m.section, m.order))
 
-    # Skip existing unless --redo
-    if not args.redo:
+    # Skip existing unless --redo OR --force. --redo is a single-slug
+    # override; --force is the multi-slug version (use with --slug or
+    # --priority to scope what gets re-processed).
+    if not args.redo and not args.force:
         moves = [m for m in moves if not (library_root / f"{m.slug}.mp4").exists()]
 
     if not moves:
@@ -138,7 +146,9 @@ def main(args: argparse.Namespace) -> int:
             r = process_move(m, library_root=library_root,
                              candidates=args.candidates,
                              min_quality=args.min_quality,
-                             model=args.model)
+                             model=args.model,
+                             min_pixels=args.min_pixels,
+                             max_pixels=args.max_pixels)
         except Exception as e:
             r = PipelineResult(m, status="needs_review", notes=f"pipeline error: {e}")
         print(f"    -> {r.status}" + (f" (quality {r.chosen_quality})" if r.chosen_quality else ""))
@@ -506,12 +516,43 @@ def trim_and_encode(src: Path, dst: Path, start_sec: int, duration_sec: int) -> 
     return dst
 
 
+# Seedance 2.0 reference_video_urls pixel window per Kie.ai docs:
+# https://docs.kie.ai/market/bytedance/seedance-2
+# Any reference video sent to Seedance must have width*height inside this
+# window or the API returns 400. Verified 2026-06-01 incident: a 640x480
+# wave_hands_like_clouds clip (307200px) failed render with "the parameter
+# video pixel count specified in the request must be greater than or equal
+# to 409600".
+MIN_PIXELS_REF = 409_600
+MAX_PIXELS_REF = 927_408
+
+
+def _probe_pixels(path: Path) -> tuple[int, int, int]:
+    """Return (width, height, pixel_count). 0s if probe fails / no video stream."""
+    try:
+        out = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height",
+             "-of", "csv=p=0", str(path)],
+            text=True,
+        ).strip()
+        if not out:
+            return 0, 0, 0
+        w_str, h_str = out.split(",")
+        w, h = int(w_str), int(h_str)
+        return w, h, w * h
+    except (subprocess.CalledProcessError, ValueError):
+        return 0, 0, 0
+
+
 def process_move(
     move: Move,
     library_root: Path,
     candidates: int,
     min_quality: int,
     model: str,
+    min_pixels: int = MIN_PIXELS_REF,
+    max_pixels: int = MAX_PIXELS_REF,
 ) -> PipelineResult:
     final_clip = library_root / f"{move.slug}.mp4"
     candidates_dir = library_root / ".candidates" / move.slug
@@ -531,6 +572,23 @@ def process_move(
             reviews.append((i, None, CandidateReview(
                 matches=False, fits_in_15s=False, quality=0, best_start_sec=0,
                 best_duration_sec=10, reason=f"download failed: {e}")))
+            continue
+
+        # Pixel-count gate BEFORE Gemini review — saves credits on
+        # candidates Seedance would reject anyway.
+        w, h, px = _probe_pixels(downloaded)
+        if px == 0:
+            reviews.append((i, downloaded, CandidateReview(
+                matches=False, fits_in_15s=False, quality=0, best_start_sec=0,
+                best_duration_sec=10,
+                reason=f"corrupted: ffprobe found no video stream")))
+            continue
+        if px < min_pixels or px > max_pixels:
+            reviews.append((i, downloaded, CandidateReview(
+                matches=False, fits_in_15s=False, quality=0, best_start_sec=0,
+                best_duration_sec=10,
+                reason=(f"resolution {w}x{h}={px}px outside Seedance window "
+                        f"[{min_pixels}, {max_pixels}] — skipped review"))))
             continue
 
         try:
