@@ -4,7 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Brand from "./Brand";
-import { FacebookIcon, YouTubeIcon, InstagramIcon } from "./SocialIcons";
+import { FacebookIcon, YouTubeIcon, InstagramIcon, XIcon } from "./SocialIcons";
+
+// Canonical social URLs — source of truth lives in
+// website/src/lib/site-content.ts under social.url.*. SiteNav is a
+// client component so we don't pull from server-only content here;
+// keep these in sync manually. When something needs to change, update
+// BOTH this file and site-content.ts (and jsonld.ts).
+const SOCIAL_URLS = {
+  facebook: "https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/",
+  youtube:  "https://www.youtube.com/@TorahTai_Chi",
+  instagram:"https://instagram.com/torah_taichi",
+  x:        "https://x.com/Torah_TaiChi",
+};
 
 interface SiteNavProps {
   showBook?: boolean;
@@ -57,14 +69,17 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
           <Link href="/contact" className={isActive("/contact") ? "active" : ""}>Contact</Link>
         </div>
         <div className="nav-socials">
-          <a href="https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/" title="Facebook" target="_blank" rel="noopener noreferrer">
+          <a href={SOCIAL_URLS.facebook} title="Facebook" target="_blank" rel="noopener noreferrer">
             <FacebookIcon />
           </a>
-          <a href="https://youtube.com/@torahtaichi" title="YouTube" target="_blank" rel="noopener noreferrer">
+          <a href={SOCIAL_URLS.youtube} title="YouTube" target="_blank" rel="noopener noreferrer">
             <YouTubeIcon />
           </a>
-          <a href="https://instagram.com/torahtaichi" title="Instagram" target="_blank" rel="noopener noreferrer">
+          <a href={SOCIAL_URLS.instagram} title="Instagram" target="_blank" rel="noopener noreferrer">
             <InstagramIcon />
+          </a>
+          <a href={SOCIAL_URLS.x} title="X" target="_blank" rel="noopener noreferrer">
+            <XIcon />
           </a>
         </div>
         <button
@@ -122,17 +137,21 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
           <Link href="/contact" className={isActive("/contact") ? "active" : ""}>Contact</Link>
         </div>
         <div className="nav-drawer-socials">
-          <a href="https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/" aria-label="Facebook" target="_blank" rel="noopener noreferrer">
+          <a href={SOCIAL_URLS.facebook} aria-label="Facebook" target="_blank" rel="noopener noreferrer">
             <FacebookIcon />
             <span>Facebook</span>
           </a>
-          <a href="https://youtube.com/@torahtaichi" aria-label="YouTube" target="_blank" rel="noopener noreferrer">
+          <a href={SOCIAL_URLS.youtube} aria-label="YouTube" target="_blank" rel="noopener noreferrer">
             <YouTubeIcon />
             <span>YouTube</span>
           </a>
-          <a href="https://instagram.com/torahtaichi" aria-label="Instagram" target="_blank" rel="noopener noreferrer">
+          <a href={SOCIAL_URLS.instagram} aria-label="Instagram" target="_blank" rel="noopener noreferrer">
             <InstagramIcon />
             <span>Instagram</span>
+          </a>
+          <a href={SOCIAL_URLS.x} aria-label="X" target="_blank" rel="noopener noreferrer">
+            <XIcon />
+            <span>X</span>
           </a>
         </div>
       </aside>

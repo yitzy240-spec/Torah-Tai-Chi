@@ -7,10 +7,14 @@ const SITE_URL = 'https://torahtaichi.com';
 const SITE_NAME = 'Torah Tai Chi';
 const LOGO_URL = `${SITE_URL}/android-chrome-512x512.png`;
 
+// Keep in sync with social.url.* in website/src/lib/site-content.ts
+// (the canonical source) and with the SOCIAL_URLS constant in
+// website/src/components/SiteNav.tsx.
 const SOCIAL_PROFILES = [
-  'https://www.youtube.com/@torahtaichi',
-  'https://www.instagram.com/torahtaichi',
+  'https://www.youtube.com/@TorahTai_Chi',
+  'https://instagram.com/torah_taichi',
   'https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/',
+  'https://x.com/Torah_TaiChi',
 ];
 
 // ─── Organization ────────────────────────────────────────────────────────────

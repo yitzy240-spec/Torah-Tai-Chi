@@ -44,7 +44,7 @@ const FALLBACKS: SiteContentMap = {
   'videos.kicker': 'THE TEACHINGS',
   'videos.title': 'The annual Torah Tai Chi cycle of wisdom',
   'videos.subtitle':
-    'Weekly Torah portion and holiday videos to build your Torah knowledge.',
+    'Weekly Torah portion and holiday videos to build your Torah knowledge',
   // ── VIDEO DETAIL ──────────────────────────────────────────────────
   'video_detail.back_link': '\u2190 All teachings',
   'video_detail.script.kicker': 'The teaching',
