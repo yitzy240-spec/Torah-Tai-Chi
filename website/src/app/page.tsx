@@ -152,11 +152,21 @@ export default async function HomePage() {
           </div>
           {thisWeek && (
             <div className="video-caption">
-              <span className="video-caption-name">{thisWeek.name}</span>
-              <span className="video-caption-sep" aria-hidden="true">·</span>
-              <span className="video-caption-title">
-                {thisWeek.atightTitle ?? content['home.video.fallback_title']}
-              </span>
+              {/* Operator-set creative title (videoSubtitle, e.g. "Who
+                  Moved My Cloud?…") wins over the auto atightTitle.
+                  Description is rendered below as a paragraph so the
+                  hero card shows what Yonah actually wrote in the
+                  dashboard's Site Info card (Yonah 2026-06-02). */}
+              <div className="video-caption-headline">
+                {thisWeek.videoSubtitle
+                  ?? thisWeek.atightTitle
+                  ?? content['home.video.fallback_title']}
+              </div>
+              {thisWeek.videoDescription && (
+                <p className="video-caption-body">
+                  {thisWeek.videoDescription}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -185,17 +195,10 @@ export default async function HomePage() {
       {/* ANNOUNCEMENT — only renders when home.announcement.visible=true and a title is set */}
       <Announcement content={content} />
 
-      {/* DIVIDER */}
-      <div className="divider">
-        <div className="divider-line"></div>
-        <div className="divider-text">
-          <span>
-            <span className="ch">松</span> {content['home.divider.left_phrase']}{" "}
-            <span className="ch">·</span> {content['home.divider.right_phrase']}{" "}
-            <span className="ch">勁</span>
-          </span>
-        </div>
-      </div>
+      {/* Divider removed 2026-06-02 — the "rooted release, not collapse · the
+          craft compounds" pull-quote felt like dead space between the hero
+          and the recent-videos grid (Yonah 2026-06-02). The bilingual
+          philosophy text now lives in the About section copy instead. */}
 
       {/* RECENT VIDEOS */}
       <section className="recent stagger">

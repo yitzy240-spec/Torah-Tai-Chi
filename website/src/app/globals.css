@@ -349,14 +349,34 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 .hero-cta-link:hover{color:var(--ink-900);border-bottom-color:var(--ink-700)}
 .hero-video{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:14px;}
 .video-caption{
-  display:flex;align-items:baseline;gap:10px;
+  display:flex;flex-direction:column;align-items:center;gap:8px;
   font-family:var(--ff-display);
-  font-size:13.5px;color:var(--ink-500);
-  font-variation-settings:"opsz" 14,"SOFT" 40;
-  max-width:min(320px,100%);
-  padding:0 4px;
-  text-align:center;justify-content:center;flex-wrap:wrap;
+  max-width:min(420px,100%);
+  padding:0 8px;
+  text-align:center;
 }
+/* Operator-set creative title (Yonah's videoSubtitle, e.g. "Who Moved
+   My Cloud? — Torah Tai Chi and Managing Change"). Larger + ink-800
+   so it reads as the headline. */
+.video-caption-headline{
+  font-size:clamp(15px,1.6vw,18px);
+  font-weight:400;
+  color:var(--ink-800);
+  line-height:1.3;
+  letter-spacing:-.01em;
+  font-variation-settings:"opsz" 18,"SOFT" 35;
+}
+/* Description body — softer color, body font for readability. */
+.video-caption-body{
+  font-family:var(--ff-body);
+  font-size:13.5px;
+  color:var(--ink-500);
+  line-height:1.5;
+  margin:0;
+  max-width:46ch;
+}
+/* Retained for back-compat with any caller still using the old inline
+   layout. Newer code uses .video-caption-headline + .video-caption-body. */
 .video-caption-name{color:var(--ink-800);font-weight:500}
 .video-caption-sep{color:var(--ink-300)}
 .video-caption-title{font-style:italic;color:var(--ink-500);font-variation-settings:"opsz" 14,"SOFT" 55}
