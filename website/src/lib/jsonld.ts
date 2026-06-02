@@ -8,10 +8,9 @@ const SITE_NAME = 'Torah Tai Chi';
 const LOGO_URL = `${SITE_URL}/android-chrome-512x512.png`;
 
 const SOCIAL_PROFILES = [
-  'https://www.tiktok.com/@torahtaichi',
   'https://www.youtube.com/@torahtaichi',
   'https://www.instagram.com/torahtaichi',
-  'https://www.facebook.com/torahtaichi',
+  'https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/',
 ];
 
 // ─── Organization ────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Brand from "./Brand";
-import { TikTokIcon, YouTubeIcon, InstagramIcon } from "./SocialIcons";
+import { FacebookIcon, YouTubeIcon, InstagramIcon } from "./SocialIcons";
 
 interface SiteNavProps {
   showBook?: boolean;
@@ -57,8 +57,8 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
           <Link href="/contact" className={isActive("/contact") ? "active" : ""}>Contact</Link>
         </div>
         <div className="nav-socials">
-          <a href="https://tiktok.com/@torahtaichi" title="TikTok" target="_blank" rel="noopener noreferrer">
-            <TikTokIcon />
+          <a href="https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/" title="Facebook" target="_blank" rel="noopener noreferrer">
+            <FacebookIcon />
           </a>
           <a href="https://youtube.com/@torahtaichi" title="YouTube" target="_blank" rel="noopener noreferrer">
             <YouTubeIcon />
@@ -122,9 +122,9 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
           <Link href="/contact" className={isActive("/contact") ? "active" : ""}>Contact</Link>
         </div>
         <div className="nav-drawer-socials">
-          <a href="https://tiktok.com/@torahtaichi" aria-label="TikTok" target="_blank" rel="noopener noreferrer">
-            <TikTokIcon />
-            <span>TikTok</span>
+          <a href="https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/" aria-label="Facebook" target="_blank" rel="noopener noreferrer">
+            <FacebookIcon />
+            <span>Facebook</span>
           </a>
           <a href="https://youtube.com/@torahtaichi" aria-label="YouTube" target="_blank" rel="noopener noreferrer">
             <YouTubeIcon />

@@ -48,9 +48,11 @@ export interface Parsha {
    *  unset. */
   websiteCaption?: string | null;
   /** Per-platform direct URLs for the post on each network (filled in by
-   *  the dashboard from autoPost results). Keys: tiktok, instagram,
+   *  the dashboard from autoPost results). Active keys: instagram,
    *  youtube, facebook, twitter. Missing keys = no post on that platform
-   *  (or not yet resolved); the website hides the corresponding button. */
+   *  (or not yet resolved); the website hides the corresponding button.
+   *  `tiktok` is kept in the type for historical records (TikTok was
+   *  retired 2026-05-28) but no longer surfaces in WatchOnRow. */
   postUrls?: Partial<Record<'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'twitter', string>>;
 }
 
