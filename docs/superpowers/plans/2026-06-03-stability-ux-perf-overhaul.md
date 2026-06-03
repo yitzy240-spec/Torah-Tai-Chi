@@ -776,6 +776,10 @@ Group into 3-4 commits over the cycle. None block other work.
 - [ ] **Cold-start latency on first Modal render of the day** (~5-15s slower). Yonah will think it's broken. **Action:** add a daily 6am cron that pings Modal to keep a warm container. ~1 hour. If Modal billing makes this expensive, accept the cold-start but add a UI note "Warming up — first generation of the day takes a bit longer."
 - [ ] **Single-operator onboarding.** If we ever hire a second producer or hand the dashboard to someone else, the muscle memory of which-button-does-what isn't in the help docs. **Action (deferred):** record a 5-min Loom walkthrough as evergreen reference. Track as a backlog item, not in this plan.
 
+### Discovered 2026-06-03 — pre-existing lint debt now visible
+
+- [ ] **Clean up 7 dashboard + 1 website lint errors** *[half-day, code]*. The Phase -1 CI gate (`.github/workflows/pr-check.yml`) currently runs lint as `continue-on-error: true` because these errors exist and would block every PR. Errors include: `react-hooks/set-state-in-effect` (use-localstorage-draft.ts:43), `react/no-unescaped-entities` (live-site-cms-card.tsx:422), `Cannot access refs during render` (article-editor.tsx:21, live-site-cms-card.tsx:319), `Cannot call impure function during render` (phase-3-clips.tsx:246 — likely moot once Phase 3 retired by 1.5), `no-html-link-for-pages` (videos-dashboard.tsx:73). None are production bugs today but they're real React anti-patterns. Once fixed, remove `continue-on-error` from the workflow's Lint step so future regressions block PRs.
+
 ### Pre-work I want to land BEFORE Phase 0 starts
 
 1. **Sentry on dashboard + website** (2h, infra) — so we see Phase 0 deploy errors immediately, not after a Yonah report.
