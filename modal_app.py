@@ -1505,7 +1505,6 @@ def _apply_operator_overrides(
     plan: dict,
     sb,
     parent_job_id: str,
-    indices: list[int] | None = None,
 ) -> dict:
     """Overlay operator-edited voiceover/visual_prompt/duration_s from
     the `clips` table onto a `clip_plans.plan_json` dict, in place.
@@ -1522,15 +1521,20 @@ def _apply_operator_overrides(
       2026-05-28 incident: Yonah edited "Torah" → "tow-ruh" to fix
       Seedance TTS pronouncing the H, then hit Regen. Modal re-rendered
       the original "Torah" because surgery (regen_clip) read from
-      plan_json. We patched clips_only_job (line ~5762) but left
+      plan_json. We patched clips_only_job (line ~5886) but left
       regen_clip / regen_smart / regen_agent / regen_single_clip
       vulnerable to the same bug class. This helper closes the gap
       so all 5 fetch-then-use sites share one overlay.
 
-    Empty / whitespace-only operator values fall back to the plan
-    value. An operator who accidentally cleared a field shouldn't end
-    up with a silent silent-clip — the AI text is at least *some*
-    voiceover. This matches clips_only_job's behavior.
+    Always overlays every clip in the plan (no per-index filter). The
+    surgery flows (regen_clip, regen_single_clip) deliberately want
+    every clip overlaid even when only one is being regenerated: Claude's
+    drift-defense (modal_app.py:2510-2540) compares against parent values
+    on untouched clips, so overlaying only the target would let stale AI
+    text from plan_json silently revert operator edits on the other clips.
+
+    Empty / whitespace-only operator values fall back to the plan value
+    — see `_overlay_edits_onto_plan` for the rationale.
 
     Args:
         plan: dict with a "clips" key (list of clip dicts). Mutated
@@ -1539,23 +1543,9 @@ def _apply_operator_overrides(
         parent_job_id: the job whose `clips` table owns the operator
             edits (NOT the regen job being rendered — usually
             `regen_of_job_id`).
-        indices: optional list of clip indices to overlay. If None,
-            overlays every clip in the plan. Pass a singleton like
-            `[target_index]` for the surgery (regen_clip /
-            regen_single_clip) flows.
 
     Returns:
         The same plan dict (for chaining).
-
-    Example:
-        parent_plan_dict = parent_plan_row["plan_json"]
-        _apply_operator_overrides(parent_plan_dict, sb, parent_job_id)
-        # Now safe to pass to Claude / Seedance:
-        new_plan = await _surgery_edit_plan(
-            parent_plan_dict=parent_plan_dict,
-            target_index=target_index,
-            ...
-        )
     """
     if not isinstance(plan, dict):
         # Defensive: every current caller has a dict (from
@@ -1568,12 +1558,9 @@ def _apply_operator_overrides(
     clips = plan.get("clips") or []
     if not clips:
         return plan
-    if indices is None:
-        target_indexes = [
-            c.get("index") for c in clips if c.get("index") is not None
-        ]
-    else:
-        target_indexes = list(indices)
+    target_indexes = [
+        c.get("index") for c in clips if c.get("index") is not None
+    ]
     if not target_indexes:
         return plan
 
@@ -1587,23 +1574,10 @@ def _apply_operator_overrides(
     ) or []
     edits_by_index: dict[int, dict] = {r["index"]: r for r in rows}
 
-    for clip in clips:
-        idx = clip.get("index")
-        if idx is None or idx not in edits_by_index:
-            continue
-        edit = edits_by_index[idx]
-        edit_vo = edit.get("voiceover")
-        edit_vp = edit.get("visual_prompt")
-        edit_dur = edit.get("duration_s")
-        # Empty-string semantics are load-bearing — see docstring.
-        if edit_vo and edit_vo.strip():
-            clip["voiceover"] = edit_vo
-        if edit_vp and edit_vp.strip():
-            clip["visual_prompt"] = edit_vp
-        if edit_dur is not None:
-            clip["duration_s"] = edit_dur
-
-    return plan
+    # Pure overlay lives in src/operator_overrides.py so it can be
+    # unit-tested without standing up a Supabase mock.
+    from src.operator_overrides import _overlay_edits_onto_plan
+    return _overlay_edits_onto_plan(plan, edits_by_index)
 
 
 def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:
@@ -5891,6 +5865,13 @@ def clips_only_job(job_id: str) -> dict | None:
         # remove the H sound; Modal rendered the original anyway).
         # Now we pull voiceover + visual_prompt + duration_s too and
         # apply them on top of the plan clip BEFORE rendering.
+        #
+        # TODO: collapse into `_apply_operator_overrides` (modal_app.py:1504)
+        # / `_overlay_edits_onto_plan` (src/operator_overrides.py).
+        # Blocked on a Pydantic-vs-dict gap: this loop builds Clip
+        # models via `.model_copy(update=...)`, while the helper mutates
+        # the `list[dict]` from `plan_json`. Migration deferred until a
+        # sibling Pydantic-aware overlay is added.
         target_indexes = [c.index for c in target_planned]
         clip_db_rows = (
             sb.table("clips")
