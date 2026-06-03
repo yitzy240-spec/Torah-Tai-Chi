@@ -27,3 +27,6 @@ pnpm-debug.log*
 # jetbrains setting folder
 .idea/
 .vercel
+
+# sentry — build-time auth token (DO NOT commit)
+.env.sentry-build-plugin
