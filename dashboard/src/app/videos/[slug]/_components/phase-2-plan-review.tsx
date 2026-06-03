@@ -51,7 +51,7 @@ import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { analyzeClip } from '@/lib/word-count';
 import { humanizeRenderError } from '@/lib/humanize-render-error';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
-import { savePlanClip } from '@/app/actions/video-page/save-plan-clip';
+import { updateClipText } from '@/app/actions/update-clip-text';
 import { savePlanClipMotion } from '@/app/actions/video-page/save-plan-clip-motion';
 import { savePlanClipRefs } from '@/app/actions/video-page/save-plan-clip-refs';
 import { removePlanClip } from '@/app/actions/video-page/remove-plan-clip';
@@ -716,7 +716,13 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   const voSave = useOptimisticSave<string>({
     current: voTxt,
     save: async (next) => {
-      await savePlanClip(clip.id, { voiceover: next });
+      // updateClipText returns {ok}|{error}; useOptimisticSave catches
+      // throws to surface a toast and revert local state, so we
+      // translate the error branch into a throw. Empty/whitespace text
+      // is silently accepted by updateClipText (see its module
+      // docstring) — no toast spam during clear-and-retype.
+      const r = await updateClipText({ clipId: clip.id, voiceover: next });
+      if ('error' in r) throw new Error(r.error);
     },
     onSuccess: clearVoDraft,
     errorMessage: "Couldn't save voiceover.",
@@ -725,7 +731,8 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   const scSave = useOptimisticSave<string>({
     current: scTxt,
     save: async (next) => {
-      await savePlanClip(clip.id, { visual_prompt: next });
+      const r = await updateClipText({ clipId: clip.id, visualPrompt: next });
+      if ('error' in r) throw new Error(r.error);
     },
     onSuccess: clearScDraft,
     errorMessage: "Couldn't save scene direction.",
@@ -777,7 +784,10 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
     const clamped = Math.max(DURATION_MIN, Math.min(DURATION_MAX, val));
     setDurationS(clamped);
     try {
-      await savePlanClip(clip.id, { duration_s: clamped });
+      const r = await updateClipText({ clipId: clip.id, durationS: clamped });
+      if ('error' in r) {
+        toast.error("Couldn't save duration.", { description: r.error });
+      }
     } catch (e) {
       toast.error("Couldn't save duration.", { description: (e as Error).message });
     }
