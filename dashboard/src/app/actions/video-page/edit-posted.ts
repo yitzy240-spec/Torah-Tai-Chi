@@ -5,18 +5,19 @@
 // Branch B: calls deletePostBuffer then re-creates the post; marks old posts row unposted.
 // See spec §13. Default is B (delete+repost is the safe default until verification runs).
 //
-// Phase 0.7: the `newText` arg from the client is IGNORED. The 4 posting
-// cards used to pass the stale `caption` prop (their parent's snapshot,
-// not the just-edited textarea value), so Buffer's republish wrote the
-// pre-edit caption back to the platform — destroying the user's edit and
-// the original likes/comments. The caption typed into CaptionAndHashtags
-// autosaves through savePlatformCaption on every keystroke (no debounce —
-// EditableField fires update() onChange via useOptimisticSave), so by the
-// time Update is clicked the canonical clip_plans row is current. We
-// re-fetch from clip_plans.plan_json.captions[platform] here. The
-// `newText` arg is preserved in the signature to avoid touching the 4
-// call sites; it's only used as a fallback if the canonical lookup
-// returns empty (defensive — empty captions to Buffer are user-hostile).
+// Phase 0.7: the `newText` arg from the client is treated as a LAST-RESORT
+// fallback only. The 4 posting cards used to pass the stale `caption` prop
+// (their parent's snapshot, not the just-edited textarea value), so Buffer's
+// republish wrote the pre-edit caption back to the platform — destroying the
+// user's edit and the original likes/comments. The caption typed into
+// CaptionAndHashtags autosaves through savePlatformCaption on every keystroke
+// (no debounce — EditableField fires update() onChange via useOptimisticSave),
+// so by the time Update is clicked the canonical clip_plans row is current.
+// Fallback chain: clip_plans.plan_json.captions[platform] → posts.caption
+// (last-known-good) → newText (stale client snapshot). The `newText` arg is
+// preserved in the signature to avoid touching the 4 call sites. If all 3
+// resolve to empty/whitespace we abort before calling Buffer — empty captions
+// are user-hostile and Buffer doesn't reject them cleanly.
 
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
@@ -40,7 +41,7 @@ export async function editPostedOnPlatform(
   // Find the most recent published post row for this video+platform.
   const { data: post } = await supabase
     .from('posts')
-    .select('id, buffer_update_id, scheduled_at')
+    .select('id, buffer_update_id, scheduled_at, caption')
     .eq('video_id', videoId)
     .eq('platform', platform)
     .eq('status', 'published')
@@ -57,8 +58,12 @@ export async function editPostedOnPlatform(
 
   // Re-fetch the canonical caption server-side. The client-supplied
   // `newText` is stale (snapshot of the parent prop, not the typed
-  // textarea), so we ignore it. The fallback path returns the explicit
-  // post.caption from the DB rather than the user's stale text.
+  // textarea), so we prefer the canonical source. Fallback order:
+  //   1. clip_plans.plan_json.captions[platform] (canonical, autosaved)
+  //   2. post.caption (last-known-good from the published posts row)
+  //   3. newText (client-passed; stale but better than empty)
+  // After all 3, we still guard against an all-empty result before
+  // touching Buffer — empty captions are user-hostile.
   const { data: videoForJob } = await supabase
     .from('videos')
     .select('job_id')
@@ -70,18 +75,34 @@ export async function editPostedOnPlatform(
   const canonicalPlan = await getCanonicalClipPlan(supabase, videoForJob.job_id as string);
   const captions = (canonicalPlan?.planJson.captions as Record<string, string> | undefined) ?? {};
   const canonicalCaption = captions[platform];
-  // Defensive: never send empty text to Buffer (Buffer rejects, or worse —
-  // posts an empty caption). Fall back to the last-published post.caption
-  // (already in scope as `post.caption` once we select it below).
+  const postCaption = (post.caption as string | null | undefined) ?? '';
   let textForBuffer: string;
   if (canonicalCaption && canonicalCaption.trim().length > 0) {
     textForBuffer = canonicalCaption;
-  } else {
+  } else if (postCaption.trim().length > 0) {
     console.warn(
       `[editPostedOnPlatform] canonical caption empty/missing for video=${videoId} platform=${platform}; ` +
+        `falling back to post.caption (last-known-good).`,
+    );
+    textForBuffer = postCaption;
+  } else {
+    console.warn(
+      `[editPostedOnPlatform] canonical and post.caption both empty for video=${videoId} platform=${platform}; ` +
         `falling back to client newText. This means the autosave never landed (or the plan_json key is wrong).`,
     );
     textForBuffer = newText;
+  }
+
+  // Abort-on-empty guard: if all 3 fallbacks resolved to whitespace, do
+  // NOT call Buffer. Buffer doesn't reject empty captions cleanly and
+  // we'd nuke the last-known-good caption on the platform.
+  const trimmedText = textForBuffer.trim();
+  if (!trimmedText) {
+    return {
+      ok: false,
+      mode: 'edited',
+      error: 'No caption to send — canonical, post.caption, and provided text were all empty.',
+    };
   }
 
   if (branch === 'A') {
