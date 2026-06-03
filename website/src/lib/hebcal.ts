@@ -5,6 +5,18 @@
  * At build time Next.js static export handles caching automatically.
  */
 
+// Slug map + punctuation-insensitive resolver lives in a sibling module
+// that is byte-mirrored from dashboard/src/lib/hebcal-slug.ts. CI fails
+// if the two diverge.
+export {
+  HEBCAL_TO_SLUG,
+  PARSHA_DB_SLUGS,
+  resolveParshaSlug,
+  getUnresolvedHebcalNames,
+  _resetUnresolvedHebcalNamesForTest,
+} from './hebcal-slug';
+import { resolveParshaSlug } from './hebcal-slug';
+
 export type ShabbatParsha = {
   slug: string;        // our slug, e.g. "kedoshim"
   name: string;        // English, e.g. "Kedoshim"
@@ -12,72 +24,6 @@ export type ShabbatParsha = {
   shabbatDate: string; // ISO date, e.g. "2026-04-25"
   combined?: string;   // if double-parsha, the other one's name
   holiday?: string;    // closest holiday name this week, if any
-};
-
-// Maps Hebcal English parsha names → our URL slugs.
-// Combined parshiot like "Tazria-Metzora" are handled by splitting at "-" and mapping each half.
-export const HEBCAL_TO_SLUG: Record<string, string> = {
-  "Bereshit":        "bereishit",
-  "Noach":           "noach",
-  "Lech-Lecha":      "lech-lecha",
-  "Vayera":          "vayera",
-  "Chayei Sara":     "chayei-sarah",
-  "Toldot":          "toldot",
-  "Vayetzei":        "vayetzei",
-  "Vayishlach":      "vayishlach",
-  "Vayeshev":        "vayeshev",
-  "Miketz":          "miketz",
-  "Vayigash":        "vayigash",
-  "Vayechi":         "vayechi",
-  "Shemot":          "shemot",
-  "Vaera":           "vaera",
-  "Bo":              "bo",
-  "Beshalach":       "beshalach",
-  "Yitro":           "yitro",
-  "Mishpatim":       "mishpatim",
-  "Terumah":         "terumah",
-  "Tetzaveh":        "tetzaveh",
-  "Ki Tisa":         "ki-tisa",
-  "Vayakhel":        "vayakhel",
-  "Pekudei":         "pekudei",
-  "Vayakhel-Pekudei": "vayakhel", // combined → first
-  "Vayikra":         "vayikra",
-  "Tzav":            "tzav",
-  "Shmini":          "shemini",
-  "Tazria":          "tazria",
-  "Metzora":         "metzora",
-  "Tazria-Metzora":  "tazria",    // combined → first
-  "Achrei Mot":      "acharei-mot",
-  "Kedoshim":        "kedoshim",
-  "Achrei Mot-Kedoshim": "acharei-mot", // combined → first
-  "Emor":            "emor",
-  "Behar":           "behar",
-  "Bechukotai":      "bechukotai",
-  "Behar-Bechukotai": "behar",   // combined → first
-  "Bamidbar":        "bamidbar",
-  "Nasso":           "naso",
-  "Beha'alotcha":    "behaalotcha",
-  "Sh'lach":         "shelach",
-  "Korach":          "korach",
-  "Chukat":          "chukat",
-  "Balak":           "balak",
-  "Chukat-Balak":    "chukat",   // combined → first
-  "Pinchas":         "pinchas",
-  "Matot":           "matot",
-  "Masei":           "masei",
-  "Matot-Masei":     "matot",    // combined → first
-  "Devarim":         "devarim",
-  "Vaetchanan":      "vaetchanan",
-  "Eikev":           "eikev",
-  "Re'eh":           "reeh",
-  "Shoftim":         "shoftim",
-  "Ki Teitzei":      "ki-teitzei",
-  "Ki Tavo":         "ki-tavo",
-  "Nitzavim":        "nitzavim",
-  "Vayeilech":       "vayeilech",
-  "Nitzavim-Vayeilech": "nitzavim", // combined → first
-  "Ha'Azinu":        "haazinu",
-  "Vezot Haberakhah": "vezot-haberachah",
 };
 
 /** Extract combined partner name from a Hebcal parsha title, e.g. "Tazria-Metzora" → "Metzora" */
@@ -97,7 +43,7 @@ interface HebcalItem {
 function parshaFromItem(item: HebcalItem, holidays: HebcalItem[]): ShabbatParsha | null {
   // Strip "Parashat " prefix
   const rawName = item.title.replace(/^Parashat\s+/, "").replace(/^Shabbat\s+/, "").trim();
-  const slug = HEBCAL_TO_SLUG[rawName];
+  const slug = resolveParshaSlug(item.title);
   if (!slug) return null;
 
   const holiday = holidays.find((h) => h.category === "holiday")?.title;

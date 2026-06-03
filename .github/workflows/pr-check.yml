@@ -136,10 +136,37 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: placeholder
         run: pytest -q -m "not integration"
 
+  hebcal-slug-mirror:
+    name: hebcal-slug.ts mirror check (dashboard ↔ website)
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify hebcal-slug.ts is byte-identical between apps
+        # Background: 2026-06-01 "Korach instead of Beha'alotcha" incident.
+        # The slug map drifted between dashboard and website, silently
+        # routing the public site to the wrong parsha for any name containing
+        # a curly apostrophe. The two files MUST match byte-for-byte (except
+        # the leading filename comment); CI fails the PR otherwise.
+        run: |
+          # Strip the leading header comment block (both files start with a
+          # `//`-comment block whose path/note differs) and diff the rest.
+          # Awk: skip lines while still inside the leading `//` block; print
+          # everything from the first non-`//` line onward.
+          awk 'started || !/^[[:space:]]*\/\// {started=1; print}' dashboard/src/lib/hebcal-slug.ts > /tmp/dash-slug.ts
+          awk 'started || !/^[[:space:]]*\/\// {started=1; print}' website/src/lib/hebcal-slug.ts > /tmp/web-slug.ts
+          if ! diff -q /tmp/dash-slug.ts /tmp/web-slug.ts > /dev/null; then
+            echo "::error::dashboard/src/lib/hebcal-slug.ts and website/src/lib/hebcal-slug.ts have diverged."
+            echo "Mirror the dashboard file into the website (or vice versa) and commit."
+            diff /tmp/dash-slug.ts /tmp/web-slug.ts || true
+            exit 1
+          fi
+          echo "hebcal-slug.ts is in sync between dashboard and website."
+
   # Summary job that all PR-protection rules can require as a single check.
   ci-passed:
     name: CI passed
-    needs: [dashboard, website, python]
+    needs: [dashboard, website, python, hebcal-slug-mirror]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -147,7 +174,8 @@ jobs:
         run: |
           if [ "${{ needs.dashboard.result }}" != "success" ] || \
              [ "${{ needs.website.result }}" != "success" ] || \
-             [ "${{ needs.python.result }}" != "success" ]; then
+             [ "${{ needs.python.result }}" != "success" ] || \
+             [ "${{ needs.hebcal-slug-mirror.result }}" != "success" ]; then
             echo "One or more jobs failed."
             exit 1
           fi
