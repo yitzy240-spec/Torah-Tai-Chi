@@ -30,6 +30,12 @@ interface PostRow {
   created_at: string;
   scheduled_at: string | null;
   published_at: string | null;
+  /**
+   * For YouTube posts this column is repurposed to hold the YouTube video ID
+   * (see lib/auto-post.ts where it's set to ytVideo.id). Used to deep-link
+   * the operator into YouTube Studio to edit or cancel a scheduled upload.
+   */
+  buffer_update_id: string | null;
   caption: string | null;
   error_message: string | null;
 }
@@ -109,10 +115,20 @@ export function YouTubeCard({
         <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
           Scheduled for {post.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : 'unknown'}
         </div>
-        <button type="button" style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-400)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-          onClick={() => alert('Cancel scheduled post coming soon.')}>
-          Cancel scheduled post
-        </button>
+        {post.buffer_update_id ? (
+          <a
+            href={`https://studio.youtube.com/video/${post.buffer_update_id}/edit`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: 'var(--navy-700)', textDecoration: 'underline' }}
+          >
+            Edit or cancel in YouTube Studio →
+          </a>
+        ) : (
+          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-400)' }}>
+            To cancel, open this video in YouTube Studio.
+          </div>
+        )}
       </div>
     );
   }
