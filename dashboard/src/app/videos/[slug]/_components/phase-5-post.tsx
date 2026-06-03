@@ -108,6 +108,17 @@ export function Phase5Post(p: Props) {
   const captionFor = (key: string): string =>
     p.captions[key] ?? '';
 
+  // For the Post-all confirm sheet, surface a short caption preview per
+  // platform so Yonah can see what's actually about to ship before he
+  // pulls the trigger. YouTube's user-facing "caption" is the title
+  // (description is long-form metadata); every other platform uses its
+  // own caption key as-is.
+  const previewCaptionFor = (pl: Platform): string => {
+    const raw = pl === 'youtube' ? captionFor('youtube_title') : captionFor(pl);
+    const trimmed = raw.trim();
+    return trimmed.length > 80 ? `${trimmed.slice(0, 80).trim()}…` : trimmed;
+  };
+
   const handlePostAll = async () => {
     setPostAllLoading(true);
     try {
@@ -174,7 +185,9 @@ export function Phase5Post(p: Props) {
                 whiteSpace: 'nowrap',
               }}
             >
-              {postAllLoading ? 'Posting...' : `Post all (${remaining.length})`}
+              {postAllLoading
+                ? 'Posting...'
+                : `Post to all ${remaining.length} platform${remaining.length === 1 ? '' : 's'}…`}
             </button>
           )}
           <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>
@@ -183,27 +196,64 @@ export function Phase5Post(p: Props) {
         </div>
       </div>
 
-      {/* Post all confirmation sheet */}
+      {/* Post-all confirmation sheet.
+          Renders a per-platform caption preview so Yonah can verify what
+          actually ships before publishing live. Mirrors the channel-row
+          markup pattern from schedule-all-sheet.tsx (the canonical
+          template). primaryAction.destructive flips the CTA red because
+          this is the single most consequential action in the app —
+          publishing to every connected live account in one tap. */}
       <BottomSheet
         open={postAllOpen}
         onOpenChange={setPostAllOpen}
         title={`Post to all ${remaining.length} platform${remaining.length === 1 ? '' : 's'}?`}
         primaryAction={{
-          label: 'Post now',
+          label: postAllLoading
+            ? 'Posting...'
+            : `Post to ${remaining.length} platform${remaining.length === 1 ? '' : 's'} now`,
           onClick: handlePostAll,
+          destructive: true,
         }}
         secondaryAction={{
           label: 'Cancel',
           onClick: () => setPostAllOpen(false),
         }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {remaining.map((pl) => (
-            <div key={pl} style={{ fontSize: 14, color: 'var(--ink-700)' }}>
-              {PLATFORM_DISPLAY[pl]}
-            </div>
-          ))}
-        </div>
+        <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
+          {remaining.map((pl) => {
+            const preview = previewCaptionFor(pl);
+            return (
+              <li
+                key={pl}
+                style={{
+                  borderTop: '1px solid var(--ink-100)',
+                  padding: '10px 0',
+                  fontSize: 12.5,
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 500,
+                    color: 'var(--ink-900)',
+                    display: 'block',
+                    marginBottom: 2,
+                  }}
+                >
+                  {PLATFORM_DISPLAY[pl]}
+                </span>
+                <span
+                  style={{
+                    color: 'var(--ink-600)',
+                    fontStyle: preview ? 'normal' : 'italic',
+                    display: 'block',
+                  }}
+                >
+                  {preview || '(no caption set)'}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       </BottomSheet>
 
       {/* Site card — always shown */}
