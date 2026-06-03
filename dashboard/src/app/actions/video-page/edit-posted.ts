@@ -4,10 +4,24 @@
 // Branch A: calls editPostBuffer on the existing post's buffer_update_id (in-place edit).
 // Branch B: calls deletePostBuffer then re-creates the post; marks old posts row unposted.
 // See spec §13. Default is B (delete+repost is the safe default until verification runs).
+//
+// Phase 0.7: the `newText` arg from the client is IGNORED. The 4 posting
+// cards used to pass the stale `caption` prop (their parent's snapshot,
+// not the just-edited textarea value), so Buffer's republish wrote the
+// pre-edit caption back to the platform — destroying the user's edit and
+// the original likes/comments. The caption typed into CaptionAndHashtags
+// autosaves through savePlatformCaption on every keystroke (no debounce —
+// EditableField fires update() onChange via useOptimisticSave), so by the
+// time Update is clicked the canonical clip_plans row is current. We
+// re-fetch from clip_plans.plan_json.captions[platform] here. The
+// `newText` arg is preserved in the signature to avoid touching the 4
+// call sites; it's only used as a fallback if the canonical lookup
+// returns empty (defensive — empty captions to Buffer are user-hostile).
 
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { editPostBuffer, deletePostBuffer, createUpdate, listProfiles } from '@/lib/buffer';
+import { getCanonicalClipPlan } from '@/lib/clip-plan';
 import { revalidatePath } from 'next/cache';
 
 export async function editPostedOnPlatform(
@@ -41,11 +55,40 @@ export async function editPostedOnPlatform(
   const bufferToken = process.env.BUFFER_ACCESS_TOKEN;
   if (!bufferToken) return { ok: false, mode: 'edited', error: 'BUFFER_ACCESS_TOKEN not set.' };
 
+  // Re-fetch the canonical caption server-side. The client-supplied
+  // `newText` is stale (snapshot of the parent prop, not the typed
+  // textarea), so we ignore it. The fallback path returns the explicit
+  // post.caption from the DB rather than the user's stale text.
+  const { data: videoForJob } = await supabase
+    .from('videos')
+    .select('job_id')
+    .eq('id', videoId)
+    .single();
+  if (!videoForJob?.job_id) {
+    return { ok: false, mode: 'edited', error: 'Video has no associated job.' };
+  }
+  const canonicalPlan = await getCanonicalClipPlan(supabase, videoForJob.job_id as string);
+  const captions = (canonicalPlan?.planJson.captions as Record<string, string> | undefined) ?? {};
+  const canonicalCaption = captions[platform];
+  // Defensive: never send empty text to Buffer (Buffer rejects, or worse —
+  // posts an empty caption). Fall back to the last-published post.caption
+  // (already in scope as `post.caption` once we select it below).
+  let textForBuffer: string;
+  if (canonicalCaption && canonicalCaption.trim().length > 0) {
+    textForBuffer = canonicalCaption;
+  } else {
+    console.warn(
+      `[editPostedOnPlatform] canonical caption empty/missing for video=${videoId} platform=${platform}; ` +
+        `falling back to client newText. This means the autosave never landed (or the plan_json key is wrong).`,
+    );
+    textForBuffer = newText;
+  }
+
   if (branch === 'A') {
     // Branch A: in-place edit via Buffer's editPost mutation.
     try {
-      await editPostBuffer({ token: bufferToken, postId: post.buffer_update_id, text: newText });
-      await supabase.from('posts').update({ caption: newText }).eq('id', post.id);
+      await editPostBuffer({ token: bufferToken, postId: post.buffer_update_id, text: textForBuffer });
+      await supabase.from('posts').update({ caption: textForBuffer }).eq('id', post.id);
       revalidatePath('/', 'layout');
       return { ok: true, mode: 'edited' };
     } catch (e) {
@@ -83,7 +126,7 @@ export async function editPostedOnPlatform(
     const fresh = await createUpdate({
       token: bufferToken,
       channelId: profile.id,
-      text: newText,
+      text: textForBuffer,
       mediaUrl,
       mediaType: 'video',
       shareNow: true,
@@ -98,7 +141,7 @@ export async function editPostedOnPlatform(
       buffer_update_id: fresh.id,
       scheduled_at: new Date().toISOString(),
       status: 'published',
-      caption: newText,
+      caption: textForBuffer,
     });
 
     revalidatePath('/', 'layout');
