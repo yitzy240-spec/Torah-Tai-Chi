@@ -98,11 +98,6 @@ export function Phase5Post(p: Props) {
   ).length;
   const totalPosted = sitePosted + socialPosted;
 
-  // Platforms with draft captions that haven't been posted yet
-  const remaining = socialPlatforms.filter(
-    (pl) => p.captions[pl] && !latestPostByPlatform[pl]?.status?.startsWith('publish'),
-  );
-
   const isConnected = (pl: Platform) => p.connectedPlatforms.includes(pl);
 
   const captionFor = (key: string): string =>
@@ -118,6 +113,14 @@ export function Phase5Post(p: Props) {
     const trimmed = raw.trim();
     return trimmed.length > 80 ? `${trimmed.slice(0, 80).trim()}…` : trimmed;
   };
+
+  // Platforms with draft captions that haven't been posted yet.
+  // Use previewCaptionFor so YouTube (caption lives under 'youtube_title',
+  // not 'youtube') isn't silently dropped — pre-fix the raw p.captions['youtube']
+  // lookup evaluated to undefined and YouTube was excluded from Post-all.
+  const remaining = socialPlatforms.filter(
+    (pl) => previewCaptionFor(pl) && !latestPostByPlatform[pl]?.status?.startsWith('publish'),
+  );
 
   const handlePostAll = async () => {
     setPostAllLoading(true);
