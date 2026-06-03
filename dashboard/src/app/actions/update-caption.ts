@@ -1,5 +1,12 @@
 'use server';
 
+// DEPRECATED: use save-platform-caption.ts. This file will be deleted in
+// Phase 2 of the stability overhaul, together with its only remaining
+// caller (captions-list.tsx). The IG → videos.website_caption mirror
+// block (~lines 67-79 below) has been lifted into
+// src/lib/website-caption-mirror.ts and is now invoked by
+// save-platform-caption.ts directly. Do not add new callers.
+
 import { createServiceClient } from '@/lib/supabase/service';
 import { revalidatePath } from 'next/cache';
 import type { CaptionField } from '@/lib/platforms';
