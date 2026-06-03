@@ -66,6 +66,11 @@ interface Props {
   // Video URL for frame picker
   videoMp4Url: string | null;
   thumbPath: string | null;
+  /** Persisted YouTube cover-frame pick (videos.youtube_thumbnail_url).
+   *  Passed to YouTubeCard.initialPickedThumbUrl so a reload doesn't
+   *  drop the pick, and forwarded through Post all → postAllPlatforms
+   *  so the fanout path also ships with the operator's frame. */
+  youtubeThumbnailUrl: string | null;
 
   // Navigation
   onBack: () => void;
@@ -111,6 +116,11 @@ export function Phase5Post(p: Props) {
         captions: p.captions,
         platforms: remaining,
         shareNow: true,
+        // Forward the operator's persisted YouTube cover-frame pick.
+        // postAllPlatforms passes it through to autoPost which overrides
+        // the auto-extracted thumb at videos.thumb_path for the YouTube
+        // upload. Undefined = no pick (autoPost falls back to thumb_path).
+        youtubeThumbnailUrl: p.youtubeThumbnailUrl ?? undefined,
       });
 
       if (result.errors && result.errors.length > 0 && (!result.results || result.results.length === 0)) {
@@ -239,6 +249,7 @@ export function Phase5Post(p: Props) {
           postUrl={p.postUrls['youtube'] ?? null}
           videoMp4Url={p.videoMp4Url}
           initialThumbUrl={p.thumbPath}
+          initialPickedThumbUrl={p.youtubeThumbnailUrl}
         />
       )}
 

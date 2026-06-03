@@ -54,6 +54,9 @@ interface Props {
   initialPosts: LiveAtRestPost[];
   postUrls: Record<string, string>;
   connectedPlatforms: Platform[];
+  /** Persisted YouTube cover-frame pick (videos.youtube_thumbnail_url),
+   *  threaded through to the YouTubeCard so reload doesn't drop it. */
+  youtubeThumbnailUrl: string | null;
 }
 
 export function LiveAtRestConnected({
@@ -82,6 +85,7 @@ export function LiveAtRestConnected({
   initialPosts,
   postUrls,
   connectedPlatforms,
+  youtubeThumbnailUrl,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -135,6 +139,7 @@ export function LiveAtRestConnected({
         initialPosts={initialPosts}
         postUrls={postUrls}
         connectedPlatforms={connectedPlatforms}
+        youtubeThumbnailUrl={youtubeThumbnailUrl}
       />
     </>
   );

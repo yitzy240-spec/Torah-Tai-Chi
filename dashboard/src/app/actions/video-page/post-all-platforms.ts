@@ -10,6 +10,12 @@ interface PostAllArgs {
   platforms: readonly Platform[];
   scheduledAt?: Date;
   shareNow?: boolean;
+  /** Operator's hand-picked YouTube cover frame URL (from
+   *  saveYouTubeThumbnail, persisted to videos.youtube_thumbnail_url).
+   *  Forwarded to autoPost so the YouTube channel in this fanout uses
+   *  the operator's frame instead of the auto-extracted thumb_path.
+   *  Optional: omitted = autoPost falls back to videos.thumb_path. */
+  youtubeThumbnailUrl?: string;
 }
 
 export async function postAllPlatforms(args: PostAllArgs): Promise<{
@@ -28,6 +34,7 @@ export async function postAllPlatforms(args: PostAllArgs): Promise<{
     selectedPlatforms: args.platforms,
     scheduledAt: args.scheduledAt ?? new Date(),
     shareNow: args.shareNow ?? true,
+    youtubeThumbnailUrl: args.youtubeThumbnailUrl,
   });
 
   if (res.error) {

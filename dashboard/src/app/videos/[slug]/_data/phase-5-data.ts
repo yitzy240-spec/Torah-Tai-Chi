@@ -32,6 +32,7 @@ export type Phase5VideoRow = {
   description: string | null;
   published_to_website: boolean;
   post_urls: Record<string, string> | null;
+  youtube_thumbnail_url: string | null;
 };
 
 export type Phase5Props = {
@@ -59,6 +60,11 @@ export type Phase5Props = {
   videoMp4Url: string | null;
   /** Named thumbPath to match Phase5PostConnected's prop */
   thumbPath: string | null;
+  /** Operator's hand-picked YouTube cover frame (from saveYouTubeThumbnail).
+   *  Seeded into the YouTube card's pickedThumbUrl state so a reload doesn't
+   *  drop the pick, and forwarded through Post all → autoPost. Null means
+   *  no pick — autoPost falls back to thumbPath. */
+  youtubeThumbnailUrl: string | null;
   liveVideoIndex: number;
 };
 
@@ -78,7 +84,7 @@ export async function getPhase5Props(
     await Promise.all([
       supabase
         .from('videos')
-        .select('id, mp4_path, thumb_path, title, subtitle, description, published_to_website, post_urls')
+        .select('id, mp4_path, thumb_path, title, subtitle, description, published_to_website, post_urls, youtube_thumbnail_url')
         .eq('id', draftVideoId)
         .single(),
       getCanonicalClipPlan(supabaseSvc, draftJobId),
@@ -119,6 +125,7 @@ export async function getPhase5Props(
         description: (vRow.description as string | null) ?? null,
         published_to_website: !!(vRow.published_to_website as boolean | null),
         post_urls: (vRow.post_urls as Record<string, string> | null) ?? null,
+        youtube_thumbnail_url: (vRow.youtube_thumbnail_url as string | null) ?? null,
       }
     : null;
 
@@ -189,6 +196,7 @@ export async function getPhase5Props(
     connectedPlatforms,
     videoMp4Url,
     thumbPath,
+    youtubeThumbnailUrl: videoRow?.youtube_thumbnail_url ?? null,
     liveVideoIndex,
   };
 }

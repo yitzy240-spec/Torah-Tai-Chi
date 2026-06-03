@@ -80,6 +80,10 @@ interface Props {
   initialPosts: LiveAtRestPost[];
   postUrls: Record<string, string>;
   connectedPlatforms: Platform[];
+  /** Persisted YouTube cover-frame pick (videos.youtube_thumbnail_url).
+   *  Forwarded to YouTubeCard so the FramePicker shows the saved pick
+   *  after reload and Post to YouTube uses it. Null = no pick. */
+  youtubeThumbnailUrl: string | null;
 }
 
 export function LiveAtRest(p: Props) {
@@ -345,6 +349,7 @@ export function LiveAtRest(p: Props) {
               postUrl={p.postUrls['youtube'] ?? null}
               videoMp4Url={p.videoMp4Url}
               initialThumbUrl={p.thumbPath}
+              initialPickedThumbUrl={p.youtubeThumbnailUrl}
             />
           )}
 

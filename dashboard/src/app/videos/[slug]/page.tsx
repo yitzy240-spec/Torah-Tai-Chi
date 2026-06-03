@@ -564,6 +564,7 @@ async function PhaseBody({
             initialPosts={props.livePosts}
             postUrls={props.postUrls}
             connectedPlatforms={props.connectedPlatforms}
+            youtubeThumbnailUrl={props.youtubeThumbnailUrl}
           />
         </>
       </PhaseErrorBoundary>

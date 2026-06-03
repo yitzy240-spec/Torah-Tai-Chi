@@ -70,6 +70,11 @@ export type LiveAtRestProps = {
   postUrls: Record<string, string>;
   connectedPlatforms: Platform[];
   videoId: string;
+  /** Operator's hand-picked YouTube cover frame (videos.youtube_thumbnail_url).
+   *  Seeded into the YouTube card so a reload after the live page is shown
+   *  doesn't drop the pick. Null falls back to videos.thumb_path inside
+   *  autoPost. */
+  youtubeThumbnailUrl: string | null;
 };
 
 export async function getLiveAtRestProps(
@@ -108,7 +113,7 @@ export async function getLiveAtRestProps(
       supabase
         .from('videos')
         .select(
-          'id, mp4_path, thumb_path, title, subtitle, description, website_caption, spoken_script, published_to_website, post_urls, created_at',
+          'id, mp4_path, thumb_path, title, subtitle, description, website_caption, spoken_script, published_to_website, post_urls, created_at, youtube_thumbnail_url',
         )
         .eq('id', liveVideoId)
         .single(),
@@ -278,5 +283,6 @@ export async function getLiveAtRestProps(
     livePosts,
     postUrls,
     connectedPlatforms,
+    youtubeThumbnailUrl: (liveVRow?.youtube_thumbnail_url as string | null) ?? null,
   };
 }

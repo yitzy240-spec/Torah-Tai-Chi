@@ -44,7 +44,15 @@ interface Props {
   post: PostRow | null;
   postUrl: string | null;
   videoMp4Url: string | null;   // for the frame picker
+  /** Auto-extracted stitch-time thumb (videos.thumb_path), shown in the
+   *  FramePicker preview when the operator hasn't picked a custom frame. */
   initialThumbUrl: string | null;
+  /** Operator's previously persisted YouTube cover frame
+   *  (videos.youtube_thumbnail_url). Seeds pickedThumbUrl so a reload
+   *  doesn't silently drop the pick. Null = no prior pick — falls back
+   *  to initialThumbUrl in the picker preview, and autoPost falls back
+   *  to videos.thumb_path at upload time. */
+  initialPickedThumbUrl?: string | null;
 }
 
 export function YouTubeCard({
@@ -58,10 +66,14 @@ export function YouTubeCard({
   postUrl,
   videoMp4Url,
   initialThumbUrl,
+  initialPickedThumbUrl = null,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [pickedThumbUrl, setPickedThumbUrl] = useState<string | null>(null);
+  // Seeded from videos.youtube_thumbnail_url so the picker reflects
+  // the saved choice after a reload. Updated locally on a fresh pick
+  // (saveYouTubeThumbnail also persists in the same call).
+  const [pickedThumbUrl, setPickedThumbUrl] = useState<string | null>(initialPickedThumbUrl);
   const [tagsInput, setTagsInput] = useState(youtubeTags.join(', '));
   const [posting, startPosting] = useTransition();
   const [error, setError] = useState<string | null>(null);

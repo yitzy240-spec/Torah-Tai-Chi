@@ -53,6 +53,12 @@ interface Props {
   connectedPlatforms: Platform[];
   videoMp4Url: string | null;
   thumbPath: string | null;
+  /** Operator's hand-picked YouTube cover frame, persisted to
+   *  videos.youtube_thumbnail_url. Threaded through to YouTubeCard so
+   *  the FramePicker reflects the saved pick on reload, and forwarded
+   *  through "Post all" → postAllPlatforms → autoPost so YouTube ships
+   *  with it. */
+  youtubeThumbnailUrl: string | null;
 }
 
 export function Phase5PostConnected(props: Props) {
