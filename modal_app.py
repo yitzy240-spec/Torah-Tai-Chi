@@ -1372,10 +1372,10 @@ def _build_spoken_script(clips_in_order: list[dict]) -> str:
 
 
 def _resolve_video_title_fields(sb, job_id: str) -> dict:
-    """Return {title, subtitle, description, website_caption} for the
-    videos row at stitch time.
+    """Return {title, subtitle, description, website_caption,
+    spoken_script} for the videos row at stitch time.
 
-    Resolution order (spec §11.6, extended 2026-05-28):
+    Resolution order (spec §11.6, extended 2026-05-28, 2026-06-03):
     1. Look up jobs.script_id + jobs.parsha_id on the given job.
     2. If script_id is NULL (regen job), walk the regen_of_job_id chain
        (bounded at 25 hops, matching the website chain-walk depth) until
@@ -1385,13 +1385,24 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
     5. **Carry forward operator edits**: if a prior video row exists for
        the same parsha_id, override the script-derived defaults with the
        prior row's non-empty title / subtitle / description /
-       website_caption. Without this, every clips-only re-render INSERTed
-       a fresh videos row that wiped the operator's Phase 5 Site-card
-       edits (2026-05-28 audit finding: site-field edits stranded on the
-       OLD video row, new render shows raw scripts.title).
+       website_caption / spoken_script. Without this, every clips-only
+       re-render INSERTed a fresh videos row that wiped the operator's
+       Phase 5 Site-card edits (2026-05-28 audit finding: site-field
+       edits stranded on the OLD video row, new render shows raw
+       scripts.title). The 2026-06-03 extension covers spoken_script
+       too: dashboard/src/app/actions/update-teaching-text.ts lets
+       Yonah hand-edit the "THE TEACHING" text shown on torahtaichi.com
+       and promises the edit survives across re-stitches — without this
+       carry-forward the writers below silently overwrite the edit with
+       _build_spoken_script(spoken_clips) on every render.
     6. If anything fails (row missing, chain exhausted), return nulls so
        the videos insert still succeeds and the website falls back to
        A-tight gracefully.
+
+    spoken_script note: returned as None when there's no prior row. The
+    three writer sites that call _build_spoken_script (clips_only_job,
+    regen_clip_from_text, compose_video) feed the returned value through
+    src.spoken_script._pick_spoken_script to choose carried-vs-fresh.
     """
     try:
         current_id = job_id
@@ -1421,6 +1432,7 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
             return {
                 "title": None, "subtitle": None,
                 "description": None, "website_caption": None,
+                "spoken_script": None,
             }
 
         script_row = (
@@ -1449,6 +1461,9 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
             "subtitle": script_row.get("title"),
             "description": script_row.get("tldr"),
             "website_caption": None,
+            # spoken_script has no script-derived default — None means
+            # "no carried value, fall back to fresh _build_spoken_script".
+            "spoken_script": None,
         }
 
         # Carry-forward step. Only runs when we have a parsha_id (we do,
@@ -1459,7 +1474,10 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
             try:
                 prior_rows = (
                     sb.table("videos")
-                    .select("title, subtitle, description, website_caption")
+                    .select(
+                        "title, subtitle, description, website_caption, "
+                        "spoken_script"
+                    )
                     .eq("parsha_id", parsha_id)
                     .order("created_at", desc=True)
                     .limit(1)
@@ -1469,7 +1487,8 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
                 if prior_rows:
                     prior = prior_rows[0]
                     for field in (
-                        "title", "subtitle", "description", "website_caption",
+                        "title", "subtitle", "description",
+                        "website_caption", "spoken_script",
                     ):
                         v = prior.get(field)
                         if v is None:
@@ -1498,6 +1517,7 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
         return {
             "title": None, "subtitle": None,
             "description": None, "website_caption": None,
+            "spoken_script": None,
         }
 
 
@@ -6217,21 +6237,28 @@ def clips_only_job(job_id: str) -> dict | None:
                 f"{type(thumb_err).__name__}: {thumb_err}"
             )
 
-        # spoken_script from the stitched clips.
+        # spoken_script: prefer the operator's prior hand-edit (via
+        # the carry-forward in _resolve_video_title_fields) over a fresh
+        # rebuild from the stitched clips. update-teaching-text.ts in
+        # the dashboard promises this edit survives re-stitches.
+        from src.spoken_script import _pick_spoken_script
         spoken_clips = [
             {"index": c.index, "voiceover": c.voiceover}
             for c in sorted(all_planned, key=lambda x: x.index)
         ]
-        spoken_script = _build_spoken_script(spoken_clips)
+        fresh_spoken_script = _build_spoken_script(spoken_clips)
 
         video_row: dict = {
             "job_id": job_id,
             "mp4_path": final_storage_path,
-            "spoken_script": spoken_script,
         }
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        video_row.update(_resolve_video_title_fields(sb, job_id))
+        title_fields = _resolve_video_title_fields(sb, job_id)
+        video_row.update(title_fields)
+        video_row["spoken_script"] = _pick_spoken_script(
+            title_fields.get("spoken_script"), fresh_spoken_script,
+        )
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Video ready")
@@ -6720,6 +6747,12 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         # website renders below the player — keep it tied to what was
         # JUST stitched, not the original clip_plan.full_script (which
         # goes stale the moment Yonah edits any voiceover text).
+        #
+        # Operator-edit survival: if the prior videos row for this parsha
+        # has a hand-edited spoken_script (via dashboard
+        # update-teaching-text.ts), prefer that over the fresh rebuild.
+        # The carry-forward in _resolve_video_title_fields surfaces it.
+        from src.spoken_script import _pick_spoken_script
         stitched_clips: list[dict] = []
         for parent_c in parent_clips:
             if parent_c["index"] == target_index:
@@ -6732,16 +6765,19 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                     "index": parent_c["index"],
                     "voiceover": parent_c.get("voiceover"),
                 })
-        spoken_script = _build_spoken_script(stitched_clips)
+        fresh_spoken_script = _build_spoken_script(stitched_clips)
 
         video_row: dict = {
             "job_id": job_id,
             "mp4_path": final_storage_path,
-            "spoken_script": spoken_script,
         }
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
-        video_row.update(_resolve_video_title_fields(sb, job_id))
+        title_fields = _resolve_video_title_fields(sb, job_id)
+        video_row.update(title_fields)
+        video_row["spoken_script"] = _pick_spoken_script(
+            title_fields.get("spoken_script"), fresh_spoken_script,
+        )
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Re-rendered clip")
@@ -7009,7 +7045,7 @@ def compose_video(compose_job_id: str) -> dict | None:
 
         compose_video_row = (
             sb.table("videos")
-            .select("id, composed_from_clip_ids")
+            .select("id, composed_from_clip_ids, spoken_script")
             .eq("job_id", compose_job_id)
             .single().execute().data
         )
@@ -7083,13 +7119,25 @@ def compose_video(compose_job_id: str) -> dict | None:
         # reflect the current full video selected on screen.")
         # Re-pulling voiceovers with index in case clip_rows ordering
         # doesn't match slot order from clip_ids.
+        #
+        # Operator-edit survival: if compose_video_row already has a
+        # spoken_script (e.g. Yonah hand-edited via dashboard
+        # update-teaching-text.ts on a prior render of this compose
+        # row), prefer it over the fresh rebuild. Unlike the INSERT
+        # writers above, compose UPDATEs the SAME row repeatedly — so
+        # the prior value lives on this very row, no parsha-chain walk
+        # needed.
+        from src.spoken_script import _pick_spoken_script
         spoken_clips: list[dict] = []
         for slot, row in enumerate(ordered):
             spoken_clips.append({
                 "index": slot,
                 "voiceover": row.get("voiceover"),
             })
-        spoken_script = _build_spoken_script(spoken_clips)
+        fresh_spoken_script = _build_spoken_script(spoken_clips)
+        spoken_script = _pick_spoken_script(
+            compose_video_row.get("spoken_script"), fresh_spoken_script,
+        )
 
         # Update the pre-existing videos row with the final mp4 path.
         update: dict = {
