@@ -1,7 +1,7 @@
 // dashboard/src/lib/word-count.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeClip, analyzeScript, TARGET_WPS, WORDS_PER_CLIP } from './word-count';
+import { analyzeClip, analyzeScript, TARGET_WPS, WORDS_PER_CLIP } from './word-count.ts';
 
 test('analyzeScript: empty string -> zero', () => {
   const r = analyzeScript('');
