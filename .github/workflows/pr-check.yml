@@ -1,0 +1,146 @@
+# PR build + test gate for the Torah Tai Chi monorepo.
+#
+# Why: Vercel auto-deploys main. Before this workflow, a broken build would
+# ship to prod and only be caught when the Vercel deploy errored — or worse,
+# when a page 500'd at runtime. This gates merge-to-main on build + test
+# passing for all three slices (dashboard, website, Python pipeline).
+#
+# Placeholder env vars are used for Next builds because the build needs
+# certain NEXT_PUBLIC_* vars present (Supabase client is constructed at
+# module load with `!` non-null assertion). Real secrets stay in Vercel +
+# Modal; CI just needs valid-looking strings to pass compilation.
+
+name: PR check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]   # also run on main itself so we know main is green
+
+concurrency:
+  group: pr-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard:
+    name: Dashboard (build + lint + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests (node:test on lib/*.test.ts)
+        run: |
+          # Run every *.test.ts under src/lib. Add new test files here as they land.
+          for f in src/lib/*.test.ts; do
+            node --test --experimental-strip-types "$f" || exit 1
+          done
+
+      - name: Build
+        env:
+          # Placeholders — real values live in Vercel project env.
+          # These satisfy the bang-asserted module-load reads in lib/supabase/*
+          # and lib/storage-url.ts without revealing real credentials in CI.
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder
+          NEXT_PUBLIC_SUPABASE_URL_HOST: placeholder.supabase.co
+        run: npm run build
+
+  website:
+    name: Website (build + lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder
+          SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder.placeholder
+        run: npm run build
+
+  python:
+    name: Python pipeline (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install ffmpeg (needed by stitcher + frame-extract tests)
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Run pytest
+        env:
+          # Tests should not need real credentials. If a test needs Supabase,
+          # it should mock it. If it ACTUALLY needs to hit prod, mark it
+          # @pytest.mark.integration and we'll skip it in CI.
+          SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+        run: pytest -q -m "not integration"
+
+  # Summary job that all PR-protection rules can require as a single check.
+  ci-passed:
+    name: CI passed
+    needs: [dashboard, website, python]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Verify all jobs succeeded
+        run: |
+          if [ "${{ needs.dashboard.result }}" != "success" ] || \
+             [ "${{ needs.website.result }}" != "success" ] || \
+             [ "${{ needs.python.result }}" != "success" ]; then
+            echo "One or more jobs failed."
+            exit 1
+          fi
+          echo "All CI jobs passed."
