@@ -76,9 +76,14 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
             Edit or cancel in Buffer →
           </a>
         ) : (
-          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-400)' }}>
-            To cancel, open this post in Buffer.
-          </div>
+          <a
+            href="https://buffer.com/app"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: 'var(--ink-600)', textDecoration: 'underline' }}
+          >
+            Open Buffer queue to cancel →
+          </a>
         )}
       </div>
     );

@@ -2,7 +2,8 @@
 //
 // Bottom sheet with native <input type="datetime-local"> for scheduling a post.
 // On submit calls postToPlatform with { scheduledAt, shareNow: false }.
-// Cancel stub: // TODO: cancel scheduled post — out of scope for M5.
+// Cancellation: handled per-card via Edit-in-Buffer / Edit-in-YouTube-Studio
+// deep-links (Phase 0.9). Server-action wiring deferred to Phase 1 follow-up.
 
 'use client';
 import { useState } from 'react';

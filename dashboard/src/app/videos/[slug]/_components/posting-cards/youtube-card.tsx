@@ -125,9 +125,14 @@ export function YouTubeCard({
             Edit or cancel in YouTube Studio →
           </a>
         ) : (
-          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-400)' }}>
-            To cancel, open this video in YouTube Studio.
-          </div>
+          <a
+            href="https://studio.youtube.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: 'var(--ink-600)', textDecoration: 'underline' }}
+          >
+            Open YouTube Studio to cancel →
+          </a>
         )}
       </div>
     );
