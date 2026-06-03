@@ -148,7 +148,7 @@ async function PhaseBody({
   // -------------------------------------------------------------------------
   if (state.kind === 'empty') {
     return (
-      <PhaseErrorBoundary phaseLabel="Empty parsha">
+      <PhaseErrorBoundary phaseLabel="Empty parsha" parshaSlug={parsha.slug}>
         <EmptyState
           parshaName={parsha.name}
           parshaId={parsha.id}
@@ -165,7 +165,7 @@ async function PhaseBody({
     const props = getPhase1Props(parsha);
     if (!props) {
       return (
-        <PhaseErrorBoundary phaseLabel="Phase 1 (script)">
+        <PhaseErrorBoundary phaseLabel="Phase 1 (script)" parshaSlug={parsha.slug}>
           <p style={{ color: 'var(--ink-500)' }}>
             Generating the script… check back in a moment.
           </p>
@@ -173,7 +173,7 @@ async function PhaseBody({
       );
     }
     return (
-      <PhaseErrorBoundary phaseLabel="Phase 1 (script)">
+      <PhaseErrorBoundary phaseLabel="Phase 1 (script)" parshaSlug={parsha.slug}>
         <Phase1ScriptConnected {...props} />
       </PhaseErrorBoundary>
     );
@@ -232,7 +232,7 @@ async function PhaseBody({
 
     if (planError) {
       return (
-        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)">
+        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)" parshaSlug={parsha.slug}>
           <div
             role="alert"
             style={{
@@ -316,7 +316,7 @@ async function PhaseBody({
     if (!clipPlanId && draftJobId && draftJobForState) {
       const startedAt = draftJobForState.triggeredAt;
       return (
-        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)">
+        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)" parshaSlug={parsha.slug}>
           <PlanGeneratingCard startedAt={startedAt} jobId={draftJobId} />
         </PhaseErrorBoundary>
       );
@@ -328,7 +328,7 @@ async function PhaseBody({
       // Show the same spinner card as PlanGeneratingCard so the
       // operator doesn't see a bare text placeholder.
       return (
-        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)">
+        <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)" parshaSlug={parsha.slug}>
           <div
             style={{
               display: 'flex',
@@ -377,7 +377,7 @@ async function PhaseBody({
 
     const props = await getPhase2Props(parsha.slug, draftJobId, clipPlanId);
     return (
-      <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)">
+      <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)" parshaSlug={parsha.slug}>
         <Phase2PlanReviewConnected {...props} />
       </PhaseErrorBoundary>
     );
@@ -405,7 +405,7 @@ async function PhaseBody({
 
     if (!draftVideoId || !draftJobId) {
       return (
-        <PhaseErrorBoundary phaseLabel="Phase 3 (clip review)">
+        <PhaseErrorBoundary phaseLabel="Phase 3 (clip review)" parshaSlug={parsha.slug}>
           <p style={{ color: 'var(--ink-500)' }}>
             Clips are generating… check back in a moment.
           </p>
@@ -415,7 +415,7 @@ async function PhaseBody({
 
     const props = await getPhase3Props(parsha.slug, draftJobId, draftVideoId);
     return (
-      <PhaseErrorBoundary phaseLabel="Phase 3 (clip review)">
+      <PhaseErrorBoundary phaseLabel="Phase 3 (clip review)" parshaSlug={parsha.slug}>
         <Phase3ClipsConnected {...props} />
       </PhaseErrorBoundary>
     );
@@ -442,7 +442,7 @@ async function PhaseBody({
 
     if (!draftJobId || !draftVideoId) {
       return (
-        <PhaseErrorBoundary phaseLabel="Phase 4 (stitched video)">
+        <PhaseErrorBoundary phaseLabel="Phase 4 (stitched video)" parshaSlug={parsha.slug}>
           <p style={{ color: 'var(--ink-500)' }}>
             Stitching in progress… check back in a moment.
           </p>
@@ -452,7 +452,7 @@ async function PhaseBody({
 
     const props = await getPhase4Props(draftJobId, draftVideoId, clipPlanId);
     return (
-      <PhaseErrorBoundary phaseLabel="Phase 4 (stitched video)">
+      <PhaseErrorBoundary phaseLabel="Phase 4 (stitched video)" parshaSlug={parsha.slug}>
         <Phase4StitchedConnected parshaSlug={parsha.slug} {...props} />
       </PhaseErrorBoundary>
     );
@@ -485,7 +485,7 @@ async function PhaseBody({
 
     if (!draftJobId || !draftVideoId) {
       return (
-        <PhaseErrorBoundary phaseLabel="Phase 5 (posting)">
+        <PhaseErrorBoundary phaseLabel="Phase 5 (posting)" parshaSlug={parsha.slug}>
           <p style={{ color: 'var(--ink-500)' }}>
             Video not yet available… check back in a moment.
           </p>
@@ -502,7 +502,7 @@ async function PhaseBody({
       videosForState,
     );
     return (
-      <PhaseErrorBoundary phaseLabel="Phase 5 (posting)">
+      <PhaseErrorBoundary phaseLabel="Phase 5 (posting)" parshaSlug={parsha.slug}>
         <Phase5PostConnected {...phase5Props} />
       </PhaseErrorBoundary>
     );
@@ -527,7 +527,7 @@ async function PhaseBody({
     );
 
     return (
-      <PhaseErrorBoundary phaseLabel="Live page">
+      <PhaseErrorBoundary phaseLabel="Live page" parshaSlug={parsha.slug}>
         <>
           {state.kind === 'live-and-draft' && props.draftStripPhase && (
             <DraftCalloutStrip
