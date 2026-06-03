@@ -90,7 +90,11 @@ The silent-data-loss bugs + the alert-stub UI lies. Land before any cleanup, ref
 - **Fix:** Extract `_apply_operator_overrides(plan, sb, parent_job_id, indices)`. Inject between every fetch of `clip_plans.plan_json` and every USE of `parent_plan_dict`. Note: `regen_smart` uses `_smart_edit_plan(parent_plan_dict=...)` while others embed inline — same overlay applies to both shapes.
 
 ### 0.3 Collapse two `clips.voiceover/visual_prompt` writers into one
-- [ ] **C-CRIT** *[half-day, code]* ⚠️ *Reviewer-sharpened 2026-06-03*
+- [x] **C-CRIT** *[half-day, code]* ⚠️ *Reviewer-sharpened 2026-06-03* — **Shipped commit `60f714e` via Path B (no migration); see scope note below**
+
+**Scope decision (2026-06-03):** Implementer chose Path B (simpler — relax `updateClipText` to silently skip empty fields, leverage Phase 0.2's `_overlay_edits_onto_plan` for render-time fallback) over Path A (new `clips.voiceover_status` column). Path A would have required either relaxing the `clips.voiceover` NOT NULL constraint OR storing status without storing the empty content (defeating the column). Path B reuses Phase 0.2's overlay fallback as the render-time gate. Net: 3-file commit, no migration, no manual prod step.
+
+
 - **Why:** `savePlanClip` (used by phase-2) has no validation, no zero-row guard, will silently write whitespace. `updateClipText` has all three guards.
 - **Files:** [save-plan-clip.ts:13-28](dashboard/src/app/actions/video-page/save-plan-clip.ts#L13), [update-clip-text.ts:17-70](dashboard/src/app/actions/update-clip-text.ts#L17), [phase-2-plan-review.tsx:719,728,780](dashboard/src/app/videos/[slug]/_components/phase-2-plan-review.tsx#L719)
 - **⚠️ Signature & behavior conflict:**

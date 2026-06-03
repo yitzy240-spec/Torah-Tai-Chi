@@ -4,8 +4,12 @@ import { createServiceClient } from '@/lib/supabase/service';
 
 const MAX_VOICEOVER_CHARS = 1500;
 const MAX_VISUAL_PROMPT_CHARS = 5000;
+// Match phase-2-plan-review.tsx DURATION_MIN/MAX (3..15) — caller already
+// clamps to that range, but pin here too so a future caller that forgets
+// to clamp can't smuggle out-of-range durations into the pipeline
+// (modal_app + word-count + tai_chi_moves all assume <=15s clips).
 const DURATION_MIN_S = 1;
-const DURATION_MAX_S = 60;
+const DURATION_MAX_S = 15;
 
 /**
  * Saves user-edited voiceover, visual_prompt, and/or duration_s to the
@@ -25,7 +29,7 @@ const DURATION_MAX_S = 60;
  * level (so we can't write empty anyway), and Modal's
  * `_overlay_edits_onto_plan` / `clips_only_job` overlay loops fall
  * back to the plan-generated voiceover when an operator edit is empty
- * (see src/operator_overlays.py + modal_app.py:5886). The worst case
+ * (see src/operator_overrides.py + modal_app.py:5886). The worst case
  * if an operator commits an empty edit and triggers a render is that
  * Seedance speaks the AI-generated voiceover instead of a silent clip.
  *
