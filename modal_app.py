@@ -1501,6 +1501,111 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
         }
 
 
+def _apply_operator_overrides(
+    plan: dict,
+    sb,
+    parent_job_id: str,
+    indices: list[int] | None = None,
+) -> dict:
+    """Overlay operator-edited voiceover/visual_prompt/duration_s from
+    the `clips` table onto a `clip_plans.plan_json` dict, in place.
+
+    Why this exists:
+      The dashboard writes operator edits (Phase 2 voiceover /
+      visual_prompt / duration tweaks) to the `clips` table via
+      server actions like update-clip-text.ts. BUT `clip_plans.plan_json`
+      is a snapshot of the AI's original plan and is never rewritten
+      when the operator edits a clip. Regen entrypoints that fetch
+      `plan_json` and hand it to Claude or Seedance silently drop
+      operator edits.
+
+      2026-05-28 incident: Yonah edited "Torah" → "tow-ruh" to fix
+      Seedance TTS pronouncing the H, then hit Regen. Modal re-rendered
+      the original "Torah" because surgery (regen_clip) read from
+      plan_json. We patched clips_only_job (line ~5762) but left
+      regen_clip / regen_smart / regen_agent / regen_single_clip
+      vulnerable to the same bug class. This helper closes the gap
+      so all 5 fetch-then-use sites share one overlay.
+
+    Empty / whitespace-only operator values fall back to the plan
+    value. An operator who accidentally cleared a field shouldn't end
+    up with a silent silent-clip — the AI text is at least *some*
+    voiceover. This matches clips_only_job's behavior.
+
+    Args:
+        plan: dict with a "clips" key (list of clip dicts). Mutated
+            in place.
+        sb: supabase client (the call site already has one).
+        parent_job_id: the job whose `clips` table owns the operator
+            edits (NOT the regen job being rendered — usually
+            `regen_of_job_id`).
+        indices: optional list of clip indices to overlay. If None,
+            overlays every clip in the plan. Pass a singleton like
+            `[target_index]` for the surgery (regen_clip /
+            regen_single_clip) flows.
+
+    Returns:
+        The same plan dict (for chaining).
+
+    Example:
+        parent_plan_dict = parent_plan_row["plan_json"]
+        _apply_operator_overrides(parent_plan_dict, sb, parent_job_id)
+        # Now safe to pass to Claude / Seedance:
+        new_plan = await _surgery_edit_plan(
+            parent_plan_dict=parent_plan_dict,
+            target_index=target_index,
+            ...
+        )
+    """
+    if not isinstance(plan, dict):
+        # Defensive: every current caller has a dict (from
+        # clip_plans.plan_json). Refusing a Pydantic model loudly is
+        # better than .model_dump()-ing it and hiding a refactor bug.
+        raise TypeError(
+            "_apply_operator_overrides expects a dict plan, got "
+            f"{type(plan).__name__}"
+        )
+    clips = plan.get("clips") or []
+    if not clips:
+        return plan
+    if indices is None:
+        target_indexes = [
+            c.get("index") for c in clips if c.get("index") is not None
+        ]
+    else:
+        target_indexes = list(indices)
+    if not target_indexes:
+        return plan
+
+    rows = (
+        sb.table("clips")
+        .select("index, voiceover, visual_prompt, duration_s")
+        .eq("job_id", parent_job_id)
+        .in_("index", target_indexes)
+        .execute()
+        .data
+    ) or []
+    edits_by_index: dict[int, dict] = {r["index"]: r for r in rows}
+
+    for clip in clips:
+        idx = clip.get("index")
+        if idx is None or idx not in edits_by_index:
+            continue
+        edit = edits_by_index[idx]
+        edit_vo = edit.get("voiceover")
+        edit_vp = edit.get("visual_prompt")
+        edit_dur = edit.get("duration_s")
+        # Empty-string semantics are load-bearing — see docstring.
+        if edit_vo and edit_vo.strip():
+            clip["voiceover"] = edit_vo
+        if edit_vp and edit_vp.strip():
+            clip["visual_prompt"] = edit_vp
+        if edit_dur is not None:
+            clip["duration_s"] = edit_dur
+
+    return plan
+
+
 def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:
     """Extract the last frame of an mp4 as PNG via ffmpeg.
 
@@ -2734,6 +2839,13 @@ def regen_smart(job_id: str) -> dict | None:
                 f"regen."
             )
 
+        # Overlay operator's Phase 2 voiceover/visual_prompt edits onto
+        # the plan dict BEFORE Claude sees it (see
+        # _apply_operator_overrides). regen_smart applies broadly, so
+        # overlay every clip — Claude's diff will then start from the
+        # operator's edited text, not the stale AI snapshot.
+        _apply_operator_overrides(parent_plan_dict, sb, parent_job_id)
+
         # 3. Extract just the feedback section from the merged
         #    director_notes — the previous-plan JSON is redundant since
         #    we pass parent_plan_dict directly to Claude.
@@ -3182,6 +3294,13 @@ def regen_clip(job_id: str) -> dict | None:
             .data
         )
         parent_plan_dict = parent_plan_row["plan_json"]
+
+        # Overlay operator's Phase 2 voiceover/visual_prompt edits onto
+        # the plan dict BEFORE Claude sees it (see
+        # _apply_operator_overrides). Surgery only touches target_index,
+        # but we overlay all clips so Claude's drift-defense compares
+        # against operator-current values for the untouched clips too.
+        _apply_operator_overrides(parent_plan_dict, sb, parent_job_id)
 
         parent_clips = (
             sb.table("clips")
@@ -4247,6 +4366,13 @@ def regen_agent(job_id: str) -> dict | None:
         )
         parent_plan_dict = parent_plan_row["plan_json"]
 
+        # Overlay operator's Phase 2 voiceover/visual_prompt edits onto
+        # the plan dict BEFORE the diagnose/plan/execute Claude chain
+        # sees it (see _apply_operator_overrides). The agent reasons
+        # over the plan three separate times — every one of those needs
+        # to see the operator-current text, not the stale AI snapshot.
+        _apply_operator_overrides(parent_plan_dict, sb, parent_job_id)
+
         parent_clips = (
             sb.table("clips")
             .select(
@@ -5006,6 +5132,13 @@ def regen_single_clip(job_id: str) -> dict | None:
             .single().execute().data
         )
         parent_plan_dict = parent_plan_row["plan_json"]
+
+        # Overlay operator's Phase 2 voiceover/visual_prompt edits onto
+        # the plan dict BEFORE the rewrite prompt pulls the target
+        # clip out of parent_plan_dict["clips"] (see
+        # _apply_operator_overrides). Without this, the Sonnet rewrite
+        # call sees the stale AI text instead of the operator's edits.
+        _apply_operator_overrides(parent_plan_dict, sb, parent_job_id)
 
         parent_clips = (
             sb.table("clips").select(
