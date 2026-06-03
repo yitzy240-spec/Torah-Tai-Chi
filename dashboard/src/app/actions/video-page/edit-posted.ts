@@ -39,6 +39,12 @@ export async function editPostedOnPlatform(
   const supabase = createServiceClient();
 
   // Find the most recent published post row for this video+platform.
+  // Note on posts.caption: this column is written ONLY at insert time
+  // (auto-post.ts) and on successful Branch A edits below. The autosave
+  // loop touches clip_plans only — never posts. So posts.caption is
+  // strictly "last text Buffer was told" — older than the canonical
+  // clip_plans.captions[platform] whenever the operator has typed since.
+  // This invariant is load-bearing for the fallback order below.
   const { data: post } = await supabase
     .from('posts')
     .select('id, buffer_update_id, scheduled_at, caption')
@@ -72,6 +78,13 @@ export async function editPostedOnPlatform(
   if (!videoForJob?.job_id) {
     return { ok: false, mode: 'edited', error: 'Video has no associated job.' };
   }
+  // RACE: if the operator typed a final keystroke and immediately tapped
+  // Update, the autosave's savePlatformCaption may still be in flight when
+  // this SELECT runs. We'd then read the previous keystroke's text, not the
+  // absolute latest. Mitigation would be `await isPending` in the card's
+  // Update handler before this action fires — not done as of Phase 0.7.
+  // Residual risk: <=1 keystroke stale in the worst case. Documented for
+  // the next maintainer.
   const canonicalPlan = await getCanonicalClipPlan(supabase, videoForJob.job_id as string);
   const captions = (canonicalPlan?.planJson.captions as Record<string, string> | undefined) ?? {};
   const canonicalCaption = captions[platform];
