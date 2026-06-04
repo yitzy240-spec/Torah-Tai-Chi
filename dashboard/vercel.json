@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/purge-old-clips",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/buffer-health",
+      "schedule": "0 12 * * *"
     }
   ]
 }

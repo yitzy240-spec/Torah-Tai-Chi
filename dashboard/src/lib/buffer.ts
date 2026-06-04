@@ -10,6 +10,8 @@
  */
 
 import { unstable_cache } from 'next/cache';
+import { createHash } from 'node:crypto';
+import { createServiceClient } from '@/lib/supabase/service';
 
 const BUFFER_GRAPHQL = 'https://api.buffer.com/graphql';
 
@@ -146,9 +148,15 @@ export const getPostExternalLinks = unstable_cache(
 
 // Exported for /channels page, which IS the freshness source-of-truth
 // (the page Yonah visits after connecting/disconnecting platforms in
-// Buffer's UI). Everywhere else should use the cached `listProfiles`.
+// Buffer's UI). Always hits Buffer + writes through to the cache so
+// subsequent listProfiles calls everywhere else immediately see the
+// new channel set.
 export async function listProfilesFresh(token: string): Promise<BufferProfile[]> {
-  return listProfilesUncached(token);
+  const profiles = await listProfilesUncached(token);
+  await writeCachedProfiles(token, profiles).catch((e) => {
+    console.warn('[buffer] cache write-through failed:', (e as Error).message);
+  });
+  return profiles;
 }
 
 async function listProfilesUncached(token: string): Promise<BufferProfile[]> {
@@ -164,20 +172,80 @@ async function listProfilesUncached(token: string): Promise<BufferProfile[]> {
     }));
 }
 
-// 24-hour cache on listProfiles. Yonah 2026-06-02: hit Buffer's free-tier
-// 100/day cap mid-iteration because every render of /videos/[slug] (Phase
-// 5 + LiveAtRest), every /channels visit, every /compose visit, every
-// Post click, and every Modal autopilot webhook all fired listProfiles
-// uncached. Channel set only changes when the operator connects or
-// disconnects a platform inside /channels — a once-a-month event at most.
-// 24h is safe; /channels page calls revalidateTag('buffer-profiles')
-// on render so a manual connect/disconnect there shows up everywhere
-// else immediately on the next page load. Yonah pushed back on the
-// initial 5-min TTL ("we dont expect these to change every 5 minutes")
-// — he's right, the data is effectively static between channel-mgmt
-// sessions.
+// ─── Supabase-backed second-layer cache ──────────────────────────────────
+// Why this exists beyond unstable_cache: see migration
+// 20260604_buffer_profiles_cache.sql. tl;dr — Yonah hit Buffer's 100/day
+// cap twice in 3 days because unstable_cache was being invalidated by
+// autosave keystrokes. The Supabase table survives revalidations + cold
+// starts + deploys. It's also the fallback when Buffer returns 4xx/5xx —
+// rather than blowing up page renders, we serve the last-known-good
+// profile list (which changes maybe once a month).
+
+function tokenHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+async function readCachedProfiles(token: string): Promise<BufferProfile[] | null> {
+  const sb = createServiceClient();
+  const { data, error } = await sb
+    .from('buffer_profiles_cache')
+    .select('profiles')
+    .eq('token_hash', tokenHash(token))
+    .maybeSingle();
+  if (error || !data) return null;
+  return data.profiles as BufferProfile[];
+}
+
+async function writeCachedProfiles(token: string, profiles: BufferProfile[]): Promise<void> {
+  const sb = createServiceClient();
+  await sb
+    .from('buffer_profiles_cache')
+    .upsert({
+      token_hash: tokenHash(token),
+      profiles: profiles as unknown as object,
+      updated_at: new Date().toISOString(),
+    });
+}
+
+// Three-layer caching strategy:
+//   1. Next.js unstable_cache (24h, in-memory + Vercel data cache).
+//      Fastest; satisfies almost every call in normal operation.
+//   2. Supabase buffer_profiles_cache (24h freshness, table-backed).
+//      Survives unstable_cache invalidation, cold starts, deploys.
+//      Adds one cheap SQL select on miss.
+//   3. Buffer GraphQL listProfiles (fresh, rate-limited 100/day).
+//      Only hit when both caches miss OR an explicit
+//      listProfilesFresh() call (from /channels page).
+//
+// Fallback on Buffer failure: if Buffer 4xx/5xx's, we serve whatever
+// the Supabase cache has — even if "stale" by clock time. The profile
+// list changes at the cadence of a human connecting/disconnecting
+// channels in Buffer's UI (≈ once a month), so "stale" is functionally
+// correct for hours-to-days windows.
+async function listProfilesWithFallback(token: string): Promise<BufferProfile[]> {
+  try {
+    const fresh = await listProfilesUncached(token);
+    // Best-effort write-through; never fail the live response if the
+    // cache write errors.
+    void writeCachedProfiles(token, fresh).catch((e) => {
+      console.warn('[buffer] cache write-through failed:', (e as Error).message);
+    });
+    return fresh;
+  } catch (e) {
+    const msg = String(e);
+    const cached = await readCachedProfiles(token);
+    if (cached) {
+      console.warn(
+        `[buffer] listProfiles failed (${msg.slice(0, 100)}), serving cached profiles (${cached.length} entries)`,
+      );
+      return cached;
+    }
+    throw e;
+  }
+}
+
 export const listProfiles = unstable_cache(
-  async (token: string) => listProfilesUncached(token),
+  async (token: string) => listProfilesWithFallback(token),
   ['buffer-list-profiles'],
   { revalidate: 86400, tags: ['buffer-profiles'] },
 );
