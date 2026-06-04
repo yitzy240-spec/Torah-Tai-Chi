@@ -9,6 +9,7 @@
 
 'use client';
 import { useState, useMemo } from 'react';
+import Image from 'next/image';
 import { BottomSheet } from '../bottom-sheet';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
 
@@ -28,6 +29,11 @@ export function MotionPickerSheet({
   onPick,
 }: Props) {
   const [filter, setFilter] = useState('');
+  // Promote the still-poster <Image> to a full <video autoPlay> only for
+  // the move the operator long-presses / taps a preview affordance on.
+  // Keeps the per-open download to ~50 KB of WebPs instead of ~50 MB of
+  // autoplaying MP4s (Phase 4.1 of the overhaul plan; perf-audit finding).
+  const [previewSlug, setPreviewSlug] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (!filter) return moves;
@@ -113,7 +119,7 @@ export function MotionPickerSheet({
                 cursor: 'pointer',
               }}
             >
-              {m.thumbVideoUrl ? (
+              {previewSlug === m.slug && m.thumbVideoUrl ? (
                 <video
                   src={m.thumbVideoUrl}
                   muted
@@ -128,6 +134,28 @@ export function MotionPickerSheet({
                     objectFit: 'cover',
                     background: 'var(--ink-900)',
                     flexShrink: 0,
+                  }}
+                />
+              ) : m.posterUrl ? (
+                <Image
+                  src={m.posterUrl}
+                  alt=""
+                  width={40}
+                  height={71}
+                  sizes="40px"
+                  loading="lazy"
+                  style={{
+                    borderRadius: 4,
+                    objectFit: 'cover',
+                    background: 'var(--ink-900)',
+                    flexShrink: 0,
+                  }}
+                  // Tap-to-preview: clicking the thumb (not the row's
+                  // commit-on-tap) swaps in the autoplaying <video> so the
+                  // operator can see the motion before committing.
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewSlug(m.slug);
                   }}
                 />
               ) : (

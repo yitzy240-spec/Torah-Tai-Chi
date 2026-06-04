@@ -2,7 +2,20 @@ import type { NextConfig } from 'next';
 import { withSentryConfig } from '@sentry/nextjs';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Allow Next/Image to optimize public-storage URLs from the project's
+  // Supabase bucket. Needed by MotionPickerSheet posters (Phase 4.1),
+  // YouTube thumbnail picker, and any future <Image> consumer that points
+  // at a storage URL. The hostname is the project ref; if the Supabase
+  // project ever changes, update both here and NEXT_PUBLIC_SUPABASE_URL.
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'jswdfthmegjbhnwbgeca.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
+    ],
+  },
 };
 
 // Wrap with Sentry's plugin so source maps upload at build time and the
