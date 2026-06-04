@@ -19,7 +19,6 @@ import type { DraftPhase } from '@/lib/page-state';
 import { fetchPageShellData } from './_data/shell-data';
 import { getPhase1Props } from './_data/phase-1-data';
 import { getPhase2Props } from './_data/phase-2-data';
-import { getPhase3Props } from './_data/phase-3-data';
 import { getPhase4Props } from './_data/phase-4-data';
 import { getPhase5Props } from './_data/phase-5-data';
 import { getLiveAtRestProps } from './_data/live-at-rest-data';
@@ -29,7 +28,6 @@ import { CompressedStepper } from './_components/compressed-stepper';
 import { PersistentLiveStrip } from './_components/persistent-live-strip';
 import { Phase1ScriptConnected } from './_components/phase-1-script-connected';
 import { Phase2PlanReviewConnected } from './_components/phase-2-plan-review-connected';
-import { Phase3ClipsConnected } from './_components/phase-3-clips-connected';
 import { Phase4StitchedConnected } from './_components/phase-4-stitched-connected';
 import { Phase5PostConnected } from './_components/phase-5-post-connected';
 import { EmptyState } from './_components/empty-state';
@@ -383,43 +381,10 @@ async function PhaseBody({
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Phase 3: Clips
-  // -------------------------------------------------------------------------
-  if (showDraftView && phase === 3) {
-    const stateDraftJobId =
-      state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
-        ? state.draftJobId
-        : null;
-    // Resolve to plan-only ancestor — Phase 3 reads clip metadata from
-    // the plan-only root, not the compose/clips-only descendants. See
-    // resolvePlanJobId() docstring for the rationale.
-    const draftJobId = resolvePlanJobId(jobsForState, stateDraftJobId);
-    const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
-    // For the videoId we still want the latest compose's video (the
-    // stitched mp4 surface used by Phase 3 navigation/preview), not
-    // the plan-only's (which is null). Look it up from the original
-    // state.draftJobId.
-    const stateJobForVideo = jobsForState.find((jj) => jj.id === stateDraftJobId);
-    const draftVideoId = stateJobForVideo?.videoId ?? draftJobForState?.videoId ?? null;
-
-    if (!draftVideoId || !draftJobId) {
-      return (
-        <PhaseErrorBoundary phaseLabel="Phase 3 (clip review)" parshaSlug={parsha.slug}>
-          <p style={{ color: 'var(--ink-500)' }}>
-            Clips are generating… check back in a moment.
-          </p>
-        </PhaseErrorBoundary>
-      );
-    }
-
-    const props = await getPhase3Props(parsha.slug, draftJobId, draftVideoId);
-    return (
-      <PhaseErrorBoundary phaseLabel="Phase 3 (clip review)" parshaSlug={parsha.slug}>
-        <Phase3ClipsConnected {...props} />
-      </PhaseErrorBoundary>
-    );
-  }
+  // Phase 3 was retired 2026-06-01 — the redirect at the top of this file
+  // converts ?phase=3 → ?phase=2. Phase 3 render block + its component +
+  // data fetcher were deleted as part of the Phase 2 (overhaul plan) dead-
+  // code purge on 2026-06-04.
 
   // -------------------------------------------------------------------------
   // Phase 4: Stitched video
