@@ -159,6 +159,13 @@ def _preprocess_clip_for_concat(
     args += [
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-pix_fmt", "yuv420p",
+        # Force 30 fps. Seedance outputs 23.976 fps natively; Facebook Reels
+        # + Instagram Reels require >= 24 fps and reject 23.976 (rounded
+        # to 23 by their preflight check). Yonah hit this on the 2026-06-02
+        # Beha'alotcha post — "frame rate must be between 24 and 60".
+        # 30 gives a stable round number with headroom; libx264 will
+        # duplicate frames as needed (visually identical to viewers).
+        "-r", "30",
     ]
     if has_audio:
         args += ["-c:a", "aac", "-b:a", "192k"]
