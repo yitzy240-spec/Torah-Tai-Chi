@@ -17,7 +17,9 @@ The file is overwritten in place (same bucket, same path) so any URL
 already cached by Buffer/the dashboard still resolves to the fixed
 version on the next refetch.
 
-Bundles its own ffmpeg via imageio-ffmpeg (no separate install).
+Uses Supabase's REST API directly via httpx (no supabase-py dependency,
+which requires C extensions that don't build on Python 3.14 Windows).
+Bundles its own ffmpeg via imageio-ffmpeg if needed.
 """
 from __future__ import annotations
 import os
@@ -26,8 +28,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
-from supabase import create_client
 
 load_dotenv()
 
@@ -55,13 +57,47 @@ def get_ffmpeg() -> str:
         sys.exit(1)
 
 
+def download(supabase_url: str, key: str, storage_path: str, dest: Path) -> int:
+    """Download a public-bucket file via the storage REST endpoint.
+    Returns the byte count written."""
+    url = f"{supabase_url}/storage/v1/object/public/{BUCKET}/{storage_path}"
+    with httpx.stream("GET", url, follow_redirects=True, timeout=120.0) as r:
+        r.raise_for_status()
+        n = 0
+        with open(dest, "wb") as f:
+            for chunk in r.iter_bytes(chunk_size=1024 * 1024):
+                f.write(chunk)
+                n += len(chunk)
+    return n
+
+
+def upload(supabase_url: str, key: str, storage_path: str, src: Path) -> None:
+    """Upload (upsert) a file to the storage REST endpoint.
+    Service-role key required for write."""
+    url = f"{supabase_url}/storage/v1/object/{BUCKET}/{storage_path}"
+    with open(src, "rb") as f:
+        data = f.read()
+    r = httpx.post(
+        url,
+        content=data,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "apikey": key,
+            "Content-Type": "video/mp4",
+            "x-upsert": "true",
+        },
+        timeout=300.0,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"upload {r.status_code}: {r.text[:400]}")
+
+
 def main(storage_path: str) -> int:
     ff = get_ffmpeg()
     print(f"Using ffmpeg: {ff}")
 
-    url = os.environ["SUPABASE_URL"]
+    supabase_url = os.environ["SUPABASE_URL"].rstrip("/")
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-    sb = create_client(url, key)
 
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
@@ -70,12 +106,11 @@ def main(storage_path: str) -> int:
 
         print(f"Downloading {storage_path} ...")
         try:
-            blob = sb.storage.from_(BUCKET).download(storage_path)
+            n = download(supabase_url, key, storage_path, orig)
         except Exception as e:
             print(f"download failed: {e}", file=sys.stderr)
             return 1
-        orig.write_bytes(blob)
-        print(f"  {orig.stat().st_size:,} bytes")
+        print(f"  {n:,} bytes")
 
         print(f"Re-encoding at {TARGET_FPS} fps ...")
         result = subprocess.run(
@@ -97,10 +132,7 @@ def main(storage_path: str) -> int:
 
         print(f"Uploading back to {storage_path} ...")
         try:
-            sb.storage.from_(BUCKET).upload(
-                storage_path, fixed.read_bytes(),
-                file_options={"content-type": "video/mp4", "upsert": "true"},
-            )
+            upload(supabase_url, key, storage_path, fixed)
         except Exception as e:
             print(f"upload failed: {e}", file=sys.stderr)
             return 1
