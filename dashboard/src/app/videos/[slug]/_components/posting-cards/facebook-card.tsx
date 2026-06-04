@@ -75,7 +75,7 @@ export function FacebookCard({ jobId, videoId, parshaSlug, caption, post, postUr
         ...((socialMetadata ?? {}) as Record<string, unknown>),
         facebook: { type, firstComment: fc || undefined },
       },
-    });
+    }, parshaSlug);
   }
 
   if (isScheduled && post) {
@@ -133,7 +133,7 @@ export function FacebookCard({ jobId, videoId, parshaSlug, caption, post, postUr
 
         {editFlowOpen ? (
           <>
-            <CaptionAndHashtags storageKey={`caption.facebook.${parshaSlug}.edit`} initialCombined={post?.caption ?? caption} onSave={async (next) => savePlatformCaption(jobId, 'facebook', next)} />
+            <CaptionAndHashtags storageKey={`caption.facebook.${parshaSlug}.edit`} initialCombined={post?.caption ?? caption} onSave={async (next) => savePlatformCaption(jobId, 'facebook', next, parshaSlug)} />
             <ReelOrPostToggle value={reelOrPost} onChange={(v) => { setReelOrPost(v); saveFBMeta(v, firstComment); }} />
             <EditableField storageKey={`facebook.${parshaSlug}.firstComment.edit`} label="First comment" initialValue={firstComment} onSave={async (v) => { setFirstComment(v); await saveFBMeta(reelOrPost, v); }} multiline={false} />
             <button type="button" onClick={() => { startPosting(async () => { const res = await editPostedOnPlatform(videoId, 'facebook', caption); if (!res.ok) setError(res.error ?? 'Update failed'); else setEditFlowOpen(false); }); }} disabled={posting}
@@ -181,7 +181,7 @@ export function FacebookCard({ jobId, videoId, parshaSlug, caption, post, postUr
         📘 Facebook · next up
       </div>
 
-      <CaptionAndHashtags storageKey={`caption.facebook.${parshaSlug}`} initialCombined={caption} onSave={async (next) => savePlatformCaption(jobId, 'facebook', next)} />
+      <CaptionAndHashtags storageKey={`caption.facebook.${parshaSlug}`} initialCombined={caption} onSave={async (next) => savePlatformCaption(jobId, 'facebook', next, parshaSlug)} />
       <ReelOrPostToggle value={reelOrPost} onChange={(v) => { setReelOrPost(v); saveFBMeta(v, firstComment); }} />
       <EditableField storageKey={`facebook.${parshaSlug}.firstComment`} label="First comment" initialValue={firstComment} onSave={async (v) => { setFirstComment(v); await saveFBMeta(reelOrPost, v); }} multiline={false} />
 

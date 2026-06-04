@@ -34,8 +34,9 @@ export async function breakClipChain(
 
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath('/', 'layout');
-  if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`, 'layout');
+  // Narrow revalidation. Layout-scope on '/' was busting buffer-* cache
+  // tags — see save-platform-caption.ts writeup.
+  if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`);
 
   return { ok: true };
 }

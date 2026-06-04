@@ -132,7 +132,7 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
             <CaptionAndHashtags
               storageKey={`caption.tiktok.${parshaSlug}.edit`}
               initialCombined={post?.caption ?? caption}
-              onSave={async (next) => savePlatformCaption(jobId, 'tiktok', next)}
+              onSave={async (next) => savePlatformCaption(jobId, 'tiktok', next, parshaSlug)}
             />
             <button
               type="button"
@@ -211,7 +211,7 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
       <CaptionAndHashtags
         storageKey={`caption.tiktok.${parshaSlug}`}
         initialCombined={caption}
-        onSave={async (next) => savePlatformCaption(jobId, 'tiktok', next)}
+        onSave={async (next) => savePlatformCaption(jobId, 'tiktok', next, parshaSlug)}
       />
 
       {isFailed && (

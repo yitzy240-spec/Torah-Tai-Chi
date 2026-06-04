@@ -44,10 +44,13 @@ export async function addMoveToScript({
     .eq('id', scriptId);
   if (error) return { ok: false, error: error.message };
 
-  // Use layout-scope revalidation so Next's Full Route Cache is busted
-  // cascadingly — page-scope alone wasn't reliably propagating in N16.
-  revalidatePath('/', 'layout');
-  if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`, 'layout');
+  // Narrow revalidation: don't bust the entire layout cache. layout-scope
+  // on '/' busts the unstable_cache entries tagged `buffer-profiles` and
+  // `buffer-post-links`, which fed Yonah's recurring Buffer 24h bans
+  // (see save-platform-caption.ts writeup). The Phase 1 motion picker
+  // is click-fired (low frequency), but narrowing here costs nothing and
+  // protects against future re-introduction of frequent calls.
+  if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`);
 
   return { ok: true };
 }

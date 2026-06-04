@@ -77,7 +77,7 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
         ...((socialMetadata ?? {}) as Record<string, unknown>),
         instagram: { type, firstComment: fc || undefined },
       },
-    });
+    }, parshaSlug);
   }
 
   // Scheduled state
@@ -139,7 +139,7 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
             <CaptionAndHashtags
               storageKey={`caption.instagram.${parshaSlug}.edit`}
               initialCombined={post?.caption ?? caption}
-              onSave={async (next) => savePlatformCaption(jobId, 'instagram', next)}
+              onSave={async (next) => savePlatformCaption(jobId, 'instagram', next, parshaSlug)}
             />
             <ReelOrPostToggle value={reelOrPost} onChange={(v) => { setReelOrPost(v); saveInstaMeta(v, firstComment); }} />
             <EditableField storageKey={`instagram.${parshaSlug}.firstComment.edit`} label="First comment" labelNote="(may not appear on IG — Buffer report)" initialValue={firstComment} onSave={async (v) => { setFirstComment(v); await saveInstaMeta(reelOrPost, v); }} multiline={false} />
@@ -193,7 +193,7 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
       <CaptionAndHashtags
         storageKey={`caption.instagram.${parshaSlug}`}
         initialCombined={caption}
-        onSave={async (next) => savePlatformCaption(jobId, 'instagram', next)}
+        onSave={async (next) => savePlatformCaption(jobId, 'instagram', next, parshaSlug)}
       />
       <ReelOrPostToggle value={reelOrPost} onChange={(v) => { setReelOrPost(v); saveInstaMeta(v, firstComment); }} />
       <EditableField storageKey={`instagram.${parshaSlug}.firstComment`} label="First comment" labelNote="(may not appear on IG — Buffer report)" initialValue={firstComment}

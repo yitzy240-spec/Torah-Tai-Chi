@@ -22,6 +22,7 @@ export async function savePlatformCaption(
   jobId: string,
   platform: string,
   text: string,
+  parshaSlug?: string,
 ): Promise<void> {
   const userClient = await createClient();
   const { data: { user } } = await userClient.auth.getUser();
@@ -68,5 +69,19 @@ export async function savePlatformCaption(
     }
   }
 
-  revalidatePath('/', 'layout');
+  // Narrow revalidation to just this video page. The previous
+  // revalidatePath('/', 'layout') ran on every keystroke (EditableField
+  // fires update() onChange via useOptimisticSave with NO debounce). That
+  // busted the entire Next.js data cache including the unstable_cache
+  // entries tagged `buffer-profiles` and `buffer-post-links`, so the
+  // next render of /videos/[slug] re-fetched Buffer. Yonah's caption
+  // edits were the direct cause of his recurring Buffer 24h bans (the
+  // 100 calls/day limit was exceeded within minutes of typing). We
+  // intentionally do NOT revalidate '/' or '/videos' here — the dashboard
+  // root only needs caption-derived state on the Latest live card, which
+  // is driven by videos.website_caption and ISR-refreshes on its own
+  // cadence (and the explicit Publish action also revalidates root).
+  if (parshaSlug) {
+    revalidatePath(`/videos/${parshaSlug}`);
+  }
 }

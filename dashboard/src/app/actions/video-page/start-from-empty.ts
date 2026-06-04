@@ -77,8 +77,9 @@ export async function startFromEmpty(
     return { ok: false, error: insertErr?.message ?? 'Could not create placeholder script' };
   }
 
-  revalidatePath('/', 'layout');
-  revalidatePath(`/videos/${parshaSlug}`, 'layout');
+  // Narrow revalidation. Layout-scope was busting buffer-* cache tags
+  // — see save-platform-caption.ts writeup.
+  revalidatePath(`/videos/${parshaSlug}`);
 
   return { ok: true, scriptId: placeholder.id as string };
 }

@@ -53,8 +53,10 @@ export async function replaceVersion(
     .single();
   if (insertErr || !fresh) throw new Error(insertErr?.message ?? 'Could not create fresh draft script');
 
-  revalidatePath('/', 'layout');
-  revalidatePath(`/videos/${parshaSlug}`, 'layout');
+  // Narrow revalidation. Layout-scope was busting buffer-* cache tags
+  // — see save-platform-caption.ts writeup. This action is click-fired
+  // and the new draft only affects the video detail page.
+  revalidatePath(`/videos/${parshaSlug}`);
 
   return { scriptId: fresh.id };
 }

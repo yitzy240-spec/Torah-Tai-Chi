@@ -15,6 +15,7 @@ export async function saveSocialMetadata(
     social_metadata?: Record<string, unknown>;
     youtube_tags?: string[];
   },
+  parshaSlug?: string,
 ): Promise<void> {
   const userClient = await createClient();
   const { data: { user } } = await userClient.auth.getUser();
@@ -36,5 +37,13 @@ export async function saveSocialMetadata(
     .eq('id', plan.id);
 
   if (error) throw new Error(`saveSocialMetadata: ${error.message}`);
-  revalidatePath('/', 'layout');
+
+  // Narrow revalidation to just this video page. The previous
+  // revalidatePath('/', 'layout') ran on every Reel/Post toggle and
+  // YouTube-tags blur, busting the buffer-* unstable_cache tags. See
+  // save-platform-caption.ts for the full writeup of the Buffer
+  // rate-limit bug this was causing.
+  if (parshaSlug) {
+    revalidatePath(`/videos/${parshaSlug}`);
+  }
 }

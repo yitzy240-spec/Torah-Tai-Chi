@@ -85,8 +85,9 @@ export async function removePlanClip(
     }
   }
 
-  revalidatePath('/', 'layout');
-  revalidatePath(`/videos/${parshaSlug}`, 'layout');
+  // Narrow revalidation. Layout-scope was busting buffer-* cache tags
+  // — see save-platform-caption.ts writeup.
+  revalidatePath(`/videos/${parshaSlug}`);
 
   return { ok: true };
 }

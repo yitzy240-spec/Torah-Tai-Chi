@@ -96,7 +96,7 @@ export function YouTubeCard({
 
   async function saveTags(raw: string) {
     const tags = raw.split(',').map((t) => t.trim()).filter(Boolean);
-    await saveSocialMetadata(jobId, { youtube_tags: tags });
+    await saveSocialMetadata(jobId, { youtube_tags: tags }, parshaSlug);
   }
 
   async function handlePickFrame(blob: Blob): Promise<void> {
@@ -207,7 +207,7 @@ export function YouTubeCard({
         storageKey={`caption.youtube_title.${parshaSlug}`}
         label="Title"
         initialValue={youtubeTitle}
-        onSave={(v) => savePlatformCaption(jobId, 'youtube_title', v)}
+        onSave={(v) => savePlatformCaption(jobId, 'youtube_title', v, parshaSlug)}
         multiline={false}
         placeholder="Torah Tai Chi — Bamidbar"
       />
@@ -215,7 +215,7 @@ export function YouTubeCard({
         storageKey={`caption.youtube_description.${parshaSlug}`}
         label="Description"
         initialValue={youtubeDescription}
-        onSave={(v) => savePlatformCaption(jobId, 'youtube_description', v)}
+        onSave={(v) => savePlatformCaption(jobId, 'youtube_description', v, parshaSlug)}
         minHeight={80}
         placeholder="Short + description…"
       />

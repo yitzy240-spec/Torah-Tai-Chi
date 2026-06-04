@@ -315,7 +315,7 @@ function PickMode({
   const { update, isPending } = useOptimisticSave<string>({
     current: localText,
     save: async (next) => {
-      await saveScript(selected.id, next);
+      await saveScript(selected.id, next, parshaSlug);
     },
     onSuccess: clearDraft,
     errorMessage: 'Saving the script failed.',

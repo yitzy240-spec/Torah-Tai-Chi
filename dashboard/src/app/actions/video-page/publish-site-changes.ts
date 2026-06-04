@@ -42,9 +42,13 @@ export async function publishSiteChanges(
 
   if (error) return { ok: false, error: error.message };
 
-  // Bust the dashboard cache
-  revalidatePath('/', 'layout');
-  revalidatePath(`/videos/${parshaSlug}`, 'layout');
+  // Bust the dashboard cache (narrow scope only — layout-scope on '/'
+  // would bust buffer-* unstable_cache tags; see save-platform-caption.ts).
+  // publishSiteChanges is click-fired so the impact was modest, but the
+  // narrow scope is sufficient: the video page covers the editor view and
+  // the root only needs the Latest live card which website ISR drives.
+  revalidatePath('/');
+  revalidatePath(`/videos/${parshaSlug}`);
 
   // Bust the public website ISR cache — fire-and-forget so a slow
   // revalidate endpoint doesn't block the publish response.

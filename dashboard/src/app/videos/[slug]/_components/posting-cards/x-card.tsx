@@ -114,7 +114,7 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
 
         {editFlowOpen ? (
           <>
-            <EditableField storageKey={`caption.twitter.${parshaSlug}.edit`} label="Tweet text" initialValue={post?.caption ?? caption} onSave={async (v) => savePlatformCaption(jobId, 'twitter', v)} minHeight={60} />
+            <EditableField storageKey={`caption.twitter.${parshaSlug}.edit`} label="Tweet text" initialValue={post?.caption ?? caption} onSave={async (v) => savePlatformCaption(jobId, 'twitter', v, parshaSlug)} minHeight={60} />
             <button type="button" onClick={() => { startPosting(async () => { const res = await editPostedOnPlatform(videoId, 'twitter', caption); if (!res.ok) setError(res.error ?? 'Update failed'); else setEditFlowOpen(false); }); }} disabled={posting}
               style={{ width: '100%', minHeight: 48, fontSize: 14, fontWeight: 500, background: 'var(--navy-700)', color: 'var(--linen-50)', border: 'none', borderRadius: 8, padding: 12, cursor: posting ? 'not-allowed' : 'pointer', opacity: posting ? 0.7 : 1, marginBottom: 6 }}>
               {posting ? 'Updating…' : 'Update on X'}
@@ -163,7 +163,7 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
         storageKey={`caption.twitter.${parshaSlug}`}
         label="Tweet text"
         initialValue={caption}
-        onSave={(v) => savePlatformCaption(jobId, 'twitter', v)}
+        onSave={(v) => savePlatformCaption(jobId, 'twitter', v, parshaSlug)}
         minHeight={60}
         placeholder="Short tweet for this video…"
       />

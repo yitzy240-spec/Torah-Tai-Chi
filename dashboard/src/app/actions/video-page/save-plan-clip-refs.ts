@@ -1,7 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
-import { revalidatePath } from 'next/cache';
 
 const MAX_REF_IMAGES = 9;
 
@@ -14,11 +13,18 @@ const MAX_REF_IMAGES = 9;
  *
  * Auth-checks via user cookie; writes via service role. Mirrors the
  * save-plan-clip-motion pattern.
+ *
+ * Cache: NO revalidatePath. See save-plan-clip-motion.ts for the full
+ * explanation — keystroke-frequency autosave + layout-scope revalidate
+ * was busting the buffer-profiles / buffer-post-links unstable_cache
+ * tags and burning Yonah's daily Buffer rate limit. The phase-2 editor
+ * subscribes to clips row changes via useRealtimeRow for canonical-state
+ * refresh. parshaSlug arg is preserved for caller compatibility but ignored.
  */
 export async function savePlanClipRefs(
   clipId: string,
   paths: string[] | null,
-  parshaSlug?: string,
+  _parshaSlug?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient();
   const {
@@ -40,9 +46,6 @@ export async function savePlanClipRefs(
     .eq('id', clipId);
 
   if (error) return { ok: false, error: error.message };
-
-  revalidatePath('/', 'layout');
-  if (parshaSlug) revalidatePath(`/videos/${parshaSlug}`, 'layout');
 
   return { ok: true };
 }
