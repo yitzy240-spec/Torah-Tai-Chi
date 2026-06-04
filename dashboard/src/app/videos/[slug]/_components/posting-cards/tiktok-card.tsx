@@ -20,6 +20,7 @@ import { CaptionAndHashtags } from './_shared/hashtag-field';
 import { PostedSummaryRow } from './_shared/posted-summary-row';
 import { ScheduleForLaterSheet } from './_shared/schedule-for-later-sheet';
 import { BottomSheet } from '../bottom-sheet';
+import { PlatformIcon } from '@/components/platform-icon';
 import { savePlatformCaption } from '@/app/actions/video-page/save-platform-caption';
 import { postToPlatform } from '@/app/actions/video-page/post-platform';
 import { editPostedOnPlatform } from '@/app/actions/video-page/edit-posted';
@@ -67,7 +68,9 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
   if (isScheduled && post) {
     return (
       <div style={{ border: '1px solid var(--ink-100)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'var(--linen-50)' }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>📱 TikTok · Scheduled</div>
+        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <PlatformIcon name="tiktok" size={14} /> TikTok · Scheduled
+        </div>
         <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
           Scheduled for{' '}
           {post.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : 'unknown time'}
@@ -99,7 +102,7 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
   if (isPosted && !expanded) {
     return (
       <PostedSummaryRow
-        icon="📱"
+        icon={<PlatformIcon name="tiktok" size={14} />}
         platform="TikTok"
         postedAt={effectivePost?.published_at ?? post!.created_at}
         postUrl={postUrl}
@@ -204,8 +207,8 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
 
   return (
     <div style={{ border: '1.5px solid var(--navy-700)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'white' }}>
-      <div style={{ fontSize: 11, color: 'var(--navy-700)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, marginBottom: 12 }}>
-        📱 TikTok · next up
+      <div style={{ fontSize: 11, color: 'var(--navy-700)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <PlatformIcon name="tiktok" size={14} /> TikTok · next up
       </div>
 
       <CaptionAndHashtags

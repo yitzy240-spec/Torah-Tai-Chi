@@ -3,8 +3,10 @@
 // Collapsed posted-state row: status pill + platform name + posted-date + view-link + expand arrow.
 // Tapping expands the card to show read-only caption + "Edit on [Platform]" button.
 
+import type { ReactNode } from 'react';
+
 interface Props {
-  icon: string;           // emoji or label e.g. "📱" "📷" "▶️"
+  icon: ReactNode;        // brand glyph (<PlatformIcon name="…" />) or any node
   platform: string;       // display name e.g. "TikTok"
   postedAt: string;       // ISO datetime string
   viewsLabel?: string;    // e.g. "2.4k views" — optional
@@ -40,8 +42,10 @@ export function PostedSummaryRow({ icon, platform, postedAt, viewsLabel, postUrl
       }}
     >
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>
-          <span style={{ color: 'var(--jade)' }}>●</span> {icon} {platform}
+        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ color: 'var(--jade)' }}>●</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>{icon}</span>
+          {platform}
         </div>
         <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>
           Posted {dateStr}

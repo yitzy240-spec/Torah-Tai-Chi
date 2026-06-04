@@ -16,6 +16,7 @@ import { EditableField } from './_shared/editable-field';
 import { PostedSummaryRow } from './_shared/posted-summary-row';
 import { ScheduleForLaterSheet } from './_shared/schedule-for-later-sheet';
 import { BottomSheet } from '../bottom-sheet';
+import { PlatformIcon } from '@/components/platform-icon';
 import { savePlatformCaption } from '@/app/actions/video-page/save-platform-caption';
 import { postToPlatform } from '@/app/actions/video-page/post-platform';
 import { editPostedOnPlatform } from '@/app/actions/video-page/edit-posted';
@@ -62,7 +63,9 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
   if (isScheduled && post) {
     return (
       <div style={{ border: '1px solid var(--ink-100)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'var(--linen-50)' }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>𝕏 X · Scheduled</div>
+        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <PlatformIcon name="twitter" size={14} /> X · Scheduled
+        </div>
         <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
           Scheduled for {post.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : 'unknown'}
         </div>
@@ -92,7 +95,7 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
   if (isPosted && !expanded) {
     return (
       <PostedSummaryRow
-        icon="𝕏"
+        icon={<PlatformIcon name="twitter" size={14} />}
         platform="X"
         postedAt={effectivePost?.published_at ?? post!.created_at}
         postUrl={postUrl}
@@ -106,7 +109,9 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
       <div style={{ border: '1px solid var(--ink-100)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'var(--linen-50)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <div>
-            <strong style={{ fontSize: 13 }}>𝕏 X</strong>
+            <strong style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <PlatformIcon name="twitter" size={14} /> X
+            </strong>
             <span style={{ fontSize: 11, color: 'var(--jade)', marginLeft: 6 }}>● Posted</span>
           </div>
           <button type="button" onClick={() => setExpanded(false)} style={{ background: 'none', border: 'none', color: 'var(--ink-400)', cursor: 'pointer', fontSize: 18 }}>▴</button>
@@ -155,8 +160,8 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
 
   return (
     <div style={{ border: '1.5px solid var(--navy-700)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'white' }}>
-      <div style={{ fontSize: 11, color: 'var(--navy-700)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, marginBottom: 12 }}>
-        𝕏 X · next up
+      <div style={{ fontSize: 11, color: 'var(--navy-700)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <PlatformIcon name="twitter" size={14} /> X · next up
       </div>
 
       <EditableField
