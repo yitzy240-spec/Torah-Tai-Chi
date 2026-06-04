@@ -52,6 +52,7 @@ export function Phase4Stitched({
     null,
   );
   const composeFailed = liveJob?.status === 'failed';
+  const composeCancelled = liveJob?.status === 'cancelled';
   const composeError = liveJob?.error_message ?? null;
 
   if (composeFailed && !effectiveMp4) {
@@ -61,6 +62,24 @@ export function Phase4Stitched({
         <div style={{ fontFamily: 'var(--ff-display)', fontSize: 20, fontWeight: 500, color: 'var(--ink-900)', marginBottom: 8 }}>Stitching failed</div>
         <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5, marginBottom: 16 }}>
           {humanizeRenderError(composeError)}
+        </div>
+        <button type="button" onClick={onBack} style={{ minHeight: 44, padding: '10px 18px', fontSize: 14, fontWeight: 500, background: 'white', color: 'var(--navy-700)', border: '1px solid var(--navy-700)', borderRadius: 8, cursor: 'pointer' }}>
+          ← Back to clips
+        </button>
+      </div>
+    );
+  }
+
+  // Without this branch, cancelling a compose mid-flight stuck the
+  // operator on the stitching spinner forever. Same bug class as
+  // MEMORY feedback_realtime_listeners_need_both_terminal_states.
+  if (composeCancelled && !effectiveMp4) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', minHeight: 240, background: 'var(--linen-50)', border: '1px solid var(--ink-100)', borderRadius: 'var(--r-lg)', textAlign: 'center' }}>
+        <div aria-hidden="true" style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--ink-300)', color: 'white', fontSize: 22, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>×</div>
+        <div style={{ fontFamily: 'var(--ff-display)', fontSize: 20, fontWeight: 500, color: 'var(--ink-900)', marginBottom: 8 }}>Cancelled</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5, marginBottom: 16 }}>
+          You cancelled the stitch. Go back to clips and try again when you&apos;re ready.
         </div>
         <button type="button" onClick={onBack} style={{ minHeight: 44, padding: '10px 18px', fontSize: 14, fontWeight: 500, background: 'white', color: 'var(--navy-700)', border: '1px solid var(--navy-700)', borderRadius: 8, cursor: 'pointer' }}>
           ← Back to clips

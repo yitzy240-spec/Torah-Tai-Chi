@@ -36,10 +36,15 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
     triggered_at: startedAt,
   });
 
-  // When the job flips to 'done', the clip_plan row exists. Refresh the
-  // page so the server re-fetches + the Phase 2 editor renders.
+  // When the job flips to any terminal state, refresh so the server can
+  // pick up the new shape:
+  //  - done    → clip_plan exists, Phase 2 editor renders
+  //  - failed  → failure card replaces this spinner
+  //  - cancelled → empty/restart card replaces this spinner
+  // Without the 'cancelled' branch, this spinner stuck forever after a
+  // Cancel click — same bug class as MEMORY feedback_realtime_listeners.
   useEffect(() => {
-    if (job?.status === 'done') {
+    if (job?.status && (job.status === 'done' || job.status === 'cancelled')) {
       router.refresh();
     }
   }, [job?.status, router]);
@@ -72,6 +77,7 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
     : `${seconds}s`;
 
   const isFailed = job?.status === 'failed';
+  const isCancelled = job?.status === 'cancelled';
 
   // Rotating progress copy — Modal writes job.status_message asynchronously
   // and we don't always get fine-grained updates from Claude, so cycle
@@ -88,9 +94,13 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
 
   const headline = isFailed
     ? 'Clip plan generation failed'
+    : isCancelled
+    ? 'Cancelled'
     : stages[stageIndex];
   const subline = isFailed
     ? (job?.status_message ?? 'See the job log for details.')
+    : isCancelled
+    ? 'You cancelled this plan generation. Start a new one from Phase 1.'
     : 'Claude is reading your script and building a clip-by-clip plan. Usually 1–2 minutes.';
 
   return (
@@ -108,7 +118,7 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
         textAlign: 'center',
       }}
     >
-      {!isFailed && (
+      {!isFailed && !isCancelled && (
         <div
           aria-hidden="true"
           style={{
@@ -141,6 +151,25 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
           !
         </div>
       )}
+      {isCancelled && (
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            background: 'var(--ink-300)',
+            color: 'white',
+            fontSize: 22,
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 18,
+          }}
+        >
+          ×
+        </div>
+      )}
       <div
         style={{
           fontFamily: 'var(--ff-display)',
@@ -163,7 +192,7 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
       >
         {subline}
       </div>
-      {!isFailed && (
+      {!isFailed && !isCancelled && (
         <div
           style={{
             fontSize: 12,
