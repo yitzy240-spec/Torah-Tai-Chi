@@ -244,6 +244,7 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.models import ClipPlan
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
+    from src.job_events import emit_job_event
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -280,6 +281,7 @@ def run_pipeline(job_id: str) -> dict | None:
             message=message or status,
             details={"status": status},
         )
+        emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
         sb.table("cost_events").insert({
@@ -828,6 +830,7 @@ def run_pipeline(job_id: str) -> dict | None:
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Video ready")
+        emit_job_event(job_id=job_id, stage="done", video_path=storage_path, message="Video ready")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
         # --- Autopilot webhook ---
@@ -2742,6 +2745,7 @@ def regen_smart(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
+    from src.job_events import emit_job_event
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -2768,6 +2772,7 @@ def regen_smart(job_id: str) -> dict | None:
             subject_type="job", subject_id=job_id,
             message=message or status, details={"status": status, "mode": "smart_regen"},
         )
+        emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
         sb.table("cost_events").insert({
@@ -3076,6 +3081,7 @@ def regen_smart(job_id: str) -> dict | None:
 
         # 13. Mark done.
         set_status("done", "Smart regen video ready")
+        emit_job_event(job_id=job_id, stage="done", video_path=final_storage_path, message="Smart regen video ready")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
         # 14. Video-complete webhook (parsha kind only) — same shape as
@@ -3217,6 +3223,7 @@ def regen_clip(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
+    from src.job_events import emit_job_event
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -3243,6 +3250,7 @@ def regen_clip(job_id: str) -> dict | None:
             subject_type="job", subject_id=job_id,
             message=message or status, details={"status": status, "mode": "surgery"},
         )
+        emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
         sb.table("cost_events").insert({
@@ -3534,6 +3542,7 @@ def regen_clip(job_id: str) -> dict | None:
 
         # 11. Mark done.
         set_status("done", "Surgery video ready")
+        emit_job_event(job_id=job_id, stage="done", video_path=final_storage_path, message="Surgery video ready")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
         # 12. Fire the same video-complete webhook the full pipeline uses,
@@ -4289,6 +4298,7 @@ def regen_agent(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
+    from src.job_events import emit_job_event
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -4316,6 +4326,7 @@ def regen_agent(job_id: str) -> dict | None:
             message=message or status,
             details={"status": status, "mode": "regen_agent"},
         )
+        emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
         sb.table("cost_events").insert({
@@ -4830,6 +4841,7 @@ def regen_agent(job_id: str) -> dict | None:
 
         # 13. Mark done.
         set_status("done", "Regen video ready")
+        emit_job_event(job_id=job_id, stage="done", video_path=final_storage_path, message="Regen video ready")
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
         # 14. Video-complete webhook (parsha kind only) — same shape as
@@ -5065,6 +5077,7 @@ def regen_single_clip(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
+    from src.job_events import emit_job_event
     from src.claude_call import claude_call
     from src.script_generator import _extract_json_block
     from src.models import ClipPlan
@@ -5093,6 +5106,7 @@ def regen_single_clip(job_id: str) -> dict | None:
             message=message or status,
             details={"status": status, "mode": "regen_single_clip"},
         )
+        emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
         sb.table("cost_events").insert({
@@ -5568,6 +5582,7 @@ def plan_only_job(job_id: str) -> dict | None:
     from src.script_generator import transform_draft_to_clip_plan
     from src.models import ClipPlan
     from src.events import log_event
+    from src.job_events import emit_job_event
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -5592,6 +5607,7 @@ def plan_only_job(job_id: str) -> dict | None:
             message=message or status,
             details={"status": status, "mode": "plan_only"},
         )
+        emit_job_event(job_id=job_id, stage=status, message=message)
 
     try:
         set_status("generating_plan", "Claude is writing the clip plan")
@@ -5739,6 +5755,7 @@ def clips_only_job(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
+    from src.job_events import emit_job_event
     from src.models import Clip
 
     sb = create_client(
@@ -5764,6 +5781,7 @@ def clips_only_job(job_id: str) -> dict | None:
             message=message or status,
             details={"status": status, "mode": "clips_only"},
         )
+        emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
         sb.table("cost_events").insert({
@@ -6348,6 +6366,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
+    from src.job_events import emit_job_event
     from src.models import Clip
 
     sb = create_client(
@@ -6373,6 +6392,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             message=message or status,
             details={"status": status, "mode": "regen_clip_from_text"},
         )
+        emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
         sb.table("cost_events").insert({
