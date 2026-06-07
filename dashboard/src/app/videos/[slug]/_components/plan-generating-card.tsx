@@ -5,22 +5,16 @@
 // generating the plan, the operator should see life (spinner, elapsed
 // time, status) — not a silent "check back in a moment".
 //
-// The card subscribes to the job row via Realtime so the page updates
-// when status flips to 'done' (plan exists → router refresh → Phase 2
-// editor renders).
+// The card subscribes to Supabase Broadcast via useJobStream so the page
+// updates when the stage flips to 'done' (plan exists → router refresh →
+// Phase 2 editor renders). Broadcast replaces the postgres_changes
+// subscription on the jobs table to avoid WAL decode overhead.
 
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useRealtimeRow } from '@/hooks/use-realtime-row';
+import { useJobStream } from '@/hooks/use-job-stream';
 import { kickPlanOnly } from '@/app/actions/video-page/kick-plan-only';
-
-interface JobRow {
-  id: string;
-  status: string;
-  status_message: string | null;
-  triggered_at: string;
-}
 
 interface Props {
   jobId: string;
@@ -29,12 +23,9 @@ interface Props {
 
 export function PlanGeneratingCard({ jobId, startedAt }: Props) {
   const router = useRouter();
-  const job = useRealtimeRow<JobRow>('jobs', jobId, {
-    id: jobId,
-    status: 'queued',
-    status_message: null,
-    triggered_at: startedAt,
-  });
+  const event = useJobStream(jobId);
+  const stage = event?.stage ?? 'queued';
+  const message = event?.message ?? null;
 
   // When the job flips to any terminal state, refresh so the server can
   // pick up the new shape:
@@ -44,23 +35,20 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
   // Without the 'cancelled' branch, this spinner stuck forever after a
   // Cancel click — same bug class as MEMORY feedback_realtime_listeners.
   useEffect(() => {
-    if (job?.status && (job.status === 'done' || job.status === 'cancelled')) {
+    if (stage === 'done' || stage === 'cancelled') {
       router.refresh();
     }
-  }, [job?.status, router]);
+  }, [stage, router]);
 
-  // Kick Modal once when this card mounts with a still-queued job.
-  // triggerPlanOnly only inserts the job row; the actual Modal dispatch
-  // happens here so the operator doesn't wait on Modal's cold-start
-  // during the Phase 1 → Phase 2 navigation.
+  // Kick Modal once on mount. The parent component only renders this card
+  // when the job IS queued, so no need to re-check status before kicking.
+  // kickedRef prevents double-firing on React strict-mode double-mount.
   const kickedRef = useRef(false);
   useEffect(() => {
     if (kickedRef.current) return;
-    if (!job) return;
-    if (job.status !== 'queued') return;
     kickedRef.current = true;
     void kickPlanOnly(jobId);
-  }, [job, jobId]);
+  }, [jobId]);
 
   // Live elapsed-time tick.
   const [now, setNow] = useState(() => Date.now());
@@ -76,8 +64,8 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
     ? `${minutes}m ${String(seconds).padStart(2, '0')}s`
     : `${seconds}s`;
 
-  const isFailed = job?.status === 'failed';
-  const isCancelled = job?.status === 'cancelled';
+  const isFailed = stage === 'failed';
+  const isCancelled = stage === 'cancelled';
 
   // Rotating progress copy — Modal writes job.status_message asynchronously
   // and we don't always get fine-grained updates from Claude, so cycle
@@ -98,7 +86,7 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
     ? 'Cancelled'
     : stages[stageIndex];
   const subline = isFailed
-    ? (job?.status_message ?? 'See the job log for details.')
+    ? (message ?? 'See the job log for details.')
     : isCancelled
     ? 'You cancelled this plan generation. Start a new one from Phase 1.'
     : 'Claude is reading your script and building a clip-by-clip plan. Usually 1–2 minutes.';
