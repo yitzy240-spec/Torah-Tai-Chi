@@ -7,13 +7,13 @@
 
 export type JobStage =
   | 'queued'
-  | 'plan_generating'
-  | 'plan_ready'
-  | 'clips_generating'
-  | 'clip_done'
-  | 'clip_failed'
+  | 'loading_parsha'
+  | 'generating_plan'
+  | 'uploading_refs'
+  | 'generating_clips'
+  | 'clip_done'      // not yet emitted by Modal; dashboard handlers reference it
+  | 'clip_failed'    // not yet emitted by Modal; dashboard handlers reference it
   | 'stitching'
-  | 'uploading'
   | 'done'
   | 'failed'
   | 'cancelled';

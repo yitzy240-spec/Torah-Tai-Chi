@@ -918,6 +918,11 @@ def run_pipeline(job_id: str) -> dict | None:
                 "traceback": tb,
             },
         )
+        emit_job_event(
+            job_id=job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
+        )
 
         # Operator-notification webhook. Wrapped in its own try so a
         # Resend / dashboard outage never masks the original exception
@@ -3163,6 +3168,11 @@ def regen_smart(job_id: str) -> dict | None:
                 "mode": "smart_regen",
             },
         )
+        emit_job_event(
+            job_id=job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
+        )
 
         try:
             dashboard_url = os.environ.get("DASHBOARD_URL")
@@ -3621,6 +3631,11 @@ def regen_clip(job_id: str) -> dict | None:
                 "traceback": tb,
                 "mode": "surgery",
             },
+        )
+        emit_job_event(
+            job_id=job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
         )
 
         try:
@@ -4924,6 +4939,11 @@ def regen_agent(job_id: str) -> dict | None:
                 "mode": "regen_agent",
             },
         )
+        emit_job_event(
+            job_id=job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
+        )
 
         try:
             dashboard_url = os.environ.get("DASHBOARD_URL")
@@ -5464,6 +5484,11 @@ def regen_single_clip(job_id: str) -> dict | None:
                 "mode": "regen_single_clip",
             },
         )
+        emit_job_event(
+            job_id=job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
+        )
         raise
 
 
@@ -5723,6 +5748,11 @@ def plan_only_job(job_id: str) -> dict | None:
                 "traceback": tb,
                 "mode": "plan_only",
             },
+        )
+        emit_job_event(
+            job_id=job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
         )
         raise
 
@@ -6344,6 +6374,11 @@ def clips_only_job(job_id: str) -> dict | None:
                 "mode": "clips_only",
             },
         )
+        emit_job_event(
+            job_id=job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
+        )
         raise
 
 
@@ -6899,6 +6934,11 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 "mode": "regen_clip_from_text",
             },
         )
+        emit_job_event(
+            job_id=job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
+        )
         # Failure webhook → dashboard /api/pipeline/video-failed fires the
         # Resend "your render failed" email. Wrapped in its own try so a
         # webhook outage doesn't mask the original exception.
@@ -7238,6 +7278,11 @@ def compose_video(compose_job_id: str) -> dict | None:
                 "traceback": tb,
                 "mode": "compose",
             },
+        )
+        emit_job_event(
+            job_id=compose_job_id,
+            stage='failed',
+            message=f"{type(e).__name__}: {e}",
         )
         raise
 
