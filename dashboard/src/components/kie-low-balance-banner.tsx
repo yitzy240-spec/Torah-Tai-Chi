@@ -11,7 +11,9 @@ import { useEffect, useState } from 'react';
  * the same threshold for consistency.
  */
 const LOW_THRESHOLD = 800;
-const POLL_MS = 60_000;
+// Bumped 60s → 5min and visibility-gated. See kie-balance.tsx for
+// rationale — balance only changes when Modal runs a paid clip.
+const POLL_MS = 300_000;
 
 interface BalanceState {
   status: 'loading' | 'ok' | 'error';
@@ -50,8 +52,19 @@ export function KieLowBalanceBanner() {
       }
     };
     void load();
-    const t = setInterval(load, POLL_MS);
-    return () => { cancelled = true; clearInterval(t); };
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void load();
+    }, POLL_MS);
+    function onVisible() {
+      if (document.visibilityState === 'visible') void load();
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   // Hide while loading and on error — no banner is better than a

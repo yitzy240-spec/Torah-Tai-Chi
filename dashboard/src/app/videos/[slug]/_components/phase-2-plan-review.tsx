@@ -162,22 +162,38 @@ export function Phase2PlanReview({
   useEffect(() => {
     if (pendingJobIds.length === 0) return;
     const supabase = createClient();
-    const channels = pendingJobIds.map((pjId) =>
-      supabase
+    const statuses = new Map<string, string>();
+    const channels = pendingJobIds.map((pjId) => {
+      statuses.set(pjId, 'CLOSED');
+      return supabase
         .channel(`pending-clips:${pjId}`)
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'clips', filter: `job_id=eq.${pjId}` },
           () => router.refresh(),
         )
-        .subscribe(),
-    );
-    // Defensive 15s poll — matches the per-card useRealtimeRow pattern.
-    // If Realtime drops, we still pick up progressively-landed clips on
-    // the next tick. router.refresh dedupes its own pending request.
-    const pollId = setInterval(() => router.refresh(), 15_000);
+        .subscribe((status) => statuses.set(pjId, status));
+    });
+
+    // Defensive poll — only fires when at least one channel is unhealthy
+    // AND the tab is visible. router.refresh is a heavy hammer (re-runs
+    // every server data fetch on the page), so we previously paid for
+    // it every 15s regardless. Now: zero idle cost when realtime is up.
+    // Bumped 15s → 30s since this poll is far more expensive than a
+    // single-row SELECT.
+    const pollId = setInterval(() => {
+      const allHealthy = [...statuses.values()].every((s) => s === 'SUBSCRIBED');
+      if (allHealthy) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      router.refresh();
+    }, 30_000);
+    function onVisible() {
+      if (document.visibilityState === 'visible') router.refresh();
+    }
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(pollId);
+      document.removeEventListener('visibilitychange', onVisible);
       channels.forEach((ch) => supabase.removeChannel(ch));
     };
   }, [pendingJobIds, router]);

@@ -8,7 +8,11 @@ interface BalanceState {
 }
 
 const LOW_THRESHOLD = 2000;
-const POLL_MS = 60_000;
+// Bumped from 60s → 5min and visibility-gated. Balance moves slowly
+// (changes only when Modal runs a paid clip); minute-resolution refresh
+// was burning auth/route-handler IO continuously while any tab was
+// open, including backgrounded ones.
+const POLL_MS = 300_000;
 
 export function KieBalance() {
   const [state, setState] = useState<BalanceState>({ status: 'loading', credits: null });
@@ -30,8 +34,19 @@ export function KieBalance() {
       }
     };
     void load();
-    const t = setInterval(load, POLL_MS);
-    return () => { cancelled = true; clearInterval(t); };
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void load();
+    }, POLL_MS);
+    function onVisible() {
+      if (document.visibilityState === 'visible') void load();
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const low = state.status === 'ok' && state.credits !== null && state.credits < LOW_THRESHOLD;

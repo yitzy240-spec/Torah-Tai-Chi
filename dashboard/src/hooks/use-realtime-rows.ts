@@ -3,22 +3,26 @@
 // Subscribes to multiple Supabase rows filtered by a column=value match.
 // Handles INSERT (appends), UPDATE (replaces by id), and DELETE (removes by id).
 //
-// Two safety nets beyond postgres_changes, matching useRealtimeRow:
+// Safety nets beyond postgres_changes, matching useRealtimeRow:
 //   1. Initial SELECT on mount — catches the race where rows changed
-//      BEFORE the subscription was established (server rendered the
-//      initial set as no-storage_path, Modal finished a clip during
-//      hydration, no event arrives because the change already happened).
-//   2. Periodic refetch every 10s — catches dropped websockets, RLS
-//      shape drift, network blips, anything else that silently kills
-//      postgres_changes delivery. Cheap (one filtered SELECT, small
-//      result set) and bounds worst-case wait at 10s.
+//      BEFORE the subscription was established.
+//   2. Conditional defensive refetch — only fires when realtime is NOT
+//      healthy AND the tab is visible. Idle dashboards generate no traffic.
+//   3. Visibility-change refetch — when tab regains focus, one immediate
+//      refetch catches up on changes missed while hidden.
+//
+// See use-realtime-row.ts for the rationale (pg_stat_statements showed
+// Realtime overhead as our #1 disk IO consumer; gating polls on websocket
+// health cut idle-tab traffic to ~zero without losing the safety net).
 //
 // The T constraint requires an `id: string` field so INSERT/UPDATE/DELETE
 // events can be reconciled against the local array without a full re-fetch.
 
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+
+const POLL_FALLBACK_MS = 30_000;
 
 export function useRealtimeRows<T extends { id: string }>(
   table: string,
@@ -27,6 +31,7 @@ export function useRealtimeRows<T extends { id: string }>(
   initial: T[],
 ): T[] {
   const [rows, setRows] = useState<T[]>(initial);
+  const statusRef = useRef<string>('CLOSED');
 
   useEffect(() => {
     if (!filterValue) return;
@@ -39,9 +44,6 @@ export function useRealtimeRows<T extends { id: string }>(
       if (data) setRows(data as T[]);
     }
 
-    // Fetch current state immediately so we don't trust a stale `initial`
-    // prop or miss row changes that happened between server render and
-    // client subscribe.
     void refetch();
 
     const channel = supabase
@@ -59,21 +61,33 @@ export function useRealtimeRows<T extends { id: string }>(
             }
             if (payload.eventType === 'DELETE')
               return prev.filter((r) => r.id !== (payload.old as T).id);
-            // UPDATE
             return prev.map((r) =>
               r.id === (payload.new as T).id ? (payload.new as T) : r,
             );
           });
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        statusRef.current = status;
+      });
 
-    // Defensive poll: if Realtime drops, we still advance.
-    const pollId = setInterval(refetch, 10_000);
+    const pollId = setInterval(() => {
+      if (statusRef.current === 'SUBSCRIBED') return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refetch();
+    }, POLL_FALLBACK_MS);
+
+    function onVisible() {
+      if (document.visibilityState === 'visible') {
+        void refetch();
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       cancelled = true;
       clearInterval(pollId);
+      document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(channel);
     };
   }, [table, filterColumn, filterValue]);
