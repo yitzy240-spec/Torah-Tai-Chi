@@ -1,0 +1,58 @@
+// dashboard/src/app/api/jobs/done/route.ts
+//
+// Modal POSTs here when a job reaches a terminal stage (done / failed /
+// cancelled). We send Yonah an email so he can close the dashboard tab
+// and trust the notification.
+//
+// Live progress does NOT go through here — Modal publishes that
+// directly to Supabase Broadcast. This route is only for the
+// terminal side-effect.
+
+import { NextResponse } from 'next/server';
+import { createServiceClient } from '@/lib/supabase/service';
+import { sendJobDoneNotification } from '@/lib/email';
+import type { JobEvent } from '@/lib/job-event-types';
+
+const SHARED_SECRET = process.env.MODAL_WEBHOOK_SECRET;
+
+export async function POST(request: Request) {
+  if (!SHARED_SECRET) {
+    return NextResponse.json({ error: 'MODAL_WEBHOOK_SECRET not configured' }, { status: 503 });
+  }
+  const auth = request.headers.get('authorization');
+  if (auth !== `Bearer ${SHARED_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  let event: JobEvent;
+  try {
+    event = (await request.json()) as JobEvent;
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
+  }
+  if (!event.jobId || !event.stage) {
+    return NextResponse.json({ error: 'jobId and stage required' }, { status: 400 });
+  }
+
+  // Resolve the video slug for the email link.
+  const sb = createServiceClient();
+  const { data: job, error } = await sb
+    .from('jobs')
+    .select('id, parsha_id, videos!inner(slug)')
+    .eq('id', event.jobId)
+    .maybeSingle();
+  if (error || !job) {
+    console.error('[jobs/done] cannot resolve job', error);
+    return NextResponse.json({ ok: false, error: 'job not found' }, { status: 200 });
+  }
+  const slug = (job as unknown as { videos: { slug: string } }).videos?.slug;
+
+  await sendJobDoneNotification({
+    jobId: event.jobId,
+    stage: event.stage as 'done' | 'failed' | 'cancelled',
+    slug,
+    message: event.message ?? null,
+  });
+
+  return NextResponse.json({ ok: true });
+}
