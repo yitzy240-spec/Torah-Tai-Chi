@@ -80,8 +80,8 @@ export async function sendJobDoneNotification(args: {
       : `[Torah Tai Chi] Job cancelled: ${args.slug}`;
   const body =
     args.stage === 'done'
-      ? `Your video is ready. Open it:\n${url}`
-      : `Job stopped (${args.stage})${args.message ? `:\n\n${args.message}` : ''}\n\n${url}`;
+      ? `Your video is ready. Open it:\n${url}\n\nJob ID: ${args.jobId}`
+      : `Job stopped (${args.stage})${args.message ? `:\n\n${args.message}` : ''}\n\n${url}\n\nJob ID: ${args.jobId}`;
   await sendNotification({
     subject,
     text: body,
