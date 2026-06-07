@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { KieBalance } from './kie-balance';
 
 const NAV_ITEMS = [
@@ -21,6 +22,11 @@ const NAV_ITEMS = [
   { href: '/help',          label: 'Help',         meta: '' },
 ];
 
+// The four destinations that get a primary slot in the mobile bottom tab bar.
+// The fifth slot is a "More" button that opens a sheet with everything else.
+// Keep this to four so the tab bar stays in the thumb zone and uncramped; the
+// More sheet is derived from NAV_ITEMS below, so adding a NAV_ITEM is enough to
+// make it reachable on mobile — no second list to keep in sync.
 const MOBILE_ITEMS = [
   {
     href: '/',
@@ -50,33 +56,54 @@ const MOBILE_ITEMS = [
     ),
   },
   {
-    href: '/channels',
-    label: 'Channels',
+    href: '/compose',
+    label: 'Compose',
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <path d="M4 12a8 8 0 1 1 16 0 8 8 0 0 1-16 0z"/>
-        <path d="M4 12h16M12 4c2 2.5 3 5 3 8s-1 5.5-3 8c-2-2.5-3-5-3-8s1-5.5 3-8z"/>
-      </svg>
-    ),
-  },
-  {
-    href: '/analytics',
-    label: 'Analytics',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>
       </svg>
     ),
   },
 ];
 
+// Source of truth for the mobile "More" sheet: every nav destination that
+// isn't already a primary tab. Derived so the two lists can't drift.
+const MOBILE_TAB_HREFS = new Set(MOBILE_ITEMS.map((i) => i.href));
+const MORE_ITEMS = NAV_ITEMS.filter((i) => !MOBILE_TAB_HREFS.has(i.href));
+
+const MoreIcon = (
+  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>
+  </svg>
+);
+
 export function SidebarNav() {
   const pathname = usePathname();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
   };
+
+  // The "More" tab reads as active whenever the current route lives behind it.
+  const moreActive = MORE_ITEMS.some((item) => isActive(item.href));
+
+  // While the sheet is open: close on Esc, and lock background scroll.
+  // (Selecting a link closes the sheet via its own onClick — no route effect.)
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [moreOpen]);
 
   return (
     <>
@@ -220,7 +247,88 @@ export function SidebarNav() {
             </Link>
           );
         })}
+
+        {/* Fifth slot: opens the More sheet with every other destination. */}
+        <button
+          type="button"
+          aria-label="More"
+          aria-expanded={moreOpen}
+          aria-controls="mobile-more-sheet"
+          onClick={() => setMoreOpen((v) => !v)}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '3px',
+            padding: '6px',
+            minHeight: '48px',
+            fontSize: '10px',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: moreActive || moreOpen ? 'var(--ink-900)' : 'var(--ink-400)',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            borderRadius: 'var(--r-md)',
+            font: 'inherit',
+          }}
+        >
+          <span style={{ width: '20px', height: '20px', color: moreActive || moreOpen ? 'var(--navy-700)' : undefined }}>
+            {MoreIcon}
+          </span>
+          More
+        </button>
       </nav>
+
+      {/* Mobile "More" sheet — exposes the destinations that don't fit the tab
+          bar. Visibility is mobile-only because the only trigger (the More
+          button) lives inside .tabbar-mobile, which is hidden on desktop. */}
+      <div
+        className={`more-sheet-scrim${moreOpen ? ' open' : ''}`}
+        onClick={() => setMoreOpen(false)}
+        aria-hidden={!moreOpen}
+      />
+      <aside
+        id="mobile-more-sheet"
+        className={`more-sheet${moreOpen ? ' open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="More navigation"
+        aria-hidden={!moreOpen}
+      >
+        <div className="more-sheet-handle" aria-hidden="true" />
+        <div className="more-sheet-header">
+          <span className="more-sheet-title">More</span>
+          <button
+            type="button"
+            className="more-sheet-close"
+            aria-label="Close menu"
+            onClick={() => setMoreOpen(false)}
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <line x1="6" y1="6" x2="18" y2="18" />
+              <line x1="18" y1="6" x2="6" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div className="more-sheet-links">
+          {MORE_ITEMS.map((item) => {
+            const active = isActive(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`more-sheet-link${active ? ' active' : ''}`}
+                onClick={() => setMoreOpen(false)}
+              >
+                <span>{item.label}</span>
+                {item.meta && <span className="more-sheet-meta">{item.meta}</span>}
+              </Link>
+            );
+          })}
+        </div>
+      </aside>
     </>
   );
 }

@@ -175,6 +175,113 @@
   }
 }
 
+/* Mobile "More" sheet — bottom sheet listing every destination not in the
+   tab bar. The trigger (.tabbar-mobile button[aria-label="More"]) only exists
+   below 900px, so this is effectively mobile-only; it stays parked off-screen
+   and non-interactive until opened. */
+.more-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgba(20, 18, 15, 0.38);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--trans);
+}
+.more-sheet-scrim.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.more-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--linen-50);
+  border-top: 1px solid var(--ink-100);
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  box-shadow: 0 -12px 40px rgba(20, 18, 15, 0.18);
+  padding: 8px 16px calc(18px + env(safe-area-inset-bottom));
+  transform: translateY(101%);
+  transition: transform var(--trans);
+}
+.more-sheet.open {
+  transform: translateY(0);
+}
+.more-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ink-100);
+  margin: 4px auto 10px;
+  flex-shrink: 0;
+}
+.more-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.more-sheet-title {
+  font-family: var(--ff-display);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-900);
+}
+.more-sheet-close {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  color: var(--ink-500);
+  cursor: pointer;
+  border-radius: var(--r-md);
+}
+.more-sheet-links {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 0 2px;
+}
+.more-sheet-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 12px;
+  min-height: 48px;
+  border-radius: var(--r-md);
+  font-size: 15px;
+  color: var(--ink-700);
+  text-decoration: none;
+  transition: background var(--trans), color var(--trans);
+}
+.more-sheet-link:hover {
+  background: var(--linen-100);
+  color: var(--ink-900);
+}
+.more-sheet-link.active {
+  background: var(--navy-800);
+  color: var(--linen-50);
+}
+.more-sheet-meta {
+  font-family: var(--ff-display);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--ink-300);
+  font-variant-numeric: tabular-nums;
+}
+.more-sheet-link.active .more-sheet-meta {
+  color: var(--navy-300);
+}
+
 /* Shell responsive layout */
 @media (max-width: 900px) {
   .authenticated-shell {
