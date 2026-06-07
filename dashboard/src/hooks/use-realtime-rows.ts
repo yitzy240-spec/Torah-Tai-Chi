@@ -11,9 +11,9 @@
 //   3. Visibility-change refetch — when tab regains focus, one immediate
 //      refetch catches up on changes missed while hidden.
 //
-// See use-realtime-row.ts for the rationale (pg_stat_statements showed
-// Realtime overhead as our #1 disk IO consumer; gating polls on websocket
-// health cut idle-tab traffic to ~zero without losing the safety net).
+// Rationale: pg_stat_statements (2026-06-07) showed Realtime overhead as
+// our #1 disk IO consumer; gating polls on websocket health cut idle-tab
+// traffic to ~zero without losing the safety net.
 //
 // The T constraint requires an `id: string` field so INSERT/UPDATE/DELETE
 // events can be reconciled against the local array without a full re-fetch.
