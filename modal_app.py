@@ -5406,6 +5406,12 @@ def regen_single_clip(job_id: str) -> dict | None:
 
         # Mark done + webhook (parsha kind only).
         set_status("done", "Regen ready")
+        emit_job_event(
+            job_id=job_id,
+            stage='done',
+            video_path=final_storage_path,
+            message='Regen ready',
+        )
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
         kind = (regen_job.get("kind") or "parsha").lower()
         if kind == "parsha":
@@ -6280,6 +6286,12 @@ def clips_only_job(job_id: str) -> dict | None:
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Video ready")
+        emit_job_event(
+            job_id=job_id,
+            stage='done',
+            video_path=final_storage_path,
+            message='Video ready',
+        )
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
         # Success webhook (same endpoint as run_pipeline).
@@ -6801,6 +6813,12 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         sb.table("videos").insert(video_row).execute()
 
         set_status("done", "Re-rendered clip")
+        emit_job_event(
+            job_id=job_id,
+            stage='done',
+            video_path=final_storage_path,
+            message='Re-rendered clip',
+        )
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
         # Re-query the inserted videos row's id for the webhook payload.

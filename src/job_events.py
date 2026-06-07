@@ -95,6 +95,16 @@ def _publish_broadcast(job_id: str, event: dict[str, object]) -> None:
 
 
 def _post_done_webhook(event: dict[str, object]) -> None:
+    # Only email when a terminal 'done' actually has a videoPath. This:
+    #   - suppresses the duplicate that fires when set_status('done', ...) is
+    #     immediately followed by an explicit emit_job_event(..., video_path=...)
+    #     in main pipelines
+    #   - suppresses spurious "Video ready" emails for plan-only / clips-only
+    #     completions where no video exists
+    # 'failed' and 'cancelled' always email regardless of videoPath since
+    # the operator must be told about pipeline failures.
+    if event.get('stage') == 'done' and event.get('videoPath') is None:
+        return
     url = os.environ.get('VERCEL_DONE_WEBHOOK_URL')
     secret = os.environ.get('MODAL_WEBHOOK_SECRET')
     if not url or not secret:
