@@ -1,16 +1,13 @@
 // dashboard/src/app/videos/[slug]/_components/posting-cards/instagram-card.tsx
 //
-// Post-status source-of-truth: useRealtimeRow on the posts row (by post.id).
-// Parent (phase-5-post.tsx) also runs useRealtimeRows on the posts table
-// filtered by video_id, so the prop already updates live; the per-card
-// useRealtimeRow here is defense-in-depth: it survives any future change
-// to the parent and includes a 10s defensive poll if websocket drops.
-// effectiveStatus = livePost?.status ?? post?.status ?? null.
+// Mirrors TikTok/X cards — per-card useRealtimeRow dropped; parent (phase-5-post.tsx)
+// keeps the post prop live via useRealtimeRows on the posts table.
+// effectiveStatus = post?.status ?? null.
 //
-// Mirrors TikTokCard + adds:
-//   - First-comment field (label includes "may not appear on IG — Buffer report")
-//   - ReelOrPostToggle
-// Reel/Post + first-comment fields persist via saveSocialMetadata under social_metadata.instagram.
+// Instagram-specific extras: ReelOrPostToggle + First-comment EditableField
+// (label includes "may not appear on IG — Buffer report"),
+// both in the unposted state and the posted-expanded edit flow.
+// social_metadata.instagram = { type, firstComment }.
 
 'use client';
 import { useState, useTransition } from 'react';
@@ -18,14 +15,18 @@ import { CaptionAndHashtags } from './_shared/hashtag-field';
 import { EditableField } from './_shared/editable-field';
 import { PostedSummaryRow } from './_shared/posted-summary-row';
 import { ReelOrPostToggle } from './_shared/reel-or-post-toggle';
-import { PlatformIcon } from '@/components/platform-icon';
 import { ScheduleForLaterSheet } from './_shared/schedule-for-later-sheet';
+import { ScheduledStateCard } from './_shared/scheduled-state-card';
+import { PostedExpandedHeader } from './_shared/posted-expanded-header';
+import { FailureBanner } from './_shared/failure-banner';
+import { PostActionButtons } from './_shared/post-action-buttons';
+import { UnpostedCardShell } from './_shared/unposted-card-shell';
+import { PlatformIcon } from '@/components/platform-icon';
 import { BottomSheet } from '../bottom-sheet';
 import { savePlatformCaption } from '@/app/actions/video-page/save-platform-caption';
 import { saveSocialMetadata } from '@/app/actions/video-page/save-social-metadata';
 import { postToPlatform } from '@/app/actions/video-page/post-platform';
 import { editPostedOnPlatform } from '@/app/actions/video-page/edit-posted';
-import { useRealtimeRow } from '@/hooks/use-realtime-row';
 
 interface PostRow {
   id: string;
@@ -62,11 +63,7 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
   const [posting, startPosting] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Subscribe to this card's posts row so a late 'failed' status (Buffer
-  // rate limit, async Modal worker failure) lands without manual refresh.
-  const livePost = useRealtimeRow<PostRow>('posts', post?.id ?? null, post ?? null);
-  const effectivePost = livePost ?? post ?? null;
-  const effectiveStatus = effectivePost?.status ?? null;
+  const effectiveStatus = post?.status ?? null;
 
   const isPosted = effectiveStatus === 'published';
   const isScheduled = effectiveStatus === 'scheduled';
@@ -81,36 +78,16 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
     }, parshaSlug);
   }
 
-  // Scheduled state
   if (isScheduled && post) {
     return (
-      <div style={{ border: '1px solid var(--ink-100)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'var(--linen-50)' }}>
-        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <PlatformIcon name="instagram" size={14} /> Instagram · Scheduled
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
-          Scheduled for {post.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : 'unknown'}
-        </div>
-        {post.buffer_update_id ? (
-          <a
-            href={`https://buffer.com/app/updates/${post.buffer_update_id}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: 'var(--navy-700)', textDecoration: 'underline' }}
-          >
-            Edit or cancel in Buffer →
-          </a>
-        ) : (
-          <a
-            href="https://buffer.com/app"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: 'var(--ink-600)', textDecoration: 'underline' }}
-          >
-            Open Buffer queue to cancel →
-          </a>
-        )}
-      </div>
+      <ScheduledStateCard
+        platformName="Instagram"
+        icon={<PlatformIcon name="instagram" size={14} />}
+        scheduledAt={post.scheduled_at}
+        bufferUpdateId={post.buffer_update_id}
+        externalEditUrl={(id) => `https://buffer.com/app/updates/${id}`}
+        externalListUrl="https://buffer.com/app"
+      />
     );
   }
 
@@ -119,7 +96,7 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
       <PostedSummaryRow
         icon={<PlatformIcon name="instagram" size={14} />}
         platform="Instagram"
-        postedAt={effectivePost?.published_at ?? post!.created_at}
+        postedAt={post?.published_at ?? post!.created_at}
         postUrl={postUrl}
         onExpand={() => setExpanded(true)}
       />
@@ -129,23 +106,15 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
   if (isPosted && expanded) {
     return (
       <div style={{ border: '1px solid var(--ink-100)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'var(--linen-50)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <div>
-            <strong style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <PlatformIcon name="instagram" size={14} /> Instagram
-            </strong>
-            <span style={{ fontSize: 11, color: 'var(--jade)', marginLeft: 6 }}>● Posted</span>
-          </div>
-          <button type="button" onClick={() => setExpanded(false)} style={{ background: 'none', border: 'none', color: 'var(--ink-400)', cursor: 'pointer', fontSize: 18 }}>▴</button>
-        </div>
+        <PostedExpandedHeader
+          platformName="Instagram"
+          icon={<PlatformIcon name="instagram" size={14} />}
+          onCollapse={() => setExpanded(false)}
+        />
 
         {editFlowOpen ? (
           <>
-            <CaptionAndHashtags
-              storageKey={`caption.instagram.${parshaSlug}.edit`}
-              initialCombined={post?.caption ?? caption}
-              onSave={async (next) => savePlatformCaption(jobId, 'instagram', next, parshaSlug)}
-            />
+            <CaptionAndHashtags storageKey={`caption.instagram.${parshaSlug}.edit`} initialCombined={post?.caption ?? caption} onSave={async (next) => savePlatformCaption(jobId, 'instagram', next, parshaSlug)} />
             <ReelOrPostToggle value={reelOrPost} onChange={(v) => { setReelOrPost(v); saveInstaMeta(v, firstComment); }} />
             <EditableField storageKey={`instagram.${parshaSlug}.firstComment.edit`} label="First comment" labelNote="(may not appear on IG — Buffer report)" initialValue={firstComment} onSave={async (v) => { setFirstComment(v); await saveInstaMeta(reelOrPost, v); }} multiline={false} />
             <button type="button" onClick={() => { startPosting(async () => { const res = await editPostedOnPlatform(videoId, 'instagram', caption); if (!res.ok) setError(res.error ?? 'Update failed'); else setEditFlowOpen(false); }); }} disabled={posting}
@@ -156,9 +125,7 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
           </>
         ) : (
           <>
-            <div style={{ fontSize: 13, padding: 8, background: 'white', border: '1px solid var(--ink-100)', borderRadius: 6, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
-              {post?.caption ?? caption}
-            </div>
+            <div style={{ fontSize: 13, padding: 8, background: 'white', border: '1px solid var(--ink-100)', borderRadius: 6, marginBottom: 12, whiteSpace: 'pre-wrap' }}>{post?.caption ?? caption}</div>
             <button type="button" onClick={() => setEditConfirmOpen(true)}
               style={{ width: '100%', minHeight: 44, fontSize: 13, fontWeight: 500, background: 'white', color: 'var(--navy-700)', border: '1px solid var(--navy-700)', borderRadius: 8, cursor: 'pointer' }}>
               Edit on Instagram
@@ -190,57 +157,22 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
   }
 
   return (
-    <div style={{ border: '1.5px solid var(--navy-700)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'white' }}>
-      <div style={{ fontSize: 11, color: 'var(--navy-700)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <PlatformIcon name="instagram" size={14} /> Instagram · next up
-      </div>
-
-      <CaptionAndHashtags
-        storageKey={`caption.instagram.${parshaSlug}`}
-        initialCombined={caption}
-        onSave={async (next) => savePlatformCaption(jobId, 'instagram', next, parshaSlug)}
-      />
+    <UnpostedCardShell platformName="Instagram" icon={<PlatformIcon name="instagram" size={14} />}>
+      <CaptionAndHashtags storageKey={`caption.instagram.${parshaSlug}`} initialCombined={caption} onSave={async (next) => savePlatformCaption(jobId, 'instagram', next, parshaSlug)} />
       <ReelOrPostToggle value={reelOrPost} onChange={(v) => { setReelOrPost(v); saveInstaMeta(v, firstComment); }} />
       <EditableField storageKey={`instagram.${parshaSlug}.firstComment`} label="First comment" labelNote="(may not appear on IG — Buffer report)" initialValue={firstComment}
         onSave={async (v) => { setFirstComment(v); await saveInstaMeta(reelOrPost, v); }} multiline={false} />
 
-      {isFailed && (
-        <div
-          role="alert"
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 8,
-            padding: '10px 12px',
-            marginBottom: 10,
-            background: 'rgba(207, 109, 81, 0.08)',
-            border: '1px solid var(--tassel)',
-            borderRadius: 6,
-            fontSize: 12.5,
-            color: 'var(--ink-700)',
-            lineHeight: 1.5,
-          }}
-        >
-          <span aria-hidden="true" style={{ color: 'var(--tassel)', fontWeight: 700, flexShrink: 0 }}>!</span>
-          <span>
-            Last post attempt failed.
-            {effectivePost?.error_message ? <> <span style={{ color: 'var(--ink-500)' }}>{String(effectivePost.error_message).split('\n')[0].slice(0, 180)}</span></> : null}
-            {' '}Tap to retry.
-          </span>
-        </div>
-      )}
+      {isFailed && <FailureBanner errorMessage={post?.error_message ?? null} />}
 
       {error && <div style={{ fontSize: 12, color: 'var(--tassel)', marginBottom: 8 }}>{error}</div>}
 
-      <button type="button" onClick={onPost} disabled={posting}
-        style={{ width: '100%', minHeight: 48, fontSize: 14, fontWeight: 500, background: 'var(--navy-700)', color: 'var(--linen-50)', border: 'none', borderRadius: 8, padding: 12, cursor: posting ? 'not-allowed' : 'pointer', opacity: posting ? 0.7 : 1, marginBottom: 8 }}>
-        {posting ? 'Posting to Instagram…' : 'Post to Instagram'}
-      </button>
-
-      <button type="button" onClick={() => setScheduleOpen(true)}
-        style={{ width: '100%', minHeight: 44, fontSize: 13, background: 'transparent', color: 'var(--navy-700)', border: '1px solid var(--ink-100)', borderRadius: 8, cursor: 'pointer' }}>
-        Schedule for later
-      </button>
+      <PostActionButtons
+        posting={posting}
+        onPost={onPost}
+        onScheduleOpen={() => setScheduleOpen(true)}
+        platformName="Instagram"
+      />
 
       <ScheduleForLaterSheet open={scheduleOpen} onOpenChange={setScheduleOpen} platform="Instagram"
         onSchedule={async (when) => {
@@ -248,6 +180,6 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
           const res = await postToPlatform(videoId, 'instagram', { instagram: caption }, { scheduledAt: when, shareNow: false });
           if (!res.ok) setError(res.error ?? 'Schedule failed');
         }} />
-    </div>
+    </UnpostedCardShell>
   );
 }
