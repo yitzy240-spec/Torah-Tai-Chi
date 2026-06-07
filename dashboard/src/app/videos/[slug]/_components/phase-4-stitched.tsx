@@ -7,9 +7,11 @@
 // Per spec §4 Phase 4. Mockup: 12-post-regen-view.html option A.
 
 'use client';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { publicVideoUrl } from '@/lib/storage-url';
-import { useRealtimeRow } from '@/hooks/use-realtime-row';
+import { useJobStream } from '@/hooks/use-job-stream';
+import { isTerminalStage } from '@/lib/job-event-types';
 import { humanizeRenderError } from '@/lib/humanize-render-error';
 
 interface Props {
@@ -37,23 +39,24 @@ export function Phase4Stitched({
   onBack,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const router = useRouter();
+  const liveEvent = useJobStream(composeJobId);
 
-  const liveVideo = useRealtimeRow<{ id: string; mp4_path: string | null; thumb_path: string | null }>(
-    'videos',
-    videoId,
-    { id: videoId, mp4_path: videoMp4Path, thumb_path: thumbPath },
-  );
-  const effectiveMp4 = liveVideo?.mp4_path ?? videoMp4Path;
-  const effectiveThumb = liveVideo?.thumb_path ?? thumbPath;
+  const effectiveMp4 = liveEvent?.videoPath ?? videoMp4Path;
+  const effectiveThumb = thumbPath; // thumb refreshes via router.refresh on done — see useEffect below
 
-  const liveJob = useRealtimeRow<{ id: string; status: string; error_message: string | null }>(
-    'jobs',
-    composeJobId,
-    null,
-  );
-  const composeFailed = liveJob?.status === 'failed';
-  const composeCancelled = liveJob?.status === 'cancelled';
-  const composeError = liveJob?.error_message ?? null;
+  const composeFailed = liveEvent?.stage === 'failed';
+  const composeCancelled = liveEvent?.stage === 'cancelled';
+  const composeError = liveEvent?.message ?? null;
+
+  // When the pipeline reaches a terminal stage, ask the server for a fresh
+  // render so we pick up thumb_path (and any other fields not on the event)
+  // that Modal wrote to the videos row alongside the mp4.
+  useEffect(() => {
+    if (liveEvent && isTerminalStage(liveEvent.stage)) {
+      router.refresh();
+    }
+  }, [liveEvent, router]);
 
   if (composeFailed && !effectiveMp4) {
     return (
