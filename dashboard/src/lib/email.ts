@@ -64,3 +64,27 @@ export async function sendNotification(opts: {
     return { error: msg };
   }
 }
+
+export async function sendJobDoneNotification(args: {
+  jobId: string;
+  stage: 'done' | 'failed' | 'cancelled';
+  slug: string;
+  message: string | null;
+}): Promise<void> {
+  const url = `https://torah-tai-chi-admin.vercel.app/videos/${args.slug}`;
+  const subject =
+    args.stage === 'done'
+      ? `[Torah Tai Chi] Video ready: ${args.slug}`
+      : args.stage === 'failed'
+      ? `[Torah Tai Chi] Job FAILED: ${args.slug}`
+      : `[Torah Tai Chi] Job cancelled: ${args.slug}`;
+  const body =
+    args.stage === 'done'
+      ? `Your video is ready. Open it:\n${url}\n\nJob ID: ${args.jobId}`
+      : `Job stopped (${args.stage})${args.message ? `:\n\n${args.message}` : ''}\n\n${url}\n\nJob ID: ${args.jobId}`;
+  await sendNotification({
+    subject,
+    text: body,
+    html: `<p>${body.replace(/\n/g, '<br>')}</p>`,
+  });
+}

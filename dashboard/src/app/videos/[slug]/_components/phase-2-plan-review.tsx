@@ -46,8 +46,14 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useLocalStorageDraft } from '@/hooks/use-localstorage-draft';
 import { useOptimisticSave } from '@/hooks/use-optimistic-save';
-import { useRealtimeRow } from '@/hooks/use-realtime-row';
+import { useJobStream } from '@/hooks/use-job-stream';
 import { useRealtimeRows } from '@/hooks/use-realtime-rows';
+import {
+  broadcastChannel,
+  BROADCAST_EVENT_NAME,
+  type JobEvent,
+  isTerminalStage,
+} from '@/lib/job-event-types';
 import { analyzeClip } from '@/lib/word-count';
 import { humanizeRenderError } from '@/lib/humanize-render-error';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
@@ -162,38 +168,20 @@ export function Phase2PlanReview({
   useEffect(() => {
     if (pendingJobIds.length === 0) return;
     const supabase = createClient();
-    const statuses = new Map<string, string>();
-    const channels = pendingJobIds.map((pjId) => {
-      statuses.set(pjId, 'CLOSED');
-      return supabase
-        .channel(`pending-clips:${pjId}`)
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'clips', filter: `job_id=eq.${pjId}` },
-          () => router.refresh(),
-        )
-        .subscribe((status) => statuses.set(pjId, status));
-    });
-
-    // Defensive poll — only fires when at least one channel is unhealthy
-    // AND the tab is visible. router.refresh is a heavy hammer (re-runs
-    // every server data fetch on the page), so we previously paid for
-    // it every 15s regardless. Now: zero idle cost when realtime is up.
-    // Bumped 15s → 30s since this poll is far more expensive than a
-    // single-row SELECT.
-    const pollId = setInterval(() => {
-      const allHealthy = [...statuses.values()].every((s) => s === 'SUBSCRIBED');
-      if (allHealthy) return;
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      router.refresh();
-    }, 30_000);
-    function onVisible() {
-      if (document.visibilityState === 'visible') router.refresh();
-    }
-    document.addEventListener('visibilitychange', onVisible);
+    const channels = pendingJobIds.map((pjId) =>
+      supabase
+        .channel(broadcastChannel(pjId), { config: { broadcast: { self: false, ack: false } } })
+        .on('broadcast', { event: BROADCAST_EVENT_NAME }, (msg) => {
+          const payload = msg.payload as JobEvent;
+          // Refresh on terminal completions OR per-clip completions so the
+          // operator sees new versions land immediately.
+          if (isTerminalStage(payload.stage) || payload.stage === 'clip_done') {
+            router.refresh();
+          }
+        })
+        .subscribe(),
+    );
     return () => {
-      clearInterval(pollId);
-      document.removeEventListener('visibilitychange', onVisible);
       channels.forEach((ch) => supabase.removeChannel(ch));
     };
   }, [pendingJobIds, router]);
@@ -563,14 +551,12 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   } | null>(null);
 
   // Watch the clips-only job we just triggered so we can detect failure
-  // and surface it to the operator. The hook does an initial SELECT +
-  // 10s defensive poll so we catch the failure even if postgres_changes
-  // misses the UPDATE event.
-  const liveJob = useRealtimeRow<{ id: string; status: string; error_message: string | null }>(
-    'jobs',
-    liveJobId,
-    null,
-  );
+  // and surface it to the operator. useJobStream subscribes to Broadcast
+  // channel `job:${liveJobId}` — no WAL/postgres_changes involved.
+  const liveEvent = useJobStream(liveJobId);
+  // Derive the same shape the downstream effects expect.
+  const liveJobStatus = liveEvent?.stage ?? null;
+  const liveJobError = liveEvent?.message ?? null;
 
   // Success path — clip mp4 appeared in storage. Clears the spinner and
   // closes out the live job watch. Also clears any stale failure banner
@@ -629,15 +615,15 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   // 'failed', surface a toast with the first line of error_message
   // and a 'View log' action linking to /jobs/[id] for the traceback.
   useEffect(() => {
-    if (!liveJob) return;
-    if (liveJob.status === 'done') {
+    if (!liveJobStatus) return;
+    if (liveJobStatus === 'done') {
       setThisRendering(false);
       setLiveJobId(null);
       setRenderStartedAt(null);
       router.refresh();
       return;
     }
-    if (liveJob.status === 'cancelled') {
+    if (liveJobStatus === 'cancelled') {
       setThisRendering(false);
       setLiveJobId(null);
       setRenderStartedAt(null);
@@ -645,27 +631,28 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       router.refresh();
       return;
     }
-    if (liveJob.status === 'failed') {
+    if (liveJobStatus === 'failed') {
       setThisRendering(false);
+      const failedJobId = liveJobId;
       setLiveJobId(null);
       setRenderStartedAt(null);
-      const fullMessage = liveJob.error_message ?? 'Job failed without an error message.';
+      const fullMessage = liveJobError ?? 'Job failed without an error message.';
       // Persistent banner — keyed on jobId so a re-render's success clears
       // the right stale failure. Toast still fires for the immediate signal.
       // Toast + banner both run the raw message through humanizeRenderError
       // so Yonah sees "Kie is having a server issue" instead of a Python
       // traceback (2026-05-28 Yonah feedback).
-      setLastFailedError({ jobId: liveJob.id, message: fullMessage });
+      setLastFailedError({ jobId: failedJobId ?? 'unknown', message: fullMessage });
       toast.error(`Clip ${clip.index + 1} render failed`, {
         description: humanizeRenderError(fullMessage),
         action: {
           label: 'View log',
-          onClick: () => window.open(`/jobs/${liveJob.id}`, '_blank'),
+          onClick: () => window.open(`/jobs/${failedJobId}`, '_blank'),
         },
         duration: 12000,
       });
     }
-  }, [liveJob, clip.index, router]);
+  }, [liveJobStatus, liveJobError, liveJobId, clip.index, router]);
 
   // Cancel the in-flight render. The cancelJob action just marks the
   // jobs row as 'cancelled' — Modal keeps running to completion (Modal

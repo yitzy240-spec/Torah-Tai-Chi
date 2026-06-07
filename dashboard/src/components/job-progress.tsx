@@ -1,5 +1,8 @@
 'use client';
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { useJobStream } from '@/hooks/use-job-stream';
+import { isTerminalStage } from '@/lib/job-event-types';
 import Link from 'next/link';
 import { Check, Loader2, X, RotateCcw, XCircle, AlertTriangle, Eye } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -134,123 +137,71 @@ export function JobProgress({
   // mid-run, so it stays as a prop pass-through rather than client state.
   const taiChiMove = initialTaiChiMove;
 
-  // Subscribe to BOTH jobs (by id) and clips (by job_id) so the user sees
-  // step transitions and per-clip completions land without a refresh.
-  useEffect(() => {
+  // Effect A: Broadcast-driven updates via useJobStream.
+  // Mirror incoming events onto local job state (stage → status,
+  // message → status_message) so existing UI keeps working without a
+  // full prop-pass redesign. Pull fresh clips + clip_plan on terminal
+  // stages or per-clip completions — the JobEvent doesn't carry
+  // per-clip detail, so a refetch is cheaper than trying to merge.
+  const router = useRouter();
+  const liveEvent = useJobStream(job.id);
+
+  const refetchClipsAndPlan = useCallback(async () => {
     const supabase = createClient();
-    const channel = supabase
-      .channel(`job-${job.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'jobs', filter: `id=eq.${job.id}` },
-        (payload) => setJob((j) => ({ ...j, ...(payload.new as Partial<Job>) })),
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'clips', filter: `job_id=eq.${job.id}` },
-        (payload) => {
-          const next = payload.new as Clip;
-          setClips((cs) => {
-            if (cs.some((c) => c.id === next.id)) return cs;
-            return [...cs, next].sort((a, b) => a.index - b.index);
-          });
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'clips', filter: `job_id=eq.${job.id}` },
-        (payload) => {
-          const next = payload.new as Clip;
-          setClips((cs) =>
-            cs.map((c) => (c.id === next.id ? { ...c, ...next } : c)),
-          );
-        },
-      )
-      // clip_plans: lets the Clip Plan tab fill in the moment Claude returns,
-      // no manual refresh needed. We pick the row with the newest created_at
-      // because in theory regen flows could produce more than one row.
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'clip_plans', filter: `job_id=eq.${job.id}` },
-        (payload) => {
-          const next = payload.new as ClipPlanRow;
-          setClipPlan((prev) => {
-            if (!prev) return next;
-            const a = prev.created_at ? Date.parse(prev.created_at) : 0;
-            const b = next.created_at ? Date.parse(next.created_at) : 0;
-            return b >= a ? next : prev;
-          });
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'clip_plans', filter: `job_id=eq.${job.id}` },
-        (payload) => {
-          const next = payload.new as ClipPlanRow;
-          setClipPlan((prev) => {
-            if (!prev) return next;
-            const a = prev.created_at ? Date.parse(prev.created_at) : 0;
-            const b = next.created_at ? Date.parse(next.created_at) : 0;
-            return b >= a ? next : prev;
-          });
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    const { data: latestClips } = await supabase
+      .from('clips')
+      .select('id, index, voiceover, status, cost_usd, mp4_path, verification_status, verification_attempts, verification_notes')
+      .eq('job_id', job.id)
+      .order('index');
+    if (latestClips) setClips(latestClips as unknown as Clip[]);
+    const { data: latestPlan } = await supabase
+      .from('clip_plans')
+      .select('plan_json, created_at')
+      .eq('job_id', job.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestPlan) {
+      setClipPlan((prev) => {
+        if (!prev) return latestPlan as ClipPlanRow;
+        const a = prev.created_at ? Date.parse(prev.created_at) : 0;
+        const b = latestPlan.created_at ? Date.parse(latestPlan.created_at) : 0;
+        return b >= a ? (latestPlan as ClipPlanRow) : prev;
+      });
+    }
   }, [job.id]);
 
-  // Polling fallback: realtime requires the tables to be in the
-  // supabase_realtime publication AND the listener to have read RLS.
-  // If anything in that chain breaks, the page would silently stop
-  // updating. Poll every 4s while in-flight as a safety net — when
-  // realtime IS working, the poll is just a no-op duplicate fetch.
+  useEffect(() => {
+    if (!liveEvent) return;
+    // Mirror the event onto local job state so existing UI
+    // (which reads job.status / job.status_message) keeps working.
+    setJob((j) => ({
+      ...j,
+      status: liveEvent.stage,
+      status_message: liveEvent.message ?? j.status_message,
+    }));
+    // Pull fresh clips + clip_plan on terminal stages or per-clip completions.
+    if (isTerminalStage(liveEvent.stage) || liveEvent.stage === 'clip_done') {
+      router.refresh();
+      void refetchClipsAndPlan();
+    }
+  }, [liveEvent, router, refetchClipsAndPlan]);
+
+  // Effect B: Lightweight visibility-gated fallback poll.
+  // Broadcast handles job-level updates instantly. This poll exists ONLY
+  // to catch clip/clip_plan changes when Broadcast missed events (network
+  // drop, etc.). 30s + visibility-gated keeps it from burning IO when
+  // nobody is watching.
   useEffect(() => {
     if (job.status === 'done' || job.status === 'failed' || job.status === 'cancelled') {
       return;
     }
-    const supabase = createClient();
-    const tick = async () => {
-      const { data: latestJob } = await supabase
-        .from('jobs')
-        .select('id, status, status_message, error_message, triggered_at, completed_at, total_cost_usd, director_notes')
-        .eq('id', job.id)
-        .single();
-      if (latestJob) setJob((j) => ({ ...j, ...(latestJob as Partial<Job>) }));
-      const { data: latestClips } = await supabase
-        .from('clips')
-        .select(
-          'id, index, voiceover, status, cost_usd, mp4_path, ' +
-          'verification_status, verification_attempts, verification_notes',
-        )
-        .eq('job_id', job.id)
-        .order('index');
-      // Cast through unknown — Supabase types haven't been regenerated
-      // yet for the new verification_* columns; they'll show as
-      // GenericStringError until typegen runs post-migration.
-      if (latestClips) setClips(latestClips as unknown as Clip[]);
-      // clip_plans polling fallback — only fetched while the page is in-flight,
-      // which is when the plan can still be written or regenerated.
-      const { data: latestPlan } = await supabase
-        .from('clip_plans')
-        .select('plan_json, created_at')
-        .eq('job_id', job.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (latestPlan) {
-        setClipPlan((prev) => {
-          if (!prev) return latestPlan as ClipPlanRow;
-          const a = prev.created_at ? Date.parse(prev.created_at) : 0;
-          const b = latestPlan.created_at ? Date.parse(latestPlan.created_at) : 0;
-          return b >= a ? (latestPlan as ClipPlanRow) : prev;
-        });
-      }
-    };
-    const timer = setInterval(tick, 4000);
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void refetchClipsAndPlan();
+    }, 30_000);
     return () => clearInterval(timer);
-  }, [job.id, job.status]);
+  }, [job.status, refetchClipsAndPlan]);
 
   const done = job.status === 'done';
   const failed = job.status === 'failed';
