@@ -38,5 +38,25 @@ test('preserves a single space between adjacent inline elements', () => {
 
 test('still strips structural newlines/indentation between block tags', () => {
   const input = `<ul>\n  <li>A</li>\n  <li>B</li>\n</ul>`;
-  assert.equal(cleanWordHtml(input), '<ul><li>A</li><li>B</li></ul>');
+  // With the run-together fix, between-tag whitespace containing a newline/tab
+  // collapses to a single space (harmless in the editor) rather than empty string.
+  assert.equal(cleanWordHtml(input), '<ul> <li>A</li> <li>B</li> </ul>');
+});
+
+test('removes paragraphs that are empty after stripping inline wrappers', () => {
+  assert.equal(cleanWordHtml('<p>Keep</p><p><span></span></p><p><o:p></o:p></p>'), '<p>Keep</p>');
+});
+
+test('collapses a line-break between inline spans to a single space (no run-together)', () => {
+  assert.equal(cleanWordHtml('<p><span>happens</span>\r\n<span>when</span></p>'), '<p>happens when</p>');
+});
+
+test('strips a leading bullet glyph + tab from list-style paragraphs', () => {
+  assert.equal(cleanWordHtml('<p>•\tPerception fractures</p>'), '<p>Perception fractures</p>');
+  assert.equal(cleanWordHtml('<li>\t one</li>'), '<li>one</li>');
+});
+
+test('still preserves a real inline word space and clean lists/tables (regression)', () => {
+  assert.equal(cleanWordHtml('<p><strong>bold</strong> <em>italic</em></p>'), '<p><strong>bold</strong> <em>italic</em></p>');
+  assert.equal(cleanWordHtml('<ul><li>A</li><li>B</li></ul>'), '<ul><li>A</li><li>B</li></ul>');
 });

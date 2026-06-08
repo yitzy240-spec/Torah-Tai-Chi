@@ -834,6 +834,7 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 .ad-body td p,.ad-body th p,.ad-body li p{margin:0;}
 .ad-body figure{margin:28px 0;}
 .ad-body img{display:block;max-width:100%;height:auto;border-radius:8px;margin:0 auto;}
+.ad-body [dir="rtl"]{direction:rtl;text-align:right;font-family:var(--ff-hebrew);}
 .pullquote{margin:40px 0;padding:24px 0 24px 28px;border-left:2px solid var(--cedar-400);font-family:var(--ff-display);font-style:italic;font-size:26px;line-height:1.35;color:var(--cedar-700);font-variation-settings:"opsz" 30,"SOFT" 65;}
 .section-break{text-align:center;margin:40px 0;font-family:var(--ff-display);font-size:22px;color:var(--cedar-400);letter-spacing:.4em;font-variation-settings:"opsz" 22,"SOFT" 50;}
 .continue-section{max-width:900px;margin:96px auto 0;padding:0 48px;}
