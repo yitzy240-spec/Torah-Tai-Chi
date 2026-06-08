@@ -9,6 +9,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { useCallback, useEffect, useRef } from 'react';
+import { cleanWordHtml } from '@/lib/clean-word-html';
 
 interface ArticleEditorProps {
   initialContent?: object | null;
@@ -50,6 +51,9 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
       onChangeRef.current(doc, html);
     },
     editorProps: {
+      transformPastedHTML(html) {
+        return cleanWordHtml(html);
+      },
       attributes: {
         style: [
           'font-family: var(--ff-display)',
