@@ -95,6 +95,13 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
       onChangeRef.current(doc, html);
       onWordCountRef.current?.(editor.storage.characterCount.words());
     },
+    // Seed the word count from existing content on mount — onUpdate doesn't
+    // fire on initial load, so without this an existing draft's word count
+    // would read 0 until the first keystroke (which autosave would persist as
+    // a wrong ~1 min read).
+    onCreate({ editor }) {
+      onWordCountRef.current?.(editor.storage.characterCount.words());
+    },
     editorProps: {
       transformPastedHTML(html) {
         return cleanWordHtml(html);

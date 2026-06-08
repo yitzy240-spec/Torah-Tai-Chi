@@ -139,7 +139,9 @@ export function ArticleForm({ initial }: ArticleFormProps) {
           title: form.title, subtitle: form.subtitle || null, slug: form.slug || undefined,
           category: form.category || null, excerpt: form.excerpt || null,
           read_minutes: wordsToReadMinutes(words), body_json: form.body_json, body_html: form.body_html || null,
-          published: false,
+          // Deliberately omit `published`: autosave must never change publish
+          // state. updateArticle preserves the story's current state when the
+          // field is absent (the effect is already gated to drafts only).
           seo_title: form.seo_title || null, seo_description: form.seo_description || null, seo_og_image: form.seo_og_image || null,
           _autosave: true,
         }),
