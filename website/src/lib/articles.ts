@@ -64,6 +64,10 @@ export function tiptapJsonToHtml(doc: object | null): string {
         case 'orderedList': return `<ol>${inner}</ol>`;
         case 'listItem': return `<li>${inner}</li>`;
         case 'blockquote': return `<blockquote>${inner}</blockquote>`;
+        case 'table': return `<table><tbody>${inner}</tbody></table>`;
+        case 'tableRow': return `<tr>${inner}</tr>`;
+        case 'tableHeader': return `<th>${inner}</th>`;
+        case 'tableCell': return `<td>${inner}</td>`;
         case 'hardBreak': return '<br/>';
         default: return inner;
       }
