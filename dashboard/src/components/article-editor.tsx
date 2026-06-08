@@ -17,6 +17,7 @@ import type { Editor } from '@tiptap/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cleanWordHtml } from '@/lib/clean-word-html';
 import { LinkPopover } from './link-popover';
+import { TextDirection } from './text-direction';
 
 interface ArticleEditorProps {
   initialContent?: object | null;
@@ -78,6 +79,7 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
       Image.configure({ inline: false, allowBase64: false }),
       CharacterCount,
       Typography,
+      TextDirection,
       FileHandler.configure({
         allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml'],
         onDrop: (currentEditor, files, pos) => {
@@ -158,6 +160,14 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
   }, [editor]);
 
   if (!editor) return null;
+
+  const TYPES = ['paragraph', 'heading', 'blockquote'] as const;
+  const isRtl = TYPES.some((t) => editor.isActive(t, { dir: 'rtl' }));
+  const setDir = (dir: 'rtl' | null) => {
+    let chain = editor.chain().focus();
+    for (const t of TYPES) chain = chain.updateAttributes(t, { dir });
+    chain.run();
+  };
 
   const btnStyle = (active: boolean): React.CSSProperties => ({
     display: 'inline-flex',
@@ -373,6 +383,15 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
           </svg>
         </button>
 
+        <div style={{ width: '1px', height: '22px', background: 'var(--ink-200)', margin: '0 4px' }} />
+        <button
+          type="button"
+          title="Right-to-left (Hebrew)"
+          aria-label="Toggle right-to-left direction"
+          style={{ ...btnStyle(isRtl), fontFamily: 'var(--ff-hebrew)', fontSize: '16px' }}
+          onClick={() => setDir(isRtl ? null : 'rtl')}
+        >א</button>
+
         {linkOpen && (
           <LinkPopover
             initialUrl={editor.getAttributes('link').href ?? ''}
@@ -477,6 +496,11 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
         .article-editor-content th, .article-editor-content td { border: 1px solid var(--ink-200); padding: 6px 10px; text-align: left; vertical-align: top; }
         .article-editor-content th { background: var(--linen-50); font-weight: 600; }
         .article-editor-content .selectedCell { background: var(--navy-100); }
+        .article-editor-content [dir="rtl"] {
+          direction: rtl;
+          text-align: right;
+          font-family: var(--ff-hebrew);
+        }
         @media (max-width: 640px) {
           .article-editor-content { font-size: 16px; }
         }
