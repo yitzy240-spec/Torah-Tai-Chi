@@ -60,6 +60,8 @@ const LABEL_STYLE: React.CSSProperties = {
 
 interface ArticleFormProps {
   initial?: Partial<ArticleFormData>;
+  /** Draft-preview URL built server-side in the edit page. Absent on /articles/new. */
+  previewUrl?: string;
 }
 
 const SEO_SECTION_STYLE: React.CSSProperties = {
@@ -76,7 +78,7 @@ const SEO_HINT_STYLE: React.CSSProperties = {
   fontFamily: 'var(--ff-body)',
 };
 
-export function ArticleForm({ initial }: ArticleFormProps) {
+export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
   const router = useRouter();
   const [form, setForm] = useState<ArticleFormData>({
     id: initial?.id,
@@ -429,6 +431,26 @@ export function ArticleForm({ initial }: ArticleFormProps) {
           >
             {saving ? 'Saving…' : 'Save draft'}
           </button>
+
+          {previewUrl && (
+            <a
+              href={previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontFamily: 'var(--ff-body)',
+                fontSize: '14px',
+                color: 'var(--navy-700)',
+                textDecoration: 'none',
+                padding: '0 8px',
+              }}
+            >
+              Preview ↗
+            </a>
+          )}
 
           <button
             type="button"

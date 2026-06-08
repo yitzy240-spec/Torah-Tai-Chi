@@ -342,6 +342,18 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
     await expect(page.getByText('automatically generated share image')).toBeVisible();
   });
 
+  test('Preview link is absent on new-article page', async ({ page }) => {
+    // installApiMocks is applied via beforeEach above — no need to call it here.
+    // The /articles/new route renders ArticleForm without a previewUrl prop
+    // (the server component only constructs the URL when editing a saved article
+    // that already has a slug). The edit-page case (link PRESENT) is
+    // intentionally NOT automated here: it requires live Storyblok SSR +
+    // ARTICLE_PREVIEW_TOKEN env vars that the browser-layer mocks cannot
+    // supply. Verify that path manually in the E2E task.
+    await page.goto('/articles/new');
+    await expect(page.getByRole('link', { name: /Preview/ })).toHaveCount(0);
+  });
+
   test('Storyblok 500 surfaces a user-visible error, no crash', async ({ page }) => {
     // Intercept /api/articles and return 500 with a JSON error body — the
     // same shape the route.ts handler returns when mapi throws.
