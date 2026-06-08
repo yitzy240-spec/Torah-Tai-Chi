@@ -63,14 +63,18 @@ export function tiptapJsonToHtml(doc: object | null): string {
         }
         return t;
       }
+      const dirAttr = (attrs?: Record<string, unknown>): string => {
+        const d = attrs?.dir;
+        return d === 'rtl' || d === 'ltr' ? ` dir="${d}"` : '';
+      };
       const inner = (n.content ?? []).map(nodeToHtml).join('');
       switch (n.type) {
-        case 'paragraph': return `<p>${inner}</p>`;
-        case 'heading': return `<h${n.attrs?.level ?? 2}>${inner}</h${n.attrs?.level ?? 2}>`;
+        case 'paragraph': return `<p${dirAttr(n.attrs)}>${inner}</p>`;
+        case 'heading': return `<h${n.attrs?.level ?? 2}${dirAttr(n.attrs)}>${inner}</h${n.attrs?.level ?? 2}>`;
         case 'bulletList': return `<ul>${inner}</ul>`;
         case 'orderedList': return `<ol>${inner}</ol>`;
         case 'listItem': return `<li>${inner}</li>`;
-        case 'blockquote': return `<blockquote>${inner}</blockquote>`;
+        case 'blockquote': return `<blockquote${dirAttr(n.attrs)}>${inner}</blockquote>`;
         case 'table': return `<table><tbody>${inner}</tbody></table>`;
         case 'tableRow': return `<tr>${inner}</tr>`;
         case 'tableHeader': return `<th>${inner}</th>`;

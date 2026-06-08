@@ -81,3 +81,29 @@ test('image with no alt still renders', () => {
   const doc = { type: 'doc', content: [ { type: 'image', attrs: { src: 'https://a.storyblok.com/f/1/y.png' } } ] };
   assert.equal(tiptapJsonToHtml(doc), '<figure><img src="https://a.storyblok.com/f/1/y.png" alt="" loading="lazy"></figure>');
 });
+
+test('paragraph with dir=rtl renders the dir attribute', () => {
+  const doc = { type: 'doc', content: [
+    { type: 'paragraph', attrs: { dir: 'rtl' }, content: [{ type: 'text', text: 'שלום' }] },
+  ] };
+  assert.equal(tiptapJsonToHtml(doc), '<p dir="rtl">שלום</p>');
+});
+
+test('heading with dir=rtl renders the dir attribute', () => {
+  const doc = { type: 'doc', content: [
+    { type: 'heading', attrs: { level: 2, dir: 'rtl' }, content: [{ type: 'text', text: 'כותרת' }] },
+  ] };
+  assert.equal(tiptapJsonToHtml(doc), '<h2 dir="rtl">כותרת</h2>');
+});
+
+test('blockquote with dir=rtl renders the dir attribute', () => {
+  const doc = { type: 'doc', content: [
+    { type: 'blockquote', attrs: { dir: 'rtl' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'פסוק' }] }] },
+  ] };
+  assert.equal(tiptapJsonToHtml(doc), '<blockquote dir="rtl"><p>פסוק</p></blockquote>');
+});
+
+test('paragraph without dir emits no dir attribute, and bogus dir is ignored', () => {
+  assert.equal(tiptapJsonToHtml({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x' }] }] }), '<p>x</p>');
+  assert.equal(tiptapJsonToHtml({ type: 'doc', content: [{ type: 'paragraph', attrs: { dir: 'evil"onmouseover' }, content: [{ type: 'text', text: 'x' }] }] }), '<p>x</p>');
+});
