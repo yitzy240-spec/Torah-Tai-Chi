@@ -41,5 +41,7 @@ export async function uploadAsset(file: File): Promise<string> {
   });
   if (!finRes.ok) throw new Error(`Storyblok finish failed: ${finRes.status}`);
 
-  return `https://a.storyblok.com/${signed.fields.key}`;
+  // Storyblok returns an S3 object key (e.g. f/123/img.jpg); strip any leading
+  // slash defensively so the CDN URL never double-slashes.
+  return `https://a.storyblok.com/${signed.fields.key.replace(/^\//, '')}`;
 }
