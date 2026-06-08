@@ -1,7 +1,7 @@
 // Run: node --test --experimental-strip-types src/lib/articles.test.ts  (from website/)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tiptapJsonToHtml, isPreviewAuthorized } from './articles.ts';
+import { tiptapJsonToHtml, isPreviewAuthorized, sortArticlesNewestFirst } from './articles.ts';
 
 test('bullet list renders with li items (regression guard)', () => {
   const doc = {
@@ -46,6 +46,17 @@ test('link href is attribute-escaped', () => {
     { type: 'text', text: 'x', marks: [{ type: 'link', attrs: { href: 'https://a.com/?x=1&y="2"' } }] }
   ] } ] };
   assert.equal(tiptapJsonToHtml(doc), '<p><a href="https://a.com/?x=1&amp;y=&quot;2&quot;">x</a></p>');
+});
+
+test('sortArticlesNewestFirst orders by published_at desc, undated last', () => {
+  const mk = (slug, published_at) => ({ slug, published_at });
+  const out = sortArticlesNewestFirst([
+    mk('feb', '2026-02-21T12:00:00Z'),
+    mk('jun', '2026-06-08T10:42:08Z'),  // newer; was sorting last when content date blank
+    mk('nodate', null),
+    mk('apr', '2026-04-12T12:00:00Z'),
+  ]);
+  assert.deepEqual(out.map((a) => a.slug), ['jun', 'apr', 'feb', 'nodate']);
 });
 
 test('isPreviewAuthorized requires exact non-empty token match', () => {

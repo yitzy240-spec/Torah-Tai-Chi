@@ -117,6 +117,24 @@ function storyToArticle(story: any): Article {
 // Public API
 // ─────────────────────────────────────────────
 
+/**
+ * Sort newest-first by the SAME date the UI displays (`published_at`, which
+ * storyToArticle resolves to content.published_at || story.published_at).
+ * The CDN's sort_by=content.published_at misorders articles whose
+ * content.published_at is blank: they fall back to story.published_at for
+ * display but sort as if dateless. Re-sorting here keeps display and order in
+ * agreement. Articles with no usable date sort last.
+ */
+export function sortArticlesNewestFirst(list: Article[]): Article[] {
+  return [...list].sort((a, b) => {
+    const da = a.published_at ? Date.parse(a.published_at) : NaN;
+    const db = b.published_at ? Date.parse(b.published_at) : NaN;
+    const va = Number.isNaN(da) ? -Infinity : da;
+    const vb = Number.isNaN(db) ? -Infinity : db;
+    return vb - va;
+  });
+}
+
 export async function getAllArticles(): Promise<Article[]> {
   try {
     const url = new URL(`${CDN_BASE}/stories`);
@@ -130,7 +148,7 @@ export async function getAllArticles(): Promise<Article[]> {
     const res = await fetch(url.toString(), { next: { revalidate: 60 } });
     if (!res.ok) return [];
     const data = await res.json();
-    return (data.stories ?? []).map(storyToArticle);
+    return sortArticlesNewestFirst((data.stories ?? []).map(storyToArticle));
   } catch {
     return [];
   }
