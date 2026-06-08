@@ -109,7 +109,7 @@ export function ArticleForm({ initial }: ArticleFormProps) {
 
   type AiTarget = 'seo_title' | 'seo_description' | 'excerpt';
   const [aiBusy, setAiBusy] = useState<AiTarget | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<{ target: AiTarget; message: string } | null>(null);
   const [aiSuggestion, setAiSuggestion] = useState<{ target: AiTarget; text: string } | null>(null);
   // Set when a publish completes successfully — drives the
   // "Public site updating…" confirmation banner. The API route
@@ -269,14 +269,14 @@ export function ArticleForm({ initial }: ArticleFormProps) {
         body: JSON.stringify({ task: taskByTarget[target], articleText }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { setAiError(data.error ?? 'AI request failed'); return; }
+      if (!res.ok) { setAiError({ target, message: data.error ?? 'AI request failed' }); return; }
       const text: string = (data.text ?? '').trim();
-      if (!text) { setAiError('No suggestion returned'); return; }
+      if (!text) { setAiError({ target, message: 'No suggestion returned' }); return; }
       const current = (form[target] ?? '').trim();
       if (current) setAiSuggestion({ target, text });
       else set(target, text);
     } catch {
-      setAiError('AI request failed');
+      setAiError({ target, message: 'AI request failed' });
     } finally {
       setAiBusy(null);
     }
@@ -305,6 +305,9 @@ export function ArticleForm({ initial }: ArticleFormProps) {
             <button type="button" onClick={() => setAiSuggestion(null)}
               style={{ fontSize: '12px', color: 'var(--ink-500)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>Keep mine</button>
           </div>
+        )}
+        {aiError?.target === target && (
+          <p style={{ color: 'var(--tassel)', fontSize: '12px', fontFamily: 'var(--ff-body)', marginTop: '6px' }}>{aiError.message}</p>
         )}
       </>
     );
@@ -493,9 +496,6 @@ export function ArticleForm({ initial }: ArticleFormProps) {
                 <p style={SEO_HINT_STYLE}>
                   Optional. Leave blank to use the excerpt{form.excerpt ? `: "${form.excerpt.slice(0, 80)}${form.excerpt.length > 80 ? '…' : ''}"` : ''}.
                 </p>
-                {aiError && (
-                  <p style={{ color: 'var(--tassel)', fontSize: '12px', fontFamily: 'var(--ff-body)', marginTop: '6px' }}>{aiError}</p>
-                )}
               </div>
               <div>
                 <label style={LABEL_STYLE}>SEO OG image URL override</label>
