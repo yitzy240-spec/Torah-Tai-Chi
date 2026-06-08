@@ -1,7 +1,7 @@
 // Run: node --test --experimental-strip-types src/lib/articles.test.ts  (from website/)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tiptapJsonToHtml, isPreviewAuthorized, sortArticlesNewestFirst } from './articles.ts';
+import { tiptapJsonToHtml, isPreviewAuthorized, sortArticlesNewestFirst, type Article } from './articles.ts';
 
 test('bullet list renders with li items (regression guard)', () => {
   const doc = {
@@ -49,7 +49,7 @@ test('link href is attribute-escaped', () => {
 });
 
 test('sortArticlesNewestFirst orders by published_at desc, undated last', () => {
-  const mk = (slug, published_at) => ({ slug, published_at });
+  const mk = (slug: string, published_at: string | null): Article => ({ slug, published_at } as unknown as Article);
   const out = sortArticlesNewestFirst([
     mk('feb', '2026-02-21T12:00:00Z'),
     mk('jun', '2026-06-08T10:42:08Z'),  // newer; was sorting last when content date blank
