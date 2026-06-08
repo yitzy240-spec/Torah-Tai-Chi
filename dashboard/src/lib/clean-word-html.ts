@@ -14,7 +14,10 @@ export function cleanWordHtml(html: string): string {
   out = out.replace(/<([a-z][a-z0-9]*)\b[^>]*>/gi, (_m, tag) => `<${tag.toLowerCase()}>`);
   // 4. Collapse whitespace-only / &nbsp;-only paragraphs.
   out = out.replace(/<p>(?:\s|&nbsp;|<br>)*<\/p>/gi, '');
-  // 5. Trim runs of whitespace between tags.
-  out = out.replace(/>\s+</g, '><').trim();
+  // 5. Collapse only STRUCTURAL whitespace (Word's newlines/tabs/indentation between
+  //    block tags). Whitespace runs containing a newline or tab are indentation, not
+  //    content, so they're safe to drop. A plain single space between two inline tags
+  //    (e.g. "</strong> <em>") is a real word space and must be preserved.
+  out = out.replace(/>[ \t\r\n]*[\r\n\t][ \t\r\n]*</g, '><').trim();
   return out;
 }

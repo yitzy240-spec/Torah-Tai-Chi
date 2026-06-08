@@ -30,3 +30,13 @@ test('preserves list and table structure', () => {
     '<ul><li>A</li></ul><table><tr><td>C</td></tr></table>'
   );
 });
+
+test('preserves a single space between adjacent inline elements', () => {
+  const input = `<p><strong>bold</strong> <em>italic</em></p>`;
+  assert.equal(cleanWordHtml(input), '<p><strong>bold</strong> <em>italic</em></p>');
+});
+
+test('still strips structural newlines/indentation between block tags', () => {
+  const input = `<ul>\n  <li>A</li>\n  <li>B</li>\n</ul>`;
+  assert.equal(cleanWordHtml(input), '<ul><li>A</li><li>B</li></ul>');
+});
