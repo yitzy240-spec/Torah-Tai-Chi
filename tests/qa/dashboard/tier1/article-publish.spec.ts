@@ -297,9 +297,8 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
 
   test('bullet list shows visible markers and table inserts', async ({ page }) => {
     await page.goto('/articles/new');
-    const editor = TIPTAP(page).first();
-    await editor.click();
-    await editor.type('First point');
+    await focusEditor(page);
+    await page.keyboard.type('First point');
     await page.locator('button[title="Bullet list"]').click();
 
     const li = EDITOR_WRAP(page).locator('li').first();
@@ -309,6 +308,7 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
 
     await page.locator('button[title="Insert table"]').click();
     await expect(EDITOR_WRAP(page).locator('table')).toBeVisible();
+    // insertTable uses { cols: 2, withHeaderRow: true } -> exactly 2 header cells
     await expect(EDITOR_WRAP(page).locator('th')).toHaveCount(2);
   });
 

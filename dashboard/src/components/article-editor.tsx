@@ -96,6 +96,8 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
     fontFamily: 'var(--ff-body)',
   });
 
+  const textBtnStyle: React.CSSProperties = { ...btnStyle(false), width: 'auto', padding: '0 8px' };
+
   return (
     <div
       style={{
@@ -221,7 +223,7 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
           type="button"
           title="Insert table"
           aria-label="Insert table"
-          style={btnStyle(editor.isActive('table'))}
+          style={btnStyle(false)}
           onClick={() =>
             editor.chain().focus().insertTable({ rows: 3, cols: 2, withHeaderRow: true }).run()
           }
@@ -234,16 +236,17 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
 
         {editor.isActive('table') && (
           <>
-            <button type="button" title="Add row" aria-label="Add row" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+            <div style={{ width: '1px', height: '22px', background: 'var(--ink-200)', margin: '0 4px' }} />
+            <button type="button" title="Add row" aria-label="Add row" style={textBtnStyle}
               onClick={() => editor.chain().focus().addRowAfter().run()}>+Row</button>
-            <button type="button" title="Add column" aria-label="Add column" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+            <button type="button" title="Add column" aria-label="Add column" style={textBtnStyle}
               onClick={() => editor.chain().focus().addColumnAfter().run()}>+Col</button>
-            <button type="button" title="Delete row" aria-label="Delete row" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+            <button type="button" title="Delete row" aria-label="Delete row" style={textBtnStyle}
               onClick={() => editor.chain().focus().deleteRow().run()}>−Row</button>
-            <button type="button" title="Delete column" aria-label="Delete column" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+            <button type="button" title="Delete column" aria-label="Delete column" style={textBtnStyle}
               onClick={() => editor.chain().focus().deleteColumn().run()}>−Col</button>
-            <button type="button" title="Delete table" aria-label="Delete table" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
-              onClick={() => editor.chain().focus().deleteTable().run()}>✕Table</button>
+            <button type="button" title="Delete table" aria-label="Delete table" style={textBtnStyle}
+              onClick={() => editor.chain().focus().deleteTable().run()}>−Table</button>
           </>
         )}
       </div>
