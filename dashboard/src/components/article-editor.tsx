@@ -123,10 +123,38 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
   });
 
   const [linkOpen, setLinkOpen] = useState(false);
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  const [aiRunning, setAiRunning] = useState(false);
 
   const openLink = useCallback(() => {
     if (!editor) return;
     setLinkOpen(true);
+  }, [editor]);
+
+  const runAiOnSelection = useCallback(async (task: 'improve' | 'shorten' | 'fix-grammar') => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const selectionText = editor.state.doc.textBetween(from, to, ' ').trim();
+    if (!selectionText) { setAiMenuOpen(false); return; }
+    setAiRunning(true);
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task, selectionText }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.text ?? '').trim()) {
+        editor.chain().focus().insertContentAt({ from, to }, data.text.trim()).run();
+      } else {
+        window.alert(`AI: ${data.error ?? 'request failed'}`);
+      }
+    } catch {
+      window.alert('AI request failed.');
+    } finally {
+      setAiRunning(false);
+      setAiMenuOpen(false);
+    }
   }, [editor]);
 
   if (!editor) return null;
@@ -157,6 +185,11 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
     background: active ? 'var(--navy-700)' : 'transparent', color: 'var(--linen-50)',
     cursor: 'pointer', fontSize: '13px', fontWeight: 600, fontFamily: 'var(--ff-body)',
   });
+
+  const aiItemStyle: React.CSSProperties = {
+    textAlign: 'left', padding: '7px 10px', background: 'transparent', border: 'none',
+    color: 'var(--linen-50)', cursor: 'pointer', fontSize: '13px', fontFamily: 'var(--ff-body)', borderRadius: '4px',
+  };
 
   return (
     <div
@@ -349,6 +382,19 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
               <button type="button" aria-label="Heading 2" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} style={bubbleBtn(editor.isActive('heading', { level: 2 }))}>H2</button>
               <button type="button" aria-label="Heading 3" onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} style={bubbleBtn(editor.isActive('heading', { level: 3 }))}>H3</button>
               <button type="button" aria-label="Quote" onClick={() => editor.chain().focus().toggleBlockquote().run()} style={bubbleBtn(editor.isActive('blockquote'))}>&ldquo;</button>
+              <div style={{ position: 'relative', display: 'inline-flex' }}>
+                <button type="button" aria-label="AI improve" disabled={aiRunning}
+                  onClick={() => setAiMenuOpen((v) => !v)} style={bubbleBtn(aiMenuOpen)}>
+                  {aiRunning ? '…' : '✨'}
+                </button>
+                {aiMenuOpen && (
+                  <div style={{ position: 'absolute', top: '34px', right: 0, zIndex: 30, display: 'flex', flexDirection: 'column', minWidth: '130px', background: 'var(--ink-900)', borderRadius: 'var(--r-sm)', padding: '4px', boxShadow: '0 6px 24px rgba(0,0,0,.24)' }}>
+                    <button type="button" onClick={() => runAiOnSelection('improve')} style={aiItemStyle}>Improve</button>
+                    <button type="button" onClick={() => runAiOnSelection('shorten')} style={aiItemStyle}>Shorten</button>
+                    <button type="button" onClick={() => runAiOnSelection('fix-grammar')} style={aiItemStyle}>Fix grammar</button>
+                  </div>
+                )}
+              </div>
             </div>
           </BubbleMenu>
         )}

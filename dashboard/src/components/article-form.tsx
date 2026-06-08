@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { wordsToReadMinutes } from '@/lib/read-time';
+import { tiptapJsonToText } from '@/lib/tiptap-text';
 import { useRouter } from 'next/navigation';
 import { ArticleEditor } from './article-editor';
 
@@ -105,6 +106,11 @@ export function ArticleForm({ initial }: ArticleFormProps) {
   const saving = savingAction !== null;
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  type AiTarget = 'seo_title' | 'seo_description' | 'excerpt';
+  const [aiBusy, setAiBusy] = useState<AiTarget | null>(null);
+  const [aiError, setAiError] = useState<{ target: AiTarget; message: string } | null>(null);
+  const [aiSuggestion, setAiSuggestion] = useState<{ target: AiTarget; text: string } | null>(null);
   // Set when a publish completes successfully — drives the
   // "Public site updating…" confirmation banner. The API route
   // already kicked off ISR revalidation before returning, so the
@@ -248,6 +254,65 @@ export function ArticleForm({ initial }: ArticleFormProps) {
 
   const isNew = !form.id;
 
+  async function generateAi(target: AiTarget) {
+    const taskByTarget: Record<AiTarget, string> = {
+      seo_title: 'seo-title', seo_description: 'seo-description', excerpt: 'excerpt',
+    };
+    const articleText = `${form.title}\n\n${tiptapJsonToText(form.body_json)}`.trim();
+    setAiBusy(target);
+    setAiError(null);
+    setAiSuggestion(null);
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: taskByTarget[target], articleText }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setAiError({ target, message: data.error ?? 'AI request failed' }); return; }
+      const text: string = (data.text ?? '').trim();
+      if (!text) { setAiError({ target, message: 'No suggestion returned' }); return; }
+      const current = (form[target] ?? '').trim();
+      if (current) setAiSuggestion({ target, text });
+      else set(target, text);
+    } catch {
+      setAiError({ target, message: 'AI request failed' });
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
+  function AiGenerate({ target }: { target: AiTarget }) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => generateAi(target)}
+          disabled={aiBusy !== null}
+          style={{
+            fontFamily: 'var(--ff-body)', fontSize: '12px', fontWeight: 600,
+            color: 'var(--navy-700)', background: 'transparent', border: 'none',
+            cursor: aiBusy ? 'default' : 'pointer', padding: '2px 4px', opacity: aiBusy ? 0.6 : 1,
+          }}
+        >
+          {aiBusy === target ? '✨ Generating…' : '✨ Generate'}
+        </button>
+        {aiSuggestion?.target === target && (
+          <div style={{ marginTop: '6px', padding: '8px 10px', background: 'var(--linen-100)', border: '1px solid var(--ink-100)', borderRadius: 'var(--r-sm)', fontFamily: 'var(--ff-body)', fontSize: '13px', color: 'var(--ink-700)' }}>
+            <div style={{ marginBottom: '6px' }}>{aiSuggestion.text}</div>
+            <button type="button" onClick={() => { set(target, aiSuggestion.text); setAiSuggestion(null); }}
+              style={{ fontSize: '12px', fontWeight: 600, color: 'var(--navy-700)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>Replace</button>
+            <button type="button" onClick={() => setAiSuggestion(null)}
+              style={{ fontSize: '12px', color: 'var(--ink-500)', background: 'transparent', border: 'none', cursor: 'pointer', padding: '2px 6px' }}>Keep mine</button>
+          </div>
+        )}
+        {aiError?.target === target && (
+          <p style={{ color: 'var(--tassel)', fontSize: '12px', fontFamily: 'var(--ff-body)', marginTop: '6px' }}>{aiError.message}</p>
+        )}
+      </>
+    );
+  }
+
   return (
     <div style={{ maxWidth: '760px' }}>
       {lastPublished && (
@@ -335,7 +400,10 @@ export function ArticleForm({ initial }: ArticleFormProps) {
 
         {/* Excerpt */}
         <div>
-          <label style={LABEL_STYLE}>Excerpt</label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <label style={{ ...LABEL_STYLE, marginBottom: 0 }}>Excerpt</label>
+            <AiGenerate target="excerpt" />
+          </div>
           <textarea
             rows={3}
             placeholder="A short summary shown in lists and cards"
@@ -398,7 +466,10 @@ export function ArticleForm({ initial }: ArticleFormProps) {
               }}
             >
               <div>
-                <label style={LABEL_STYLE}>SEO title override</label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ ...LABEL_STYLE, marginBottom: 0 }}>SEO title override</label>
+                  <AiGenerate target="seo_title" />
+                </div>
                 <input
                   type="text"
                   placeholder={form.title || 'Defaults to article title'}
@@ -411,7 +482,10 @@ export function ArticleForm({ initial }: ArticleFormProps) {
                 </p>
               </div>
               <div>
-                <label style={LABEL_STYLE}>SEO description override</label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                  <label style={{ ...LABEL_STYLE, marginBottom: 0 }}>SEO description override</label>
+                  <AiGenerate target="seo_description" />
+                </div>
                 <textarea
                   rows={3}
                   placeholder={form.excerpt || 'Defaults to excerpt'}
