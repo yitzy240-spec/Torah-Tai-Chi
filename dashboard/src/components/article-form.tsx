@@ -141,6 +141,7 @@ export function ArticleForm({ initial }: ArticleFormProps) {
           read_minutes: wordsToReadMinutes(words), body_json: form.body_json, body_html: form.body_html || null,
           published: false,
           seo_title: form.seo_title || null, seo_description: form.seo_description || null, seo_og_image: form.seo_og_image || null,
+          _autosave: true,
         }),
       });
       if (res.ok) setAutosaveAt(Date.now());
