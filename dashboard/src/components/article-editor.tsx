@@ -164,7 +164,11 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
         border: '1px solid var(--ink-100)',
         borderRadius: 'var(--r-lg)',
         background: 'white',
-        overflow: 'hidden',
+        // No `overflow: hidden` here: an overflow ancestor silently defeats the
+        // toolbar's `position: sticky`. The dashboard shell scrolls at the
+        // document level (no other overflow ancestor), so dropping this lets the
+        // toolbar pin to the top of the screen while editing a long article —
+        // keeping the table/image insert buttons always reachable.
       }}
     >
       {/* Toolbar */}
@@ -180,6 +184,10 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
           position: 'sticky',
           top: 0,
           zIndex: 5,
+          // Match the wrapper's rounding now that overflow:hidden no longer
+          // clips the toolbar's top corners.
+          borderTopLeftRadius: 'var(--r-lg)',
+          borderTopRightRadius: 'var(--r-lg)',
         }}
       >
         <button
