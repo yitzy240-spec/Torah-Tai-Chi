@@ -8,18 +8,43 @@ import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
+import Image from '@tiptap/extension-image';
+import FileHandler from '@tiptap/extension-file-handler';
+import CharacterCount from '@tiptap/extension-character-count';
+import Typography from '@tiptap/extension-typography';
+import type { Editor } from '@tiptap/react';
 import { useCallback, useEffect, useRef } from 'react';
 import { cleanWordHtml } from '@/lib/clean-word-html';
 
 interface ArticleEditorProps {
   initialContent?: object | null;
   onChange: (doc: object, html: string) => void;
+  onWordCount?: (words: number) => void;
   placeholder?: string;
 }
 
-export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin writing…' }: ArticleEditorProps) {
+async function uploadAndInsert(editor: Editor, file: File, pos: number) {
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: form });
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      window.alert(`Image upload failed: ${b.error ?? res.status}`);
+      return;
+    }
+    const { url } = await res.json();
+    editor.chain().focus().insertContentAt(pos, { type: 'image', attrs: { src: url, alt: '' } }).run();
+  } catch {
+    window.alert('Image upload failed.');
+  }
+}
+
+export function ArticleEditor({ initialContent, onChange, onWordCount, placeholder = 'Begin writing…' }: ArticleEditorProps) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onWordCountRef = useRef(onWordCount);
+  onWordCountRef.current = onWordCount;
 
   const editor = useEditor({
     extensions: [
@@ -47,12 +72,25 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
       TableRow,
       TableHeader,
       TableCell,
+      Image.configure({ inline: false, allowBase64: false }),
+      CharacterCount,
+      Typography,
+      FileHandler.configure({
+        allowedMimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml'],
+        onDrop: (currentEditor, files, pos) => {
+          files.forEach((file) => uploadAndInsert(currentEditor, file, pos));
+        },
+        onPaste: (currentEditor, files) => {
+          files.forEach((file) => uploadAndInsert(currentEditor, file, currentEditor.state.selection.anchor));
+        },
+      }),
     ],
     content: initialContent ?? { type: 'doc', content: [{ type: 'paragraph' }] },
     onUpdate({ editor }) {
       const doc = editor.getJSON();
       const html = editor.getHTML();
       onChangeRef.current(doc, html);
+      onWordCountRef.current?.(editor.storage.characterCount.words());
     },
     editorProps: {
       transformPastedHTML(html) {
