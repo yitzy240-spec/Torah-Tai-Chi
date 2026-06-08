@@ -323,6 +323,25 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
     },
   );
 
+  test('SEO fields explain their defaults', async ({ page }) => {
+    await page.goto('/articles/new');
+
+    // Fill the title so the hint shows the title in the caption.
+    await TITLE_INPUT(page).fill('Parashat Shelach');
+
+    // Open the SEO settings collapsible section.
+    await page.getByRole('button', { name: 'SEO settings' }).click();
+
+    // The SEO title hint must explain the default fallback.
+    await expect(page.getByText('Leave blank to use the article title')).toBeVisible();
+
+    // The title value must appear in the caption (the dynamic interpolation).
+    await expect(page.getByText('Parashat Shelach', { exact: false })).toBeVisible();
+
+    // The OG image hint must describe the automatic share image default.
+    await expect(page.getByText('automatically generated share image')).toBeVisible();
+  });
+
   test('Storyblok 500 surfaces a user-visible error, no crash', async ({ page }) => {
     // Intercept /api/articles and return 500 with a JSON error body — the
     // same shape the route.ts handler returns when mapi throws.

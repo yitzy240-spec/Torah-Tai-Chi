@@ -68,6 +68,14 @@ const SEO_SECTION_STYLE: React.CSSProperties = {
   overflow: 'hidden',
 };
 
+const SEO_HINT_STYLE: React.CSSProperties = {
+  marginTop: '5px',
+  fontSize: '12px',
+  lineHeight: 1.45,
+  color: 'var(--ink-400)',
+  fontFamily: 'var(--ff-body)',
+};
+
 export function ArticleForm({ initial }: ArticleFormProps) {
   const router = useRouter();
   const [form, setForm] = useState<ArticleFormData>({
@@ -332,6 +340,9 @@ export function ArticleForm({ initial }: ArticleFormProps) {
                   onChange={(e) => set('seo_title', e.target.value)}
                   style={INPUT_STYLE}
                 />
+                <p style={SEO_HINT_STYLE}>
+                  Optional. Leave blank to use the article title{form.title ? `: "${form.title}"` : ''}.
+                </p>
               </div>
               <div>
                 <label style={LABEL_STYLE}>SEO description override</label>
@@ -342,6 +353,9 @@ export function ArticleForm({ initial }: ArticleFormProps) {
                   onChange={(e) => set('seo_description', e.target.value)}
                   style={{ ...INPUT_STYLE, resize: 'vertical', lineHeight: 1.55 }}
                 />
+                <p style={SEO_HINT_STYLE}>
+                  Optional. Leave blank to use the excerpt{form.excerpt ? `: "${form.excerpt.slice(0, 80)}${form.excerpt.length > 80 ? '…' : ''}"` : ''}.
+                </p>
               </div>
               <div>
                 <label style={LABEL_STYLE}>SEO OG image URL override</label>
@@ -367,6 +381,9 @@ export function ArticleForm({ initial }: ArticleFormProps) {
                     }}
                   />
                 )}
+                <p style={SEO_HINT_STYLE}>
+                  Optional. Leave blank to use an automatically generated share image for this article.
+                </p>
               </div>
             </div>
           )}
