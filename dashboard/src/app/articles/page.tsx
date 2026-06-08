@@ -162,8 +162,10 @@ export default async function ArticlesPage() {
                 transition: 'background var(--trans)',
               }}
             >
-              {/* Title */}
-              <div>
+              {/* Title — minWidth:0 lets this 1fr grid track shrink so the
+                  excerpt truncates with an ellipsis instead of forcing the row
+                  wider than the wrapper (which clipped the other columns). */}
+              <div style={{ minWidth: 0 }}>
                 <Link
                   href={`/articles/${article.id}/edit`}
                   style={{
