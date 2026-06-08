@@ -253,7 +253,10 @@ export async function createArticle(articleData: {
     category: articleData.category ?? '',
     excerpt: articleData.excerpt ?? '',
     body: articleData.body_json ?? { type: 'doc', content: [] },
-    published_at: articleData.published_at ?? '',
+    // Guarantee a publish date whenever the story is being published, so the
+    // website (which sorts/labels by published_at) never gets a dated-blank
+    // published article.
+    published_at: articleData.published_at || (articleData.published ? new Date().toISOString() : ''),
     read_minutes: articleData.read_minutes ?? 0,
     ...(articleData.seo_title ? { seo_title: articleData.seo_title } : {}),
     ...(articleData.seo_description ? { seo_description: articleData.seo_description } : {}),
@@ -317,6 +320,11 @@ export async function updateArticle(
     ...(articleData.slug !== undefined && { slug: articleData.slug }),
   };
   const published = articleData.published ?? current.published;
+  // Guarantee a publish date whenever publishing and one isn't already set.
+  // (storyPayload.content === content by reference, so this mutation lands.)
+  if (published && !content.published_at) {
+    content.published_at = new Date().toISOString();
+  }
   const res = await mapi('PUT', `/stories/${storyId}`, {
     story: storyPayload,
     publish: published ? 1 : 0,

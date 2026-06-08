@@ -60,8 +60,6 @@ const LABEL_STYLE: React.CSSProperties = {
 
 interface ArticleFormProps {
   initial?: Partial<ArticleFormData>;
-  /** Draft-preview URL built server-side in the edit page. Absent on /articles/new. */
-  previewUrl?: string;
 }
 
 const SEO_SECTION_STYLE: React.CSSProperties = {
@@ -78,7 +76,7 @@ const SEO_HINT_STYLE: React.CSSProperties = {
   fontFamily: 'var(--ff-body)',
 };
 
-export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
+export function ArticleForm({ initial }: ArticleFormProps) {
   const router = useRouter();
   const [form, setForm] = useState<ArticleFormData>({
     id: initial?.id,
@@ -98,7 +96,11 @@ export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
   const [seoOpen, setSeoOpen] = useState(false);
 
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initial?.slug);
-  const [saving, setSaving] = useState(false);
+  // Which action is in flight, so only the clicked button shows a loading
+  // label (Save draft no longer makes Publish look like it triggered).
+  const [savingAction, setSavingAction] = useState<null | 'draft' | 'preview' | 'publish' | 'unpublish'>(null);
+  const saving = savingAction !== null;
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Set when a publish completes successfully — drives the
   // "Public site updating…" confirmation banner. The API route
@@ -121,9 +123,11 @@ export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
     setForm((prev) => ({ ...prev, body_json: doc, body_html: html }));
   }, []);
 
-  async function submit(publish: boolean) {
-    setSaving(true);
+  // Core save. Returns the API result (incl. previewUrl) or null on failure.
+  // Does NOT navigate — each action handler decides what happens next.
+  async function save(publish: boolean): Promise<{ id: string; slug: string; previewUrl: string | null } | null> {
     setError(null);
+    setSavedAt(null);
 
     const payload = {
       title: form.title,
@@ -150,26 +154,68 @@ export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
       body: JSON.stringify(payload),
     });
 
-    setSaving(false);
-
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: 'Unknown error' }));
       setError(body.error ?? 'Failed to save.');
-      return;
+      return null;
     }
 
-    await res.json();
-    if (publish) {
-      // The API route triggers website revalidation server-side before
-      // returning, so by this point the public site is updating. Give
-      // the user a brief confirmation banner instead of a silent
-      // redirect — a publish that immediately bounces them looks
-      // identical to no-op.
-      setLastPublished(Date.now());
-      setTimeout(() => router.push('/articles'), 1500);
-      return;
-    }
-    router.push('/articles');
+    const data = await res.json();
+    // Switch to edit mode immediately so a second action PATCHes the same
+    // story instead of POSTing a duplicate.
+    if (!form.id && data.id) set('id', String(data.id));
+    return data;
+  }
+
+  async function handleSaveDraft() {
+    const wasNew = !form.id;
+    setSavingAction('draft');
+    const data = await save(false);
+    setSavingAction(null);
+    if (!data) return;
+    // Stay in the editor (don't bounce to the list) so Preview is right there.
+    // A brand-new article moves to its edit URL so it's now a real saved draft.
+    if (wasNew) router.replace(`/articles/${data.id}/edit`);
+    else setSavedAt(Date.now());
+  }
+
+  function handlePreview() {
+    // Open the tab synchronously inside the click so it isn't popup-blocked;
+    // redirect it to the preview once the draft is saved.
+    const tab = typeof window !== 'undefined' ? window.open('', '_blank') : null;
+    const wasNew = !form.id;
+    setSavingAction('preview');
+    save(false)
+      .then((data) => {
+        setSavingAction(null);
+        if (!data) {
+          tab?.close();
+          return;
+        }
+        if (data.previewUrl) {
+          if (tab) tab.location.href = data.previewUrl;
+        } else {
+          tab?.close();
+          setError('Preview is unavailable — the website URL isn’t configured.');
+        }
+        if (wasNew) router.replace(`/articles/${data.id}/edit`);
+      })
+      .catch(() => {
+        setSavingAction(null);
+        tab?.close();
+        setError('Failed to open preview.');
+      });
+  }
+
+  async function handlePublish() {
+    setSavingAction('publish');
+    const data = await save(true);
+    setSavingAction(null);
+    if (!data) return;
+    // The API route already kicked off website revalidation; show a brief
+    // confirmation banner, then go to the list.
+    setLastPublished(Date.now());
+    setTimeout(() => router.push('/articles'), 1500);
   }
 
   const isNew = !form.id;
@@ -408,12 +454,14 @@ export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
           </div>
         )}
 
-        {/* Actions */}
+        {/* Actions — the natural flow reads left→right: Save draft (quiet) →
+            Preview (prominent next step) → Publish (the final "go live"). */}
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           <button
             type="button"
             disabled={saving}
-            onClick={() => submit(false)}
+            onClick={handleSaveDraft}
+            title="Save your progress without publishing"
             style={{
               fontFamily: 'var(--ff-body)',
               fontWeight: 500,
@@ -429,38 +477,34 @@ export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
               opacity: saving ? 0.6 : 1,
             }}
           >
-            {saving ? 'Saving…' : 'Save draft'}
+            {savingAction === 'draft' ? 'Saving…' : 'Save draft'}
           </button>
 
-          {previewUrl && (
-            <a
-              href={previewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+          {savedAt && (
+            <span
+              role="status"
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontFamily: 'var(--ff-body)',
-                fontSize: '14px',
-                color: 'var(--navy-700)',
-                textDecoration: 'none',
-                padding: '0 8px',
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+                fontSize: '13px',
+                color: 'var(--jade)',
+                fontVariationSettings: '"opsz" 14, "SOFT" 50',
               }}
             >
-              Preview ↗
-            </a>
+              Saved ✓
+            </span>
           )}
 
           <button
             type="button"
             disabled={saving || !form.title.trim()}
-            onClick={() => submit(true)}
+            onClick={handlePreview}
+            title="Save and see how it will look on the live site"
             style={{
               fontFamily: 'var(--ff-body)',
-              fontWeight: 500,
+              fontWeight: 600,
               fontSize: '14px',
-              padding: '11px 28px',
+              padding: '11px 26px',
               minHeight: '44px',
               borderRadius: '999px',
               border: 'none',
@@ -471,7 +515,30 @@ export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
               opacity: saving || !form.title.trim() ? 0.5 : 1,
             }}
           >
-            {saving ? 'Publishing…' : form.published ? 'Save & keep published' : 'Publish'}
+            {savingAction === 'preview' ? 'Opening…' : 'Preview ↗'}
+          </button>
+
+          <button
+            type="button"
+            disabled={saving || !form.title.trim()}
+            onClick={handlePublish}
+            title="Make this article live on the public site"
+            style={{
+              fontFamily: 'var(--ff-body)',
+              fontWeight: 600,
+              fontSize: '14px',
+              padding: '11px 26px',
+              minHeight: '44px',
+              borderRadius: '999px',
+              border: 'none',
+              background: 'var(--jade)',
+              color: 'var(--linen-50)',
+              cursor: saving || !form.title.trim() ? 'default' : 'pointer',
+              transition: 'all var(--trans)',
+              opacity: saving || !form.title.trim() ? 0.5 : 1,
+            }}
+          >
+            {savingAction === 'publish' ? 'Publishing…' : form.published ? 'Save & keep published' : 'Publish'}
           </button>
 
           {form.published && (
@@ -479,13 +546,13 @@ export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
               type="button"
               disabled={saving}
               onClick={async () => {
-                setSaving(true);
+                setSavingAction('unpublish');
                 const res = await fetch(`/api/articles/${form.id}`, {
                   method: 'PATCH',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ published: false }),
                 });
-                setSaving(false);
+                setSavingAction(null);
                 if (res.ok) {
                   set('published', false);
                 }
@@ -506,7 +573,7 @@ export function ArticleForm({ initial, previewUrl }: ArticleFormProps) {
                 marginLeft: 'auto',
               }}
             >
-              Unpublish
+              {savingAction === 'unpublish' ? 'Unpublishing…' : 'Unpublish'}
             </button>
           )}
 

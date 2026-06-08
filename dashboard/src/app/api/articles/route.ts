@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createArticle } from '@/lib/storyblok';
 import { requireAuth } from '@/lib/api-auth';
 import { revalidateWebsite } from '@/lib/revalidate-website';
+import { buildPreviewUrl } from '@/lib/preview-url';
 
 export async function POST(req: NextRequest) {
   const { response: authResponse } = await requireAuth();
@@ -34,8 +35,13 @@ export async function POST(req: NextRequest) {
     if (Boolean(body.published)) {
       await revalidateWebsite(`articles/${story.slug}`);
     }
-    // Return a shape compatible with what ArticleForm expects (needs .id)
-    return NextResponse.json({ id: String(story.id), slug: story.slug }, { status: 201 });
+    // Return a shape compatible with what ArticleForm expects (needs .id).
+    // previewUrl lets the form open the draft preview without the token
+    // ever reaching the client bundle.
+    return NextResponse.json(
+      { id: String(story.id), slug: story.slug, previewUrl: buildPreviewUrl(story.slug) },
+      { status: 201 },
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to create article';
     return NextResponse.json({ error: msg }, { status: 400 });

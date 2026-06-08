@@ -48,17 +48,6 @@ export default async function EditArticlePage({ params }: Props) {
     seo_og_image?: string;
   };
 
-  // Build the draft-preview URL server-side so the token never enters the
-  // client bundle. WEBSITE_BASE_URL and ARTICLE_PREVIEW_TOKEN are server-only
-  // (no NEXT_PUBLIC_ prefix). The URL is passed to ArticleForm as a plain
-  // string prop — the client renders it as an href, never re-exports the token.
-  const previewBase = process.env.WEBSITE_BASE_URL;
-  const previewToken = process.env.ARTICLE_PREVIEW_TOKEN;
-  const previewUrl =
-    previewBase && previewToken && story.slug
-      ? `${previewBase}/preview/${story.slug}?token=${encodeURIComponent(previewToken)}`
-      : undefined;
-
   return (
     <div className="stagger">
       <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '28px' }}>
@@ -109,7 +98,6 @@ export default async function EditArticlePage({ params }: Props) {
           seo_description: c.seo_description ?? '',
           seo_og_image: c.seo_og_image ?? '',
         }}
-        previewUrl={previewUrl}
       />
     </div>
   );

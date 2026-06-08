@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { updateArticle, deleteArticle } from '@/lib/storyblok';
 import { requireAuth } from '@/lib/api-auth';
 import { revalidateWebsite } from '@/lib/revalidate-website';
+import { buildPreviewUrl } from '@/lib/preview-url';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -50,7 +51,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     // Best-effort: if it fails the article is still saved, just slower
     // to appear on the public site.
     await revalidateWebsite(`articles/${story.slug}`);
-    return NextResponse.json({ id: String(story.id), slug: story.slug });
+    return NextResponse.json({ id: String(story.id), slug: story.slug, previewUrl: buildPreviewUrl(story.slug) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to update article';
     return NextResponse.json({ error: msg }, { status: 400 });
