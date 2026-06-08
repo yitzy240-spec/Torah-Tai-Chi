@@ -13,8 +13,9 @@ import FileHandler from '@tiptap/extension-file-handler';
 import CharacterCount from '@tiptap/extension-character-count';
 import Typography from '@tiptap/extension-typography';
 import type { Editor } from '@tiptap/react';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { cleanWordHtml } from '@/lib/clean-word-html';
+import { LinkPopover } from './link-popover';
 
 interface ArticleEditorProps {
   initialContent?: object | null;
@@ -112,14 +113,11 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
     },
   });
 
-  const handleLink = useCallback(() => {
+  const [linkOpen, setLinkOpen] = useState(false);
+
+  const openLink = useCallback(() => {
     if (!editor) return;
-    const url = window.prompt('URL');
-    if (url) {
-      editor.chain().focus().setLink({ href: url }).run();
-    } else if (url === '') {
-      editor.chain().focus().unsetLink().run();
-    }
+    setLinkOpen(true);
   }, [editor]);
 
   if (!editor) return null;
@@ -163,6 +161,7 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
           borderBottom: '1px solid var(--ink-100)',
           background: 'var(--linen-50)',
           alignItems: 'center',
+          position: 'relative',
         }}
       >
         <button
@@ -244,7 +243,7 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
           title="Link"
           aria-label="Link"
           style={btnStyle(editor.isActive('link'))}
-          onClick={handleLink}
+          onClick={openLink}
         >
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
             <path d="M6.5 9.5a3.5 3.5 0 0 0 5 0l2-2a3.5 3.5 0 0 0-5-5L7 4"/>
@@ -294,6 +293,16 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
             <button type="button" title="Delete table" aria-label="Delete table" style={textBtnStyle}
               onClick={() => editor.chain().focus().deleteTable().run()}>−Table</button>
           </>
+        )}
+
+        {linkOpen && (
+          <LinkPopover
+            initialUrl={editor.getAttributes('link').href ?? ''}
+            hasLink={editor.isActive('link')}
+            onApply={(url) => { editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run(); setLinkOpen(false); }}
+            onRemove={() => { editor.chain().focus().extendMarkRange('link').unsetLink().run(); setLinkOpen(false); }}
+            onClose={() => setLinkOpen(false)}
+          />
         )}
       </div>
 
