@@ -41,6 +41,13 @@ test('table renders as semantic table with header row', () => {
   );
 });
 
+test('link href is attribute-escaped', () => {
+  const doc = { type: 'doc', content: [ { type: 'paragraph', content: [
+    { type: 'text', text: 'x', marks: [{ type: 'link', attrs: { href: 'https://a.com/?x=1&y="2"' } }] }
+  ] } ] };
+  assert.equal(tiptapJsonToHtml(doc), '<p><a href="https://a.com/?x=1&amp;y=&quot;2&quot;">x</a></p>');
+});
+
 test('isPreviewAuthorized requires exact non-empty token match', () => {
   assert.equal(isPreviewAuthorized('abc', 'abc'), true);
   assert.equal(isPreviewAuthorized('abc', 'xyz'), false);

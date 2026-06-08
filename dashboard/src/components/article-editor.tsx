@@ -17,10 +17,6 @@ interface ArticleEditorProps {
   placeholder?: string;
 }
 
-function serializeToHtml(html: string): string {
-  return html;
-}
-
 export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin writing…' }: ArticleEditorProps) {
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -29,6 +25,14 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
     extensions: [
       StarterKit.configure({
         heading: { levels: [2, 3] },
+        // Disable extensions not exposed in the toolbar and not rendered by
+        // tiptapJsonToHtml — prevents silent data-loss if an author uses a
+        // keyboard shortcut or input rule for an unsupported format.
+        code: false,
+        codeBlock: false,
+        strike: false,
+        horizontalRule: false,
+        underline: false,
       }),
       Link.configure({
         openOnClick: false,

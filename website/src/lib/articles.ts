@@ -51,7 +51,14 @@ export function tiptapJsonToHtml(doc: object | null): string {
           for (const mark of n.marks) {
             if (mark.type === 'bold') t = `<strong>${t}</strong>`;
             if (mark.type === 'italic') t = `<em>${t}</em>`;
-            if (mark.type === 'link') t = `<a href="${mark.attrs?.href ?? ''}">${t}</a>`;
+            if (mark.type === 'link') {
+              const href = (mark.attrs?.href ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+              t = `<a href="${href}">${t}</a>`;
+            }
           }
         }
         return t;

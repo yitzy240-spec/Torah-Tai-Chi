@@ -23,7 +23,7 @@ import { installApiMocks } from '../../fixtures/mocks';
  *      pattern when submitting empty. Body is NOT required client-side; we
  *      document that and only assert on Title.
  *
- *   3. Tiptap v2 uses both `.ProseMirror` and `.tiptap` on the contenteditable
+ *   3. Tiptap v3 uses both `.ProseMirror` and `.tiptap` on the contenteditable
  *      element (see article-editor.tsx line 241 CSS `.article-editor-content
  *      .tiptap.ProseMirror`). We target `.ProseMirror` for input and drop to
  *      the wrapping class `.article-editor-content` for formatted-DOM
@@ -59,7 +59,7 @@ import { installApiMocks } from '../../fixtures/mocks';
 const TITLE_INPUT   = (p: Page) => p.getByPlaceholder('The title of the article');
 const SLUG_INPUT    = (p: Page) => p.getByPlaceholder('auto-generated-from-title');
 const EXCERPT_INPUT = (p: Page) => p.getByPlaceholder('A short summary shown in lists and cards');
-// Tiptap v2 renders the contenteditable with .ProseMirror + .tiptap classes.
+// Tiptap v3 renders the contenteditable with .ProseMirror + .tiptap classes.
 const TIPTAP        = (p: Page) => p.locator('.ProseMirror');
 const EDITOR_WRAP   = (p: Page) => p.locator('.article-editor-content');
 const SAVE_DRAFT    = (p: Page) => p.getByRole('button', { name: /^save draft$|^saving…$/i });
