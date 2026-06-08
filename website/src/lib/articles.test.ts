@@ -66,3 +66,18 @@ test('isPreviewAuthorized requires exact non-empty token match', () => {
   assert.equal(isPreviewAuthorized(undefined, 'abc'), false);
   assert.equal(isPreviewAuthorized('abc', undefined), false);
 });
+
+test('image node renders an escaped figure/img', () => {
+  const doc = { type: 'doc', content: [
+    { type: 'image', attrs: { src: 'https://a.storyblok.com/f/1/x.jpg', alt: 'A "view"' } },
+  ] };
+  assert.equal(
+    tiptapJsonToHtml(doc),
+    '<figure><img src="https://a.storyblok.com/f/1/x.jpg" alt="A &quot;view&quot;" loading="lazy"></figure>'
+  );
+});
+
+test('image with no alt still renders', () => {
+  const doc = { type: 'doc', content: [ { type: 'image', attrs: { src: 'https://a.storyblok.com/f/1/y.png' } } ] };
+  assert.equal(tiptapJsonToHtml(doc), '<figure><img src="https://a.storyblok.com/f/1/y.png" alt="" loading="lazy"></figure>');
+});
