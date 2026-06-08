@@ -23,7 +23,7 @@ import { installApiMocks } from '../../fixtures/mocks';
  *      pattern when submitting empty. Body is NOT required client-side; we
  *      document that and only assert on Title.
  *
- *   3. Tiptap v2 uses both `.ProseMirror` and `.tiptap` on the contenteditable
+ *   3. Tiptap v3 uses both `.ProseMirror` and `.tiptap` on the contenteditable
  *      element (see article-editor.tsx line 241 CSS `.article-editor-content
  *      .tiptap.ProseMirror`). We target `.ProseMirror` for input and drop to
  *      the wrapping class `.article-editor-content` for formatted-DOM
@@ -59,7 +59,7 @@ import { installApiMocks } from '../../fixtures/mocks';
 const TITLE_INPUT   = (p: Page) => p.getByPlaceholder('The title of the article');
 const SLUG_INPUT    = (p: Page) => p.getByPlaceholder('auto-generated-from-title');
 const EXCERPT_INPUT = (p: Page) => p.getByPlaceholder('A short summary shown in lists and cards');
-// Tiptap v2 renders the contenteditable with .ProseMirror + .tiptap classes.
+// Tiptap v3 renders the contenteditable with .ProseMirror + .tiptap classes.
 const TIPTAP        = (p: Page) => p.locator('.ProseMirror');
 const EDITOR_WRAP   = (p: Page) => p.locator('.article-editor-content');
 const SAVE_DRAFT    = (p: Page) => p.getByRole('button', { name: /^save draft$|^saving…$/i });
@@ -295,6 +295,23 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
     await expect(SLUG_INPUT(page)).toHaveValue('uppercase');
   });
 
+  test('bullet list shows visible markers and table inserts', async ({ page }) => {
+    await page.goto('/articles/new');
+    await focusEditor(page);
+    await page.keyboard.type('First point');
+    await page.locator('button[title="Bullet list"]').click();
+
+    const li = EDITOR_WRAP(page).locator('li').first();
+    await expect(li).toBeVisible();
+    const marker = await li.evaluate((el) => getComputedStyle(el).listStyleType);
+    expect(marker).not.toBe('none');
+
+    await page.locator('button[title="Insert table"]').click();
+    await expect(EDITOR_WRAP(page).locator('table')).toBeVisible();
+    // insertTable uses { cols: 2, withHeaderRow: true } -> exactly 2 header cells
+    await expect(EDITOR_WRAP(page).locator('th')).toHaveCount(2);
+  });
+
   test.fixme(
     'publishing with missing required SEO fields shows inline errors',
     async () => {
@@ -305,6 +322,37 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
       // should be un-fixmed and wired to the real validator.
     },
   );
+
+  test('SEO fields explain their defaults', async ({ page }) => {
+    await page.goto('/articles/new');
+
+    // Fill the title so the hint shows the title in the caption.
+    await TITLE_INPUT(page).fill('Parashat Shelach');
+
+    // Open the SEO settings collapsible section.
+    await page.getByRole('button', { name: 'SEO settings' }).click();
+
+    // The SEO title hint must explain the default fallback.
+    await expect(page.getByText('Leave blank to use the article title')).toBeVisible();
+
+    // The title value must appear in the caption (the dynamic interpolation).
+    await expect(page.getByText('Parashat Shelach', { exact: false })).toBeVisible();
+
+    // The OG image hint must describe the automatic share image default.
+    await expect(page.getByText('automatically generated share image')).toBeVisible();
+  });
+
+  test('Preview link is absent on new-article page', async ({ page }) => {
+    // installApiMocks is applied via beforeEach above — no need to call it here.
+    // The /articles/new route renders ArticleForm without a previewUrl prop
+    // (the server component only constructs the URL when editing a saved article
+    // that already has a slug). The edit-page case (link PRESENT) is
+    // intentionally NOT automated here: it requires live Storyblok SSR +
+    // ARTICLE_PREVIEW_TOKEN env vars that the browser-layer mocks cannot
+    // supply. Verify that path manually in the E2E task.
+    await page.goto('/articles/new');
+    await expect(page.getByRole('link', { name: /Preview/ })).toHaveCount(0);
+  });
 
   test('Storyblok 500 surfaces a user-visible error, no crash', async ({ page }) => {
     // Intercept /api/articles and return 500 with a JSON error body — the

@@ -820,6 +820,18 @@ body{font-family:var(--ff-body);font-weight:400;font-size:16px;line-height:1.6;c
 .ad-body p{font-family:var(--ff-reading);font-size:19px;line-height:1.65;color:var(--ink-800);margin:0 0 22px 0;font-variation-settings:"opsz" 19,"SOFT" 40;}
 .ad-body .lead{font-size:22px;font-style:italic;color:var(--ink-700);line-height:1.55;margin-bottom:28px;font-variation-settings:"opsz" 22,"SOFT" 55;}
 .ad-body h2{font-family:var(--ff-display);font-weight:500;font-size:24px;letter-spacing:-.01em;margin:36px 0 16px 0;color:var(--ink-900);font-variation-settings:"opsz" 28,"SOFT" 30;}
+.ad-body h3{font-family:var(--ff-display);font-weight:500;font-size:20px;letter-spacing:-.01em;margin:28px 0 12px 0;color:var(--ink-900);font-variation-settings:"opsz" 22,"SOFT" 30;}
+.ad-body ul,.ad-body ol{margin:0 0 22px 0;padding-left:1.4em;font-family:var(--ff-reading);font-size:19px;line-height:1.65;color:var(--ink-800);}
+.ad-body ul{list-style:disc outside;}
+.ad-body ol{list-style:decimal outside;}
+.ad-body li{margin:0 0 8px 0;padding-left:.2em;}
+.ad-body blockquote{border-left:2px solid var(--cedar-400);margin:24px 0;padding:4px 0 4px 20px;font-style:italic;color:var(--ink-700);}
+.ad-body a{color:var(--navy-700);text-decoration:underline;text-underline-offset:2px;}
+.ad-body a:hover{color:var(--navy-900);}
+.ad-body table{width:100%;border-collapse:collapse;margin:24px 0;font-family:var(--ff-reading);font-size:17px;line-height:1.5;display:block;overflow-x:auto;}
+.ad-body th,.ad-body td{border:1px solid var(--ink-200);padding:10px 14px;text-align:left;vertical-align:top;}
+.ad-body th{background:var(--linen-50);font-weight:600;color:var(--ink-900);}
+.ad-body td p,.ad-body th p,.ad-body li p{margin:0;}
 .pullquote{margin:40px 0;padding:24px 0 24px 28px;border-left:2px solid var(--cedar-400);font-family:var(--ff-display);font-style:italic;font-size:26px;line-height:1.35;color:var(--cedar-700);font-variation-settings:"opsz" 30,"SOFT" 65;}
 .section-break{text-align:center;margin:40px 0;font-family:var(--ff-display);font-size:22px;color:var(--cedar-400);letter-spacing:.4em;font-variation-settings:"opsz" 22,"SOFT" 50;}
 .continue-section{max-width:900px;margin:96px auto 0;padding:0 48px;}

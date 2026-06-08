@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllArticles, getArticleBySlug, tiptapJsonToHtml } from "@/lib/articles";
-import ArticleCard from "@/components/ArticleCard";
-import ShareButton from "@/components/ShareButton";
+import { ArticleView } from "@/components/ArticleView";
 import { articleSchema, breadcrumbSchema } from "@/lib/jsonld";
 
 interface Props {
@@ -69,11 +68,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-function formatDate(ts: string | null | undefined): string {
-  if (!ts) return "";
-  return new Date(ts).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-}
-
 export default async function ArticleDetailPage({ params }: Props) {
   const { slug } = await params;
   const article = await getArticleBySlug(slug);
@@ -110,74 +104,12 @@ export default async function ArticleDetailPage({ params }: Props) {
   );
 
   const pageUrl = `https://torahtaichi.com/articles/${slug}`;
-  const formattedDate = formatDate(article.published_at);
 
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: artSchema }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: crumbSchema }} />
-
-      <header className="ad-header stagger">
-        {/* Subtle meta row sits above the H1 so H1 owns the hierarchy */}
-        <div className="ad-eyebrow">
-          <Link href="/articles" className="ad-eyebrow-back">
-            &larr; All writings
-          </Link>
-          {article.category && (
-            <>
-              <span className="ad-eyebrow-sep" aria-hidden="true">·</span>
-              <span className="ad-eyebrow-tag">{article.category}</span>
-            </>
-          )}
-        </div>
-
-        <h1>{article.title}</h1>
-        {article.subtitle && <p className="ad-deck">{article.subtitle}</p>}
-
-        {/* Essays run under the organizational voice — no individual byline. */}
-        <div className="ad-byline">
-          {formattedDate && (
-            <time dateTime={article.published_at ?? undefined}>{formattedDate}</time>
-          )}
-          {formattedDate && article.read_minutes ? (
-            <span className="ad-byline-sep" aria-hidden="true">·</span>
-          ) : null}
-          {article.read_minutes ? (
-            <span>{article.read_minutes} min read</span>
-          ) : null}
-        </div>
-      </header>
-
-      <article className="ad-body stagger">
-        {bodyHtml ? (
-          <div dangerouslySetInnerHTML={{ __html: bodyHtml }} />
-        ) : (
-          <p style={{ color: "var(--ink-400)", fontStyle: "italic" }}>No content yet.</p>
-        )}
-      </article>
-
-      {/* End-of-article rail: share + back + related */}
-      <section className="ad-endrail">
-        <div className="ad-endrail-actions">
-          <Link href="/articles" className="hero-cta-link">
-            &larr; Back to essays
-          </Link>
-          <ShareButton url={pageUrl} title={article.title} />
-        </div>
-      </section>
-
-      {otherArticles.length > 0 && (
-        <section className="continue-section">
-          <h2 className="continue-head">
-            Continue <em>reading</em>
-          </h2>
-          <div className="continue-grid stagger">
-            {otherArticles.map((a) => (
-              <ArticleCard key={a.slug} article={a} />
-            ))}
-          </div>
-        </section>
-      )}
+      <ArticleView article={article} bodyHtml={bodyHtml} otherArticles={otherArticles} pageUrl={pageUrl} />
     </>
   );
 }

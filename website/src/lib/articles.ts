@@ -51,7 +51,14 @@ export function tiptapJsonToHtml(doc: object | null): string {
           for (const mark of n.marks) {
             if (mark.type === 'bold') t = `<strong>${t}</strong>`;
             if (mark.type === 'italic') t = `<em>${t}</em>`;
-            if (mark.type === 'link') t = `<a href="${mark.attrs?.href ?? ''}">${t}</a>`;
+            if (mark.type === 'link') {
+              const href = (mark.attrs?.href ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+              t = `<a href="${href}">${t}</a>`;
+            }
           }
         }
         return t;
@@ -64,6 +71,10 @@ export function tiptapJsonToHtml(doc: object | null): string {
         case 'orderedList': return `<ol>${inner}</ol>`;
         case 'listItem': return `<li>${inner}</li>`;
         case 'blockquote': return `<blockquote>${inner}</blockquote>`;
+        case 'table': return `<table><tbody>${inner}</tbody></table>`;
+        case 'tableRow': return `<tr>${inner}</tr>`;
+        case 'tableHeader': return `<th>${inner}</th>`;
+        case 'tableCell': return `<td>${inner}</td>`;
         case 'hardBreak': return '<br/>';
         default: return inner;
       }
@@ -140,3 +151,27 @@ export async function getArticleBySlug(slug: string): Promise<Article | null> {
     return null;
   }
 }
+
+/** Fetch the DRAFT (unpublished) version of an article. No caching — previews must be live. */
+export async function getArticleDraftBySlug(slug: string): Promise<Article | null> {
+  try {
+    const url = new URL(`${CDN_BASE}/stories/articles/${slug}`);
+    url.searchParams.set('token', PREVIEW_TOKEN);
+    url.searchParams.set('version', 'draft');
+    const res = await fetch(url.toString(), { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.story) return null;
+    // storyToArticle hardcodes published:true (CDN normally returns only published
+    // stories); this is the draft path, so correct it.
+    return { ...storyToArticle(data.story), published: false };
+  } catch {
+    return null;
+  }
+}
+
+export function isPreviewAuthorized(provided: string | undefined, expected: string | undefined): boolean {
+  if (!expected || !provided) return false;
+  return provided === expected;
+}
+
