@@ -49,8 +49,13 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     });
     // Direct ISR revalidation — bypasses Storyblok's webhook latency.
     // Best-effort: if it fails the article is still saved, just slower
-    // to appear on the public site.
-    await revalidateWebsite(`articles/${story.slug}`);
+    // to appear on the public site. Skip it for background draft autosaves
+    // (`_autosave`): a draft isn't on the public site, so revalidating its
+    // slug every couple seconds is pure waste (revalidation is this project's
+    // top disk-IO consumer — see the IO-budget audit).
+    if (body._autosave !== true) {
+      await revalidateWebsite(`articles/${story.slug}`);
+    }
     return NextResponse.json({ id: String(story.id), slug: story.slug, previewUrl: buildPreviewUrl(story.slug) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to update article';

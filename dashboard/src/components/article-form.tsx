@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { wordsToReadMinutes } from '@/lib/read-time';
 import { useRouter } from 'next/navigation';
 import { ArticleEditor } from './article-editor';
 
@@ -98,6 +99,8 @@ export function ArticleForm({ initial }: ArticleFormProps) {
   const [slugManuallyEdited, setSlugManuallyEdited] = useState(!!initial?.slug);
   // Which action is in flight, so only the clicked button shows a loading
   // label (Save draft no longer makes Publish look like it triggered).
+  const [words, setWords] = useState(0);
+  const [autosaveAt, setAutosaveAt] = useState<number | null>(null);
   const [savingAction, setSavingAction] = useState<null | 'draft' | 'preview' | 'publish' | 'unpublish'>(null);
   const saving = savingAction !== null;
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -123,6 +126,31 @@ export function ArticleForm({ initial }: ArticleFormProps) {
     setForm((prev) => ({ ...prev, body_json: doc, body_html: html }));
   }, []);
 
+  // Autosave drafts only: requires an existing story (form.id) and a DRAFT
+  // (!form.published) so it never creates junk and never pushes live changes.
+  // Debounced 2s after the last edit; skipped while a manual save is running.
+  useEffect(() => {
+    if (!form.id || form.published || savingAction) return;
+    const handle = setTimeout(async () => {
+      const res = await fetch(`/api/articles/${form.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: form.title, subtitle: form.subtitle || null, slug: form.slug || undefined,
+          category: form.category || null, excerpt: form.excerpt || null,
+          read_minutes: wordsToReadMinutes(words), body_json: form.body_json, body_html: form.body_html || null,
+          // Deliberately omit `published`: autosave must never change publish
+          // state. updateArticle preserves the story's current state when the
+          // field is absent (the effect is already gated to drafts only).
+          seo_title: form.seo_title || null, seo_description: form.seo_description || null, seo_og_image: form.seo_og_image || null,
+          _autosave: true,
+        }),
+      });
+      if (res.ok) setAutosaveAt(Date.now());
+    }, 2000);
+    return () => clearTimeout(handle);
+  }, [form.id, form.published, form.title, form.subtitle, form.slug, form.category, form.excerpt, form.body_json, form.body_html, form.seo_title, form.seo_description, form.seo_og_image, words, savingAction]);
+
   // Core save. Returns the API result (incl. previewUrl) or null on failure.
   // Does NOT navigate — each action handler decides what happens next.
   async function save(publish: boolean): Promise<{ id: string; slug: string; previewUrl: string | null } | null> {
@@ -135,7 +163,7 @@ export function ArticleForm({ initial }: ArticleFormProps) {
       slug: form.slug || slugify(form.title),
       category: form.category || null,
       excerpt: form.excerpt || null,
-      read_minutes: form.read_minutes !== '' ? Number(form.read_minutes) : null,
+      read_minutes: wordsToReadMinutes(words),
       body_json: form.body_json,
       body_html: form.body_html || null,
       published: publish,
@@ -290,33 +318,19 @@ export function ArticleForm({ initial }: ArticleFormProps) {
           />
         </div>
 
-        {/* Category + Read minutes row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: '16px' }}>
-          <div>
-            <label style={LABEL_STYLE}>Category</label>
-            <select
-              value={form.category}
-              onChange={(e) => set('category', e.target.value as Category)}
-              style={{ ...INPUT_STYLE, cursor: 'pointer' }}
-            >
-              <option value="">— select —</option>
-              <option value="Essay">Essay</option>
-              <option value="Teaching">Teaching</option>
-              <option value="Reflection">Reflection</option>
-            </select>
-          </div>
-          <div>
-            <label style={LABEL_STYLE}>Read minutes</label>
-            <input
-              type="number"
-              min={1}
-              max={60}
-              placeholder="5"
-              value={form.read_minutes}
-              onChange={(e) => set('read_minutes', e.target.value === '' ? '' : Number(e.target.value))}
-              style={INPUT_STYLE}
-            />
-          </div>
+        {/* Category */}
+        <div>
+          <label style={LABEL_STYLE}>Category</label>
+          <select
+            value={form.category}
+            onChange={(e) => set('category', e.target.value as Category)}
+            style={{ ...INPUT_STYLE, cursor: 'pointer' }}
+          >
+            <option value="">— select —</option>
+            <option value="Essay">Essay</option>
+            <option value="Teaching">Teaching</option>
+            <option value="Reflection">Reflection</option>
+          </select>
         </div>
 
         {/* Excerpt */}
@@ -337,8 +351,12 @@ export function ArticleForm({ initial }: ArticleFormProps) {
           <ArticleEditor
             initialContent={form.body_json ?? undefined}
             onChange={handleEditorChange}
+            onWordCount={(w) => setWords(w)}
             placeholder="Begin writing…"
           />
+          <p style={{ fontFamily: 'var(--ff-body)', fontSize: '12px', color: 'var(--ink-400)', marginTop: '6px' }}>
+            ~{wordsToReadMinutes(words)} min read (auto)
+          </p>
         </div>
 
         {/* SEO Settings (collapsible) */}
@@ -493,6 +511,10 @@ export function ArticleForm({ initial }: ArticleFormProps) {
             >
               Saved ✓
             </span>
+          )}
+
+          {autosaveAt && !savingAction && (
+            <span style={{ fontFamily: 'var(--ff-display)', fontStyle: 'italic', fontSize: '12px', color: 'var(--ink-400)' }}>Draft autosaved</span>
           )}
 
           <button

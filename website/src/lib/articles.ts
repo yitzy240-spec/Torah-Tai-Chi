@@ -75,6 +75,12 @@ export function tiptapJsonToHtml(doc: object | null): string {
         case 'tableRow': return `<tr>${inner}</tr>`;
         case 'tableHeader': return `<th>${inner}</th>`;
         case 'tableCell': return `<td>${inner}</td>`;
+        case 'image': {
+          const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const src = esc(String(n.attrs?.src ?? ''));
+          const alt = esc(String(n.attrs?.alt ?? ''));
+          return `<figure><img src="${src}" alt="${alt}" loading="lazy"></figure>`;
+        }
         case 'hardBreak': return '<br/>';
         default: return inner;
       }
