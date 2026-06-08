@@ -284,7 +284,10 @@ export async function createArticle(articleData: {
       parent_id: folderId,
       content,
     },
-    publish: articleData.published ? 1 : 0,
+    // Storyblok PUBLISHES on `publish: 0` too — it keys on the PRESENCE of the
+    // key, not its value. Omit it entirely to create a draft; only send
+    // `publish: 1` to actually publish. (Verified against the Storyblok mapi.)
+    ...(articleData.published ? { publish: 1 } : {}),
   });
   if (!res.ok) {
     const err = await res.json();
@@ -334,21 +337,35 @@ export async function updateArticle(
     ...(articleData.title !== undefined && { name: articleData.title }),
     ...(articleData.slug !== undefined && { slug: articleData.slug }),
   };
-  const published = articleData.published ?? current.published;
-  // Guarantee a publish date whenever publishing and one isn't already set.
-  // (storyPayload.content === content by reference, so this mutation lands.)
-  if (published && !content.published_at) {
+  // Storyblok PUBLISHES on `publish: 0` too (it keys on the presence of the
+  // key, not its value), so `publish: 0` would wrongly publish a draft and a
+  // re-publish would never unpublish. Rules:
+  //   - publish:1 only to keep/make the story published
+  //   - OMIT publish for draft saves (and autosave)
+  //   - use the dedicated unpublish endpoint to actually unpublish
+  const wantPublished = articleData.published; // boolean | undefined (undefined = autosave: preserve current)
+  const keepPublished =
+    wantPublished === true || (wantPublished === undefined && current.published === true);
+  // Stamp a publish date whenever the story will be published and lacks one.
+  if (keepPublished && !content.published_at) {
     content.published_at = new Date().toISOString();
   }
   const res = await mapi('PUT', `/stories/${storyId}`, {
     story: storyPayload,
-    publish: published ? 1 : 0,
+    ...(keepPublished ? { publish: 1 } : {}),
   });
   if (!res.ok) {
     const err = await res.json();
     throw new Error(JSON.stringify(err));
   }
   const data = await res.json();
+  // Explicit unpublish: the caller asked to unpublish a currently-published
+  // story (Unpublish, or "Save draft" on a published article). `publish:0`
+  // can't do this — the dedicated endpoint can.
+  if (wantPublished === false && current.published === true) {
+    const unpub = await mapi('GET', `/stories/${storyId}/unpublish`);
+    if (!unpub.ok) throw new Error(`Failed to unpublish story ${storyId} → ${unpub.status}`);
+  }
   return data.story;
 }
 
