@@ -1,6 +1,7 @@
 'use client';
 
 import { useEditor, EditorContent } from '@tiptap/react';
+import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -46,6 +47,7 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
   onChangeRef.current = onChange;
   const onWordCountRef = useRef(onWordCount);
   onWordCountRef.current = onWordCount;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
     extensions: [
@@ -142,6 +144,13 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
 
   const textBtnStyle: React.CSSProperties = { ...btnStyle(false), width: 'auto', padding: '0 8px' };
 
+  const bubbleBtn = (active: boolean): React.CSSProperties => ({
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    minWidth: '30px', height: '30px', padding: '0 8px', borderRadius: '4px', border: 'none',
+    background: active ? 'var(--navy-700)' : 'transparent', color: 'var(--linen-50)',
+    cursor: 'pointer', fontSize: '13px', fontWeight: 600, fontFamily: 'var(--ff-body)',
+  });
+
   return (
     <div
       style={{
@@ -161,7 +170,9 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
           borderBottom: '1px solid var(--ink-100)',
           background: 'var(--linen-50)',
           alignItems: 'center',
-          position: 'relative',
+          position: 'sticky',
+          top: 0,
+          zIndex: 5,
         }}
       >
         <button
@@ -295,6 +306,12 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
           </>
         )}
 
+        <div style={{ width: '1px', height: '22px', background: 'var(--ink-200)', margin: '0 4px' }} />
+        <button type="button" title="Insert image" aria-label="Insert image" style={btnStyle(false)}
+          onClick={() => fileInputRef.current?.click()}>
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6" r="1.2"/><path d="M2 12l3.5-3.5 2.5 2.5 3-3 3 3.5"/></svg>
+        </button>
+
         {linkOpen && (
           <LinkPopover
             initialUrl={editor.getAttributes('link').href ?? ''}
@@ -308,7 +325,26 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
 
       {/* Editor area */}
       <div style={{ padding: '0 24px' }}>
+        {editor && (
+          <BubbleMenu editor={editor} options={{ placement: 'top' }}>
+            <div style={{ display: 'flex', gap: '2px', background: 'var(--ink-900)', borderRadius: 'var(--r-sm)', padding: '4px', boxShadow: '0 6px 24px rgba(0,0,0,.18)' }}>
+              <button type="button" aria-label="Bold" onClick={() => editor.chain().focus().toggleBold().run()} style={{ ...bubbleBtn(editor.isActive('bold')), fontWeight: 700 }}>B</button>
+              <button type="button" aria-label="Italic" onClick={() => editor.chain().focus().toggleItalic().run()} style={{ ...bubbleBtn(editor.isActive('italic')), fontStyle: 'italic' }}>I</button>
+              <button type="button" aria-label="Link" onClick={openLink} style={bubbleBtn(editor.isActive('link'))}>Link</button>
+              <button type="button" aria-label="Heading 2" onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} style={bubbleBtn(editor.isActive('heading', { level: 2 }))}>H2</button>
+              <button type="button" aria-label="Heading 3" onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} style={bubbleBtn(editor.isActive('heading', { level: 3 }))}>H3</button>
+              <button type="button" aria-label="Quote" onClick={() => editor.chain().focus().toggleBlockquote().run()} style={bubbleBtn(editor.isActive('blockquote'))}>&ldquo;</button>
+            </div>
+          </BubbleMenu>
+        )}
+        <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f && editor) uploadAndInsert(editor, f, editor.state.selection.anchor); e.target.value = ''; }} />
         <EditorContent editor={editor} />
+        {editor && (
+          <div style={{ padding: '8px 0 16px', fontFamily: 'var(--ff-body)', fontSize: '12px', color: 'var(--ink-400)' }}>
+            {editor.storage.characterCount.words()} words · ~{Math.max(1, Math.round(editor.storage.characterCount.words() / 200))} min read
+          </div>
+        )}
       </div>
 
       <style>{`
@@ -367,6 +403,9 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
         .article-editor-content th, .article-editor-content td { border: 1px solid var(--ink-200); padding: 6px 10px; text-align: left; vertical-align: top; }
         .article-editor-content th { background: var(--linen-50); font-weight: 600; }
         .article-editor-content .selectedCell { background: var(--navy-100); }
+        @media (max-width: 640px) {
+          .article-editor-content { font-size: 16px; }
+        }
       `}</style>
     </div>
   );
