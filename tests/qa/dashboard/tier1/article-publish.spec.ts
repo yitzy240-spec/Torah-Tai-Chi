@@ -295,6 +295,23 @@ test.describe('dashboard: article publish (storyblok-mocked CMS flow)', () => {
     await expect(SLUG_INPUT(page)).toHaveValue('uppercase');
   });
 
+  test('bullet list shows visible markers and table inserts', async ({ page }) => {
+    await page.goto('/articles/new');
+    const editor = TIPTAP(page).first();
+    await editor.click();
+    await editor.type('First point');
+    await page.locator('button[title="Bullet list"]').click();
+
+    const li = EDITOR_WRAP(page).locator('li').first();
+    await expect(li).toBeVisible();
+    const marker = await li.evaluate((el) => getComputedStyle(el).listStyleType);
+    expect(marker).not.toBe('none');
+
+    await page.locator('button[title="Insert table"]').click();
+    await expect(EDITOR_WRAP(page).locator('table')).toBeVisible();
+    await expect(EDITOR_WRAP(page).locator('th')).toHaveCount(2);
+  });
+
   test.fixme(
     'publishing with missing required SEO fields shows inline errors',
     async () => {

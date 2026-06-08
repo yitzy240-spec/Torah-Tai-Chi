@@ -4,6 +4,10 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableHeader } from '@tiptap/extension-table-header';
+import { TableCell } from '@tiptap/extension-table-cell';
 import { useCallback, useEffect, useRef } from 'react';
 
 interface ArticleEditorProps {
@@ -34,6 +38,10 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
       Placeholder.configure({
         placeholder,
       }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
     ],
     content: initialContent ?? { type: 'doc', content: [{ type: 'paragraph' }] },
     onUpdate({ editor }) {
@@ -206,6 +214,38 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
             <path d="M3 4a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h1.5l-1 3h1.5l1.5-3.5V5a1 1 0 0 0-1-1H3zm7 0a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h1.5l-1 3H12l1.5-3.5V5a1 1 0 0 0-1-1H10z"/>
           </svg>
         </button>
+
+        <div style={{ width: '1px', height: '22px', background: 'var(--ink-200)', margin: '0 4px' }} />
+
+        <button
+          type="button"
+          title="Insert table"
+          aria-label="Insert table"
+          style={btnStyle(editor.isActive('table'))}
+          onClick={() =>
+            editor.chain().focus().insertTable({ rows: 3, cols: 2, withHeaderRow: true }).run()
+          }
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="1"/>
+            <path d="M1.5 6.5h13M1.5 10h13M6 2.5v11"/>
+          </svg>
+        </button>
+
+        {editor.isActive('table') && (
+          <>
+            <button type="button" title="Add row" aria-label="Add row" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+              onClick={() => editor.chain().focus().addRowAfter().run()}>+Row</button>
+            <button type="button" title="Add column" aria-label="Add column" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+              onClick={() => editor.chain().focus().addColumnAfter().run()}>+Col</button>
+            <button type="button" title="Delete row" aria-label="Delete row" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+              onClick={() => editor.chain().focus().deleteRow().run()}>−Row</button>
+            <button type="button" title="Delete column" aria-label="Delete column" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+              onClick={() => editor.chain().focus().deleteColumn().run()}>−Col</button>
+            <button type="button" title="Delete table" aria-label="Delete table" style={{ ...btnStyle(false), width: 'auto', padding: '0 8px' }}
+              onClick={() => editor.chain().focus().deleteTable().run()}>✕Table</button>
+          </>
+        )}
       </div>
 
       {/* Editor area */}
@@ -243,6 +283,8 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
           margin: 0.8em 0 1.2em;
           padding-left: 1.6em;
         }
+        .article-editor-content ul { list-style: disc outside; }
+        .article-editor-content ol { list-style: decimal outside; }
         .article-editor-content li { margin-bottom: 0.3em; }
         .article-editor-content a { color: var(--navy-700); text-decoration: underline; }
         .article-editor-content a:hover { color: var(--navy-900); }
@@ -263,6 +305,10 @@ export function ArticleEditor({ initialContent, onChange, placeholder = 'Begin w
           height: 0;
           font-style: italic;
         }
+        .article-editor-content table { width: 100%; border-collapse: collapse; margin: 1em 0; }
+        .article-editor-content th, .article-editor-content td { border: 1px solid var(--ink-200); padding: 6px 10px; text-align: left; vertical-align: top; }
+        .article-editor-content th { background: var(--linen-50); font-weight: 600; }
+        .article-editor-content .selectedCell { background: var(--navy-100); }
       `}</style>
     </div>
   );
