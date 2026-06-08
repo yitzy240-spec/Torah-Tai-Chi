@@ -155,7 +155,9 @@ export async function getArticleDraftBySlug(slug: string): Promise<Article | nul
     if (!res.ok) return null;
     const data = await res.json();
     if (!data.story) return null;
-    return storyToArticle(data.story);
+    // storyToArticle hardcodes published:true (CDN normally returns only published
+    // stories); this is the draft path, so correct it.
+    return { ...storyToArticle(data.story), published: false };
   } catch {
     return null;
   }
@@ -166,6 +168,3 @@ export function isPreviewAuthorized(provided: string | undefined, expected: stri
   return provided === expected;
 }
 
-export function buildPreviewPath(slug: string, token: string): string {
-  return `/preview/${slug}?token=${encodeURIComponent(token)}`;
-}
