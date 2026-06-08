@@ -144,3 +144,28 @@ export async function getArticleBySlug(slug: string): Promise<Article | null> {
     return null;
   }
 }
+
+/** Fetch the DRAFT (unpublished) version of an article. No caching — previews must be live. */
+export async function getArticleDraftBySlug(slug: string): Promise<Article | null> {
+  try {
+    const url = new URL(`${CDN_BASE}/stories/articles/${slug}`);
+    url.searchParams.set('token', PREVIEW_TOKEN);
+    url.searchParams.set('version', 'draft');
+    const res = await fetch(url.toString(), { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.story) return null;
+    return storyToArticle(data.story);
+  } catch {
+    return null;
+  }
+}
+
+export function isPreviewAuthorized(provided: string | undefined, expected: string | undefined): boolean {
+  if (!expected || !provided) return false;
+  return provided === expected;
+}
+
+export function buildPreviewPath(slug: string, token: string): string {
+  return `/preview/${slug}?token=${encodeURIComponent(token)}`;
+}

@@ -1,7 +1,7 @@
 // Run: node --test --experimental-strip-types src/lib/articles.test.ts  (from website/)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tiptapJsonToHtml } from './articles.ts';
+import { tiptapJsonToHtml, isPreviewAuthorized, buildPreviewPath } from './articles.ts';
 
 test('bullet list renders with li items (regression guard)', () => {
   const doc = {
@@ -39,4 +39,16 @@ test('table renders as semantic table with header row', () => {
     + '<tr><td><p>Fear</p></td><td><p>Return to center</p></td></tr>'
     + '</tbody></table>'
   );
+});
+
+test('isPreviewAuthorized requires exact non-empty token match', () => {
+  assert.equal(isPreviewAuthorized('abc', 'abc'), true);
+  assert.equal(isPreviewAuthorized('abc', 'xyz'), false);
+  assert.equal(isPreviewAuthorized('', ''), false);        // empty expected => never authorize
+  assert.equal(isPreviewAuthorized(undefined, 'abc'), false);
+  assert.equal(isPreviewAuthorized('abc', undefined), false);
+});
+
+test('buildPreviewPath composes slug + token query', () => {
+  assert.equal(buildPreviewPath('naase-vnishma', 'tok'), '/preview/naase-vnishma?token=tok');
 });
