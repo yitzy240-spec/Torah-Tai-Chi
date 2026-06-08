@@ -360,6 +360,19 @@ export function ArticleEditor({ initialContent, onChange, onWordCount, placehold
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><circle cx="5.5" cy="6" r="1.2"/><path d="M2 12l3.5-3.5 2.5 2.5 3-3 3 3.5"/></svg>
         </button>
 
+        <div style={{ width: '1px', height: '22px', background: 'var(--ink-200)', margin: '0 4px' }} />
+        <button
+          type="button"
+          title="Clear formatting"
+          aria-label="Clear formatting"
+          style={btnStyle(false)}
+          onClick={() => editor.chain().focus().clearNodes().unsetAllMarks().run()}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+            <path d="M4 3h9M7 3l-2.5 10M3 13.5l10-11" />
+          </svg>
+        </button>
+
         {linkOpen && (
           <LinkPopover
             initialUrl={editor.getAttributes('link').href ?? ''}
