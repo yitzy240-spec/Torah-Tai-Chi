@@ -216,14 +216,29 @@ async function getStoryBySlug(fullSlug: string) {
 // ─────────────────────────────────────────────
 
 export async function listArticles(): Promise<SbArticleStory[]> {
-  const data = await cdnGet('/stories', {
-    starts_with: ARTICLES_FOLDER + '/',
-    per_page: '100',
-    sort_by: 'content.published_at:desc',
-  });
-  return (data?.stories ?? []).filter(
-    (s: SbArticleStory) => s.content?.component === 'article',
+  // The CDN `draft` version returns every story (so drafts show up) but carries
+  // NO `published` boolean — only `published_at`. To label status accurately we
+  // also fetch the `published` version (only currently-published stories) and
+  // mark each article published iff its id is in that set. This correctly
+  // distinguishes drafts, published, and unpublished-after-publish.
+  const [draftData, publishedData] = await Promise.all([
+    cdnGet('/stories', {
+      starts_with: ARTICLES_FOLDER + '/',
+      per_page: '100',
+      sort_by: 'content.published_at:desc',
+    }),
+    cdnGet('/stories', {
+      starts_with: ARTICLES_FOLDER + '/',
+      per_page: '100',
+      version: 'published',
+    }),
+  ]);
+  const publishedIds = new Set<number>(
+    (publishedData?.stories ?? []).map((s: SbArticleStory) => s.id),
   );
+  return (draftData?.stories ?? [])
+    .filter((s: SbArticleStory) => s.content?.component === 'article')
+    .map((s: SbArticleStory) => ({ ...s, published: publishedIds.has(s.id) }));
 }
 
 export async function getArticle(slug: string): Promise<SbArticleStory | null> {
