@@ -12,6 +12,7 @@
 import { unstable_cache } from 'next/cache';
 import { createHash } from 'node:crypto';
 import { createServiceClient } from '@/lib/supabase/service';
+import { BufferApiError } from '@/lib/buffer-shared';
 
 const BUFFER_GRAPHQL = 'https://api.buffer.com/graphql';
 
@@ -26,7 +27,18 @@ export type BufferProfile = {
   formatted_service: string;
 };
 
-async function gql<T>(token: string, query: string, variables?: object): Promise<T> {
+/**
+ * Every invocation of this function costs 1 of Buffer's 100/day budget.
+ * The label log line is the permanent audit trail — Vercel runtime logs
+ * answer "who called Buffer today and how often" (2026-06-10 incident).
+ */
+async function gql<T>(
+  token: string,
+  query: string,
+  variables?: object,
+  label = 'unlabeled',
+): Promise<T> {
+  console.log(`[buffer] gql ${label}`);
   const res = await fetch(BUFFER_GRAPHQL, {
     method: 'POST',
     headers: {
@@ -36,7 +48,11 @@ async function gql<T>(token: string, query: string, variables?: object): Promise
     body: JSON.stringify({ query, variables }),
     cache: 'no-store',
   });
-  if (!res.ok) throw new Error(`Buffer GraphQL: HTTP ${res.status}`);
+  if (!res.ok) {
+    const resetRaw = res.headers.get('x-ratelimit-reset');
+    const reset = resetRaw ? Number(resetRaw) : null;
+    throw new BufferApiError(res.status, Number.isFinite(reset) ? reset : null);
+  }
   const body = (await res.json()) as { data?: T; errors?: Array<{ message: string }> };
   if (body.errors?.length) throw new Error(`Buffer GraphQL: ${body.errors.map((e) => e.message).join('; ')}`);
   if (!body.data) throw new Error('Buffer GraphQL: empty response');
@@ -97,16 +113,41 @@ async function getOrgIdUncached(token: string): Promise<string> {
   const data = await gql<{ account: { organizations: Array<{ id: string }> } }>(
     token,
     `{ account { organizations { id } } }`,
+    undefined,
+    'org-id',
   );
   const id = data.account?.organizations?.[0]?.id;
   if (!id) throw new Error('No Buffer organization');
   return id;
 }
 
+// Supabase-first: the org id lives on the buffer_profiles_cache row
+// (it's immutable per token). Live Buffer fetch only when the row
+// doesn't have it yet; persisted lazily so the next cold instance
+// reads it from Supabase instead of Buffer.
+async function orgIdSupabaseFirst(token: string): Promise<string> {
+  const row = await readCacheRow(token);
+  if (row?.org_id) return row.org_id;
+  const id = await getOrgIdUncached(token); // 1 live Buffer call
+  if (row) {
+    // Persist only when the row already exists — inserting a stub row
+    // with empty profiles would make profilesSupabaseFirst serve [] forever.
+    const sb = createServiceClient();
+    await sb
+      .from('buffer_profiles_cache')
+      .update({ org_id: id })
+      .eq('token_hash', tokenHash(token));
+  }
+  return id;
+}
+
+// Thin 24h wrapper purely to avoid a Supabase read per render. No tags —
+// nothing should ever bust this into a Buffer call, and even an implicit
+// revalidatePath bust only triggers a Supabase re-read.
 const getOrgId = unstable_cache(
-  async (token: string) => getOrgIdUncached(token),
-  ['buffer-org-id'],
-  { revalidate: 86400, tags: ['buffer-profiles'] },
+  async (token: string) => orgIdSupabaseFirst(token),
+  ['buffer-org-id-v2'],
+  { revalidate: 86400 },
 );
 
 /**
@@ -129,7 +170,7 @@ async function getPostExternalLinksUncached(
 ): Promise<Record<string, string | null>> {
   if (postIds.length === 0) return {};
   const orgId = await getOrgId(token);
-  const data = await gql<PostsResponse>(token, POST_LINKS_QUERY, { orgId });
+  const data = await gql<PostsResponse>(token, POST_LINKS_QUERY, { orgId }, 'post-links');
   const wanted = new Set(postIds);
   const out: Record<string, string | null> = {};
   for (const { node } of data.posts.edges ?? []) {
@@ -160,7 +201,7 @@ export async function listProfilesFresh(token: string): Promise<BufferProfile[]>
 }
 
 async function listProfilesUncached(token: string): Promise<BufferProfile[]> {
-  const data = await gql<AccountChannelsResponse>(token, LIST_CHANNELS_QUERY);
+  const data = await gql<AccountChannelsResponse>(token, LIST_CHANNELS_QUERY, undefined, 'list-profiles');
   const channels = data.account?.organizations?.flatMap((o) => o.channels ?? []) ?? [];
   return channels
     .filter((c) => !c.isDisconnected && c.service)
@@ -172,28 +213,34 @@ async function listProfilesUncached(token: string): Promise<BufferProfile[]> {
     }));
 }
 
-// ─── Supabase-backed second-layer cache ──────────────────────────────────
-// Why this exists beyond unstable_cache: see migration
-// 20260604_buffer_profiles_cache.sql. tl;dr — Yonah hit Buffer's 100/day
-// cap twice in 3 days because unstable_cache was being invalidated by
-// autosave keystrokes. The Supabase table survives revalidations + cold
-// starts + deploys. It's also the fallback when Buffer returns 4xx/5xx —
-// rather than blowing up page renders, we serve the last-known-good
-// profile list (which changes maybe once a month).
+// ─── Supabase-backed PRIMARY store (2026-06-10 inversion) ────────────────
+// buffer_profiles_cache is the primary source for profiles + org id, not
+// a fallback. Buffer GraphQL is only contacted by: the daily buffer-health
+// cron warm refresh, explicit /channels visits (listProfilesFresh), post
+// mutations, and a single-flight cold bootstrap when no row exists.
+// History: Yonah kept hitting Buffer's 100/day cap mid-session because
+// every save action's revalidatePath bust made the next render re-hit
+// Buffer live — and this table (the intended safety net) was never
+// actually created in prod. See the 2026-06-10 spec for the full story.
 
 function tokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-async function readCachedProfiles(token: string): Promise<BufferProfile[] | null> {
+type CacheRow = { profiles: BufferProfile[]; org_id: string | null };
+
+async function readCacheRow(token: string): Promise<CacheRow | null> {
   const sb = createServiceClient();
   const { data, error } = await sb
     .from('buffer_profiles_cache')
-    .select('profiles')
+    .select('profiles, org_id')
     .eq('token_hash', tokenHash(token))
     .maybeSingle();
   if (error || !data) return null;
-  return data.profiles as BufferProfile[];
+  return {
+    profiles: data.profiles as BufferProfile[],
+    org_id: (data.org_id as string | null) ?? null,
+  };
 }
 
 async function writeCachedProfiles(token: string, profiles: BufferProfile[]): Promise<void> {
@@ -207,47 +254,54 @@ async function writeCachedProfiles(token: string, profiles: BufferProfile[]): Pr
     });
 }
 
-// Three-layer caching strategy:
-//   1. Next.js unstable_cache (24h, in-memory + Vercel data cache).
-//      Fastest; satisfies almost every call in normal operation.
-//   2. Supabase buffer_profiles_cache (24h freshness, table-backed).
-//      Survives unstable_cache invalidation, cold starts, deploys.
-//      Adds one cheap SQL select on miss.
-//   3. Buffer GraphQL listProfiles (fresh, rate-limited 100/day).
-//      Only hit when both caches miss OR an explicit
-//      listProfilesFresh() call (from /channels page).
-//
-// Fallback on Buffer failure: if Buffer 4xx/5xx's, we serve whatever
-// the Supabase cache has — even if "stale" by clock time. The profile
-// list changes at the cadence of a human connecting/disconnecting
-// channels in Buffer's UI (≈ once a month), so "stale" is functionally
-// correct for hours-to-days windows.
-async function listProfilesWithFallback(token: string): Promise<BufferProfile[]> {
-  try {
-    const fresh = await listProfilesUncached(token);
-    // Best-effort write-through; never fail the live response if the
-    // cache write errors.
-    void writeCachedProfiles(token, fresh).catch((e) => {
-      console.warn('[buffer] cache write-through failed:', (e as Error).message);
-    });
-    return fresh;
-  } catch (e) {
-    const msg = String(e);
-    const cached = await readCachedProfiles(token);
-    if (cached) {
-      console.warn(
-        `[buffer] listProfiles failed (${msg.slice(0, 100)}), serving cached profiles (${cached.length} entries)`,
-      );
-      return cached;
-    }
-    throw e;
+// Single-flight: concurrent cold-bootstrap renders share ONE live Buffer
+// call per serverless instance instead of stampeding.
+const inflightProfiles = new Map<string, Promise<BufferProfile[]>>();
+
+// Supabase-FIRST (2026-06-10 inversion — see spec
+// docs/superpowers/specs/2026-06-10-buffer-rate-limit-fix-design.md):
+//   1. Serve the buffer_profiles_cache row regardless of age. Profiles
+//      change ~monthly; /channels (listProfilesFresh) and the daily
+//      buffer-health cron keep the row ≤24h stale.
+//   2. Only if NO row exists (true cold bootstrap), make one live
+//      Buffer call and write through.
+// This makes revalidatePath busts harmless: a busted render re-reads
+// Supabase (free), not Buffer (100/day). The old order — Buffer first,
+// Supabase only on error — burned the daily budget during normal
+// editing sessions and is what kept locking Yonah out at post time.
+async function profilesSupabaseFirst(token: string): Promise<BufferProfile[]> {
+  const row = await readCacheRow(token);
+  if (row) return row.profiles;
+  const key = tokenHash(token);
+  let p = inflightProfiles.get(key);
+  if (!p) {
+    p = (async () => {
+      try {
+        const fresh = await listProfilesUncached(token);
+        await writeCachedProfiles(token, fresh).catch((e) => {
+          console.error(
+            '[buffer] CACHE WRITE FAILED — every render will hit Buffer live until fixed:',
+            (e as Error).message,
+          );
+        });
+        return fresh;
+      } finally {
+        inflightProfiles.delete(key);
+      }
+    })();
+    inflightProfiles.set(key, p);
   }
+  return p;
 }
 
+// Thin 5-min wrapper purely to keep Supabase IO down (one SQL read per
+// 5 min per instance instead of per render). NO tags and a NEW key —
+// nothing should ever bust this into a Buffer call, and even when
+// revalidatePath busts it implicitly, the refetch is a Supabase read.
 export const listProfiles = unstable_cache(
-  async (token: string) => listProfilesWithFallback(token),
-  ['buffer-list-profiles'],
-  { revalidate: 86400, tags: ['buffer-profiles'] },
+  async (token: string) => profilesSupabaseFirst(token),
+  ['buffer-list-profiles-v2'],
+  { revalidate: 300 },
 );
 
 export type CreateUpdateArgs = {
@@ -368,7 +422,7 @@ export async function createUpdate(a: CreateUpdateArgs): Promise<{ id: string; s
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
   };
 
-  const data = await gql<CreatePostResponse>(a.token, CREATE_POST_MUTATION, { input });
+  const data = await gql<CreatePostResponse>(a.token, CREATE_POST_MUTATION, { input }, 'create-post');
   const r = data.createPost;
   if ('post' in r && r.post) return r.post;
   const reason = 'message' in r ? r.message : r.__typename;
@@ -424,7 +478,7 @@ export async function editPostBuffer(args: {
 }): Promise<{ id: string; status: string }> {
   const data = await gql<EditPostResponse>(args.token, EDIT_POST_MUTATION, {
     input: { id: args.postId, text: args.text },
-  });
+  }, 'edit-post');
   const r = data.editPost;
   if (r.__typename === 'PostActionSuccess' && 'post' in r) return r.post as { id: string; status: string };
   const reason = 'message' in r ? r.message : r.__typename;
@@ -440,7 +494,7 @@ export async function deletePostBuffer(args: {
 }): Promise<void> {
   const data = await gql<DeletePostResponse>(args.token, DELETE_POST_MUTATION, {
     id: args.postId,
-  });
+  }, 'delete-post');
   const r = data.deletePost;
   if (r.__typename === 'PostActionSuccess') return;
   const reason = 'message' in r ? r.message : r.__typename;
