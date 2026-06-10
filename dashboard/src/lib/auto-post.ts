@@ -17,6 +17,7 @@
  */
 import { createServiceClient } from '@/lib/supabase/service';
 import { createUpdate, listProfiles } from '@/lib/buffer';
+import { BufferApiError, formatBufferRateLimitMessage } from '@/lib/buffer-shared';
 import { getConnection as getYouTubeConnection, uploadVideo as uploadToYouTube } from '@/lib/youtube';
 import { PLATFORMS, BUFFER_PLATFORMS, ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
 import { logEvent, type EventActor } from '@/lib/events';
@@ -187,14 +188,16 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
       profiles = await withRetry(() => listProfiles(bufferToken));
     } catch (e) {
       const rawErr = String(e);
-      const is429 = rawErr.includes('HTTP 429');
-      // 429 surfaces to the operator as a wait-and-retry message. Settings
-      // are fine — they just need to give Buffer's throttle window a minute.
-      // The 5-min listProfiles cache (see lib/buffer.ts) prevents the
-      // routine page-load / autoPost calls from saturating Buffer's per-
-      // token rate limit, so this should be vanishingly rare going forward.
+      const is429 = e instanceof BufferApiError ? e.status === 429 : rawErr.includes('HTTP 429');
+      // Buffer's cap is 100 requests/DAY. After the 2026-06-10
+      // Supabase-first inversion this should be near-impossible to hit
+      // outside genuine posting volume — but when it happens, tell the
+      // operator the real reset time, not "wait a minute".
       const userMsg = is429
-        ? "Buffer is rate-limiting us — wait about a minute and tap Post again."
+        ? formatBufferRateLimitMessage(
+            e instanceof BufferApiError ? e.rateLimitReset : null,
+            Date.now(),
+          )
         : `Couldn't reach Buffer: ${rawErr}. Check Settings → Buffer.`;
       await logEvent({
         actor: 'buffer',
