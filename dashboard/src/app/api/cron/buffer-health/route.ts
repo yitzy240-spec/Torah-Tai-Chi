@@ -85,5 +85,32 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, status, rateLimit }, { status: 200 });
   }
 
-  return NextResponse.json({ ok: true, status, rateLimit });
+  // Warm refresh: re-pull the channel list once a day and write it
+  // through to buffer_profiles_cache so the Supabase-first read path
+  // (lib/buffer.ts, 2026-06-10 inversion) never serves a row older
+  // than ~24h. Costs 1 extra Buffer call/day. If the write-through
+  // fails (e.g. the table is missing again — the original sin of the
+  // 2026-06-10 incident), email Yonah instead of failing silently.
+  let cacheRefreshed = false;
+  try {
+    const { refreshProfilesCache } = await import('@/lib/buffer');
+    await refreshProfilesCache(token);
+    cacheRefreshed = true;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await sendNotification({
+      subject: '[Torah Tai Chi] Buffer profile cache refresh FAILED',
+      text:
+        `The daily warm refresh of buffer_profiles_cache failed: ${msg}\n\n` +
+        `If this persists, dashboard pages will fall back to live Buffer calls ` +
+        `and can burn the 100/day budget again. Check that the ` +
+        `buffer_profiles_cache table exists and Buffer is reachable.`,
+      html: `<p>The daily warm refresh of <code>buffer_profiles_cache</code> failed:</p><pre>${msg}</pre><p>If this persists, dashboard pages fall back to live Buffer calls and can burn the 100/day budget again.</p>`,
+    });
+  }
+
+  console.log(
+    `[buffer-health] ok remaining=${rateLimit.remaining ?? '?'} reset=${rateLimit.reset ?? '?'} cacheRefreshed=${cacheRefreshed}`,
+  );
+  return NextResponse.json({ ok: true, status, rateLimit, cacheRefreshed });
 }

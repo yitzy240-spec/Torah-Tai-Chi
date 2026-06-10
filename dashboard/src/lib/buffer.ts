@@ -133,10 +133,11 @@ async function orgIdSupabaseFirst(token: string): Promise<string> {
     // Persist only when the row already exists — inserting a stub row
     // with empty profiles would make profilesSupabaseFirst serve [] forever.
     const sb = createServiceClient();
-    await sb
+    const { error } = await sb
       .from('buffer_profiles_cache')
       .update({ org_id: id })
       .eq('token_hash', tokenHash(token));
+    if (error) console.error('[buffer] org_id persist failed:', error.message);
   }
   return id;
 }
@@ -245,13 +246,29 @@ async function readCacheRow(token: string): Promise<CacheRow | null> {
 
 async function writeCachedProfiles(token: string, profiles: BufferProfile[]): Promise<void> {
   const sb = createServiceClient();
-  await sb
+  // supabase-js does NOT reject on failure — it resolves with { error }.
+  // Ignoring that (the pre-2026-06-10 behavior) is how five weeks of
+  // writes to a nonexistent table failed without a single log line.
+  const { error } = await sb
     .from('buffer_profiles_cache')
     .upsert({
       token_hash: tokenHash(token),
       profiles: profiles as unknown as object,
       updated_at: new Date().toISOString(),
     });
+  if (error) throw new Error(`buffer_profiles_cache upsert failed: ${error.message}`);
+}
+
+/**
+ * Strict daily warm refresh for the buffer-health cron: live-fetch the
+ * channel list and write it through, THROWING if the cache write fails
+ * so the cron can alarm. (listProfilesFresh stays best-effort because
+ * its caller is the /channels page render.)
+ */
+export async function refreshProfilesCache(token: string): Promise<number> {
+  const profiles = await listProfilesUncached(token);
+  await writeCachedProfiles(token, profiles);
+  return profiles.length;
 }
 
 // Single-flight: concurrent cold-bootstrap renders share ONE live Buffer
