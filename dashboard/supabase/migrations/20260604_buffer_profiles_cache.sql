@@ -39,3 +39,12 @@ comment on column buffer_profiles_cache.profiles is
 -- no authed user ever reads it directly).
 alter table buffer_profiles_cache enable row level security;
 -- No policy = service-role-only access via createServiceClient bypass.
+
+-- 2026-06-10: org id is immutable per token; caching it here removes the
+-- second Buffer call (getOrgId) from every cold getPostExternalLinks.
+-- add column if not exists keeps this idempotent for environments where
+-- the table was already created from an earlier version of this file.
+alter table buffer_profiles_cache add column if not exists org_id text;
+
+comment on column buffer_profiles_cache.org_id is
+  'Buffer organization id for this token (immutable). Populated lazily by getOrgId in lib/buffer.ts.';
