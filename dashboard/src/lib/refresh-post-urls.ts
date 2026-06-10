@@ -19,13 +19,20 @@ export async function refreshVideoPostUrls(videoId: string): Promise<void> {
   const sb = createServiceClient();
 
   // Posts on this video that still need a URL resolved. Skip YouTube
-  // (handled at upload), and skip rows that already have a post_url.
+  // (handled at upload), skip rows that already have a post_url, and
+  // skip rows older than 48h: Buffer resolves externalLink within
+  // minutes when it resolves at all, so anything older is a zombie that
+  // would otherwise re-query Buffer on every busted render forever
+  // (5 such rows existed on 2026-06-10, oldest from 05-08).
+  const RESOLVE_WINDOW_MS = 48 * 60 * 60 * 1000;
+  const cutoffIso = new Date(Date.now() - RESOLVE_WINDOW_MS).toISOString();
   const { data: posts } = await sb
     .from('posts')
     .select('id, platform, buffer_update_id')
     .eq('video_id', videoId)
     .neq('platform', 'youtube')
-    .is('post_url', null);
+    .is('post_url', null)
+    .gte('created_at', cutoffIso);
   const candidates = (posts ?? []).filter(
     (p): p is { id: string; platform: string; buffer_update_id: string } =>
       typeof p.buffer_update_id === 'string' && p.buffer_update_id.length > 0,
