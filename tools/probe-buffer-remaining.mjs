@@ -13,7 +13,8 @@ if (!token) throw new Error('BUFFER_ACCESS_TOKEN not found in .env');
 const res = await fetch('https://api.buffer.com/graphql', {
   method: 'POST',
   headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ query: '{ viewer { id } }' }),
+  // `viewer` was removed from Buffer's schema (HTTP 400 as of 2026-06).
+  body: JSON.stringify({ query: '{ account { organizations { id } } }' }),
 });
 const reset = res.headers.get('x-ratelimit-reset');
 console.log(JSON.stringify({

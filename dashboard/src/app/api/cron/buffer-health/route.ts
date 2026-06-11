@@ -9,9 +9,9 @@
  * expired credentials, scope mismatch), Yonah gets an email instead of
  * discovering it when a real post fails.
  *
- * Triggered by Vercel Cron (see vercel.json). Pings the cheapest query
- * Buffer's GraphQL offers (viewer { id }) — 1 call per day, no impact
- * on the 100/day budget at any non-pathological cadence.
+ * Triggered by Vercel Cron (see vercel.json). Pings the cheapest valid
+ * query (account → organizations → id) — 1 call per day, no meaningful
+ * impact on Buffer's request budget at any non-pathological cadence.
  *
  * Auth: Vercel Cron sets `Authorization: Bearer ${CRON_SECRET}`.
  */
@@ -45,7 +45,10 @@ export async function GET(request: Request) {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ query: '{ viewer { id } }' }),
+      // `viewer` was removed in Buffer's 2026 schema overhaul (returns
+      // GRAPHQL_VALIDATION_FAILED / HTTP 400 — verified 2026-06-11).
+      // account→organizations→id is the cheapest still-valid query.
+      body: JSON.stringify({ query: '{ account { organizations { id } } }' }),
       cache: 'no-store',
     });
     status = res.status;

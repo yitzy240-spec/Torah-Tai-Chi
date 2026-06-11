@@ -1,5 +1,16 @@
 # Handoff — Buffer rate-limit (drafts can't post; immediate 429)
 
+> **RESOLVED 2026-06-10/11.** Root cause was NOT idle/background consumption — it was
+> session-burst: every save action's `revalidatePath` made the next render re-hit Buffer
+> live, and the `buffer_profiles_cache` table was never created in prod (plus supabase-js
+> write errors were silently discarded, hiding that for 5 weeks). Fixed by inverting to
+> Supabase-first reads (spec: `docs/superpowers/specs/2026-06-10-buffer-rate-limit-fix-design.md`,
+> commits `845745c..1464a51` + follow-ups). Verified in prod 2026-06-11: Yonah's old 429
+> on 06-10 19:02 showed the new honest reset-time message; after the 20:03 reset his
+> posting session succeeded (IG/FB/X), the cache row self-seeded at 20:08 with org_id,
+> and Buffer's counter (now 3000/month) shows session traffic costing single-digit calls.
+> Note: Buffer also removed `viewer` from its schema — health cron query updated 06-11.
+
 _Created 2026-06-10. For a fresh session to pick up and fix properly._
 
 ## Symptom
