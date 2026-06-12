@@ -20,6 +20,8 @@
  *   - feedback rows whose applied_to_job_id is a purged job.
  *   - posts tied to purged videos.
  *   - Storage objects (clips.storage_path) for purged clips.
+ *   - Storage objects (videos.mp4_path + thumb_path) for purged videos —
+ *     added 2026-06-12 after 130 orphaned final.mp4s (1.2GB) were found.
  *
  * Auth: Vercel Cron sets `Authorization: Bearer ${CRON_SECRET}`.
  * Dry-run: add `?dryRun=true` to identify candidates without deleting.
@@ -31,9 +33,19 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { logEvent } from '@/lib/events';
+import { sendNotification } from '@/lib/email';
 
 const CRON_SECRET = process.env.CRON_SECRET;
 const KEEP_AFTER_DAYS = 7;
+
+// ── Orphan sweep config ────────────────────────────────────────────────
+// Files under jobs/<id>/ whose job row no longer exists AND that no DB
+// row references are garbage by definition — sweep them every run.
+// Min age guards against racing a job whose row was deleted while Modal
+// is still writing files. Warn email fires when usage is still above
+// the threshold AFTER sweeping (real growth, not orphan accumulation).
+const SWEEP_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+const STORAGE_WARN_BYTES = Math.round(0.85 * 1024 ** 3); // 85% of the 1GB free tier
 
 // Mirror of modal_app.py _IN_FLIGHT_STATUSES. Jobs in these states must
 // not be purged even if they belong to a non-live job chain — the Modal
@@ -53,6 +65,7 @@ interface ParshaResult {
   skippedReason?: string;
   keptVideoId?: string;
   purgedVideoIds: string[];
+  purgedVideoPaths: string[];
   purgedClipPaths: string[];
   purgedClipIds: string[];
   purgedJobIds: string[];
@@ -101,6 +114,7 @@ async function processParsha(
     parshaId: parsha.id,
     parshaSlug: parsha.slug,
     purgedVideoIds: [],
+    purgedVideoPaths: [],
     purgedClipPaths: [],
     purgedClipIds: [],
     purgedJobIds: [],
@@ -179,15 +193,27 @@ async function processParsha(
     jobsToPurge.push(jobId);
   }
 
-  // 5. Collect ALL videos for this parsha except the live one.
+  // 5. Collect ALL videos for this parsha except the live one — including
+  //    their storage paths. mp4_path (the stitched final, ~10MB each) is
+  //    the single largest artifact per draft; until 2026-06-12 the purge
+  //    deleted these rows but never their files, orphaning 1.2GB+ of
+  //    final.mp4s in the bucket.
   const { data: allVideos } = await admin
     .from('videos')
-    .select('id')
+    .select('id, mp4_path, thumb_path')
     .eq('parsha_id', parsha.id)
     .neq('id', liveVideo.id);
 
   const videosToPurge = (allVideos ?? []).map((v: { id: string }) => v.id);
   result.purgedVideoIds = videosToPurge;
+
+  const videoPathsToPurge = (allVideos ?? [])
+    .flatMap((v: { mp4_path: string | null; thumb_path: string | null }) => [
+      v.mp4_path,
+      v.thumb_path,
+    ])
+    .filter((p): p is string => !!p);
+  result.purgedVideoPaths = videoPathsToPurge;
 
   // 6. Collect clips to purge: belong to a purged job AND not in keep-list.
   let clipsToPurge: { id: string; storage_path: string | null }[] = [];
@@ -227,20 +253,23 @@ async function processParsha(
     return result;
   }
 
-  // 8. Delete Storage objects for purged clips BEFORE deleting DB rows,
-  //    so if Storage delete fails the DB rows can be retried next run.
-  if (clipPathsToPurge.length > 0) {
+  // 8. Delete Storage objects for purged clips AND purged videos'
+  //    stitched finals/thumbs BEFORE deleting DB rows, so if Storage
+  //    delete fails the DB rows can be retried next run.
+  const allPathsToPurge = [...new Set([...clipPathsToPurge, ...videoPathsToPurge])];
+  if (allPathsToPurge.length > 0) {
     const { error: storageErr } = await admin.storage
       .from('videos')
-      .remove(clipPathsToPurge);
+      .remove(allPathsToPurge);
     if (storageErr) {
-      console.warn(
-        `[purge-old-clips] Storage remove partial failure for parsha ${parsha.slug}:`,
+      console.error(
+        `[purge-old-clips] Storage remove FAILED for parsha ${parsha.slug} (${allPathsToPurge.length} paths) — these become permanent orphans:`,
         storageErr.message,
       );
       // Continue — DB rows are still deleted so the paths won't be retried
       // as live clips. Storage orphans are preferable to DB orphans that
-      // block future purge runs.
+      // block future purge runs. tools/purge-storage-orphans.mjs sweeps
+      // any accumulated orphans.
     }
   }
 
@@ -296,6 +325,131 @@ async function processParsha(
   return result;
 }
 
+type StorageFile = { path: string; size: number; createdAt: number };
+
+/** Recursively list every object in the videos bucket (folders come back
+ *  from storage.list with id === null). ~400 files at current scale. */
+async function walkBucket(
+  admin: ReturnType<typeof createServiceClient>,
+  prefix = '',
+): Promise<StorageFile[]> {
+  const out: StorageFile[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await admin.storage
+      .from('videos')
+      .list(prefix, { limit: 1000, offset });
+    if (error || !data) break;
+    for (const e of data) {
+      const p = prefix ? `${prefix}/${e.name}` : e.name;
+      if (e.id === null) {
+        out.push(...(await walkBucket(admin, p)));
+      } else {
+        out.push({
+          path: p,
+          size: (e.metadata as { size?: number } | null)?.size ?? 0,
+          createdAt: new Date(e.created_at as string).getTime(),
+        });
+      }
+    }
+    if (data.length < 1000) break;
+    offset += 1000;
+  }
+  return out;
+}
+
+interface SweepResult {
+  totalBytesBeforeSweep: number;
+  orphanCount: number;
+  orphanBytes: number;
+  removed: number;
+  removedBytes: number;
+  removeErrors: number;
+}
+
+/**
+ * Comprehensive orphan sweep: delete jobs/ files that (a) belong to a
+ * job id with no jobs row, (b) are referenced by NO database row
+ * (videos.mp4_path/thumb_path, clips.storage_path, clip reference
+ * images, tai_chi_moves files), and (c) are older than 24h. Published
+ * content can never match: every published video is a videos row, so
+ * its files are in the referenced set.
+ *
+ * Why this exists: until 2026-06-12 the purge deleted videos rows but
+ * not their mp4_path/thumb_path files — 130 orphaned final.mp4s
+ * (1.35GB) accumulated and blew the 1GB free tier. The per-parsha purge
+ * now removes those paths going forward; this sweep self-heals any
+ * orphans that slip through (e.g. swallowed storage-remove failures).
+ */
+async function sweepOrphans(
+  admin: ReturnType<typeof createServiceClient>,
+  dryRun: boolean,
+): Promise<SweepResult> {
+  const files = await walkBucket(admin);
+  const totalBytesBeforeSweep = files.reduce((s, f) => s + f.size, 0);
+
+  const referenced = new Set<string>();
+  const { data: vids } = await admin.from('videos').select('mp4_path, thumb_path');
+  for (const v of vids ?? []) {
+    if (v.mp4_path) referenced.add(v.mp4_path as string);
+    if (v.thumb_path) referenced.add(v.thumb_path as string);
+  }
+  const { data: clips } = await admin
+    .from('clips')
+    .select('storage_path, reference_image_paths');
+  for (const c of clips ?? []) {
+    if (c.storage_path) referenced.add(c.storage_path as string);
+    for (const r of (c.reference_image_paths ?? []) as string[]) referenced.add(r);
+  }
+  const { data: moves } = await admin
+    .from('tai_chi_moves')
+    .select('mp4_storage_path, thumb_poster_path');
+  for (const m of moves ?? []) {
+    if (m.mp4_storage_path) referenced.add(m.mp4_storage_path as string);
+    if (m.thumb_poster_path) referenced.add(m.thumb_poster_path as string);
+  }
+  const { data: jobs } = await admin.from('jobs').select('id');
+  const jobIds = new Set((jobs ?? []).map((j: { id: string }) => j.id));
+
+  const now = Date.now();
+  const orphans = files.filter(
+    (f) =>
+      f.path.startsWith('jobs/') &&
+      !jobIds.has(f.path.split('/')[1]) &&
+      !referenced.has(f.path) &&
+      now - f.createdAt > SWEEP_MIN_AGE_MS,
+  );
+  const orphanBytes = orphans.reduce((s, f) => s + f.size, 0);
+
+  let removed = 0;
+  let removedBytes = 0;
+  let removeErrors = 0;
+  if (!dryRun) {
+    for (let i = 0; i < orphans.length; i += 100) {
+      const batch = orphans.slice(i, i + 100);
+      const { error } = await admin.storage
+        .from('videos')
+        .remove(batch.map((f) => f.path));
+      if (error) {
+        removeErrors += batch.length;
+        console.error('[purge-old-clips] sweep remove failed:', error.message);
+      } else {
+        removed += batch.length;
+        removedBytes += batch.reduce((s, f) => s + f.size, 0);
+      }
+    }
+  }
+
+  return {
+    totalBytesBeforeSweep,
+    orphanCount: orphans.length,
+    orphanBytes,
+    removed,
+    removedBytes,
+    removeErrors,
+  };
+}
+
 export async function GET(request: Request) {
   // Auth: require CRON_SECRET to be set in the environment.
   if (!CRON_SECRET) {
@@ -348,6 +502,7 @@ export async function GET(request: Request) {
         details: {
           keptVideoId: result.keptVideoId ?? null,
           purgedVideoIds: result.purgedVideoIds,
+          purgedVideoPaths: result.purgedVideoPaths,
           purgedClipPaths: result.purgedClipPaths,
           purgedClipIds: result.purgedClipIds,
           purgedJobIds: result.purgedJobIds,
@@ -364,6 +519,7 @@ export async function GET(request: Request) {
         parshaSlug: parsha.slug as string,
         skippedReason: `error: ${message}`,
         purgedVideoIds: [],
+        purgedVideoPaths: [],
         purgedClipPaths: [],
         purgedClipIds: [],
         purgedJobIds: [],
@@ -377,10 +533,49 @@ export async function GET(request: Request) {
     (r) => !r.skippedReason && r.purgedVideoIds.length + r.purgedClipIds.length > 0,
   );
 
+  // ── Storage usage check + comprehensive orphan sweep ─────────────────
+  let sweep: SweepResult | null = null;
+  try {
+    sweep = await sweepOrphans(admin, dryRun);
+    const afterBytes = sweep.totalBytesBeforeSweep - sweep.removedBytes;
+    const mb = (n: number) => (n / 1048576).toFixed(0);
+    await logEvent({
+      actor: 'system',
+      level: 'info',
+      event: 'purge.sweep',
+      message: dryRun
+        ? `Sweep (dry-run): ${sweep.orphanCount} orphan files (${mb(sweep.orphanBytes)}MB) of ${mb(sweep.totalBytesBeforeSweep)}MB total`
+        : `Sweep: removed ${sweep.removed} orphan files (${mb(sweep.orphanBytes)}MB); bucket ${mb(sweep.totalBytesBeforeSweep)}MB → ~${mb(afterBytes)}MB`,
+      details: { ...sweep, dryRun },
+    });
+
+    // Warn only when usage is high even after sweeping — that's real
+    // content growth (or a sweep failure), not orphan accumulation.
+    const effectiveBytes = dryRun
+      ? sweep.totalBytesBeforeSweep - sweep.orphanBytes
+      : afterBytes;
+    if (effectiveBytes > STORAGE_WARN_BYTES || sweep.removeErrors > 0) {
+      await sendNotification({
+        subject: '[Torah Tai Chi] Supabase storage approaching limit',
+        text:
+          `Storage bucket is at ~${mb(effectiveBytes)}MB after the nightly orphan sweep ` +
+          `(warn threshold ${mb(STORAGE_WARN_BYTES)}MB, free tier 1024MB). ` +
+          (sweep.removeErrors > 0
+            ? `${sweep.removeErrors} orphan files failed to delete. `
+            : '') +
+          `This is real kept content, not orphans — review what is stored or upgrade the plan.`,
+        html: `<p>Storage bucket is at ~${mb(effectiveBytes)}MB after the nightly orphan sweep (warn threshold ${mb(STORAGE_WARN_BYTES)}MB, free tier 1024MB).</p>${sweep.removeErrors > 0 ? `<p><b>${sweep.removeErrors} orphan files failed to delete.</b></p>` : ''}<p>This is real kept content, not orphans — review what is stored or upgrade the plan.</p>`,
+      });
+    }
+  } catch (err) {
+    console.error('[purge-old-clips] sweep failed:', err instanceof Error ? err.message : String(err));
+  }
+
   return NextResponse.json({
     dryRun,
     parshiotProcessed: parshiot.length,
     parshiotActedOn: acted.length,
     results,
+    sweep,
   });
 }
