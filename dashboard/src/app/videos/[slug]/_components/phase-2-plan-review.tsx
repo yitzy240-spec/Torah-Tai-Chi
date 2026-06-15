@@ -523,7 +523,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   // a stuck spinner means the job is genuinely still running (or in the
   // rare case Modal never picked up the trigger, which the operator
   // can resolve by refreshing or tapping Generate again). Showing
-  // elapsed time + a soft 'taking longer than usual' hint after 5 min
+  // elapsed time + a soft 'taking longer than usual' hint after 8 min
   // gives them the context without us pretending to know it failed.
   // Seed render state from the server-fetched in-flight job, if any.
   // Without this, a refresh mid-render wipes the spinner (the previous
@@ -700,7 +700,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   const elapsedLabel = elapsedSec < 60
     ? `${elapsedSec}s`
     : `${Math.floor(elapsedSec / 60)}m ${String(elapsedSec % 60).padStart(2, '0')}s`;
-  const elapsedHint = elapsedSec >= 5 * 60
+  const elapsedHint = elapsedSec >= 8 * 60
     ? 'Taking longer than usual — Kie may be queued. Your render keeps going regardless; refresh anytime to check.'
     : null;
 
@@ -1345,6 +1345,18 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
               }}
             >
               Generate clip {prevIndex !== null ? prevIndex + 1 : ''} first
+            </span>
+          )}
+          {prevRendered && !thisRendering && (
+            <span
+              style={{
+                fontSize: 11.5,
+                color: 'var(--ink-500)',
+                fontFamily: 'var(--ff-display)',
+                fontStyle: 'italic',
+              }}
+            >
+              Clips usually take 4–7 minutes.
             </span>
           )}
           <button
