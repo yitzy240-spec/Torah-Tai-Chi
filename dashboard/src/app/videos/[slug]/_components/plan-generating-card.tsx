@@ -15,13 +15,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { kickPlanOnly } from '@/app/actions/video-page/kick-plan-only';
+import { cancelJob } from '@/app/actions/cancel-job';
 
 interface Props {
   jobId: string;
   startedAt: string;
+  parshaSlug: string;
 }
 
-export function PlanGeneratingCard({ jobId, startedAt }: Props) {
+export function PlanGeneratingCard({ jobId, startedAt, parshaSlug }: Props) {
   const router = useRouter();
   const event = useJobStream(jobId);
   const stage = event?.stage ?? 'queued';
@@ -66,6 +68,38 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
 
   const isFailed = stage === 'failed';
   const isCancelled = stage === 'cancelled';
+
+  // Escape hatch: after 3 minutes a single (non-duplicate) job can still be
+  // genuinely stuck — a silently-dropped Modal dispatch, say — and today the
+  // operator had no way out but to wait. Offer Retry (re-dispatch Modal) and
+  // Start over (cancel + back to Phase 1).
+  const showEscapeHatch = !isFailed && !isCancelled && elapsedSec >= 180;
+  const [retrying, setRetrying] = useState(false);
+  const [startingOver, setStartingOver] = useState(false);
+
+  const handleRetry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      // Re-dispatch Modal. Keep the spinner and keep watching — the
+      // stage === 'done' effect will refresh the page when the plan lands.
+      await kickPlanOnly(jobId);
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const handleStartOver = async () => {
+    if (startingOver) return;
+    setStartingOver(true);
+    const res = await cancelJob(jobId);
+    if (res.error) {
+      setStartingOver(false);
+      return;
+    }
+    router.push(`/videos/${parshaSlug}?phase=1`);
+    router.refresh();
+  };
 
   // Rotating progress copy — Modal writes job.status_message asynchronously
   // and we don't always get fine-grained updates from Claude, so cycle
@@ -194,6 +228,58 @@ export function PlanGeneratingCard({ jobId, startedAt }: Props) {
               · taking longer than usual
             </span>
           )}
+        </div>
+      )}
+      {showEscapeHatch && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            marginTop: 20,
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={retrying || startingOver}
+            style={{
+              minHeight: 40,
+              fontSize: 13,
+              fontWeight: 500,
+              fontFamily: 'inherit',
+              background: 'var(--navy-700)',
+              color: 'var(--linen-50)',
+              border: 'none',
+              borderRadius: 8,
+              padding: '8px 18px',
+              cursor: retrying ? 'wait' : 'pointer',
+              opacity: retrying || startingOver ? 0.7 : 1,
+            }}
+          >
+            {retrying ? 'Retrying…' : 'Retry'}
+          </button>
+          <button
+            type="button"
+            onClick={handleStartOver}
+            disabled={retrying || startingOver}
+            style={{
+              minHeight: 40,
+              fontSize: 13,
+              fontWeight: 500,
+              fontFamily: 'inherit',
+              background: 'transparent',
+              color: 'var(--ink-500)',
+              border: '1px solid var(--ink-100)',
+              borderRadius: 8,
+              padding: '8px 18px',
+              cursor: startingOver ? 'wait' : 'pointer',
+              opacity: retrying || startingOver ? 0.7 : 1,
+            }}
+          >
+            {startingOver ? 'Starting over…' : 'Start over'}
+          </button>
         </div>
       )}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

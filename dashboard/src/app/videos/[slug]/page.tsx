@@ -315,7 +315,7 @@ async function PhaseBody({
       const startedAt = draftJobForState.triggeredAt;
       return (
         <PhaseErrorBoundary phaseLabel="Phase 2 (plan review)" parshaSlug={parsha.slug}>
-          <PlanGeneratingCard startedAt={startedAt} jobId={draftJobId} />
+          <PlanGeneratingCard startedAt={startedAt} jobId={draftJobId} parshaSlug={parsha.slug} />
         </PhaseErrorBoundary>
       );
     }
