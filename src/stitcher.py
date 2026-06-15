@@ -74,6 +74,19 @@ _DETONE_FILTER = "equalizer=f=5500:width_type=q:width=2.0:g=-15"
 # this should rarely happen).
 _FADE_OUT_S = 0.4
 
+# Audio-only fade applied to the TAIL of the FINAL clip (and the
+# single-clip path) to kill Seedance 2.0's trailing audio artifact.
+# Seedance recently started baking a discrete sound burst (~-28 dB)
+# into the last ~100 ms of every clip, sitting after ~300 ms of
+# near-silence that follows the speech (speech typically ends ~600 ms
+# before the clip's end). Non-last clips already hide this via the
+# 400 ms video+audio fade; the last clip kept fade_out=False so its
+# artifact played at full volume as the video's final sound. 0.5 s
+# comfortably covers the silence gap + the final-100ms spike while
+# only barely touching speech (which ends ~600 ms before clip end).
+# Audio-only by design — the video must still end on its final frame.
+_END_AUDIO_FADE_S = 0.5
+
 # Still-frame prepend at the start of every non-first clip. Clones
 # the clip's first frame for this many seconds before the actual
 # clip content begins, then fades that prepended region in from
@@ -110,6 +123,7 @@ def _preprocess_clip_for_concat(
     fade_out: bool,
     pre_still: bool,
     has_audio: bool,
+    end_audio_fade: bool = False,
 ) -> Path:
     """Re-encode one clip with detone + rescale + optional fade-out at
     end + optional still-frame prepend with fade-in at start.
@@ -118,20 +132,36 @@ def _preprocess_clip_for_concat(
     video twice. Output is normalized to (target_w, target_h) so the
     final hard-concat doesn't choke on heterogeneous inputs.
 
-    `fade_out=True`  → applies the 400 ms tail fade (video + audio).
-    `pre_still=True` → clones the first frame for 500 ms at the start,
-                      fades it in from black, delays audio by the same
-                      window so speech starts when the visual fully
-                      blooms.
+    `fade_out=True`       → applies the 400 ms tail fade (video + audio).
+    `pre_still=True`      → clones the first frame for 500 ms at the start,
+                           fades it in from black, delays audio by the same
+                           window so speech starts when the visual fully
+                           blooms.
+    `end_audio_fade=True` → applies a 500 ms AUDIO-ONLY tail fade to kill
+                           Seedance's trailing audio artifact. The video
+                           is NOT faded (the clip must end on its final
+                           frame). Independent of `fade_out`; used for the
+                           final clip, which has fade_out=False. A clip
+                           must never get BOTH the fade_out afade and the
+                           end_audio_fade afade — they're mutually
+                           exclusive (see guard below).
 
     For a 4-clip video the typical pattern is:
-      clip 0 → fade_out=True,  pre_still=False  (first clip)
-      clip 1 → fade_out=True,  pre_still=True   (middle)
-      clip 2 → fade_out=True,  pre_still=True   (middle)
-      clip 3 → fade_out=False, pre_still=True   (last clip)
+      clip 0 → fade_out=True,  pre_still=False, end_audio_fade=False
+      clip 1 → fade_out=True,  pre_still=True,  end_audio_fade=False
+      clip 2 → fade_out=True,  pre_still=True,  end_audio_fade=False
+      clip 3 → fade_out=False, pre_still=True,  end_audio_fade=True
     """
+    # The two tail-audio fades are mutually exclusive: fade_out already
+    # fades the audio (and video) tail, so layering end_audio_fade on top
+    # would be redundant/double-faded. The last clip is the only one with
+    # end_audio_fade=True and it always has fade_out=False, so this guard
+    # is defensive, not load-bearing.
+    if fade_out and end_audio_fade:
+        end_audio_fade = False
     duration = _probe_duration(src)
     fadeout_start = max(0.0, duration - _FADE_OUT_S)
+    end_audio_fade_start = max(0.0, duration - _END_AUDIO_FADE_S)
 
     v_parts = [
         f"scale={target_w}:{target_h}:force_original_aspect_ratio=decrease",
@@ -148,6 +178,10 @@ def _preprocess_clip_for_concat(
     a_parts = [_DETONE_FILTER]
     if fade_out:
         a_parts.append(f"afade=t=out:st={fadeout_start:.3f}:d={_FADE_OUT_S}")
+    if end_audio_fade:
+        a_parts.append(
+            f"afade=t=out:st={end_audio_fade_start:.3f}:d={_END_AUDIO_FADE_S}"
+        )
     if pre_still:
         pre_ms = int(_STILL_FRAME_PRE_S * 1000)
         a_parts.append(f"adelay={pre_ms}|{pre_ms}")
@@ -214,10 +248,27 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
     dest.parent.mkdir(parents=True, exist_ok=True)
     work = dest.parent
 
-    # Single-clip: detone if it has audio, otherwise straight-copy.
+    # Single-clip: detone + tail audio-fade if it has audio, otherwise
+    # straight-copy. The tail audio-fade kills Seedance's trailing
+    # artifact (same fix as the final clip in the multi-clip path).
+    # Routed through _preprocess_clip_for_concat at the clip's own
+    # resolution with no video fade and no still-frame prepend, so the
+    # video is untouched apart from the forced 30 fps re-encode.
     if len(clips) == 1:
         if _has_audio_stream(clips[0]):
-            return _detone_audio(clips[0], dest)
+            w, h = _probe_resolution(clips[0])
+            if w % 2:
+                w += 1
+            if h % 2:
+                h += 1
+            return _preprocess_clip_for_concat(
+                clips[0], dest,
+                target_w=w, target_h=h,
+                fade_out=False,
+                pre_still=False,
+                has_audio=True,
+                end_audio_fade=True,
+            )
         shutil.copy(clips[0], dest)
         return dest
 
@@ -243,6 +294,7 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
             fade_out=(i < len(clips) - 1),
             pre_still=(i > 0),
             has_audio=has_audio,
+            end_audio_fade=(i == len(clips) - 1),
         )
         preprocessed.append(d)
 
