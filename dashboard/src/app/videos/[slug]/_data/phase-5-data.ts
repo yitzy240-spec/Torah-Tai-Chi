@@ -186,7 +186,7 @@ export async function getPhase5Props(
     siteTitle: videoRow?.title ?? parshaName,
     siteSubtitle: videoRow?.subtitle ?? '',
     siteDescription: videoRow?.description ?? '',
-    websiteUrl: `https://torahtaichi.com/${parshaSlug}`,
+    websiteUrl: `https://torahtaichi.com/videos/${parshaSlug}`,
     jobId: draftJobId,
     captions,
     youtubeTags: clipPlanMeta.youtube_tags,

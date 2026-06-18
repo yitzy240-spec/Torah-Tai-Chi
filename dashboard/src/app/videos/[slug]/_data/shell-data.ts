@@ -219,7 +219,7 @@ export async function fetchPageShellData(
     liveStripProps = {
       liveVersionLabel: `v${liveIdx}`,
       publishedToWebsite: liveVideo?.publishedToWebsite ?? false,
-      websiteUrl: `https://torahtaichi.com/${slug}`,
+      websiteUrl: `https://torahtaichi.com/videos/${slug}`,
       livePosts,
     };
   }

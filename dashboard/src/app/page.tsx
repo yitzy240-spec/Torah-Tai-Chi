@@ -118,7 +118,7 @@ async function getLatestLiveVideo(): Promise<LatestLiveVideo | null> {
     description: (vRow.description as string | null) ?? null,
     liveSince: (vRow.created_at as string | null) ?? null,
     postedPlatforms: [...postedPlatforms],
-    websiteUrl: `https://torahtaichi.com/${parshaSlug}`,
+    websiteUrl: `https://torahtaichi.com/videos/${parshaSlug}`,
   };
 }
 

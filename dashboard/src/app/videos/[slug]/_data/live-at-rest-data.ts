@@ -182,7 +182,7 @@ export async function getLiveAtRestProps(
     {
       platform: 'torahtaichi.com',
       postedAt: isPublishedToWebsite ? liveVideoCreatedAt : null,
-      postUrl: isPublishedToWebsite ? `https://torahtaichi.com/${parshaSlug}` : null,
+      postUrl: isPublishedToWebsite ? `https://torahtaichi.com/videos/${parshaSlug}` : null,
       viewsLabel: null,
     },
     ...Array.from(postsByPlatform.entries()).map(([platform, info]) => ({
@@ -244,7 +244,7 @@ export async function getLiveAtRestProps(
     versionLabel,
     videoMp4Url: liveVideoMp4Url ?? '',
     thumbPath: liveThumbUrl,
-    websiteUrl: `https://torahtaichi.com/${parshaSlug}`,
+    websiteUrl: `https://torahtaichi.com/videos/${parshaSlug}`,
     // DB column meanings: videos.subtitle = creative title, videos.title = parsha name.
     // Prop names match what they render as (displayTitle = big heading, attribution = small label).
     displayTitle: (liveVRow?.subtitle as string | null) ?? '',
