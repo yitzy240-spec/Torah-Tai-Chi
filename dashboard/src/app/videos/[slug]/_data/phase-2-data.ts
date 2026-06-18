@@ -28,6 +28,11 @@ export type Phase2Clip = {
  *  version chips on the Phase 2 card. */
 export type ClipVersion = {
   clipId: string;
+  /** The child job that produced this version. Lets a clip card tell
+   *  ITS OWN render's output apart from any other version change, so the
+   *  spinner clears only when this card's job actually landed a clip
+   *  (not on an unrelated refetch mid-stitch — the double-render bug). */
+  jobId: string;
   storagePath: string;
   createdAt: string;
   resolution: string | null;
@@ -173,6 +178,7 @@ export async function getPhase2Props(
       const list = versionsByIndex.get(idx) ?? [];
       list.push({
         clipId: r.id as string,
+        jobId,
         storagePath: r.storage_path as string,
         createdAt: r.created_at as string,
         resolution: tier?.resolution ?? null,
