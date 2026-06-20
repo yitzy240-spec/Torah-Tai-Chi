@@ -47,6 +47,13 @@ export default async function RootLayout({
   const orgSchemaJson = JSON.stringify(organizationSchema());
   const siteSchemaJson = JSON.stringify(websiteSchema());
 
+  // Google Analytics 4 — only renders when the measurement id is configured
+  // (set NEXT_PUBLIC_GA_ID in Vercel), so dev/preview don't pollute the data.
+  // Raw gtag snippet (matching the JSON-LD scripts below) — no @next/third-
+  // parties dep on this bleeding-edge Next. SPA pageviews between articles are
+  // captured by GA4 Enhanced Measurement → "Page changes" (on by default).
+  const gaId = process.env.NEXT_PUBLIC_GA_ID;
+
   return (
     <html lang="en">
       <head>
@@ -64,6 +71,22 @@ export default async function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: siteSchemaJson }}
         />
+        {gaId && (
+          <>
+            <script
+              async
+              src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
+            />
+            <script
+              dangerouslySetInnerHTML={{
+                __html:
+                  `window.dataLayer=window.dataLayer||[];` +
+                  `function gtag(){dataLayer.push(arguments);}` +
+                  `gtag('js',new Date());gtag('config','${gaId}');`,
+              }}
+            />
+          </>
+        )}
       </head>
       <body>
         <SiteNav showBook={showBook} />

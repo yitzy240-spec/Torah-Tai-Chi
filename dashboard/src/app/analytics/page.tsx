@@ -983,12 +983,38 @@ export default async function AnalyticsPage() {
             fontStyle: 'italic',
             fontSize: '16px',
             color: 'var(--ink-500)',
-            margin: '0 0 36px 0',
+            margin: '0 0 16px 0',
             fontVariationSettings: '"opsz" 16, "SOFT" 50',
           }}
         >
           YouTube — {connection.channelTitle}. Most recent 25 uploads.
         </p>
+        {/* Website analytics lives in GA4 (traffic + engagement for
+            torahtaichi.com). One-click out to the GA report; the numbers
+            aren't pulled in-app by design (see 2026-06-20 spec). */}
+        <a
+          href={process.env.NEXT_PUBLIC_GA_REPORT_URL ?? 'https://analytics.google.com/'}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontFamily: 'var(--ff-body)',
+            fontWeight: 500,
+            fontSize: '14px',
+            padding: '10px 22px',
+            minHeight: '40px',
+            borderRadius: '999px',
+            border: '1px solid var(--navy-800)',
+            background: 'white',
+            color: 'var(--navy-800)',
+            textDecoration: 'none',
+            marginBottom: '36px',
+          }}
+        >
+          Website analytics →
+        </a>
       </div>
 
       {/* Watch summary, geography, demographics — wrapped in their own
