@@ -584,14 +584,27 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   // (newest-first ordering in phase-2-data). The ref starts at whatever
   // version was already there on mount; any later transition to a
   // different clipId is "ours" if we were rendering.
-  const latestVersionClipId = versions[0]?.clipId ?? null;
+  const latestVersion = versions[0] ?? null;
+  const latestVersionClipId = latestVersion?.clipId ?? null;
   const lastSeenLatestVersionRef = useRef<string | null>(latestVersionClipId);
   useEffect(() => {
     const prev = lastSeenLatestVersionRef.current;
+    // Clear ONLY when a new top version landed AND it came from THIS card's
+    // own in-flight render (jobId match). The previous version of this effect
+    // cleared on ANY change of versions[0] — which fires mid-stitch and on
+    // unrelated refetches, bouncing the card back to a Re-render button before
+    // the job finished. The operator saw an idle button, assumed it stopped,
+    // clicked again, and a SECOND render fired (Yonah's "it stopped, so I had
+    // to click again → two renderings"). Gating on liveJobId scopes the clear
+    // to our own output and works for both single re-render and "Generate all"
+    // (each card's liveJobId is its pending job; its version carries the same
+    // jobId). Completion when no version surfaces is handled by the broadcast
+    // 'done' effect below and the job-status poll backstop.
     if (
       latestVersionClipId !== null &&
       latestVersionClipId !== prev &&
-      thisRendering
+      thisRendering &&
+      latestVersion?.jobId === liveJobId
     ) {
       setThisRendering(false);
       setLiveJobId(null);
@@ -599,7 +612,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       setLastFailedError(null);
     }
     lastSeenLatestVersionRef.current = latestVersionClipId;
-  }, [latestVersionClipId, thisRendering]);
+  }, [latestVersionClipId, latestVersion, thisRendering, liveJobId]);
 
   // Live elapsed-time tick — only runs while rendering, so we don't burn
   // setInterval cycles when nothing's in flight.
@@ -653,6 +666,59 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       });
     }
   }, [liveJobStatus, liveJobError, liveJobId, clip.index, router]);
+
+  // Backstop for a DROPPED completion broadcast. useJobStream is
+  // Broadcast-only (no WAL), and Supabase Broadcast is best-effort — if the
+  // single 'done' message is lost, nothing else detects completion and the
+  // timer counts forever (Yonah: "it never stops on its own... I always need
+  // to refresh to find out the clip is already there"). So while this card is
+  // rendering, poll the child job's status and clear on any terminal state.
+  // Whichever fires first — the broadcast effect above or this poll — nulls
+  // liveJobId, which tears the other down (no double handling). Visibility-
+  // gated so a hidden tab generates no traffic (mirrors useRealtimeRows; the
+  // WAL audit flagged Realtime IO as the #1 consumer).
+  useEffect(() => {
+    if (!liveJobId || !thisRendering) return;
+    const supabase = createClient();
+    const watchedJobId = liveJobId;
+    let cancelled = false;
+    const poll = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      const { data } = await supabase
+        .from('jobs')
+        .select('status')
+        .eq('id', watchedJobId)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      const status = (data as { status: string }).status;
+      if (status === 'done' || status === 'failed' || status === 'cancelled') {
+        setThisRendering(false);
+        setLiveJobId(null);
+        setRenderStartedAt(null);
+        if (status === 'done') {
+          router.refresh();
+        } else if (status === 'cancelled') {
+          setCancelling(false);
+        } else {
+          // Rich error detail comes from the broadcast path when it arrives;
+          // this is the fallback when that message was lost.
+          toast.error(`Clip ${clip.index + 1} render failed`, {
+            description: 'The render reported a failure. Open the log for details.',
+            action: {
+              label: 'View log',
+              onClick: () => window.open(`/jobs/${watchedJobId}`, '_blank'),
+            },
+            duration: 12000,
+          });
+        }
+      }
+    };
+    const id = setInterval(poll, 12000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [liveJobId, thisRendering, clip.index, router]);
 
   // Cancel the in-flight render. The cancelJob action just marks the
   // jobs row as 'cancelled' — Modal keeps running to completion (Modal
