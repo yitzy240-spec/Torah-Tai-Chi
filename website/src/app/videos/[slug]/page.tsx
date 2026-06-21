@@ -4,6 +4,7 @@ import { getAllParshiot, getParshaBySlug, getNearbyParshiot, ALL_PARSHA_SLUGS } 
 import VideoCard from "@/components/VideoCard";
 import ShareRow from "@/components/ShareRow";
 import WatchOnRow from "@/components/WatchOnRow";
+import VideoPlayer from "@/components/VideoPlayer";
 import { videoSchema, breadcrumbSchema } from "@/lib/jsonld";
 import { getSiteContent } from "@/lib/site-content";
 
@@ -180,14 +181,12 @@ export default async function VideoDetailPage({ params }: Props) {
           <div className="vd-player-wrap stagger">
             <div className="vd-player">
               {parsha.videoUrl ? (
-                // eslint-disable-next-line jsx-a11y/media-has-caption
-                <video
+                <VideoPlayer
                   src={parsha.videoUrl}
                   poster={parsha.thumbUrl ?? undefined}
-                  controls
-                  playsInline
-                  preload="metadata"
                   className="vd-video-el"
+                  videoId={parsha.slug}
+                  title={parsha.name}
                 />
               ) : (
                 <>

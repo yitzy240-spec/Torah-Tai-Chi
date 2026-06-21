@@ -6,6 +6,7 @@ import RecentTeachingsCarousel, { type CarouselCard } from "@/components/RecentT
 import ArticleCard from "@/components/ArticleCard";
 import Announcement from "@/components/Announcement";
 import Brand from "@/components/Brand";
+import VideoPlayer from "@/components/VideoPlayer";
 
 // ISR: revalidate every 60 s; Storyblok webhook triggers on-demand revalidation
 export const revalidate = 60;
@@ -145,14 +146,12 @@ export default async function HomePage() {
           )}
           <div className="video-frame">
             {thisWeek?.videoUrl ? (
-              // eslint-disable-next-line jsx-a11y/media-has-caption
-              <video
+              <VideoPlayer
                 src={thisWeek.videoUrl}
                 poster={thisWeek.thumbUrl ?? undefined}
-                controls
-                playsInline
-                preload="metadata"
                 style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}
+                videoId={thisWeek.slug}
+                title={thisWeek.name}
               />
             ) : (
               <div className="play">

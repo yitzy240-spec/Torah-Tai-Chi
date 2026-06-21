@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { track } from "@/lib/analytics";
 
 interface ShareButtonProps {
   url: string;
@@ -15,6 +16,7 @@ export default function ShareButton({ url, title }: ShareButtonProps) {
     if (typeof navigator !== "undefined" && "share" in navigator) {
       try {
         await navigator.share({ title, url });
+        track("share", { method: "web_share", title });
         return;
       } catch {
         // user cancelled or share failed — fall through to copy
@@ -22,6 +24,7 @@ export default function ShareButton({ url, title }: ShareButtonProps) {
     }
     try {
       await navigator.clipboard.writeText(url);
+      track("share", { method: "copy", title });
       setState("copied");
       setTimeout(() => setState("idle"), 2200);
     } catch {
