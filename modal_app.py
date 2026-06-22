@@ -1673,7 +1673,9 @@ async def _resolve_regen_first_frame(
       - clip_index > 0  (clip 0 has no predecessor)
       - motion_ref_slug is None  (first_frame_url and reference_video_urls
         are mutually exclusive in Seedance)
-      - clip N-1 exists in parent_job_id's clips table with a storage_path
+      - clip N-1 has a RENDERED version (storage_path) under one of the
+        plan's child jobs — NOT the parent/plan job itself, whose clip rows
+        never carry a storage_path
       - clip N-1 shares the same setting_id as clip N
       - clip N does NOT introduce a Jewish ritual keyword that clip N-1
         didn't have (first_frame_url and reference_image_urls are also
@@ -1698,16 +1700,39 @@ async def _resolve_regen_first_frame(
         )
         return None
 
-    # Look up clip N-1 on the parent job.
-    prev_row = (
-        sb.table("clips")
-        .select("index, visual_prompt, setting_id, storage_path")
-        .eq("job_id", parent_job_id)
-        .eq("index", clip_index - 1)
-        .maybe_single()
+    # Look up clip N-1's LATEST RENDERED version. The plan/parent job's own
+    # clip rows never carry a storage_path — the rendered mp4s live under the
+    # CHILD jobs (clips-only / regen) — so the old `eq(job_id, parent_job_id)`
+    # lookup ALWAYS hit a null storage_path and per-clip regens NEVER chained
+    # (silent continuity break: Chukat 2026-06-22, every regenerated clip got
+    # a fresh background). Mirror the dashboard's version picker
+    # (phase-2-data.ts): the newest rendered clip N-1 across the plan's
+    # non-aborted child jobs.
+    child_jobs = (
+        sb.table("jobs")
+        .select("id, status")
+        .eq("regen_of_job_id", parent_job_id)
         .execute()
         .data
-    ) or {}
+    ) or []
+    child_ids = [
+        j["id"] for j in child_jobs
+        if j.get("status") not in ("failed", "cancelled")
+    ]
+    prev_row: dict = {}
+    if child_ids:
+        prev_candidates = (
+            sb.table("clips")
+            .select("index, visual_prompt, setting_id, storage_path, created_at")
+            .in_("job_id", child_ids)
+            .eq("index", clip_index - 1)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+        ) or []
+        prev_row = next(
+            (r for r in prev_candidates if r.get("storage_path")), {}
+        )
 
     prev_storage_path = prev_row.get("storage_path")
 
