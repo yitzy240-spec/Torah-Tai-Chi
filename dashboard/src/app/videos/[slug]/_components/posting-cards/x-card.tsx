@@ -16,6 +16,7 @@ import { ScheduledStateCard } from './_shared/scheduled-state-card';
 import { PostedExpandedHeader } from './_shared/posted-expanded-header';
 import { FailureBanner } from './_shared/failure-banner';
 import { PostActionButtons } from './_shared/post-action-buttons';
+import { PostErrorHint } from './_shared/post-error-hint';
 import { UnpostedCardShell } from './_shared/unposted-card-shell';
 import { BottomSheet } from '../bottom-sheet';
 import { PlatformIcon } from '@/components/platform-icon';
@@ -110,7 +111,7 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
           </>
         )}
 
-        {error && <div style={{ fontSize: 12, color: 'var(--tassel)', marginTop: 6 }}>{error}</div>}
+        <PostErrorHint error={error} platform="X" style={{ marginTop: 6 }} />
 
         <BottomSheet open={editConfirmOpen} onOpenChange={setEditConfirmOpen} title="Edit this post?"
           primaryAction={{ label: 'Yes — open editor', onClick: () => { setEditConfirmOpen(false); setEditFlowOpen(true); } }}
@@ -148,7 +149,7 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
 
       {isFailed && <FailureBanner errorMessage={post?.error_message ?? null} />}
 
-      {error && <div style={{ fontSize: 12, color: 'var(--tassel)', marginBottom: 8 }}>{error}</div>}
+      <PostErrorHint error={error} platform="X" />
 
       <PostActionButtons
         posting={posting}
