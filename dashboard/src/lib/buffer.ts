@@ -59,32 +59,30 @@ async function gql<T>(
   return body.data;
 }
 
-interface AccountChannelsResponse {
-  account: {
-    organizations: Array<{
-      channels: Array<{
-        id: string;
-        service: string | null;
-        name: string | null;
-        displayName: string | null;
-        isDisconnected: boolean;
-      }>;
-    }>;
-  };
+interface ChannelsResponse {
+  channels: Array<{
+    id: string;
+    service: string | null;
+    name: string | null;
+    displayName: string | null;
+    isDisconnected: boolean;
+  }>;
 }
 
+// Buffer's "new" API (launched 2026) forbids the nested
+// account.organizations.channels field for personal API keys — it returns
+// FORBIDDEN / data:null even though account + organizations resolve fine.
+// The supported path is the top-level channels(input:) query, which works
+// with the same key (no extra scope, no plan upgrade). Verified 2026-06-23
+// after Yonah's Instagram posts failed with "No Buffer profile found".
 const LIST_CHANNELS_QUERY = `
-  query ListChannels {
-    account {
-      organizations {
-        channels {
-          id
-          service
-          name
-          displayName
-          isDisconnected
-        }
-      }
+  query ListChannels($orgId: OrganizationId!) {
+    channels(input: { organizationId: $orgId }) {
+      id
+      service
+      name
+      displayName
+      isDisconnected
     }
   }
 `;
@@ -202,8 +200,9 @@ export async function listProfilesFresh(token: string): Promise<BufferProfile[]>
 }
 
 async function listProfilesUncached(token: string): Promise<BufferProfile[]> {
-  const data = await gql<AccountChannelsResponse>(token, LIST_CHANNELS_QUERY, undefined, 'list-profiles');
-  const channels = data.account?.organizations?.flatMap((o) => o.channels ?? []) ?? [];
+  const orgId = await getOrgId(token);
+  const data = await gql<ChannelsResponse>(token, LIST_CHANNELS_QUERY, { orgId }, 'list-profiles');
+  const channels = data.channels ?? [];
   return channels
     .filter((c) => !c.isDisconnected && c.service)
     .map((c) => ({
