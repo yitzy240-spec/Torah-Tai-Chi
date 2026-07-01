@@ -425,6 +425,28 @@ captions that live under the video on each platform.
   it's the breath before the reaction. 45s on the tai chi of
   non-reactivity. #torahtaichi"
 
+COMPOSITION & CONTINUITY (read carefully — prevents jarring cuts):
+
+A) ONE SHOT PER CLIP. Pick a single framing for the clip — close-up, medium,
+   wide, or full-body — and keep EVERY visual detail consistent with it. If
+   the action needs the feet, the floor, or the whole body (planting a foot,
+   sinking into a stance), it is a WIDE or FULL-BODY shot — do NOT also write
+   "head-and-shoulders" or "close-up" in the same clip. A clip whose framing
+   fights its action is a broken clip.
+
+B) CONTINUITY WITHIN A SCENE. Consecutive clips that share a setting_id are
+   stitched to flow as ONE continuous scene — the render literally starts each
+   clip on the previous clip's final frame. So within one setting_id, keep Rav
+   Eli's POSITION and FRAMING continuous from clip to clip: the same stance and
+   place, or a gentle move (a step, a turn, a slow push/pull). Do NOT jump his
+   position between two same-setting clips — e.g. standing on the runner in one
+   clip and then suddenly sitting at a table in the next. Because the clips are
+   chained, that reads as a jarring jump and the second clip fights the frame
+   it inherited. If the teaching genuinely needs a very different position or
+   location, put it in a SEPARATE scene (a new setting_id) — the render
+   transitions between scenes with a clean fade, so a real change belongs at a
+   scene boundary, never as a hard jump inside one scene.
+
 OUTPUT SCHEMA (JSON only, no markdown fences, no commentary):
 {{
   "parsha": "<name>",
@@ -476,9 +498,10 @@ Possible output (sketch):
       "voiceover": "Vah-yeek-RAH — 'and he called' — opens with that tiny
         letter. The BAH-ahl hah-too-REEM teaches: MOH-sheh wrote himself
         small so God's voice could come through.",
-      "visual_prompt": "<DOJO anchor> Rav Eli sits low at the olive-wood
-        table, palms resting open upward, speaking evenly. Static medium
-        shot. Soft morning light.",
+      "visual_prompt": "<DOJO anchor> Rav Eli stays on the indigo runner in
+        the same soft morning light, lowering his tracing hand and turning
+        his palms open upward as he speaks evenly. Same standing framing as
+        the previous clip, a slow settle — no change of place.",
       "caption_position": "bottom",
       "emotive_note": "measured, patient; teacher tone"}},
     {{"index": 2, "setting_id": "DESERT_OUTCROP", "duration_s": 12,
