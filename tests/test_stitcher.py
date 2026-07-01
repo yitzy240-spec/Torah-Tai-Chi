@@ -126,12 +126,14 @@ def test_tail_artifact_is_attenuated_last_of_many(tmp_path):
 
 @pytest.mark.slow
 def test_concat_clips_produces_expected_duration(tmp_path):
-    """Two-clip concat duration matches sum-of-sources PLUS one
-    still-frame prepend on the second clip. Old crossfade subtracted
-    overlap; new still-frame approach ADDS the prepend (no overlap,
-    no crossfade). For 2s + 3s sources with a 0.5s prepend on clip 2:
-    total ≈ 5.5s."""
-    from src.stitcher import _STILL_FRAME_PRE_S
+    """Two-clip concat duration = sum-of-sources PLUS the adaptive
+    still-frame prepend on the second clip (no overlap, no crossfade).
+
+    The test clips are fully SILENT, so both clips read as all-silence:
+    natural join breath already far exceeds the target, and the adaptive
+    insert clamps to _MIN_INSERT_PAUSE_S. For 2s + 3s sources:
+    total ≈ 5s + MIN."""
+    from src.stitcher import _MIN_INSERT_PAUSE_S
     c1 = tmp_path / "a.mp4"
     c2 = tmp_path / "b.mp4"
     _make_test_clip(c1, seconds=2, color="blue")
@@ -147,7 +149,7 @@ def test_concat_clips_produces_expected_duration(tmp_path):
         str(out)
     ], check=True, capture_output=True, text=True)
     duration = float(probe.stdout.strip())
-    expected = 2 + 3 + _STILL_FRAME_PRE_S  # 5.5s
+    expected = 2 + 3 + _MIN_INSERT_PAUSE_S
     # ±0.2s tolerance for ffmpeg's frame-boundary rounding.
     assert expected - 0.2 <= duration <= expected + 0.2
 
@@ -172,11 +174,11 @@ def test_concat_single_clip_through(tmp_path):
 
 @pytest.mark.slow
 def test_concat_four_clips_duration(tmp_path):
-    """Four-clip concat: sum-of-sources PLUS still-frame prepends on
-    clips 1, 2, 3 (the non-first clips). For 2 + 3 + 2 + 2 = 9s
-    source content + 3 × 0.5s prepends = 10.5s total. Loose bound to
-    survive prepend-duration tuning."""
-    from src.stitcher import _STILL_FRAME_PRE_S
+    """Four-clip concat: sum-of-sources PLUS adaptive prepends on clips
+    1, 2, 3 (the non-first clips). Fully-silent test clips → each join
+    clamps to _MIN_INSERT_PAUSE_S. For 2 + 3 + 2 + 2 = 9s source content
+    + 3 × MIN prepends."""
+    from src.stitcher import _MIN_INSERT_PAUSE_S
     clips = []
     for i, (sec, color) in enumerate([(2, "blue"), (3, "red"), (2, "green"), (2, "yellow")]):
         p = tmp_path / f"c{i}.mp4"
@@ -190,5 +192,44 @@ def test_concat_four_clips_duration(tmp_path):
         str(out)
     ], check=True, capture_output=True, text=True)
     duration = float(probe.stdout.strip())
-    expected = 9 + 3 * _STILL_FRAME_PRE_S  # 10.5s for 0.5s prepend
+    expected = 9 + 3 * _MIN_INSERT_PAUSE_S
     assert expected - 0.3 <= duration <= expected + 0.3
+
+
+# ── Adaptive pause math (pure functions — no ffmpeg) ────────────────────
+from src.stitcher import (  # noqa: E402
+    _compute_inserted_pause as _cip,
+    _MIN_INSERT_PAUSE_S as _MN,
+    _MAX_INSERT_PAUSE_S as _MX,
+    _TARGET_PAUSE_STANDARD_S as _STD,
+)
+
+
+def test_pause_fills_deficit_to_target():
+    # Speech butts speech (little natural silence) → fill up to target.
+    assert abs(_cip(0.12, 0.10, 0.70) - 0.48) < 1e-9
+
+
+def test_pause_standard_join_typical():
+    assert abs(_cip(0.27, 0.27, 0.70) - 0.16) < 1e-9
+
+
+def test_pause_already_spacious_clamps_to_min():
+    # Clip already breathes (e.g. a 1.22s intro) → never pad on top, floor MIN.
+    assert _cip(0.18, 1.22, 0.70) == _MN
+
+
+def test_pause_small_deficit_clamps_up_to_min():
+    assert _cip(0.42, 0.18, 0.70) == _MN
+
+
+def test_pause_huge_deficit_caps_at_max():
+    assert _cip(0.0, 0.0, 1.00) == _MX
+
+
+def test_pause_preset_targets_move_result():
+    assert _cip(0.10, 0.10, 0.35) < _cip(0.10, 0.10, 1.00)
+
+
+def test_standard_constant_sane():
+    assert _MN < _STD < _MX
