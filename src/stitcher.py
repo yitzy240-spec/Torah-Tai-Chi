@@ -1,33 +1,50 @@
-"""Stitch clips into a single mp4 with still-frame fade transitions.
+"""Stitch clips into a single mp4 with adaptive, per-join fade transitions.
 
-Each non-last clip fades to black + silence over its last 400 ms; each
-non-first clip is prepended with a 500 ms held first-frame that fades
-in from black (audio delayed by the same window). Hard-concat
-between clips — no overlap, so no audio bleed. The combined effect is
-cinematic breathing room between scenes:
+Each join gets a still-frame fade transition whose *pause length adapts to
+the clips' actual speech timing*. We measure the real trailing silence of
+the outgoing clip and the leading silence of the incoming clip, then insert
+only enough silent still-frame to reach a target speech-to-speech gap
+(the "preset" target — Standard ~700 ms). Clips that already breathe get a
+minimal insert; clips whose narration butts speech-to-speech get more.
 
-  clip N speech ends → 400 ms fade-to-black + silence
-                     → 500 ms still-frame easing in from black + silence
+  clip N speech ends → (natural trailing silence) → short fade-to-black
+                     → inserted silent still-frame easing in from black
                      → clip N+1 speech begins at full volume
 
-Replaced the previous xfade crossfade approach 2026-06-02 (Yonah
-feedback: crossfade overlap caused both word-salad audio bleed at any
-fade > 0.3s AND no perceptible pause between sentences/clips). The
-still-frame fade-in pattern preserves lip-sync (the prepended frames
-are silent and static, so there's no speech to fall out of sync with),
-gives a real ~900 ms of breathing room per join, and avoids the
-"video stopped and started" feel that a pure black gap produced in
-testing (work/fade_test/behaalotcha_v10/v11 iterations).
+Hard-concat between clips — no overlap, so no audio bleed (the 2026-06-02
+crossfade regression stays banned). Lip-sync is preserved because the
+prepended still-frame region is static and silent.
+
+Why adaptive (2026-07-01): the previous build used a *fixed* ~900 ms gap
+tuned for the worst case (speech running to a clip's edge). But Seedance
+places speech differently every clip, so on clips that already end/begin
+with silence the fixed gap stacked on top → dead air → "video keeps
+stopping and starting" (Yonah, latest published video). Measured on that
+video, natural join gaps ranged 0.22s–1.40s; a single fixed value cannot
+fit them. See docs/superpowers/specs/2026-06-24-adaptive-stitch-transitions-design.md.
+
+Only the pause is adaptive; the still-frame/no-overlap structure, the
+de-tone notch, the final-clip trailing-artifact fade, and forced 30 fps
+are all unchanged.
 """
 from __future__ import annotations
+import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
+# ffmpeg/ffprobe are on PATH inside the Modal container (bare names). For
+# local testing on machines where they're not on PATH, set FFMPEG_BIN /
+# FFPROBE_BIN to the full exe path — prod (Modal) leaves them unset and
+# gets the bare names exactly as before.
+_FFMPEG = os.environ.get("FFMPEG_BIN", "ffmpeg")
+_FFPROBE = os.environ.get("FFPROBE_BIN", "ffprobe")
+
 
 def _probe_duration(mp4: Path) -> float:
     result = subprocess.run([
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        _FFPROBE, "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", str(mp4),
     ], check=True, capture_output=True, text=True)
     return float(result.stdout.strip())
@@ -35,7 +52,7 @@ def _probe_duration(mp4: Path) -> float:
 
 def _has_audio_stream(mp4: Path) -> bool:
     result = subprocess.run([
-        "ffprobe", "-v", "error", "-select_streams", "a",
+        _FFPROBE, "-v", "error", "-select_streams", "a",
         "-show_entries", "stream=codec_type",
         "-of", "default=noprint_wrappers=1:nokey=1", str(mp4),
     ], capture_output=True, text=True)
@@ -45,7 +62,7 @@ def _has_audio_stream(mp4: Path) -> bool:
 def _probe_resolution(mp4: Path) -> tuple[int, int]:
     """Returns (width, height) of the video stream."""
     result = subprocess.run([
-        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        _FFPROBE, "-v", "error", "-select_streams", "v:0",
         "-show_entries", "stream=width,height",
         "-of", "csv=s=x:p=0", str(mp4),
     ], check=True, capture_output=True, text=True)
@@ -55,53 +72,147 @@ def _probe_resolution(mp4: Path) -> tuple[int, int]:
 
 # Seedance's neural audio decoder consistently bakes a ~5-6 kHz tonal
 # artifact into every clip — clearly audible as a high-pitch background
-# whine (Yonah 2026-05-29). Spectrum analysis on a sample raw clip:
-# peak at ~5250 Hz, 30 dB above the broadband noise floor. Variants
-# across clips sit anywhere from 5040 to 6000 Hz, so a moderately-wide
-# notch (Q=2.0) at 5500 Hz with -15 dB catches all of them while only
-# nicking sibilance by ~3 dB. After-fix peak: +18 dB above floor —
-# below most listeners' perceptual threshold.
-#
-# Applied as a per-clip pre-pass in both render paths (concat_clips
-# and loudnorm_then_concat) so every stitched video benefits.
+# whine (Yonah 2026-05-29). A moderately-wide notch (Q=2.0) at 5500 Hz
+# with -15 dB catches the 5040-6000 Hz variants across clips while only
+# nicking sibilance by ~3 dB. Applied as a per-clip pre-pass in both
+# render paths so every stitched video benefits — and applied before
+# silence measurement so the whine doesn't read as "sound".
 _DETONE_FILTER = "equalizer=f=5500:width_type=q:width=2.0:g=-15"
 
-# Fade-out applied to the last 400 ms of every non-last clip (video
-# fades to black; audio fades to silence). Calibrated 2026-06-02 via
-# fade-test iterations against the live Beha'alotcha source clips —
-# 400 ms reads as deliberate, not glitchy. Bump higher only if a clip
-# ends mid-motion (Seedance's prompt requests a settled end-frame so
-# this should rarely happen).
-_FADE_OUT_S = 0.4
+# ── Adaptive transition tuning ──────────────────────────────────────────
+# Target speech-to-speech gap at each join (the "Standard" preset). The
+# adaptive layer inserts only enough silent still-frame to reach this,
+# given the clips' measured natural silence. Presets map here:
+#   Tight ~0.35 · Standard ~0.70 · Breathing ~1.00 (s)
+# Provisional per the design spec; calibrated 2026-07-01 against the
+# choppy published video (natural join gaps 0.22-1.40s → Standard lands
+# speech-butting joins at ~0.70s without padding already-spacious ones).
+_TARGET_PAUSE_STANDARD_S = 0.70
 
-# Audio-only fade applied to the TAIL of the FINAL clip (and the
-# single-clip path) to kill Seedance 2.0's trailing audio artifact.
-# Seedance recently started baking a discrete sound burst (~-28 dB)
-# into the last ~100 ms of every clip, sitting after ~300 ms of
-# near-silence that follows the speech (speech typically ends ~600 ms
-# before the clip's end). Non-last clips already hide this via the
-# 400 ms video+audio fade; the last clip kept fade_out=False so its
-# artifact played at full volume as the video's final sound. 0.5 s
-# comfortably covers the silence gap + the final-100ms spike while
-# only barely touching speech (which ends ~600 ms before clip end).
-# Audio-only by design — the video must still end on its final frame.
+# The inserted still-frame pause is clamped to this range. MIN keeps a hair
+# of breath (and a visible scene-change beat) even on already-spacious
+# joins; MAX caps the worst case so a clip with no trailing silence can't
+# produce an absurd gap.
+_MIN_INSERT_PAUSE_S = 0.15
+_MAX_INSERT_PAUSE_S = 0.80
+
+# Fade-out on the outgoing (non-final) clip. Capped small for visual
+# polish; per-clip it's further limited to the clip's trailing silence
+# (+50 ms grace) so the fade never eats the final word of narration.
+_FADE_OUT_MAX_S = 0.25
+
+# Audio-only fade on the TAIL of the FINAL clip (and the single-clip path)
+# to kill Seedance's trailing audio artifact — a discrete ~-28 dB burst
+# baked into the last ~100 ms, sitting after ~300 ms of near-silence that
+# follows the speech. Non-final clips hide this via their fade-out; the
+# final clip has no fade-out, so it gets this audio-only tail fade (the
+# video must still end on its final frame). This is also the answer to
+# "there's a sound at the end of the last clip" — it's removed at stitch.
 _END_AUDIO_FADE_S = 0.5
 
-# Still-frame prepend at the start of every non-first clip. Clones
-# the clip's first frame for this many seconds before the actual
-# clip content begins, then fades that prepended region in from
-# black. Audio is delayed by the same window so speech starts at
-# full volume the moment the visual fully blooms. Calibrated to
-# 500 ms — shorter felt rushed in testing, longer felt like the
-# video stopped. Adjust if operator feedback shifts.
-_STILL_FRAME_PRE_S = 0.5
+# silencedetect params. -30 dB threshold sits above the -28 dB trailing
+# artifact, so measured trailing silence ends just before the artifact
+# (slightly under-counts existing breath → we add slightly more pause, the
+# safe direction). 80 ms min-silence avoids treating inter-word gaps as
+# silence.
+_SILENCE_THRESH_DB = -30
+_SILENCE_MIN_D_S = 0.08
+
+
+def _measure_silence(src: Path, has_audio: bool) -> tuple[float, float]:
+    """Return (leading_silence_s, trailing_silence_s) for one clip,
+    measured on de-toned audio. (0, 0) when the clip has no audio."""
+    if not has_audio:
+        return (0.0, 0.0)
+    duration = _probe_duration(src)
+    result = subprocess.run(
+        [_FFMPEG, "-i", str(src),
+         "-af",
+         f"{_DETONE_FILTER},"
+         f"silencedetect=noise={_SILENCE_THRESH_DB}dB:d={_SILENCE_MIN_D_S}",
+         "-f", "null", "-"],
+        capture_output=True,
+    )
+    txt = result.stderr.decode("utf-8", errors="replace")
+    starts = [float(x) for x in re.findall(r"silence_start: ([\-0-9.]+)", txt)]
+    ends = [float(x) for x in re.findall(r"silence_end: ([\-0-9.]+)", txt)]
+
+    # Leading: a silence region starting at (or ~at) t=0.
+    leading = 0.0
+    if starts and starts[0] < 0.05:
+        leading = (ends[0] if ends else duration) - starts[0]
+
+    # Trailing: the last silence region runs to EOF — detected either by a
+    # dangling start with no matching end, or a final end coinciding with
+    # the clip duration.
+    trailing = 0.0
+    if starts and (len(ends) < len(starts)
+                   or (ends and abs(ends[-1] - duration) < 0.05)):
+        trailing = duration - starts[-1]
+
+    leading = max(0.0, min(leading, duration))
+    trailing = max(0.0, min(trailing, duration))
+    return (leading, trailing)
+
+
+def _compute_inserted_pause(
+    trailing_prev: float, leading_next: float, target: float
+) -> float:
+    """How much silent still-frame to prepend to the incoming clip so the
+    total speech-to-speech gap at this join reaches `target`, clamped to
+    [_MIN_INSERT_PAUSE_S, _MAX_INSERT_PAUSE_S]. Add-only: never trims a
+    clip's own silence (trimming would break first-frame/last-frame
+    chaining continuity)."""
+    existing = trailing_prev + leading_next
+    return max(_MIN_INSERT_PAUSE_S, min(_MAX_INSERT_PAUSE_S, target - existing))
+
+
+# Operator "Auto + Tighter/Looser" control → target pause. The UI stores a
+# signed level (−2…+2, 0 = Auto); this maps it to the target speech-to-speech
+# gap. Central so the mapping can be retuned without migrating stored data.
+# (See docs/superpowers/specs/2026-06-24-adaptive-stitch-transitions-design.md.)
+_LEVEL_TARGET_S = {-2: 0.40, -1: 0.55, 0: 0.70, 1: 0.85, 2: 1.00}
+
+
+def _level_to_target(level: int) -> float:
+    lvl = max(-2, min(2, int(level)))
+    return _LEVEL_TARGET_S[lvl]
+
+
+def resolve_stitch_targets(
+    settings: dict | None,
+) -> tuple[float | None, dict[int, float] | None]:
+    """Map stored stitch settings → (target_pause_s, join_overrides) for
+    concat_clips / loudnorm_then_concat.
+
+    settings shape (all optional): {"level": int, "joins": {"<left_clip_index>": int}}.
+    None / empty / level 0 ⇒ (Standard target, no overrides) = Auto everywhere.
+    Malformed join keys/values are skipped rather than raising, so a bad row
+    can never break a stitch.
+    """
+    if not settings:
+        return (None, None)
+    level = settings.get("level", 0)
+    try:
+        target = _level_to_target(level)
+    except (TypeError, ValueError):
+        target = _TARGET_PAUSE_STANDARD_S
+    overrides: dict[int, float] = {}
+    for k, v in (settings.get("joins") or {}).items():
+        try:
+            overrides[int(k)] = _level_to_target(int(v))
+        except (TypeError, ValueError):
+            continue
+    # target None when it's exactly Standard so callers/logs can tell "Auto"
+    # from an explicit level, but functionally identical.
+    return (target, overrides or None)
 
 
 def _detone_audio(src: Path, dest: Path) -> Path:
     """Apply the de-tone equalizer notch to one clip, copying video.
     Used by the single-clip path and (chained) by loudnorm_then_concat."""
     result = subprocess.run(
-        ["ffmpeg", "-y", "-i", str(src),
+        [_FFMPEG, "-y", "-i", str(src),
          "-af", _DETONE_FILTER,
          "-c:v", "copy",
          str(dest)],
@@ -120,47 +231,39 @@ def _preprocess_clip_for_concat(
     dest: Path,
     target_w: int,
     target_h: int,
-    fade_out: bool,
-    pre_still: bool,
+    fade_out_s: float,
+    pre_still_s: float,
     has_audio: bool,
     end_audio_fade: bool = False,
 ) -> Path:
-    """Re-encode one clip with detone + rescale + optional fade-out at
-    end + optional still-frame prepend with fade-in at start.
+    """Re-encode one clip: detone + rescale + optional tail fade-out +
+    optional still-frame prepend that fades in from black.
 
-    Combined into a single ffmpeg pass so we don't transcode the same
-    video twice. Output is normalized to (target_w, target_h) so the
-    final hard-concat doesn't choke on heterogeneous inputs.
+    Single ffmpeg pass so we don't transcode twice. Output is normalized to
+    (target_w, target_h) so the final hard-concat doesn't choke on
+    heterogeneous inputs.
 
-    `fade_out=True`       → applies the 400 ms tail fade (video + audio).
-    `pre_still=True`      → clones the first frame for 500 ms at the start,
-                           fades it in from black, delays audio by the same
-                           window so speech starts when the visual fully
-                           blooms.
-    `end_audio_fade=True` → applies a 500 ms AUDIO-ONLY tail fade to kill
-                           Seedance's trailing audio artifact. The video
-                           is NOT faded (the clip must end on its final
-                           frame). Independent of `fade_out`; used for the
-                           final clip, which has fade_out=False. A clip
-                           must never get BOTH the fade_out afade and the
-                           end_audio_fade afade — they're mutually
-                           exclusive (see guard below).
-
-    For a 4-clip video the typical pattern is:
-      clip 0 → fade_out=True,  pre_still=False, end_audio_fade=False
-      clip 1 → fade_out=True,  pre_still=True,  end_audio_fade=False
-      clip 2 → fade_out=True,  pre_still=True,  end_audio_fade=False
-      clip 3 → fade_out=False, pre_still=True,  end_audio_fade=True
+    `fade_out_s > 0`     → fade the last `fade_out_s` of video+audio to
+                           black/silence (outgoing non-final clips). Caller
+                           sizes this to not exceed the clip's trailing
+                           silence, so narration isn't clipped.
+    `pre_still_s > 0`    → clone the first frame for `pre_still_s` seconds at
+                           the start, fade it in from black over that whole
+                           window, and delay audio by the same window so
+                           speech starts when the visual fully blooms. This
+                           is the adaptive per-join pause.
+    `end_audio_fade`     → 500 ms AUDIO-ONLY tail fade (final clip only) to
+                           kill Seedance's trailing artifact. Video is NOT
+                           faded. Mutually exclusive with fade_out_s.
     """
-    # The two tail-audio fades are mutually exclusive: fade_out already
-    # fades the audio (and video) tail, so layering end_audio_fade on top
-    # would be redundant/double-faded. The last clip is the only one with
-    # end_audio_fade=True and it always has fade_out=False, so this guard
-    # is defensive, not load-bearing.
-    if fade_out and end_audio_fade:
+    # A clip must never get BOTH a tail fade-out and the end-audio-fade —
+    # they'd double-fade the tail. The final clip is the only one with
+    # end_audio_fade and it always has fade_out_s=0, so this is defensive.
+    if fade_out_s > 0 and end_audio_fade:
         end_audio_fade = False
+
     duration = _probe_duration(src)
-    fadeout_start = max(0.0, duration - _FADE_OUT_S)
+    fadeout_start = max(0.0, duration - fade_out_s)
     end_audio_fade_start = max(0.0, duration - _END_AUDIO_FADE_S)
 
     v_parts = [
@@ -168,37 +271,35 @@ def _preprocess_clip_for_concat(
         f"pad={target_w}:{target_h}:(ow-iw)/2:(oh-ih)/2:color=black",
         "setsar=1",
     ]
-    if fade_out:
-        v_parts.append(f"fade=t=out:st={fadeout_start:.3f}:d={_FADE_OUT_S}")
-    if pre_still:
-        v_parts.append(f"tpad=start_duration={_STILL_FRAME_PRE_S}:start_mode=clone")
-        v_parts.append(f"fade=t=in:st=0:d={_STILL_FRAME_PRE_S}")
+    if fade_out_s > 0:
+        v_parts.append(f"fade=t=out:st={fadeout_start:.3f}:d={fade_out_s:.3f}")
+    if pre_still_s > 0:
+        v_parts.append(f"tpad=start_duration={pre_still_s:.3f}:start_mode=clone")
+        v_parts.append(f"fade=t=in:st=0:d={pre_still_s:.3f}")
     vf = ",".join(v_parts)
 
     a_parts = [_DETONE_FILTER]
-    if fade_out:
-        a_parts.append(f"afade=t=out:st={fadeout_start:.3f}:d={_FADE_OUT_S}")
+    if fade_out_s > 0:
+        a_parts.append(f"afade=t=out:st={fadeout_start:.3f}:d={fade_out_s:.3f}")
     if end_audio_fade:
         a_parts.append(
             f"afade=t=out:st={end_audio_fade_start:.3f}:d={_END_AUDIO_FADE_S}"
         )
-    if pre_still:
-        pre_ms = int(_STILL_FRAME_PRE_S * 1000)
+    if pre_still_s > 0:
+        pre_ms = int(round(pre_still_s * 1000))
         a_parts.append(f"adelay={pre_ms}|{pre_ms}")
     af = ",".join(a_parts)
 
-    args = ["ffmpeg", "-y", "-i", str(src), "-vf", vf]
+    args = [_FFMPEG, "-y", "-i", str(src), "-vf", vf]
     if has_audio:
         args += ["-af", af]
     args += [
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-pix_fmt", "yuv420p",
-        # Force 30 fps. Seedance outputs 23.976 fps natively; Facebook Reels
-        # + Instagram Reels require >= 24 fps and reject 23.976 (rounded
-        # to 23 by their preflight check). Yonah hit this on the 2026-06-02
-        # Beha'alotcha post — "frame rate must be between 24 and 60".
-        # 30 gives a stable round number with headroom; libx264 will
-        # duplicate frames as needed (visually identical to viewers).
+        # Force 30 fps. Seedance outputs 23.976 fps natively; Facebook /
+        # Instagram Reels require >= 24 fps and reject 23.976 (rounded to
+        # 23 by their preflight). 30 gives a stable round number; libx264
+        # duplicates frames as needed (visually identical).
         "-r", "30",
     ]
     if has_audio:
@@ -209,51 +310,50 @@ def _preprocess_clip_for_concat(
     if result.returncode != 0:
         raise RuntimeError(
             f"_preprocess_clip_for_concat failed for {src} "
-            f"(fade_out={fade_out}, pre_still={pre_still}, dur={duration:.2f}s): "
+            f"(fade_out_s={fade_out_s:.3f}, pre_still_s={pre_still_s:.3f}, "
+            f"dur={duration:.2f}s): "
             f"{result.stderr.decode('utf-8', errors='replace')[-500:]}"
         )
     return dest
 
 
-def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Path:
-    """Stitch clips end-to-end with still-frame fade transitions.
+def concat_clips(
+    clips: list[Path],
+    dest: Path,
+    crossfade_s: float = 0.35,
+    target_pause_s: float | None = None,
+    join_overrides: dict[int, float] | None = None,
+) -> Path:
+    """Stitch clips end-to-end with adaptive, per-join still-frame fades.
 
-    Single clip: detoned and passed through (no fade work needed when
-    there's no transition).
+    Single clip: detoned + trailing-artifact audio fade, passed through.
 
-    Multiple clips: each clip is re-encoded once via
-    _preprocess_clip_for_concat (which applies detone + rescale +
-    fade-out at end (if non-last) + still-frame prepend with fade-in
-    (if non-first)), then the preprocessed files are concatenated
-    via ffmpeg's `concat` demuxer (-c copy — no second transcode).
+    Multiple clips: measure each clip's leading/trailing silence, compute a
+    per-join inserted pause to reach the target speech-to-speech gap, then
+    re-encode each clip once (detone + rescale + tail fade-out if non-last +
+    adaptive still-frame prepend if non-first) and hard-concat via the
+    demuxer (-c copy — no second transcode).
 
-    Transition shape at each join:
-      clip N speech ends → 400 ms fade-to-black + silence
-                         → 500 ms still-frame fade-in from black, audio
-                           still silent
-                         → clip N+1 speech begins at full volume
+    `target_pause_s`   → the Standard/Tight/Breathing target gap in seconds.
+                         None ⇒ Standard (_TARGET_PAUSE_STANDARD_S). This is
+                         how the global preset reaches the engine.
+    `join_overrides`   → optional {left_clip_index: target_pause_s} to
+                         override the target at a specific join (per-join
+                         preset). Absent keys use `target_pause_s`.
+    `crossfade_s`      → retained for back-compat; IGNORED (no crossfade).
 
-    Cumulative breathing room per join: ~900 ms. Lip-sync stays intact
-    because the prepended still-frame region is, by definition, static
-    and silent.
-
-    The `crossfade_s` parameter is retained for back-compat with
-    existing callers (e.g. loudnorm_then_concat passes it through) but
-    is IGNORED — there is no crossfade in the new flow. Tune the fade
-    durations via the module-level _FADE_OUT_S and _STILL_FRAME_PRE_S
-    constants instead.
+    Backward-compatible: existing callers that pass neither new param get
+    adaptive-Standard transitions automatically.
     """
     if not clips:
         raise ValueError("No clips to concat")
     dest.parent.mkdir(parents=True, exist_ok=True)
     work = dest.parent
+    base_target = target_pause_s if target_pause_s is not None else _TARGET_PAUSE_STANDARD_S
+    overrides = join_overrides or {}
 
-    # Single-clip: detone + tail audio-fade if it has audio, otherwise
-    # straight-copy. The tail audio-fade kills Seedance's trailing
-    # artifact (same fix as the final clip in the multi-clip path).
-    # Routed through _preprocess_clip_for_concat at the clip's own
-    # resolution with no video fade and no still-frame prepend, so the
-    # video is untouched apart from the forced 30 fps re-encode.
+    # Single-clip: detone + trailing-artifact audio fade (or straight copy
+    # when there's no audio). No transition work needed.
     if len(clips) == 1:
         if _has_audio_stream(clips[0]):
             w, h = _probe_resolution(clips[0])
@@ -264,8 +364,8 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
             return _preprocess_clip_for_concat(
                 clips[0], dest,
                 target_w=w, target_h=h,
-                fade_out=False,
-                pre_still=False,
+                fade_out_s=0.0,
+                pre_still_s=0.0,
                 has_audio=True,
                 end_audio_fade=True,
             )
@@ -282,33 +382,59 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
 
     has_audio = all(_has_audio_stream(c) for c in clips)
 
-    # Per-clip pre-process: detone + rescale + fades in a single
-    # ffmpeg pass. Each output mp4 is normalized to (target_w, target_h)
-    # so the concat demuxer doesn't choke on heterogeneous inputs.
+    # Measure natural silence per clip (leading, trailing) up front so we
+    # can size each join's inserted pause and each clip's fade-out.
+    silences = [_measure_silence(c, has_audio) for c in clips]
+
+    # Per-clip pre-process: detone + rescale + adaptive fades, one ffmpeg
+    # pass each, normalized to (target_w, target_h) so the concat demuxer
+    # doesn't choke on heterogeneous inputs.
     preprocessed: list[Path] = []
+    n = len(clips)
     for i, src in enumerate(clips):
+        is_last = i == n - 1
+        is_first = i == 0
+        trailing_i = silences[i][1]
+
+        # Outgoing fade-out (non-final): capped, and never longer than this
+        # clip's trailing silence (+50 ms grace) so it can't clip narration.
+        fade_out_s = 0.0
+        if not is_last:
+            fade_out_s = min(_FADE_OUT_MAX_S, trailing_i + 0.05)
+
+        # Incoming adaptive pause (non-first): fill to the target for the
+        # join between clip i-1 and clip i.
+        pre_still_s = 0.0
+        if not is_first:
+            target = overrides.get(i - 1, base_target)
+            trailing_prev = silences[i - 1][1]
+            leading_i = silences[i][0]
+            pre_still_s = _compute_inserted_pause(trailing_prev, leading_i, target)
+
         d = work / f"_pp_{i:02d}.mp4"
         _preprocess_clip_for_concat(
             src, d,
             target_w=target_w, target_h=target_h,
-            fade_out=(i < len(clips) - 1),
-            pre_still=(i > 0),
+            fade_out_s=fade_out_s,
+            pre_still_s=pre_still_s,
             has_audio=has_audio,
-            end_audio_fade=(i == len(clips) - 1),
+            end_audio_fade=is_last,
         )
         preprocessed.append(d)
 
-    # Hard concat via demuxer. -c copy means no second transcode —
-    # we already did the single re-encode per clip above. The concat
-    # demuxer's list file uses single-quoted paths; forward-slash
-    # paths (.as_posix()) are safe on every platform ffmpeg supports.
+    # Hard concat via demuxer. -c copy means no second transcode. The
+    # demuxer resolves list entries relative to the LIST FILE's directory,
+    # so we write bare basenames (the _pp files are always siblings of the
+    # list). This is robust whether the caller passed an absolute or a
+    # relative dest path — an absolute path in the list double-resolves
+    # under a relative invocation.
     concat_list = work / "_concat_list.txt"
     with concat_list.open("w", encoding="utf-8") as f:
         for p in preprocessed:
-            f.write(f"file '{p.as_posix()}'\n")
+            f.write(f"file '{p.name}'\n")
 
     args = [
-        "ffmpeg", "-y",
+        _FFMPEG, "-y",
         "-f", "concat", "-safe", "0",
         "-i", str(concat_list),
         "-c", "copy",
@@ -333,31 +459,32 @@ def concat_clips(clips: list[Path], dest: Path, crossfade_s: float = 0.35) -> Pa
 
 
 def loudnorm_then_concat(
-    inputs: list[Path], dest: Path, crossfade_s: float = 0.35
+    inputs: list[Path],
+    dest: Path,
+    crossfade_s: float = 0.35,
+    target_pause_s: float | None = None,
+    join_overrides: dict[int, float] | None = None,
 ) -> Path:
-    """Two-pass: normalize each input's audio with EBU R128 loudnorm,
-    then concat with crossfade.
+    """Two-pass: normalize each input's audio with EBU R128 loudnorm, then
+    adaptive concat.
 
     Compose pulls clips from different generation runs which can have
-    different loudness profiles (varies by Seedance roll, sometimes 6+
-    LUFS apart). Loudnorm flattens them so cuts don't yank the volume.
-
-    First pass: per-clip loudnorm with -c:v copy (cheap — no video re-
-    encode). Second pass: concat_clips, which probes dimensions and
-    rescales heterogeneous inputs inline before xfade (so we don't
-    need to rescale here too).
+    different loudness profiles (sometimes 6+ LUFS apart). Loudnorm flattens
+    them so cuts don't yank the volume. First pass: per-clip loudnorm with
+    -c:v copy (cheap). Second pass: concat_clips (probes dimensions +
+    rescales + adaptive fades). Forwards the preset params through.
     """
     work_dir = dest.parent
     work_dir.mkdir(parents=True, exist_ok=True)
     normalized: list[Path] = []
     for i, src in enumerate(inputs):
         norm_path = work_dir / f"_norm_{i:02d}.mp4"
-        # De-tone BEFORE loudnorm so loudnorm doesn't normalize against
-        # a clip whose energy is dominated by the artifact. Chained in
-        # a single ffmpeg pass for efficiency (one re-encode, not two).
+        # De-tone BEFORE loudnorm so loudnorm doesn't normalize against a
+        # clip whose energy is dominated by the artifact. Chained in one
+        # ffmpeg pass (one re-encode, not two).
         result = subprocess.run(
             [
-                "ffmpeg", "-y", "-i", str(src),
+                _FFMPEG, "-y", "-i", str(src),
                 "-af", f"{_DETONE_FILTER},loudnorm=I=-23:LRA=7:TP=-2",
                 "-c:v", "copy",
                 str(norm_path),
@@ -370,8 +497,11 @@ def loudnorm_then_concat(
                 f"{result.stderr.decode('utf-8', errors='replace')[-500:]}"
             )
         normalized.append(norm_path)
-    # concat_clips would also detone, but the inputs here are already
-    # detoned via the chained filter above. Detone is idempotent (the
-    # already-suppressed band stays suppressed), so calling concat_clips
-    # is fine — at worst we get one wasted ffmpeg pass per clip.
-    return concat_clips(normalized, dest, crossfade_s=crossfade_s)
+    # concat_clips re-detones (idempotent — the suppressed band stays
+    # suppressed), so passing already-detoned inputs is fine.
+    return concat_clips(
+        normalized, dest,
+        crossfade_s=crossfade_s,
+        target_pause_s=target_pause_s,
+        join_overrides=join_overrides,
+    )

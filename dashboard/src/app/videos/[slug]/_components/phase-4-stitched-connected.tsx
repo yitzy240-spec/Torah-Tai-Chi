@@ -15,6 +15,8 @@ interface Props {
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
+  stitchLevel: number;
+  stitchJoins: Record<string, number>;
 }
 
 export function Phase4StitchedConnected({ parshaSlug, ...rest }: Props) {

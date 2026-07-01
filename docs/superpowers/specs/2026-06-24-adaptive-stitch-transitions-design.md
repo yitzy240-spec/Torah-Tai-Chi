@@ -1,7 +1,8 @@
 # Adaptive, per-join stitch transitions with operator presets
 
-- **Date:** 2026-06-24
-- **Status:** Design — approved in brainstorm, pending spec review
+- **Date:** 2026-06-24 (control UX revised 2026-07-01)
+- **Status:** Phase 1 (engine / adaptive Auto) BUILT + tested on real clips,
+  pending deploy. Phase 2–3 (Auto/Tighter/Looser controls + per-cut) speccing → build.
 - **Author:** Yitzy + Claude
 - **Area:** `src/stitcher.py`, `modal_app.py` stitch paths, dashboard video page
 
@@ -108,26 +109,40 @@ which is the conceptual core of the fix. The still-frame + no-overlap
 structure is unchanged, so the 2026-06-02 audio-bleed failure mode cannot
 recur.
 
-## Layer 2 — global preset → target pause
+## Layer 2 — global control: Auto + Tighter/Looser
 
-| Preset         | Target inter-speech pause (provisional) |
-|----------------|------------------------------------------|
-| Tight          | ~350 ms                                  |
-| Standard (default) | ~700 ms                              |
-| Breathing room | ~1000 ms                                 |
+The operator-facing control is **Auto by default**, with a relative nudge
+for the whole video. "Auto" is not a different engine — it's the adaptive
+tuning at the Standard target. The nudge shifts that target up/down. This
+framing (chosen 2026-07-01) beats named presets because the operator judges
+*after* watching and thinks "a bit tighter," not "switch to Breathing."
 
-Numbers are **provisional** and will be calibrated against a real
-multi-clip video (see Calibration). The preset stores an enum, not raw ms,
-so we can retune the mapping centrally without touching stored data.
+Discrete levels, stored as a signed integer `level` (−2…+2), mapped to a
+target inter-speech pause (provisional, calibrated on a real video):
 
-## Layer 3 — per-join override
+| Level | Label       | Target pause |
+|-------|-------------|--------------|
+| −2    | Tighter ××  | ~0.40 ms→s   |
+| −1    | Tighter ×   | ~0.55 s      |
+|  0    | **Auto**    | ~0.70 s      |
+| +1    | Looser ×    | ~0.85 s      |
+| +2    | Looser ××   | ~1.00 s      |
 
-- Stored as a sparse map from join index → preset enum. Join index keys on
-  the **left** clip (join *i* = clip *i* → clip *i+1*).
-- Absent key ⇒ that join uses the global preset. So overrides are sparse;
-  the common video stores none.
-- UI: hidden behind a small "adjust this cut" affordance per join, shown
-  only when the operator opens transition controls. Never part of the
+Storing the *level* (not raw ms) lets us retune the mapping centrally
+without migrating data. Level 0 (Auto) is the default and requires zero
+interaction — most videos never leave it.
+
+## Layer 3 — per-cut override
+
+- Stored as a sparse map from join index → `level`. Join index keys on the
+  **left** clip (join *i* = clip *i* → clip *i+1*).
+- Absent key ⇒ that cut follows the global level. Overrides are sparse; the
+  common video stores none.
+- Presented in the same Auto/Tighter/Looser vocabulary, one row per cut,
+  labelled by position + timestamp (e.g. "Cut 2 · 0:20") so he can match
+  the transition he just saw to the row.
+- Progressive disclosure: revealed only when the operator opens the
+  transition control *and* chooses to fine-tune a specific cut. Never on the
   default review surface.
 
 ## Data model
@@ -140,13 +155,15 @@ plan):
 
 ```json
 {
-  "preset": "standard",            // global; default "standard" if absent
-  "joins": { "1": "tight" }         // sparse per-join overrides (left-clip index)
+  "level": 0,                // global −2..+2; 0 = Auto (default if absent)
+  "joins": { "1": -1 }        // sparse per-cut overrides (left-clip index → level)
 }
 ```
 
-Absent column / null ⇒ behaves exactly as "standard everywhere," which is
-also what every legacy render produces. No migration of existing rows needed.
+Absent column / null ⇒ Auto everywhere, which is also what every legacy
+render and every fresh video produces. No migration of existing rows needed.
+The `resolve_stitch_targets` helper maps `level` → `target_pause_s` and the
+`joins` map → `join_overrides` for `concat_clips`.
 
 ## Stitcher API changes
 
@@ -175,20 +192,29 @@ def concat_clips(
 
 `loudnorm_then_concat` (compose path) forwards the same new params.
 
-## UI / operator flow
+## UI / operator flow — auto-first, adjust-after-review
 
-- Lives in the phase where the operator **reviews the stitched video**
-  before posting (exact phase/component pinned in the plan — likely the
-  plan-review / preview surface, not the post surface).
-- Default view shows **no transition controls** — just the video. The
-  three-preset global control is one tap behind a clearly-labelled,
-  *secondary* affordance (e.g. "Transitions: Standard ▾"). Consistent with
-  mobile-first and "destructive/advanced controls are visually demoted."
-- Changing the preset (or an override) re-stitches from the already-rendered
-  clips — **no Seedance regeneration**, so it's cheap and fast (re-encode +
-  concat only).
-- Per-join override is revealed only when the operator opens the transition
-  control and chooses to adjust an individual cut.
+Transitions can only be judged *after* watching, so the flow is: stitch on
+Auto → review → optionally nudge → re-stitch → review again. The control
+lives directly under the **finished stitched video** at the review step
+(exact phase/component pinned in the plan).
+
+1. Operator stitches; the video assembles with **Auto** transitions. No
+   control touched — the common path ends here (he posts).
+2. Under the player, a single quiet line: `Transitions: Auto ▾`. Collapsed
+   by default; demoted (mobile-first, "advanced controls visually demoted").
+3. If the *whole video* feels off, he expands it and nudges **Tighter ⟷
+   Looser** (Auto centred), then taps **Re-stitch**.
+4. If *one cut* is off, he opens the per-cut list (progressive disclosure),
+   adjusts that row (labelled "Cut N · m:ss"), and re-stitches.
+5. **Re-stitch re-joins the already-rendered clips** — no Seedance
+   regeneration. Fast (re-encode + concat only) and free. The action must
+   say so explicitly ("re-joins your clips · ~seconds · no re-generation")
+   so he doesn't fear it costs a render.
+
+Re-stitch overwrites the same final video in place; he reviews and iterates
+until happy. Changing the global level leaves any per-cut overrides intact
+(a small "N cuts customised · reset" affordance covers the confusing case).
 
 ## Backward compatibility & rollout
 

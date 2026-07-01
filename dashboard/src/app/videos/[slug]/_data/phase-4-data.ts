@@ -15,6 +15,9 @@ export type Phase4Props = {
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
+  /** Operator transition settings (Auto=0). Feeds the Transitions control. */
+  stitchLevel: number;
+  stitchJoins: Record<string, number>;
 };
 
 export async function getPhase4Props(
@@ -26,7 +29,7 @@ export async function getPhase4Props(
 
   // Parallelize: video row + clip plan + clip rows — all independent
   const [videoResult, planResult, clipsResult] = await Promise.all([
-    supabase.from('videos').select('id, mp4_path, thumb_path, job_id').eq('id', draftVideoId).single(),
+    supabase.from('videos').select('id, mp4_path, thumb_path, job_id, stitch_settings').eq('id', draftVideoId).single(),
     clipPlanId
       ? supabase.from('clip_plans').select('plan_json').eq('id', clipPlanId).single()
       : Promise.resolve({ data: null }),
@@ -37,10 +40,15 @@ export async function getPhase4Props(
   // in the UI. The video row exists immediately on insert with empty
   // mp4_path; Modal updates mp4_path on success or jobs.status='failed'
   // + error_message on crash. Phase 4 subscribes to both.
-  const videoRow = videoResult.data as { id: string; mp4_path: string | null; thumb_path: string | null; job_id: string | null } | null;
+  const videoRow = videoResult.data as {
+    id: string; mp4_path: string | null; thumb_path: string | null; job_id: string | null;
+    stitch_settings: { level?: number; joins?: Record<string, number> } | null;
+  } | null;
   const videoMp4Path = videoRow?.mp4_path ?? null;
   const thumbPath = videoRow?.thumb_path ?? null;
   const composeJobId = videoRow?.job_id ?? null;
+  const stitchLevel = Math.max(-2, Math.min(2, Math.round(videoRow?.stitch_settings?.level ?? 0)));
+  const stitchJoins = videoRow?.stitch_settings?.joins ?? {};
   const planJson = planResult.data?.plan_json ?? null;
   const clipRowsForBoundaries: Array<{ id: string; index: number }> = (clipsResult.data ?? []).map(
     (c) => ({
@@ -62,5 +70,7 @@ export async function getPhase4Props(
     captionsVttDataUrl,
     clipBoundariesS,
     totalDurationS,
+    stitchLevel,
+    stitchJoins,
   };
 }
