@@ -14,6 +14,7 @@ import { useJobStream } from '@/hooks/use-job-stream';
 import { isTerminalStage } from '@/lib/job-event-types';
 import { humanizeRenderError } from '@/lib/humanize-render-error';
 import { TransitionsControl } from './transitions-control';
+import type { CutType } from '../_data/phase-4-data';
 
 interface Props {
   videoId: string;
@@ -24,8 +25,8 @@ interface Props {
   /** Cumulative start-of-clip offsets in seconds, e.g. [0, 9, 19, 28] */
   clipBoundariesS: number[];
   totalDurationS: number;
-  stitchLevel: number;
-  stitchJoins: Record<string, number>;
+  autoCutTypes: CutType[];
+  cutOverrides: Record<string, CutType>;
   onAdvance: () => void;
   onBack: () => void;
 }
@@ -38,8 +39,8 @@ export function Phase4Stitched({
   captionsVttDataUrl,
   clipBoundariesS,
   totalDurationS,
-  stitchLevel,
-  stitchJoins,
+  autoCutTypes,
+  cutOverrides,
   onAdvance,
   onBack,
 }: Props) {
@@ -288,8 +289,8 @@ export function Phase4Stitched({
       <div style={{ maxWidth: 360, margin: '0 auto' }}>
         <TransitionsControl
           videoId={videoId}
-          initialLevel={stitchLevel}
-          initialJoins={stitchJoins}
+          autoCutTypes={autoCutTypes}
+          cutOverrides={cutOverrides}
           clipBoundariesS={clipBoundariesS}
           onRestitchStart={() => setRestitching(true)}
         />

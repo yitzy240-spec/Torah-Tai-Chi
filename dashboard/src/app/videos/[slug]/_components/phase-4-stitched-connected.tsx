@@ -5,6 +5,7 @@
 'use client';
 import { useRouter } from 'next/navigation';
 import { Phase4Stitched } from './phase-4-stitched';
+import type { CutType } from '../_data/phase-4-data';
 
 interface Props {
   parshaSlug: string;
@@ -15,8 +16,8 @@ interface Props {
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
-  stitchLevel: number;
-  stitchJoins: Record<string, number>;
+  autoCutTypes: CutType[];
+  cutOverrides: Record<string, CutType>;
 }
 
 export function Phase4StitchedConnected({ parshaSlug, ...rest }: Props) {

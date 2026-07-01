@@ -2,20 +2,18 @@
 import { createClient } from '@/lib/supabase/server';
 
 /**
- * Re-stitch an already-composed video with new transition settings —
- * WITHOUT re-generating any clips. Persists the operator's Auto/Tighter/
- * Looser choice (+ any per-cut overrides) onto the videos row, then re-runs
- * the SAME compose job in place (Modal reads the settings and overwrites
- * jobs/{compose_job_id}/final.mp4). Cheap: re-encode + concat only.
+ * Re-stitch an already-composed video with new per-cut transition choices —
+ * WITHOUT re-generating any clips. Persists the operator's per-cut overrides
+ * (hard cut / dissolve; absent = Auto) onto the videos row, then re-runs the
+ * SAME compose job in place. Cheap: re-encode + concat only.
  *
- * settings shape: { level: -2..2, joins?: { "<leftClipIndex>": -2..2 } }.
- * level 0 = Auto. joins holds only cuts that differ from the global level.
+ * settings.cuts: { "<leftClipIndex>": "hard" | "dissolve" }. Auto = omit.
  */
 export async function restitchVideo(opts: {
   videoId: string;
-  settings: { level: number; joins?: Record<string, number> };
+  cuts: Record<string, 'hard' | 'fade'>;
 }): Promise<{ ok: true } | { error: string }> {
-  const { videoId, settings } = opts;
+  const { videoId, cuts } = opts;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Not authenticated' };
@@ -31,30 +29,25 @@ export async function restitchVideo(opts: {
     return { error: 'This video has no stored clips to re-stitch.' };
   }
 
-  // Normalize: clamp global level, and keep only per-cut overrides that
-  // actually differ from the global (else they're redundant — the cut
-  // already follows global).
-  const level = Math.max(-2, Math.min(2, Math.round(settings.level ?? 0)));
-  const joins: Record<string, number> = {};
-  for (const [k, v] of Object.entries(settings.joins ?? {})) {
+  // Keep only valid, in-range overrides.
+  const clean: Record<string, 'hard' | 'fade'> = {};
+  for (const [k, v] of Object.entries(cuts ?? {})) {
     const idx = Number(k);
-    const lvl = Math.max(-2, Math.min(2, Math.round(Number(v))));
-    if (Number.isInteger(idx) && idx >= 0 && lvl !== level) {
-      joins[String(idx)] = lvl;
+    if (Number.isInteger(idx) && idx >= 0 && (v === 'hard' || v === 'fade')) {
+      clean[String(idx)] = v;
     }
   }
-  const stitchSettings = { level, joins };
 
   const { error: upErr } = await supabase
     .from('videos')
-    .update({ stitch_settings: stitchSettings })
+    .update({ stitch_settings: { cuts: clean } })
     .eq('id', videoId);
   if (upErr) {
     return { error: `Could not save transition settings: ${upErr.message}` };
   }
 
-  // Reset the compose job out of its terminal state so Modal actually
-  // re-runs it (compose_video early-returns "already_done" on terminal).
+  // Reset the compose job out of its terminal state so Modal re-runs it
+  // (compose_video early-returns "already_done" on terminal).
   await supabase
     .from('jobs')
     .update({
@@ -91,7 +84,6 @@ export async function restitchVideo(opts: {
         .eq('id', video.job_id);
       return { error: String(e) };
     }
-    // Timeout/abort is expected — Modal keeps running server-side.
   }
 
   return { ok: true };

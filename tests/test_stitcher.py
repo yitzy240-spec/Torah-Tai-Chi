@@ -126,14 +126,10 @@ def test_tail_artifact_is_attenuated_last_of_many(tmp_path):
 
 @pytest.mark.slow
 def test_concat_clips_produces_expected_duration(tmp_path):
-    """Two-clip concat duration = sum-of-sources PLUS the adaptive
-    still-frame prepend on the second clip (no overlap, no crossfade).
-
-    The test clips are fully SILENT, so both clips read as all-silence:
-    natural join breath already far exceeds the target, and the adaptive
-    insert clamps to _MIN_INSERT_PAUSE_S. For 2s + 3s sources:
-    total ≈ 5s + MIN."""
-    from src.stitcher import _MIN_INSERT_PAUSE_S
+    """Two-clip concat duration ≈ sum-of-sources. The test clips are fully
+    SILENT, so each side of the cut already has silence far exceeding the
+    beat — both the settle and the lead-in pads clamp to 0, adding no time.
+    For 2s + 3s sources: total ≈ 5s."""
     c1 = tmp_path / "a.mp4"
     c2 = tmp_path / "b.mp4"
     _make_test_clip(c1, seconds=2, color="blue")
@@ -149,9 +145,8 @@ def test_concat_clips_produces_expected_duration(tmp_path):
         str(out)
     ], check=True, capture_output=True, text=True)
     duration = float(probe.stdout.strip())
-    expected = 2 + 3 + _MIN_INSERT_PAUSE_S
-    # ±0.2s tolerance for ffmpeg's frame-boundary rounding.
-    assert expected - 0.2 <= duration <= expected + 0.2
+    # ±0.3s tolerance for ffmpeg frame-boundary rounding.
+    assert 5.0 - 0.3 <= duration <= 5.0 + 0.3
 
 
 @pytest.mark.slow
@@ -174,11 +169,9 @@ def test_concat_single_clip_through(tmp_path):
 
 @pytest.mark.slow
 def test_concat_four_clips_duration(tmp_path):
-    """Four-clip concat: sum-of-sources PLUS adaptive prepends on clips
-    1, 2, 3 (the non-first clips). Fully-silent test clips → each join
-    clamps to _MIN_INSERT_PAUSE_S. For 2 + 3 + 2 + 2 = 9s source content
-    + 3 × MIN prepends."""
-    from src.stitcher import _MIN_INSERT_PAUSE_S
+    """Four-clip concat ≈ sum-of-sources. Fully-silent test clips → every
+    side of every cut already exceeds the beat, so all pads clamp to 0.
+    For 2 + 3 + 2 + 2 = 9s source content, total ≈ 9s."""
     clips = []
     for i, (sec, color) in enumerate([(2, "blue"), (3, "red"), (2, "green"), (2, "yellow")]):
         p = tmp_path / f"c{i}.mp4"
@@ -192,80 +185,53 @@ def test_concat_four_clips_duration(tmp_path):
         str(out)
     ], check=True, capture_output=True, text=True)
     duration = float(probe.stdout.strip())
-    expected = 9 + 3 * _MIN_INSERT_PAUSE_S
-    assert expected - 0.3 <= duration <= expected + 0.3
+    assert 9.0 - 0.4 <= duration <= 9.0 + 0.4
 
 
-# ── Adaptive pause math (pure functions — no ffmpeg) ────────────────────
-from src.stitcher import (  # noqa: E402
-    _compute_inserted_pause as _cip,
-    _MIN_INSERT_PAUSE_S as _MN,
-    _MAX_INSERT_PAUSE_S as _MX,
-    _TARGET_PAUSE_STANDARD_S as _STD,
-)
+# ── Scene-aware cut-type logic (pure functions — no ffmpeg) ──────────────
+from src.stitcher import auto_cut_type, resolve_cut_types, HARD, FADE  # noqa: E402
 
 
-def test_pause_fills_deficit_to_target():
-    # Speech butts speech (little natural silence) → fill up to target.
-    assert abs(_cip(0.12, 0.10, 0.70) - 0.48) < 1e-9
+def test_auto_hard_within_scene():
+    prev = {"setting_id": "DOJO", "motion_ref_slug": None}
+    curr = {"setting_id": "DOJO", "motion_ref_slug": None}
+    assert auto_cut_type(prev, curr) == HARD
 
 
-def test_pause_standard_join_typical():
-    assert abs(_cip(0.27, 0.27, 0.70) - 0.16) < 1e-9
+def test_auto_fade_on_setting_change():
+    prev = {"setting_id": "DOJO", "motion_ref_slug": None}
+    curr = {"setting_id": "HILLTOP", "motion_ref_slug": None}
+    assert auto_cut_type(prev, curr) == FADE
 
 
-def test_pause_already_spacious_clamps_to_min():
-    # Clip already breathes (e.g. a 1.22s intro) → never pad on top, floor MIN.
-    assert _cip(0.18, 1.22, 0.70) == _MN
+def test_auto_fade_on_motion_ref():
+    # A motion-ref clip can't be frame-chained → fade in, even same setting.
+    prev = {"setting_id": "HILLTOP", "motion_ref_slug": None}
+    curr = {"setting_id": "HILLTOP", "motion_ref_slug": "closing_form"}
+    assert auto_cut_type(prev, curr) == FADE
 
 
-def test_pause_small_deficit_clamps_up_to_min():
-    assert _cip(0.42, 0.18, 0.70) == _MN
+_METAS = [
+    {"setting_id": "DOJO", "motion_ref_slug": None},
+    {"setting_id": "DOJO", "motion_ref_slug": None},
+    {"setting_id": "HILLTOP", "motion_ref_slug": None},
+    {"setting_id": "HILLTOP", "motion_ref_slug": None},
+    {"setting_id": "HILLTOP", "motion_ref_slug": "closing_form"},
+]
 
 
-def test_pause_huge_deficit_caps_at_max():
-    assert _cip(0.0, 0.0, 1.00) == _MX
+def test_resolve_auto_matches_metadata():
+    assert resolve_cut_types(_METAS, None) == [HARD, FADE, HARD, FADE]
+    assert resolve_cut_types(_METAS, {}) == [HARD, FADE, HARD, FADE]
 
 
-def test_pause_preset_targets_move_result():
-    assert _cip(0.10, 0.10, 0.35) < _cip(0.10, 0.10, 1.00)
+def test_resolve_applies_overrides():
+    # Force cut 0 to fade and cut 1 to hard.
+    settings = {"cuts": {"0": "fade", "1": "hard"}}
+    assert resolve_cut_types(_METAS, settings) == [FADE, HARD, HARD, FADE]
 
 
-def test_standard_constant_sane():
-    assert _MN < _STD < _MX
-
-
-# ── Settings resolver (level/joins → target_pause_s/join_overrides) ──────
-from src.stitcher import resolve_stitch_targets as _rst  # noqa: E402
-
-
-def test_resolve_none_is_auto():
-    assert _rst(None) == (None, None)
-    assert _rst({}) == (None, None)
-
-
-def test_resolve_level_zero_is_auto():
-    target, overrides = _rst({"level": 0})
-    assert abs(target - _STD) < 1e-9
-    assert overrides is None
-
-
-def test_resolve_tighter_and_looser():
-    assert _rst({"level": -2})[0] < _STD
-    assert _rst({"level": 2})[0] > _STD
-
-
-def test_resolve_level_clamps_out_of_range():
-    assert _rst({"level": 9})[0] == _rst({"level": 2})[0]
-    assert _rst({"level": -9})[0] == _rst({"level": -2})[0]
-
-
-def test_resolve_per_cut_overrides():
-    target, overrides = _rst({"level": 1, "joins": {"1": -2}})
-    assert target > _STD
-    assert overrides == {1: _rst({"level": -2})[0]}
-
-
-def test_resolve_skips_malformed_joins():
-    _, overrides = _rst({"joins": {"x": 1, "2": "nope"}})
-    assert overrides is None  # both entries skipped, none valid
+def test_resolve_skips_malformed_overrides():
+    settings = {"cuts": {"x": "fade", "1": "nope", "2": "hard"}}
+    # only "2": hard is valid → cut 2 forced hard, rest auto
+    assert resolve_cut_types(_METAS, settings) == [HARD, FADE, HARD, FADE]
