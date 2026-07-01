@@ -7,12 +7,13 @@
 // Per spec §4 Phase 4. Mockup: 12-post-regen-view.html option A.
 
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { isTerminalStage } from '@/lib/job-event-types';
 import { humanizeRenderError } from '@/lib/humanize-render-error';
+import { TransitionsControl } from './transitions-control';
 
 interface Props {
   videoId: string;
@@ -23,6 +24,8 @@ interface Props {
   /** Cumulative start-of-clip offsets in seconds, e.g. [0, 9, 19, 28] */
   clipBoundariesS: number[];
   totalDurationS: number;
+  stitchLevel: number;
+  stitchJoins: Record<string, number>;
   onAdvance: () => void;
   onBack: () => void;
 }
@@ -35,12 +38,21 @@ export function Phase4Stitched({
   captionsVttDataUrl,
   clipBoundariesS,
   totalDurationS,
+  stitchLevel,
+  stitchJoins,
   onAdvance,
   onBack,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const router = useRouter();
   const liveEvent = useJobStream(composeJobId);
+
+  // Re-stitch (transitions) runs the SAME compose job in place. The mp4
+  // storage path is deterministic, so the URL never changes — bump a
+  // client cache-buster on each re-stitch completion to force the <video>
+  // to re-fetch the overwritten file.
+  const [restitching, setRestitching] = useState(false);
+  const [cacheBust, setCacheBust] = useState(0);
 
   const effectiveMp4 = liveEvent?.videoPath ?? videoMp4Path;
   const effectiveThumb = thumbPath; // thumb refreshes via router.refresh on done — see useEffect below
@@ -51,12 +63,30 @@ export function Phase4Stitched({
 
   // When the pipeline reaches a terminal stage, ask the server for a fresh
   // render so we pick up thumb_path (and any other fields not on the event)
-  // that Modal wrote to the videos row alongside the mp4.
+  // that Modal wrote to the videos row alongside the mp4. If a re-stitch was
+  // in flight, clear it and bust the cache so the new cut timings show.
   useEffect(() => {
     if (liveEvent && isTerminalStage(liveEvent.stage)) {
+      if (restitching) {
+        setRestitching(false);
+        setCacheBust((n) => n + 1);
+      }
       router.refresh();
     }
-  }, [liveEvent, router]);
+  }, [liveEvent, router, restitching]);
+
+  // Backstop: never let the re-stitch spinner hang forever if the realtime
+  // stream misses the terminal event (see MEMORY feedback_realtime_listeners
+  // _need_both_terminal_states). Give it 3 min, then refresh + recover.
+  useEffect(() => {
+    if (!restitching) return;
+    const t = setTimeout(() => {
+      setRestitching(false);
+      setCacheBust((n) => n + 1);
+      router.refresh();
+    }, 180_000);
+    return () => clearTimeout(t);
+  }, [restitching, router]);
 
   if (composeFailed && !effectiveMp4) {
     return (
@@ -91,6 +121,19 @@ export function Phase4Stitched({
     );
   }
 
+  if (restitching) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', minHeight: 240, background: 'var(--linen-50)', border: '1px solid var(--ink-100)', borderRadius: 'var(--r-lg)', textAlign: 'center' }}>
+        <div aria-hidden="true" style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid var(--ink-100)', borderTopColor: 'var(--navy-700)', animation: 'spin 0.9s linear infinite', marginBottom: 18 }} />
+        <div style={{ fontFamily: 'var(--ff-display)', fontSize: 20, fontWeight: 500, color: 'var(--ink-900)', marginBottom: 8 }}>Re-stitching your video…</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-500)', maxWidth: 360, lineHeight: 1.5 }}>
+          Re-joining your clips with the new transitions. No clips are being re-generated — usually under a minute. This updates automatically.
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
   if (!effectiveMp4) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', minHeight: 240, background: 'var(--linen-50)', border: '1px solid var(--ink-100)', borderRadius: 'var(--r-lg)', textAlign: 'center' }}>
@@ -104,8 +147,11 @@ export function Phase4Stitched({
     );
   }
 
-  const videoUrl = publicVideoUrl(effectiveMp4);
-  const posterUrl = effectiveThumb ? publicVideoUrl(effectiveThumb) : undefined;
+  // Cache-buster only after a re-stitch (cacheBust>0) so the first render
+  // keeps a clean URL. Same path is overwritten in place by the re-stitch.
+  const bust = cacheBust > 0 ? `?v=${cacheBust}` : '';
+  const videoUrl = publicVideoUrl(effectiveMp4) + bust;
+  const posterUrl = effectiveThumb ? publicVideoUrl(effectiveThumb) + bust : undefined;
 
   function jumpToClip(startS: number) {
     const v = videoRef.current;
@@ -235,6 +281,18 @@ export function Phase4Stitched({
           ))}
         </div>
       )}
+      </div>
+
+      {/* Transitions control — Auto by default; adjust + re-stitch (no
+          re-generation). Kept phone-width to align with the player. */}
+      <div style={{ maxWidth: 360, margin: '0 auto' }}>
+        <TransitionsControl
+          videoId={videoId}
+          initialLevel={stitchLevel}
+          initialJoins={stitchJoins}
+          clipBoundariesS={clipBoundariesS}
+          onRestitchStart={() => setRestitching(true)}
+        />
       </div>
 
       {/* Sticky bottom action bar */}

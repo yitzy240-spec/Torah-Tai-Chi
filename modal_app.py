@@ -7115,7 +7115,7 @@ def compose_video(compose_job_id: str) -> dict | None:
     """
     sys.path.insert(0, "/root")
     from supabase import create_client
-    from src.stitcher import loudnorm_then_concat
+    from src.stitcher import loudnorm_then_concat, resolve_stitch_targets
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
 
@@ -7148,7 +7148,7 @@ def compose_video(compose_job_id: str) -> dict | None:
 
         compose_video_row = (
             sb.table("videos")
-            .select("id, composed_from_clip_ids, spoken_script")
+            .select("id, composed_from_clip_ids, spoken_script, stitch_settings")
             .eq("job_id", compose_job_id)
             .single().execute().data
         )
@@ -7187,10 +7187,20 @@ def compose_video(compose_job_id: str) -> dict | None:
                 _ensure_local(sb, work_dir, row["storage_path"])
             )
 
-        # Loudnorm + concat.
+        # Loudnorm + adaptive concat. Operator transition settings (Auto /
+        # Tighter / Looser, and any per-cut overrides) ride on the videos
+        # row and are resolved to the stitcher's target-pause params. Absent
+        # / Auto ⇒ (None, None) ⇒ adaptive-Standard everywhere.
         set_status("stitching", f"Stitching {len(local_paths)} clip(s)")
         final_mp4 = work_dir / "final.mp4"
-        loudnorm_then_concat(local_paths, final_mp4)
+        target_pause_s, join_overrides = resolve_stitch_targets(
+            compose_video_row.get("stitch_settings")
+        )
+        loudnorm_then_concat(
+            local_paths, final_mp4,
+            target_pause_s=target_pause_s,
+            join_overrides=join_overrides,
+        )
 
         # Upload final + thumbnail.
         final_storage_path = f"jobs/{compose_job_id}/final.mp4"

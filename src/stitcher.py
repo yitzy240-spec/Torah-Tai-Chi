@@ -167,6 +167,47 @@ def _compute_inserted_pause(
     return max(_MIN_INSERT_PAUSE_S, min(_MAX_INSERT_PAUSE_S, target - existing))
 
 
+# Operator "Auto + Tighter/Looser" control → target pause. The UI stores a
+# signed level (−2…+2, 0 = Auto); this maps it to the target speech-to-speech
+# gap. Central so the mapping can be retuned without migrating stored data.
+# (See docs/superpowers/specs/2026-06-24-adaptive-stitch-transitions-design.md.)
+_LEVEL_TARGET_S = {-2: 0.40, -1: 0.55, 0: 0.70, 1: 0.85, 2: 1.00}
+
+
+def _level_to_target(level: int) -> float:
+    lvl = max(-2, min(2, int(level)))
+    return _LEVEL_TARGET_S[lvl]
+
+
+def resolve_stitch_targets(
+    settings: dict | None,
+) -> tuple[float | None, dict[int, float] | None]:
+    """Map stored stitch settings → (target_pause_s, join_overrides) for
+    concat_clips / loudnorm_then_concat.
+
+    settings shape (all optional): {"level": int, "joins": {"<left_clip_index>": int}}.
+    None / empty / level 0 ⇒ (Standard target, no overrides) = Auto everywhere.
+    Malformed join keys/values are skipped rather than raising, so a bad row
+    can never break a stitch.
+    """
+    if not settings:
+        return (None, None)
+    level = settings.get("level", 0)
+    try:
+        target = _level_to_target(level)
+    except (TypeError, ValueError):
+        target = _TARGET_PAUSE_STANDARD_S
+    overrides: dict[int, float] = {}
+    for k, v in (settings.get("joins") or {}).items():
+        try:
+            overrides[int(k)] = _level_to_target(int(v))
+        except (TypeError, ValueError):
+            continue
+    # target None when it's exactly Standard so callers/logs can tell "Auto"
+    # from an explicit level, but functionally identical.
+    return (target, overrides or None)
+
+
 def _detone_audio(src: Path, dest: Path) -> Path:
     """Apply the de-tone equalizer notch to one clip, copying video.
     Used by the single-clip path and (chained) by loudnorm_then_concat."""

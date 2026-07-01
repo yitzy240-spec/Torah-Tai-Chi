@@ -233,3 +233,39 @@ def test_pause_preset_targets_move_result():
 
 def test_standard_constant_sane():
     assert _MN < _STD < _MX
+
+
+# ── Settings resolver (level/joins → target_pause_s/join_overrides) ──────
+from src.stitcher import resolve_stitch_targets as _rst  # noqa: E402
+
+
+def test_resolve_none_is_auto():
+    assert _rst(None) == (None, None)
+    assert _rst({}) == (None, None)
+
+
+def test_resolve_level_zero_is_auto():
+    target, overrides = _rst({"level": 0})
+    assert abs(target - _STD) < 1e-9
+    assert overrides is None
+
+
+def test_resolve_tighter_and_looser():
+    assert _rst({"level": -2})[0] < _STD
+    assert _rst({"level": 2})[0] > _STD
+
+
+def test_resolve_level_clamps_out_of_range():
+    assert _rst({"level": 9})[0] == _rst({"level": 2})[0]
+    assert _rst({"level": -9})[0] == _rst({"level": -2})[0]
+
+
+def test_resolve_per_cut_overrides():
+    target, overrides = _rst({"level": 1, "joins": {"1": -2}})
+    assert target > _STD
+    assert overrides == {1: _rst({"level": -2})[0]}
+
+
+def test_resolve_skips_malformed_joins():
+    _, overrides = _rst({"joins": {"x": 1, "2": "nope"}})
+    assert overrides is None  # both entries skipped, none valid
