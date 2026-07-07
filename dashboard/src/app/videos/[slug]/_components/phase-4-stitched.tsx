@@ -190,11 +190,15 @@ export function Phase4Stitched({
         }}
       >
         {captionsVttDataUrl && (
+          // NO `default` attribute: captions start OFF. The cues are the raw
+          // per-clip voiceover, which includes phonetic spellings ("tai chi",
+          // "Sha-BAHT") that must not be shown by default. The native CC button
+          // still lets a viewer opt in. (Yonah 2026-07-07: subtitles appeared
+          // on the Matot preview showing the correction spellings.)
           <track
             kind="captions"
             srcLang="en"
             label="English"
-            default
             src={captionsVttDataUrl}
           />
         )}
