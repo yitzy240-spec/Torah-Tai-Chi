@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
-import { getAllParshiot, getParshaBySlug } from "@/lib/parshiot";
+import { getAllParshiot } from "@/lib/parshiot";
+import { combinedParshaName, combinedHebrewName } from "@/lib/parsha-display";
 
 export const dynamic = "force-static";
 export const contentType = "image/png";
@@ -23,10 +24,12 @@ export async function GET(
   let hebrewName = "";
 
   try {
-    const parsha = await getParshaBySlug(slug);
+    const all = await getAllParshiot();
+    const parsha = all.find((p) => p.slug === slug);
     if (parsha) {
-      parshaName = parsha.name;
-      hebrewName = parsha.hebrewName ?? "";
+      // Combined name on double-parsha weeks ("Matot-Masei" / "מטות-מסעי").
+      parshaName = combinedParshaName(parsha, all);
+      hebrewName = combinedHebrewName(parsha, all);
     }
   } catch {
     // use slug-derived name

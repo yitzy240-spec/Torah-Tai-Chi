@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getAllParshiot, getParshaBySlug, getNearbyParshiot, ALL_PARSHA_SLUGS } from "@/lib/parshiot";
-import { partnerSlugOf, combinedNameWithPartner } from "@/lib/parsha-display";
+import { redirect } from "next/navigation";
+import { getAllParshiot, getParshaBySlug, type Parsha } from "@/lib/parshiot";
+import {
+  combinedParshaName,
+  combinedHebrewName,
+  isAbsorbedPartner,
+  DOUBLE_PARSHA_LEAD,
+} from "@/lib/parsha-display";
 import VideoCard from "@/components/VideoCard";
 import ShareRow from "@/components/ShareRow";
 import WatchOnRow from "@/components/WatchOnRow";
@@ -41,13 +47,12 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   try {
-    const parsha = await getParshaBySlug(slug);
+    const all = await getAllParshiot();
+    const parsha = all.find((p) => p.slug === slug) ?? (await getParshaBySlug(slug));
     if (!parsha) return { title: "Teaching" };
-    // Combined name for double-parsha weeks (e.g. "Matot-Masei"). Resolve the
-    // partner with one lookup only when this slug is a pair-lead.
-    const partnerSlug = partnerSlugOf(slug);
-    const partner = partnerSlug ? await getParshaBySlug(partnerSlug) : null;
-    const displayName = combinedNameWithPartner(parsha, partner);
+    // Combined name for double-parsha weeks (e.g. "Matot-Masei"), derived from
+    // the full list (a pair-lead whose partner has no separate video).
+    const displayName = combinedParshaName(parsha, all);
     // Prefer the operator-set creative copy from the dashboard editor.
     // videoSubtitle is the per-video teaching headline ("Who Moved My
     // Cloud?…"); videoDescription is the marketing body. Both fall back
@@ -104,31 +109,40 @@ const BOOK_SHORT: Record<string, string> = {
 export default async function VideoDetailPage({ params }: Props) {
   const { slug } = await params;
 
-  let parsha = null;
-  let nearby: { prev?: { name: string; slug: string; book: string; hebrewName: string }; next?: { name: string; slug: string; book: string; hebrewName: string } } = {};
-
-  let partner: Awaited<ReturnType<typeof getParshaBySlug>> = null;
+  let parsha: Parsha | null = null;
+  let all: Parsha[] = [];
   try {
-    parsha = await getParshaBySlug(slug);
-    nearby = await getNearbyParshiot(slug);
-    // Resolve the double-parsha partner (one lookup, only for pair-leads) so
-    // e.g. /videos/matot reads "Matot-Masei" when they were taught together.
-    const partnerSlug = partnerSlugOf(slug);
-    if (partnerSlug) partner = await getParshaBySlug(partnerSlug);
+    all = await getAllParshiot();
+    parsha = all.find((p) => p.slug === slug) ?? (await getParshaBySlug(slug));
   } catch {
     // fallback to empty
   }
 
-  const displayName = parsha ? combinedNameWithPartner(parsha, partner) : "";
+  // An absorbed partner (e.g. /videos/masei when Masei is folded into the
+  // Matot-Masei video) has no page of its own — send it to the lead.
+  if (parsha && isAbsorbedPartner(parsha, all)) {
+    redirect(`/videos/${DOUBLE_PARSHA_LEAD[parsha.slug]}`);
+  }
+
+  const displayName = parsha ? combinedParshaName(parsha, all) : "";
+  const displayHebrew = parsha ? combinedHebrewName(parsha, all) : "";
 
   const content = await getSiteContent();
 
-  const nearbyList = [nearby.prev, nearby.next].filter(Boolean) as Array<{
-    name: string;
-    slug: string;
-    book: string;
-    hebrewName: string;
-  }>;
+  // "More teachings": Torah-order neighbours, skipping any partner that's been
+  // absorbed into a combined video (so Matot's next is Devarim, not Masei).
+  const ordered = [...all].sort((a, b) => a.order - b.order);
+  const idx = parsha ? ordered.findIndex((p) => p.slug === parsha!.slug) : -1;
+  const step = (from: number, dir: 1 | -1): Parsha | undefined => {
+    for (let i = from + dir; i >= 0 && i < ordered.length; i += dir) {
+      if (!isAbsorbedPartner(ordered[i], all)) return ordered[i];
+    }
+    return undefined;
+  };
+  const nearbyList = (idx >= 0
+    ? [step(idx, -1), step(idx, 1)]
+    : []
+  ).filter(Boolean) as Parsha[];
 
   const scriptParagraphs = parsha?.atightScript
     ? parsha.atightScript.split(/\n\n+/).filter(Boolean)
@@ -179,7 +193,7 @@ export default async function VideoDetailPage({ params }: Props) {
                 <em>.</em>
               </h1>
               <div className="vd-heb" lang="he" dir="rtl">
-                {parsha.hebrewName}
+                {displayHebrew}
               </div>
             </div>
             <div className="vd-meta">{BOOK_SHORT[parsha.book] ?? parsha.book}</div>
@@ -269,10 +283,10 @@ export default async function VideoDetailPage({ params }: Props) {
               <VideoCard
                 key={p.slug}
                 parsha={{
-                  name: p.name,
+                  name: combinedParshaName(p, all),
                   slug: p.slug,
                   bookShortName: BOOK_SHORT[p.book] ?? p.book,
-                  hebrewName: p.hebrewName,
+                  hebrewName: combinedHebrewName(p, all),
                   date: "",
                 }}
               />

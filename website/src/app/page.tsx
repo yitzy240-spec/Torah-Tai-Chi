@@ -7,7 +7,7 @@ import ArticleCard from "@/components/ArticleCard";
 import Announcement from "@/components/Announcement";
 import Brand from "@/components/Brand";
 import VideoPlayer from "@/components/VideoPlayer";
-import { combinedParshaName } from "@/lib/parsha-display";
+import { combinedParshaName, combinedHebrewName } from "@/lib/parsha-display";
 
 // ISR: revalidate every 60 s; Storyblok webhook triggers on-demand revalidation
 export const revalidate = 60;
@@ -88,9 +88,9 @@ export default async function HomePage() {
         if (preview.length > 200) preview = preview.slice(0, 200).replace(/\s+\S*$/, '') + '…';
       }
       return {
-        name: p.name,
+        name: combinedParshaName(p, parshiot),
         slug: p.slug,
-        hebrewName: p.hebrewName,
+        hebrewName: combinedHebrewName(p, parshiot),
         bookShortName: BOOK_SHORT[p.book] ?? p.book,
         thumbUrl: p.thumbUrl ?? null,
         isCurrentWeek: p.slug === thisWeek?.slug,
@@ -102,6 +102,7 @@ export default async function HomePage() {
   // so it persists after the calendar week passes and self-corrects in leap
   // years — see lib/parsha-display.ts.
   const heroParshaName = thisWeek ? combinedParshaName(thisWeek, parshiot) : '';
+  const heroParshaHebrew = thisWeek ? combinedHebrewName(thisWeek, parshiot) : '';
 
   const allArticles = await getAllArticles();
   const recentArticles = allArticles.slice(0, 3);
@@ -147,7 +148,7 @@ export default async function HomePage() {
             <div className="video-parsha-tag">
               {content['home.video.this_week_label']} {heroParshaName}{" "}
               <span className="heb" lang="he" dir="rtl">
-                {thisWeek.hebrewName}
+                {heroParshaHebrew}
               </span>
             </div>
           )}
