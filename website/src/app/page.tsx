@@ -7,6 +7,7 @@ import ArticleCard from "@/components/ArticleCard";
 import Announcement from "@/components/Announcement";
 import Brand from "@/components/Brand";
 import VideoPlayer from "@/components/VideoPlayer";
+import { getThisWeekParsha } from "@/lib/hebcal";
 
 // ISR: revalidate every 60 s; Storyblok webhook triggers on-demand revalidation
 export const revalidate = 60;
@@ -96,6 +97,17 @@ export default async function HomePage() {
         preview: preview || `${p.name} — a ~45-second teaching.`,
       };
     });
+  // Double-parsha weeks (e.g. Matot-Masei) should read as ONE combined
+  // name in the hero. Hebcal knows which weeks double up this year (leap
+  // years split them), so we ask it rather than hard-coding pairs. Only
+  // apply the combined name when the featured video IS the current week's
+  // parsha AND hebcal reports it doubled — otherwise show the plain name.
+  const hebcalThisWeek = await getThisWeekParsha();
+  const heroParshaName =
+    hebcalThisWeek?.slug === thisWeek?.slug && hebcalThisWeek?.combined
+      ? `${hebcalThisWeek.name}-${hebcalThisWeek.combined}`
+      : (thisWeek?.name ?? '');
+
   const allArticles = await getAllArticles();
   const recentArticles = allArticles.slice(0, 3);
   const content = await getSiteContent();
@@ -119,7 +131,7 @@ export default async function HomePage() {
           <div className="hero-cta hero-cta-desktop">
             {thisWeek && (
               <Link href={`/videos/${thisWeek.slug}`} className="btn btn-primary">
-                {content['home.cta.play_teaching_template'].replace('{parsha}', thisWeek.name)}
+                {content['home.cta.play_teaching_template'].replace('{parsha}', heroParshaName)}
                 <span aria-hidden="true" className="btn-arrow">→</span>
               </Link>
             )}
@@ -138,7 +150,7 @@ export default async function HomePage() {
         <div className="hero-video">
           {thisWeek && (
             <div className="video-parsha-tag">
-              {content['home.video.this_week_label']} {thisWeek.name}{" "}
+              {content['home.video.this_week_label']} {heroParshaName}{" "}
               <span className="heb" lang="he" dir="rtl">
                 {thisWeek.hebrewName}
               </span>
@@ -187,7 +199,7 @@ export default async function HomePage() {
         <div className="hero-cta hero-cta-mobile">
           {thisWeek && (
             <Link href={`/videos/${thisWeek.slug}`} className="btn btn-primary">
-              {content['home.cta.play_teaching_template'].replace('{parsha}', thisWeek.name)}
+              {content['home.cta.play_teaching_template'].replace('{parsha}', heroParshaName)}
               <span aria-hidden="true" className="btn-arrow">→</span>
             </Link>
           )}
