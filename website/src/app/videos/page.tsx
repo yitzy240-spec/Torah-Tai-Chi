@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getAllParshiot } from "@/lib/parshiot";
 import { getThisWeekParsha } from "@/lib/hebcal";
+import { combinedParshaName } from "@/lib/parsha-display";
 import VideosFilter from "@/components/VideosFilter";
 import { getSiteContent } from "@/lib/site-content";
 
@@ -46,7 +47,11 @@ export default async function VideosPage() {
   const currentWeekSlug = hebcalParsha?.slug ?? null;
 
   const items = parshiot.map((p) => ({
-    name: p.name,
+    // Combined name on double-parsha weeks (e.g. "Matot-Masei"); plain
+    // otherwise. Partner rows that ARE merged in still appear as their own
+    // catalog card with their plain name (only the lead gets the combined
+    // label), so nothing disappears from the grid.
+    name: combinedParshaName(p, parshiot),
     slug: p.slug,
     book: p.book,
     hebrewName: p.hebrewName,

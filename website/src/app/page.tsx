@@ -7,7 +7,7 @@ import ArticleCard from "@/components/ArticleCard";
 import Announcement from "@/components/Announcement";
 import Brand from "@/components/Brand";
 import VideoPlayer from "@/components/VideoPlayer";
-import { getThisWeekParsha } from "@/lib/hebcal";
+import { combinedParshaName } from "@/lib/parsha-display";
 
 // ISR: revalidate every 60 s; Storyblok webhook triggers on-demand revalidation
 export const revalidate = 60;
@@ -97,16 +97,11 @@ export default async function HomePage() {
         preview: preview || `${p.name} — a ~45-second teaching.`,
       };
     });
-  // Double-parsha weeks (e.g. Matot-Masei) should read as ONE combined
-  // name in the hero. Hebcal knows which weeks double up this year (leap
-  // years split them), so we ask it rather than hard-coding pairs. Only
-  // apply the combined name when the featured video IS the current week's
-  // parsha AND hebcal reports it doubled — otherwise show the plain name.
-  const hebcalThisWeek = await getThisWeekParsha();
-  const heroParshaName =
-    hebcalThisWeek?.slug === thisWeek?.slug && hebcalThisWeek?.combined
-      ? `${hebcalThisWeek.name}-${hebcalThisWeek.combined}`
-      : (thisWeek?.name ?? '');
+  // Double-parsha weeks (e.g. Matot-Masei) read as ONE combined name in the
+  // hero. Derived from data (a pair-lead whose partner has no separate video)
+  // so it persists after the calendar week passes and self-corrects in leap
+  // years — see lib/parsha-display.ts.
+  const heroParshaName = thisWeek ? combinedParshaName(thisWeek, parshiot) : '';
 
   const allArticles = await getAllArticles();
   const recentArticles = allArticles.slice(0, 3);

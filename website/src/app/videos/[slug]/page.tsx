@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getAllParshiot, getParshaBySlug, getNearbyParshiot, ALL_PARSHA_SLUGS } from "@/lib/parshiot";
+import { partnerSlugOf, combinedNameWithPartner } from "@/lib/parsha-display";
 import VideoCard from "@/components/VideoCard";
 import ShareRow from "@/components/ShareRow";
 import WatchOnRow from "@/components/WatchOnRow";
@@ -42,6 +43,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
     const parsha = await getParshaBySlug(slug);
     if (!parsha) return { title: "Teaching" };
+    // Combined name for double-parsha weeks (e.g. "Matot-Masei"). Resolve the
+    // partner with one lookup only when this slug is a pair-lead.
+    const partnerSlug = partnerSlugOf(slug);
+    const partner = partnerSlug ? await getParshaBySlug(partnerSlug) : null;
+    const displayName = combinedNameWithPartner(parsha, partner);
     // Prefer the operator-set creative copy from the dashboard editor.
     // videoSubtitle is the per-video teaching headline ("Who Moved My
     // Cloud?…"); videoDescription is the marketing body. Both fall back
@@ -49,13 +55,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const excerpt = parsha.videoDescription
       ?? (parsha.atightScript
         ? parsha.atightScript.slice(0, 160).replace(/\s+\S*$/, "") + "…"
-        : `Parshat ${parsha.name}. A Torah Tai Chi teaching — where tradition meets the body.`);
+        : `Parshat ${displayName}. A Torah Tai Chi teaching — where tradition meets the body.`);
     const headlineTitle = parsha.videoSubtitle
-      ? `${parsha.name} · ${parsha.videoSubtitle}`
-      : `${parsha.name} · Torah Tai Chi`;
+      ? `${displayName} · ${parsha.videoSubtitle}`
+      : `${displayName} · Torah Tai Chi`;
     const ogImageUrl = `/og/parsha/${slug}`;
     return {
-      title: parsha.videoSubtitle ?? parsha.name,
+      title: parsha.videoSubtitle ?? displayName,
       description: excerpt,
       alternates: {
         canonical: `https://torahtaichi.com/videos/${slug}`,
@@ -101,12 +107,19 @@ export default async function VideoDetailPage({ params }: Props) {
   let parsha = null;
   let nearby: { prev?: { name: string; slug: string; book: string; hebrewName: string }; next?: { name: string; slug: string; book: string; hebrewName: string } } = {};
 
+  let partner: Awaited<ReturnType<typeof getParshaBySlug>> = null;
   try {
     parsha = await getParshaBySlug(slug);
     nearby = await getNearbyParshiot(slug);
+    // Resolve the double-parsha partner (one lookup, only for pair-leads) so
+    // e.g. /videos/matot reads "Matot-Masei" when they were taught together.
+    const partnerSlug = partnerSlugOf(slug);
+    if (partnerSlug) partner = await getParshaBySlug(partnerSlug);
   } catch {
     // fallback to empty
   }
+
+  const displayName = parsha ? combinedNameWithPartner(parsha, partner) : "";
 
   const content = await getSiteContent();
 
@@ -124,7 +137,7 @@ export default async function VideoDetailPage({ params }: Props) {
   const vidSchemaJson = parsha
     ? JSON.stringify(
         videoSchema({
-          name: parsha.name,
+          name: displayName,
           description: parsha.atightScript
             ? parsha.atightScript.slice(0, 160).replace(/\s+\S*$/, "") + "…"
             : null,
@@ -138,7 +151,7 @@ export default async function VideoDetailPage({ params }: Props) {
         breadcrumbSchema([
           { name: "Home", url: "https://torahtaichi.com" },
           { name: "Teachings", url: "https://torahtaichi.com/videos" },
-          { name: parsha.name, url: `https://torahtaichi.com/videos/${slug}` },
+          { name: displayName, url: `https://torahtaichi.com/videos/${slug}` },
         ])
       )
     : null;
@@ -162,7 +175,7 @@ export default async function VideoDetailPage({ params }: Props) {
           <header className="vd-header stagger">
             <div className="vd-header-row">
               <h1 className="vd-eng">
-                {parsha.name}
+                {displayName}
                 <em>.</em>
               </h1>
               <div className="vd-heb" lang="he" dir="rtl">
@@ -196,7 +209,7 @@ export default async function VideoDetailPage({ params }: Props) {
                     </svg>
                   </div>
                   <div className="vlabel">
-                    {parsha.name} &middot; {content['video_detail.coming_soon_suffix']}
+                    {displayName} &middot; {content['video_detail.coming_soon_suffix']}
                   </div>
                 </>
               )}
@@ -225,7 +238,7 @@ export default async function VideoDetailPage({ params }: Props) {
           ) : (
             <ShareRow
               url={`https://torahtaichi.com/videos/${slug}`}
-              title={parsha.atightTitle ?? `${parsha.name} — Torah Tai Chi`}
+              title={parsha.atightTitle ?? `${displayName} — Torah Tai Chi`}
               label={content['share.share_label']}
             />
           )}
