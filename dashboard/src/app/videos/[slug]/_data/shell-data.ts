@@ -7,6 +7,7 @@
 // Returns ShellData or null (caller should notFound() on null).
 
 import { createClient } from '@/lib/supabase/server';
+import { DOUBLE_PARSHA_PARTNER, joinParshaNames } from '@/lib/parsha-display';
 import { selectPageState } from '@/lib/page-state';
 import type { DraftPhase, PageState } from '@/lib/page-state';
 import type { PersistentLiveStrip } from '../_components/persistent-live-strip';
@@ -92,6 +93,30 @@ export async function fetchPageShellData(
 
   if (parshaErr || !parshaRow) return null;
 
+  // Combined display name/Hebrew on a double-parsha week ("Matot-Masei"): a
+  // pair-lead whose partner has no separate published video was taught
+  // together. Display-only — slug/id (used for all lookups) are untouched.
+  let displayName = parshaRow.name as string;
+  let displayHebrew = (parshaRow.hebrew_name as string | null) ?? null;
+  const partnerSlug = DOUBLE_PARSHA_PARTNER[parshaRow.slug as string];
+  if (partnerSlug) {
+    const { data: partner } = await supabase
+      .from('parshiot').select('id, name, hebrew_name').eq('slug', partnerSlug).maybeSingle();
+    if (partner) {
+      const { data: partnerVid } = await supabase
+        .from('videos').select('id')
+        .eq('parsha_id', partner.id as string)
+        .eq('published_to_website', true)
+        .maybeSingle();
+      if (!partnerVid) {
+        displayName = joinParshaNames(displayName, partner.name as string);
+        if (displayHebrew && partner.hebrew_name) {
+          displayHebrew = joinParshaNames(displayHebrew, partner.hebrew_name as string);
+        }
+      }
+    }
+  }
+
   // Step 2: scripts + jobs in parallel — both depend only on parsha.id.
   // Previously serialized, wasting ~100-200ms per page render. Embeds
   // are still off (proved unreliable for videos / clip_plans on this
@@ -111,10 +136,10 @@ export async function fetchPageShellData(
 
   const parsha: ShellParsha = {
     id: parshaRow.id as string,
-    name: parshaRow.name as string,
+    name: displayName,
     book: parshaRow.book as string,
     slug: parshaRow.slug as string,
-    hebrew_name: (parshaRow.hebrew_name as string | null) ?? null,
+    hebrew_name: displayHebrew,
     scripts: (scriptsResult.data ?? []) as ScriptRow[],
   };
 

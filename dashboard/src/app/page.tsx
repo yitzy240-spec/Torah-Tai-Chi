@@ -14,6 +14,7 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { getThisWeekParsha, getUpcomingWeeks, getUpcomingHolidays, HEBCAL_TO_SLUG } from '@/lib/hebcal';
+import { DOUBLE_PARSHA_PARTNER, joinParshaNames } from '@/lib/parsha-display';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { ACTIVE_PLATFORMS } from '@/lib/platforms';
 import { StartNextVideoPicker } from '@/components/start-next-video-picker';
@@ -93,6 +94,24 @@ async function getLatestLiveVideo(): Promise<LatestLiveVideo | null> {
     }
   }
 
+  // Combined name for a double-parsha video (e.g. "Matot-Masei"): if this
+  // parsha is a pair-lead whose partner has no separate published video, they
+  // were taught together — show both names. Data-driven so it self-corrects in
+  // leap years when the pair is split into two videos.
+  const partnerSlug = DOUBLE_PARSHA_PARTNER[parshaSlug];
+  if (partnerSlug) {
+    const { data: partner } = await supabase
+      .from('parshiot').select('id, name').eq('slug', partnerSlug).maybeSingle();
+    if (partner) {
+      const { data: partnerVid } = await supabase
+        .from('videos').select('id')
+        .eq('parsha_id', partner.id as string)
+        .eq('published_to_website', true)
+        .maybeSingle();
+      if (!partnerVid) parshaName = joinParshaNames(parshaName, partner.name as string);
+    }
+  }
+
   // Which active platforms is the video actually live on? Operators
   // wanted the Today card to surface this at a glance instead of
   // having to click into the video page to find out (Yonah 2026-05-29).
@@ -151,7 +170,12 @@ async function resolveUpcomingParsha(): Promise<UpcomingParshaProps | null> {
   return {
     id: data.id as string,
     slug: data.slug as string,
-    name: data.name as string,
+    // Combined English name on a double-parsha week ("Matot-Masei"). Hebcal's
+    // `combined` is the partner ("Masei"); the Hebrew it returns is already the
+    // combined form, so only the English needs joining.
+    name: hebcal.combined
+      ? joinParshaNames(data.name as string, hebcal.combined)
+      : (data.name as string),
     book: data.book as string,
     shabbatDate: hebcal.shabbatDate,
     hebrew: hebcal.hebrew ?? null,
