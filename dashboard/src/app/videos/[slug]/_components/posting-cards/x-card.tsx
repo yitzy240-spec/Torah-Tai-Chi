@@ -22,6 +22,7 @@ import { PlatformIcon } from '@/components/platform-icon';
 import { savePlatformCaption } from '@/app/actions/video-page/save-platform-caption';
 import { postToPlatform } from '@/app/actions/video-page/post-platform';
 import { editPostedOnPlatform } from '@/app/actions/video-page/edit-posted';
+import { weightedTweetLength, X_MAX_WEIGHTED_LENGTH } from '@/lib/x-char-count';
 
 interface PostRow {
   id: string;
@@ -123,9 +124,19 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
     );
   }
 
+  // X counts links as 23 chars (t.co), so the true length can exceed 280 even
+  // when caption.length looks fine — that's what silently rejected Yonah's
+  // posts (2026-07-07). Count + gate the way X does.
+  const xLen = weightedTweetLength(caption);
+  const overLimit = xLen > X_MAX_WEIGHTED_LENGTH;
+
   // Unposted
   async function onPost() {
     setError(null);
+    if (overLimit) {
+      setError(`Tweet is ${xLen}/${X_MAX_WEIGHTED_LENGTH} on X (links count as 23). Trim ${xLen - X_MAX_WEIGHTED_LENGTH} more.`);
+      return;
+    }
     startPosting(async () => {
       const res = await postToPlatform(videoId, 'twitter', { twitter: caption }, { shareNow: true });
       if (!res.ok) setError(res.error ?? 'Post failed');
@@ -142,8 +153,8 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
         minHeight={60}
         placeholder="Short tweet for this video…"
       />
-      <div style={{ fontSize: 11, color: 'var(--ink-400)', marginTop: -8, marginBottom: 10 }}>
-        {caption.length}/280 chars · Thread continuation deferred
+      <div style={{ fontSize: 11, color: overLimit ? 'var(--tassel)' : 'var(--ink-400)', fontWeight: overLimit ? 600 : 400, marginTop: -8, marginBottom: 10 }}>
+        {xLen}/{X_MAX_WEIGHTED_LENGTH} on X{overLimit ? ' — over the limit (links count as 23 chars)' : ''}
       </div>
 
       {isFailed && <FailureBanner errorMessage={post?.error_message ?? null} />}
@@ -155,10 +166,15 @@ export function XCard({ jobId, videoId, parshaSlug, caption, post, postUrl }: Pr
         onPost={onPost}
         onScheduleOpen={() => setScheduleOpen(true)}
         platformName="X"
+        disabled={overLimit}
       />
 
       <ScheduleForLaterSheet open={scheduleOpen} onOpenChange={setScheduleOpen} platform="X"
         onSchedule={async (when) => {
+          if (overLimit) {
+            setError(`Tweet is ${xLen}/${X_MAX_WEIGHTED_LENGTH} on X (links count as 23). Trim ${xLen - X_MAX_WEIGHTED_LENGTH} more.`);
+            return;
+          }
           const res = await postToPlatform(videoId, 'twitter', { twitter: caption }, { scheduledAt: when, shareNow: false });
           if (!res.ok) setError(res.error ?? 'Schedule failed');
         }} />
