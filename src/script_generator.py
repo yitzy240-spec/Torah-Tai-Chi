@@ -419,10 +419,14 @@ captions that live under the video on each platform.
   chars. Can mention the parsha and book of Torah.
 - facebook: longer-form, conversational 2-4 sentences. Fewer hashtags
   than TT/IG. <=550 chars.
-- twitter: ONE tight sentence — X caps at 280 chars total, so aim for
-  <=260 to leave room for auto-linking. Lead with the hook + a teaser,
-  max 1-2 hashtags at the end. Example: "Kedusha isn't a feeling —
-  it's the breath before the reaction. 45s on the tai chi of
+- twitter: ONE tight sentence. HARD LIMIT: the whole tweet must be
+  <=270 characters, and CRITICAL — X counts any link as 23 characters
+  (t.co wrapping) no matter how short the real link is. So if you include
+  a link like "TorahTaiChi.com", count it as 23 chars, not its literal
+  length. Budget: text + hashtags + (23 per link) <= 270. Prefer NO link
+  (the site is already shown in the video's end card) and at most 1-2
+  hashtags. Lead with the hook + a teaser. Example: "Kedusha isn't a
+  feeling — it's the breath before the reaction. 45s on the tai chi of
   non-reactivity. #torahtaichi"
 
 COMPOSITION & CONTINUITY (read carefully — prevents jarring cuts):
