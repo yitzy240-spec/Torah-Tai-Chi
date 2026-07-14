@@ -1661,6 +1661,7 @@ async def _resolve_regen_first_frame(
     motion_ref_slug: str | None,
     kie: "KieClient",  # noqa: F821
     work_dir: Path,
+    chain_broken: bool = False,
 ) -> "str | None":
     """Return a first_frame_url to anchor clip N's regen to clip N-1's last
     frame, or None if the regen should fall back to reference images.
@@ -1670,6 +1671,7 @@ async def _resolve_regen_first_frame(
     that a per-clip regen opens exactly where the previous clip ended.
 
     Eligibility gates (same as initial chaining):
+      - the operator has not explicitly broken the chain
       - clip_index > 0  (clip 0 has no predecessor)
       - motion_ref_slug is None  (first_frame_url and reference_video_urls
         are mutually exclusive in Seedance)
@@ -1685,6 +1687,14 @@ async def _resolve_regen_first_frame(
     None (fall-through to reference-image-only re-roll). Callers should
     NOT raise on a None return; treat it as "no chain available".
     """
+    # Gate 0: the operator explicitly requested canonical references.
+    if chain_broken:
+        print(
+            f"[firstframe] regen clip {clip_index}: operator broke chain "
+            f"— refs active"
+        )
+        return None
+
     # Gate 1: clip 0 has no predecessor.
     if clip_index <= 0:
         print(
@@ -6212,6 +6222,7 @@ def clips_only_job(job_id: str) -> dict | None:
                         clip_visual_prompt=c.visual_prompt or "",
                         clip_setting_id=c.setting_id,
                         motion_ref_slug=per_clip_motion.get(c.index),
+                        chain_broken=per_clip_chain_broken.get(c.index, False),
                         kie=kie,
                         work_dir=work_dir,
                     )
@@ -6497,7 +6508,8 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         parent_clips = (
             sb.table("clips").select(
                 "id, index, voiceover, visual_prompt, setting_id, "
-                "duration_s, motion_ref_slug, motion_ref_url, storage_path"
+                "duration_s, motion_ref_slug, motion_ref_url, storage_path, "
+                "chain_broken"
             ).eq("job_id", parent_job_id).order("index").execute().data
         ) or []
         # Compose case: a compose job owns a videos row but no clip rows
@@ -6525,7 +6537,8 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 rows = (
                     sb.table("clips").select(
                         "id, index, voiceover, visual_prompt, setting_id, "
-                        "duration_s, motion_ref_slug, motion_ref_url, storage_path"
+                        "duration_s, motion_ref_slug, motion_ref_url, storage_path, "
+                        "chain_broken"
                     ).in_("id", composed_ids).execute().data
                 ) or []
                 clips_by_id = {r["id"]: r for r in rows}
@@ -6704,6 +6717,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 clip_visual_prompt=clip.visual_prompt or "",
                 clip_setting_id=clip.setting_id,
                 motion_ref_slug=_resolved_motion_slug,
+                chain_broken=bool(target_parent_clip.get("chain_broken")),
                 kie=kie,
                 work_dir=work_dir,
             )

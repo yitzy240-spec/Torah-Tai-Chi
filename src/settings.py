@@ -113,9 +113,10 @@ OUTDOOR_ARCHETYPES: dict[str, str] = {
 STYLE_LOCK = (
     "Same character as in reference images: Pixar-style 3D animation, "
     "mid-50s Jewish man, salt-and-pepper hair and trimmed beard, wearing a "
-    "navy blue knitted kippah sruga with a subtle cream-colored decorative "
-    "band around the outer rim (visible crocheted yarn texture, sits flat on "
-    "the crown of his head), navy blue mandarin-collar athletic shirt with "
+    "uniform navy blue knitted kippah sruga, smooth single-color navy "
+    "throughout with NO TRIM, NO BAND, NO BORDER, and no contrasting yarn "
+    "anywhere (sits flat on the crown of his head), navy blue "
+    "mandarin-collar athletic shirt with "
     "Torah Tai Chi yin-yang logo on chest. Soft 3D render, warm cinematic "
     "lighting. Character identity must match references exactly. "
     "Voice timbre: warm and weathered, an experienced elder teacher in his "

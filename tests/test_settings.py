@@ -29,6 +29,14 @@ def test_style_lock_mentions_character_and_voice():
     assert "voice" in STYLE_LOCK.lower() or "timbre" in STYLE_LOCK.lower()
 
 
+def test_style_lock_requires_uniform_navy_kippah_without_trim():
+    text = STYLE_LOCK.lower()
+    assert "uniform navy" in text
+    assert "no trim" in text
+    assert "decorative band" not in text
+    assert "cream-colored" not in text
+
+
 def test_guardrails_forbids_text_in_frame():
     text = GUARDRAILS_TEXT.lower()
     assert "text" in text
