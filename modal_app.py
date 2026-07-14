@@ -239,7 +239,7 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.script_generator import transform_draft_to_clip_plan
     from src.topic_pipeline import generate_draft_from_topic
     from src.video_generator import generate_clip, generate_clip_with_meta
-    from src.stitcher import concat_clips
+    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.models import ClipPlan
     from src.thumbnails import extract_thumbnail, upload_thumbnail
@@ -802,7 +802,7 @@ def run_pipeline(job_id: str) -> dict | None:
         # --- Stitch ---
         set_status("stitching", "Crossfading clips into the final video")
         final_mp4 = work_dir / "final.mp4"
-        concat_clips(clip_paths, final_mp4)
+        concat_final_video(clip_paths, final_mp4)
 
         # --- Upload final to Supabase Storage ---
         storage_path = f"jobs/{job_id}/final.mp4"
@@ -2781,7 +2781,7 @@ def regen_smart(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_clips
+    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
@@ -3095,7 +3095,7 @@ def regen_smart(job_id: str) -> dict | None:
             clip_paths_by_index[i] for i in sorted(clip_paths_by_index)
         ]
         final_mp4 = work_dir / "final.mp4"
-        concat_clips(ordered_paths, final_mp4)
+        concat_final_video(ordered_paths, final_mp4)
 
         # 12. Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
@@ -3264,7 +3264,7 @@ def regen_clip(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_clips
+    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
@@ -3561,7 +3561,7 @@ def regen_clip(job_id: str) -> dict | None:
             clip_paths_by_index[i] for i in sorted(clip_paths_by_index)
         ]
         final_mp4 = work_dir / "final.mp4"
-        concat_clips(ordered_paths, final_mp4)
+        concat_final_video(ordered_paths, final_mp4)
 
         # 10. Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
@@ -4344,7 +4344,7 @@ def regen_agent(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_clips
+    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
@@ -4865,7 +4865,7 @@ def regen_agent(job_id: str) -> dict | None:
             clip_paths_by_index[i] for i in sorted(clip_paths_by_index)
         ]
         final_mp4 = work_dir / "final.mp4"
-        concat_clips(ordered_paths, final_mp4)
+        concat_final_video(ordered_paths, final_mp4)
 
         # 12. Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
@@ -5128,7 +5128,7 @@ def regen_single_clip(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_clips
+    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
@@ -5430,7 +5430,7 @@ def regen_single_clip(job_id: str) -> dict | None:
             )
         ordered = [clip_paths_by_index[i] for i in sorted(clip_paths_by_index)]
         final_mp4 = work_dir / "final.mp4"
-        concat_clips(ordered, final_mp4)
+        concat_final_video(ordered, final_mp4)
 
         # Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
@@ -5822,7 +5822,7 @@ def clips_only_job(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_clips
+    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
@@ -6305,7 +6305,7 @@ def clips_only_job(job_id: str) -> dict | None:
             raise ValueError("clips_only_job: no clip paths resolved for stitch")
 
         final_mp4 = work_dir / "final.mp4"
-        concat_clips(ordered_paths, final_mp4)
+        concat_final_video(ordered_paths, final_mp4)
 
         final_storage_path = f"jobs/{job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
@@ -6445,7 +6445,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_clips
+    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
@@ -6822,7 +6822,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             )
         ordered = [clip_paths_by_index[i] for i in sorted(clip_paths_by_index)]
         final_mp4 = work_dir / "final.mp4"
-        concat_clips(ordered, final_mp4)
+        concat_final_video(ordered, final_mp4)
 
         # Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
@@ -7129,7 +7129,11 @@ def compose_video(compose_job_id: str) -> dict | None:
     """
     sys.path.insert(0, "/root")
     from supabase import create_client
-    from src.stitcher import loudnorm_then_concat, resolve_cut_types
+    from src.stitcher import (
+        BRANDED_OUTRO_PATH,
+        loudnorm_then_concat,
+        resolve_cut_types,
+    )
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
 
@@ -7213,7 +7217,12 @@ def compose_video(compose_job_id: str) -> dict | None:
             for r in ordered
         ]
         cut_types = resolve_cut_types(clip_metas, compose_video_row.get("stitch_settings"))
-        loudnorm_then_concat(local_paths, final_mp4, cut_types=cut_types)
+        loudnorm_then_concat(
+            local_paths,
+            final_mp4,
+            cut_types=cut_types,
+            outro_path=BRANDED_OUTRO_PATH,
+        )
 
         # Upload final + thumbnail.
         final_storage_path = f"jobs/{compose_job_id}/final.mp4"

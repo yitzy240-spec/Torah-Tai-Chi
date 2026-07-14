@@ -1,6 +1,7 @@
 import pytest
 import subprocess
 from pathlib import Path
+import src.stitcher as stitcher
 from src.stitcher import concat_clips
 
 
@@ -235,3 +236,17 @@ def test_resolve_skips_malformed_overrides():
     settings = {"cuts": {"x": "fade", "1": "nope", "2": "hard"}}
     # only "2": hard is valid → cut 2 forced hard, rest auto
     assert resolve_cut_types(_METAS, settings) == [HARD, FADE, HARD, FADE]
+
+
+def test_build_final_timeline_appends_outro_with_fade(tmp_path):
+    clips = [tmp_path / "clip_0.mp4", tmp_path / "clip_1.mp4"]
+    outro = tmp_path / "outro.mp4"
+
+    timeline, cuts = stitcher.build_final_timeline(
+        clips,
+        cut_types=[HARD],
+        outro_path=outro,
+    )
+
+    assert timeline == [*clips, outro]
+    assert cuts == [HARD, FADE]

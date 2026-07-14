@@ -48,6 +48,26 @@ _SILENCE_MIN_D_S = 0.08
 
 HARD = "hard"
 FADE = "fade"
+BRANDED_OUTRO_PATH = Path(
+    os.environ.get(
+        "TORAH_TAI_CHI_OUTRO_PATH",
+        "/root/references/_brand/outro.mp4",
+    )
+)
+
+
+def build_final_timeline(
+    clips: list[Path],
+    *,
+    cut_types: list[str] | None,
+    outro_path: Path = BRANDED_OUTRO_PATH,
+) -> tuple[list[Path], list[str]]:
+    """Return the production timeline with a branded outro scene break."""
+    if not clips:
+        raise ValueError("No content clips to finalize")
+    content_cuts = list(cut_types) if cut_types is not None else [HARD] * (len(clips) - 1)
+    content_cuts = (content_cuts + [HARD] * (len(clips) - 1))[: len(clips) - 1]
+    return [*clips, outro_path], [*content_cuts, FADE]
 
 
 def _probe_duration(mp4: Path) -> float:
@@ -272,11 +292,30 @@ def concat_clips(
     return _hard_concat(pps, dest)
 
 
+def concat_final_video(
+    clips: list[Path],
+    dest: Path,
+    cut_types: list[str] | None = None,
+    *,
+    outro_path: Path = BRANDED_OUTRO_PATH,
+) -> Path:
+    """Stitch content clips and always finish with the branded outro."""
+    if not outro_path.is_file():
+        raise FileNotFoundError(f"Branded outro asset missing: {outro_path}")
+    timeline, final_cuts = build_final_timeline(
+        clips,
+        cut_types=cut_types,
+        outro_path=outro_path,
+    )
+    return concat_clips(timeline, dest, cut_types=final_cuts)
+
+
 def loudnorm_then_concat(
     inputs: list[Path],
     dest: Path,
     cut_types: list[str] | None = None,
     crossfade_s: float = 0.35,
+    outro_path: Path | None = None,
     **_legacy,
 ) -> Path:
     """EBU R128 loudnorm each input (compose mixes clips from different runs),
@@ -298,6 +337,13 @@ def loudnorm_then_concat(
                 f"{r.stderr.decode('utf-8', errors='replace')[-500:]}"
             )
         normalized.append(norm_path)
+    if outro_path is not None:
+        return concat_final_video(
+            normalized,
+            dest,
+            cut_types=cut_types,
+            outro_path=outro_path,
+        )
     return concat_clips(normalized, dest, cut_types=cut_types)
 
 
