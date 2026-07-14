@@ -37,6 +37,14 @@ def test_style_lock_requires_uniform_navy_kippah_without_trim():
     assert "cream-colored" not in text
 
 
+def test_style_lock_requires_exact_unchanged_shirt_and_logo():
+    text = STYLE_LOCK.lower()
+    assert "shirt and chest logo must remain unchanged" in text
+    assert "match the canonical reference images exactly" in text
+    assert "no added, removed, misspelled, rearranged, or duplicated lettering" in text
+    assert "no alternate emblem" in text
+
+
 def test_guardrails_forbids_text_in_frame():
     text = GUARDRAILS_TEXT.lower()
     assert "text" in text
