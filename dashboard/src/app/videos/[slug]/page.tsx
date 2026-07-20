@@ -160,7 +160,18 @@ async function PhaseBody({
   // Phase 1: Script editor
   // -------------------------------------------------------------------------
   if (showDraftView && phase === 1) {
-    const props = getPhase1Props(parsha);
+    // Resolve the script the current draft plan was built from (same plan-only
+    // ancestor walk Phase 2 uses) so Phase 1 defaults to THAT script — pressing
+    // Generate on a round-trip then reuses the existing plan instead of
+    // regenerating from the default and orphaning rendered clips.
+    const stateDraftJobId =
+      state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
+        ? state.draftJobId
+        : null;
+    const draftJobId = resolvePlanJobId(jobsForState, stateDraftJobId);
+    const draftScriptId =
+      jobsForState.find((jj) => jj.id === draftJobId)?.scriptId ?? null;
+    const props = getPhase1Props(parsha, draftScriptId);
     if (!props) {
       return (
         <PhaseErrorBoundary phaseLabel="Phase 1 (script)" parshaSlug={parsha.slug}>
