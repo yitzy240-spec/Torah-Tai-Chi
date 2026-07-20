@@ -67,12 +67,28 @@ export async function triggerPlanOnly(
     // Postgres unique_violation (23505). Resolve it to the winner's job
     // rather than erroring.
     if (jobErr?.code === '23505') {
+      // The 23505 PROVES an active plan-only job exists for this
+      // (parsha, script). findInFlight uses that same predicate, but it can
+      // momentarily miss the winner between its commit and read-visibility.
+      // Retry the active lookup, then fall back to the most-recent plan-only
+      // job for this script regardless of status. Surfacing the raw
+      // "duplicate key" DB error to Yonah (2026-07-20) was the real bug —
+      // there is always a job to resolve to here.
       const { data: existing } = await findInFlight();
-      if (existing) {
-        return { ok: true, jobId: existing.id as string };
-      }
+      if (existing) return { ok: true, jobId: existing.id as string };
+
+      const { data: latest } = await supabase
+        .from('jobs')
+        .select('id')
+        .eq('parsha_id', parshaId)
+        .eq('script_id', scriptId)
+        .eq('kind', 'plan-only')
+        .order('triggered_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (latest) return { ok: true, jobId: latest.id as string };
     }
-    return { ok: false, error: `DB insert failed: ${jobErr?.message ?? 'unknown error'}` };
+    return { ok: false, error: `Couldn't start clip plan generation. Please try again. (${jobErr?.message ?? 'unknown error'})` };
   }
 
   return { ok: true, jobId: job.id };

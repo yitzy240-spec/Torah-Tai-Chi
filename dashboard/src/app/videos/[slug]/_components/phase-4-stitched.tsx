@@ -89,6 +89,18 @@ export function Phase4Stitched({
     return () => clearTimeout(t);
   }, [restitching, router]);
 
+  // Backstop for the INITIAL stitch (the recurring "spinner never resolves,
+  // refresh shows the video" bug — Yonah, weekly). The compose job now
+  // broadcasts 'done', but Broadcast is fire-and-forget with no replay, so a
+  // dropped message would still hang the spinner. While the initial stitch is
+  // in flight (no video yet, not failed), poll the server every 20s so a
+  // finished mp4_path is picked up even if the event never arrives.
+  useEffect(() => {
+    if (effectiveMp4 || !composeJobId || composeFailed || composeCancelled) return;
+    const id = setInterval(() => router.refresh(), 20_000);
+    return () => clearInterval(id);
+  }, [effectiveMp4, composeJobId, composeFailed, composeCancelled, router]);
+
   if (composeFailed && !effectiveMp4) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', minHeight: 240, background: 'var(--linen-50)', border: '1px solid var(--tassel)', borderRadius: 'var(--r-lg)', textAlign: 'center' }}>

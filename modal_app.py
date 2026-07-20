@@ -7160,6 +7160,13 @@ def compose_video(compose_job_id: str) -> dict | None:
             message=message or status,
             details={"status": status, "mode": "compose"},
         )
+        # Broadcast every transition so the Phase 4 spinner (useJobStream on
+        # this compose job) sees 'done' and clears — the main pipeline's
+        # set_status does this too. WITHOUT this, compose only ever broadcast
+        # on failure, so a SUCCESSFUL stitch left the operator's spinner
+        # hanging until a manual refresh (Yonah, every week). See
+        # feedback_realtime_listeners_need_both_terminal_states.
+        emit_job_event(job_id=compose_job_id, stage=status, message=message)
 
     try:
         set_status("loading_parsha", "Loading clips for compose")
@@ -7286,6 +7293,12 @@ def compose_video(compose_job_id: str) -> dict | None:
         ).execute()
 
         set_status("done", "Compose ready")
+        # Terminal emit carrying the video path so the client flips to the
+        # player immediately (mirrors the main pipeline's done emit).
+        emit_job_event(
+            job_id=compose_job_id, stage="done",
+            video_path=final_storage_path, message="Compose ready",
+        )
         sb.table("jobs").update({"completed_at": "now()"}).eq(
             "id", compose_job_id
         ).execute()
