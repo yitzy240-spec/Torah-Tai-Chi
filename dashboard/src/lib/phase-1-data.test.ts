@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import {
   getPhase1Props,
   shouldStartNewPlan,
+  shouldConfirmDiscard,
 } from '../app/videos/[slug]/_data/phase-1-data.ts';
 
 type Script = { id: string; option: string; title: string | null; draft_text: string | null };
@@ -105,4 +106,36 @@ test('deliberate script change still regenerates', () => {
   // Operator explicitly picks A-tight in the Pick tab, overriding the default.
   const regen = shouldStartNewPlan({ draftScriptId, requestedScriptId: 's-atight' });
   assert.equal(regen, true);
+});
+
+// ── shouldConfirmDiscard: the "don't silently lose rendered clips" guard ──────
+
+test('confirm: no rendered clips → never warn (nothing to lose)', () => {
+  assert.equal(
+    shouldConfirmDiscard({ draftScriptId: 's-custom', requestedScriptId: 's-atight', renderedClipCount: 0 }),
+    false,
+  );
+});
+
+test('confirm: rendered clips + SAME script → no warn (reuse, the core fix)', () => {
+  assert.equal(
+    shouldConfirmDiscard({ draftScriptId: 's-custom', requestedScriptId: 's-custom', renderedClipCount: 5 }),
+    false,
+  );
+});
+
+test('confirm: rendered clips + DIFFERENT script → warn before discarding', () => {
+  assert.equal(
+    shouldConfirmDiscard({ draftScriptId: 's-custom', requestedScriptId: 's-atight', renderedClipCount: 5 }),
+    true,
+  );
+});
+
+test('confirm: first run (no draft) has no clips → no warn', () => {
+  // draftScriptId null would regen, but with 0 rendered clips there is nothing
+  // to discard, so no confirm.
+  assert.equal(
+    shouldConfirmDiscard({ draftScriptId: null, requestedScriptId: 's-atight', renderedClipCount: 0 }),
+    false,
+  );
 });

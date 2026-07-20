@@ -14,6 +14,12 @@ export type Phase1Props = {
   scripts: ScriptRow[];
   defaultScript: ScriptRow;
   scriptId: string;
+  /** Script the current draft plan was built from (null = no plan yet). Lets
+   *  the client know whether pressing Generate would start a NEW plan. */
+  draftScriptId: string | null;
+  /** How many of the current draft's clips are already rendered. Drives the
+   *  "this will discard N clips" confirm before a regenerate. */
+  renderedClipCount: number;
 };
 
 /**
@@ -34,6 +40,7 @@ export type Phase1Props = {
 export function getPhase1Props(
   parsha: ShellParsha,
   draftScriptId?: string | null,
+  renderedClipCount = 0,
 ): Phase1Props | null {
   const scripts = parsha.scripts;
   const draftScript = draftScriptId
@@ -54,7 +61,30 @@ export function getPhase1Props(
     scripts,
     defaultScript,
     scriptId: defaultScript.id,
+    draftScriptId: draftScriptId ?? null,
+    renderedClipCount,
   };
+}
+
+/**
+ * Should pressing "Generate clip plan" warn the operator before it discards
+ * work? True only when a new plan WOULD be started (see shouldStartNewPlan) AND
+ * the current draft already has rendered clips to lose. The confirm is the
+ * safety net so rendered clips never vanish silently — the root failure mode
+ * behind the whole class of "Yonah lost his work" bugs.
+ */
+export function shouldConfirmDiscard(args: {
+  draftScriptId: string | null;
+  requestedScriptId: string;
+  renderedClipCount: number;
+}): boolean {
+  return (
+    args.renderedClipCount > 0 &&
+    shouldStartNewPlan({
+      draftScriptId: args.draftScriptId,
+      requestedScriptId: args.requestedScriptId,
+    })
+  );
 }
 
 /**

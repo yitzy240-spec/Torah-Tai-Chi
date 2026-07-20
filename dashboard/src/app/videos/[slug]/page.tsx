@@ -171,7 +171,12 @@ async function PhaseBody({
     const draftJobId = resolvePlanJobId(jobsForState, stateDraftJobId);
     const draftScriptId =
       jobsForState.find((jj) => jj.id === draftJobId)?.scriptId ?? null;
-    const props = getPhase1Props(parsha, draftScriptId);
+    // Rendered clips on the draft plan — if the operator regenerates, these are
+    // discarded, so Phase 1 warns first (see shouldConfirmDiscard).
+    const renderedClipCount = draftJobId
+      ? (clipsByJobId[draftJobId] ?? []).filter((c) => c.storagePath).length
+      : 0;
+    const props = getPhase1Props(parsha, draftScriptId, renderedClipCount);
     if (!props) {
       return (
         <PhaseErrorBoundary phaseLabel="Phase 1 (script)" parshaSlug={parsha.slug}>

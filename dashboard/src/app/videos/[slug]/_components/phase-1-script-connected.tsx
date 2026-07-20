@@ -23,6 +23,8 @@ interface Props {
   scriptId: string;
   scripts: Array<{ id: string; option: string; title: string | null; draft_text: string | null }>;
   defaultScript: { id: string; option: string; title: string | null; draft_text: string | null };
+  draftScriptId: string | null;
+  renderedClipCount: number;
 }
 
 export function Phase1ScriptConnected({
@@ -31,6 +33,8 @@ export function Phase1ScriptConnected({
   scriptId,
   scripts,
   defaultScript,
+  draftScriptId,
+  renderedClipCount,
 }: Props) {
   const router = useRouter();
   // parshaId is forwarded into Phase1Script (Write / From-Idea modes
@@ -61,6 +65,8 @@ export function Phase1ScriptConnected({
       parshaId={parshaId}
       scripts={scripts}
       defaultScript={defaultScript}
+      draftScriptId={draftScriptId}
+      renderedClipCount={renderedClipCount}
       onAdvance={handleAdvance}
       advancing={false}
     />
