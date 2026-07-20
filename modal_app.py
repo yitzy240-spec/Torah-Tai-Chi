@@ -7359,6 +7359,75 @@ def compose_video(compose_job_id: str) -> dict | None:
 
 @app.function(
     image=image,
+    secrets=[modal.Secret.from_name("torah-tai-chi-env")],
+    schedule=modal.Period(minutes=10),
+    timeout=120,
+)
+def reap_stranded_jobs() -> dict:
+    """Watchdog: fail jobs left ACTIVE past _STUCK_AFTER so they can't wedge the
+    operator.
+
+    A job can be stranded in an active status forever when Modal's dispatch is
+    dropped (it never leaves 'queued') or the container is hard-killed mid-run
+    (SIGKILL/OOM/timeout bypasses the `except` that would set status='failed').
+    A stranded active row then (a) trips uniq_active_plan_only_job so retries
+    error, (b) inflates the Phase-2 elapsed timer, and (c) hangs the Phase-4
+    spinner. This runs every 10 min, marks any active job older than
+    _STUCK_AFTER (30 min — safely past the ~15 min longest legit render) as
+    failed, and broadcasts 'failed' so the dashboard swaps the spinner for a
+    real failure card with Retry/Start over. Weekly-bug class: stranded jobs.
+    """
+    from datetime import datetime, timezone
+
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+    # 'queued' (dropped dispatch) + every in-flight status (dead worker).
+    active = ["queued", *sorted(_IN_FLIGHT_STATUSES)]
+    cutoff = (datetime.now(timezone.utc) - _STUCK_AFTER).isoformat()
+
+    candidates = (
+        sb.table("jobs")
+        .select("id, status, kind, triggered_at")
+        .in_("status", active)
+        .lt("triggered_at", cutoff)
+        .is_("completed_at", "null")
+        .execute()
+        .data
+        or []
+    )
+
+    reaped: list[str] = []
+    mins = int(_STUCK_AFTER.total_seconds() // 60)
+    for j in candidates:
+        # Re-read to avoid racing a job that finished between the query and now.
+        cur = (
+            sb.table("jobs").select("status, completed_at")
+            .eq("id", j["id"]).maybe_single().execute().data
+        )
+        if not cur or cur.get("completed_at") or cur.get("status") not in active:
+            continue
+        msg = (
+            f"Timed out — stuck in '{j['status']}' for over {mins} minutes. "
+            "This usually means the worker died mid-run. Please try again."
+        )
+        sb.table("jobs").update(
+            {"status": "failed", "error_message": msg, "completed_at": "now()"}
+        ).eq("id", j["id"]).execute()
+        log_event(
+            sb, actor="system", level="warn", event="pipeline.reaped",
+            subject_type="job", subject_id=j["id"], message=msg,
+            details={"prev_status": j["status"], "kind": j["kind"], "stuck_min": mins},
+        )
+        emit_job_event(job_id=j["id"], stage="failed", message=msg)
+        reaped.append(j["id"])
+
+    print(f"[reap_stranded_jobs] checked {len(candidates)}, reaped {len(reaped)}: {reaped}")
+    return {"checked": len(candidates), "reaped": len(reaped), "ids": reaped}
+
+
+@app.function(
+    image=image,
     secrets=[
         modal.Secret.from_name("torah-tai-chi-env"),
         modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
