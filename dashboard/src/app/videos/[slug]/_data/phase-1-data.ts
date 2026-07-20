@@ -56,3 +56,28 @@ export function getPhase1Props(
     scriptId: defaultScript.id,
   };
 }
+
+/**
+ * Decide whether tapping "Generate clip plan" should START A NEW plan (which
+ * discards/orphans the current draft's rendered clips) or REUSE the existing
+ * plan. This is the exact gate that silently orphaned Yonah's rendered clips,
+ * so it lives as its own tested function rather than an inline expression.
+ *
+ * - No existing plan (`draftScriptId == null`) → start one (first run).
+ * - Existing plan built from a DIFFERENT script than the operator selected →
+ *   they deliberately chose another script → regenerate.
+ * - SAME script → reuse. Combined with getPhase1Props defaulting Phase 1 to the
+ *   draft's script, a Back-to-Phase-1 → Generate round-trip lands here and is a
+ *   no-op — the fix's core invariant.
+ *
+ * `draftScriptId` is the script the current draft plan was built from (null when
+ * no draft exists yet). `requestedScriptId` is the script id the Generate button
+ * carried (getPhase1Props.scriptId).
+ */
+export function shouldStartNewPlan(args: {
+  draftScriptId: string | null;
+  requestedScriptId: string;
+}): boolean {
+  if (args.draftScriptId == null) return true;
+  return args.draftScriptId !== args.requestedScriptId;
+}

@@ -17,7 +17,7 @@ import { notFound, redirect } from 'next/navigation';
 import { triggerPlanOnly } from '@/app/actions/video-page/trigger-plan-only';
 import type { DraftPhase } from '@/lib/page-state';
 import { fetchPageShellData } from './_data/shell-data';
-import { getPhase1Props } from './_data/phase-1-data';
+import { getPhase1Props, shouldStartNewPlan } from './_data/phase-1-data';
 import { getPhase2Props } from './_data/phase-2-data';
 import { getPhase4Props } from './_data/phase-4-data';
 import { getPhase5Props } from './_data/phase-5-data';
@@ -228,9 +228,12 @@ async function PhaseBody({
     // new job reliably).
     let planError: string | null = null;
     if (startPlan && startPlanScriptId) {
-      const scriptMismatch =
-        draftJobForState != null && draftJobForState.scriptId !== startPlanScriptId;
-      if (!draftJobId || scriptMismatch) {
+      // Regenerate the plan (which orphans the current draft's rendered clips)
+      // ONLY when there's no plan yet or the operator deliberately selected a
+      // different script. See shouldStartNewPlan — this is the exact gate that
+      // used to silently orphan clips on a Back-to-Phase-1 round-trip.
+      const draftScriptId = draftJobForState?.scriptId ?? null;
+      if (shouldStartNewPlan({ draftScriptId, requestedScriptId: startPlanScriptId })) {
         const result = await triggerPlanOnly(parsha.id, startPlanScriptId);
         if (result.ok) {
           redirect(`/videos/${parsha.slug}?phase=2`);
