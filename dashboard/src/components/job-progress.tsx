@@ -148,6 +148,23 @@ export function JobProgress({
 
   const refetchClipsAndPlan = useCallback(async () => {
     const supabase = createClient();
+    // Re-read the JOB row too, not just clips/clip_plan. job.status only
+    // advanced via the Broadcast event, so a dropped 'done' left this page
+    // spinning forever (only a full reload recovered — router.refresh can't
+    // reseed a useState-seeded job). Now the visibility-gated poll below picks
+    // up the terminal status from the DB. feedback_realtime_listeners.
+    const { data: jobRow } = await supabase
+      .from('jobs')
+      .select('status, status_message')
+      .eq('id', job.id)
+      .maybeSingle();
+    if (jobRow) {
+      setJob((j) => ({
+        ...j,
+        status: (jobRow.status as string) ?? j.status,
+        status_message: (jobRow.status_message as string | null) ?? j.status_message,
+      }));
+    }
     const { data: latestClips } = await supabase
       .from('clips')
       .select('id, index, voiceover, status, cost_usd, mp4_path, verification_status, verification_attempts, verification_notes')

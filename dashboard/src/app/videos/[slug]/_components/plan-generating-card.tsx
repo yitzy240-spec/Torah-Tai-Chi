@@ -42,6 +42,19 @@ export function PlanGeneratingCard({ jobId, startedAt, parshaSlug }: Props) {
     }
   }, [stage, router]);
 
+  // Poll backstop: Broadcast is fire-and-forget with no replay, so a dropped
+  // 'done' would leave this spinner up until the 3-min escape hatch (and then
+  // Retry re-generates a plan that already exists). While generation is still
+  // in flight, refresh the server view every 25s — when the plan lands, the
+  // server re-render swaps this card for the Phase 2 editor on its own. Same
+  // backstop pattern as phase-4-stitched.
+  const terminal = stage === 'done' || stage === 'failed' || stage === 'cancelled';
+  useEffect(() => {
+    if (terminal) return;
+    const id = setInterval(() => router.refresh(), 25_000);
+    return () => clearInterval(id);
+  }, [terminal, router]);
+
   // Kick Modal once on mount. The parent component only renders this card
   // when the job IS queued, so no need to re-check status before kicking.
   // kickedRef prevents double-firing on React strict-mode double-mount.
@@ -97,6 +110,15 @@ export function PlanGeneratingCard({ jobId, startedAt, parshaSlug }: Props) {
       setStartingOver(false);
       return;
     }
+    router.push(`/videos/${parshaSlug}?phase=1`);
+    router.refresh();
+  };
+
+  // Failed jobs are already terminal (nothing to cancel) — just route back to
+  // the script so the operator can regenerate. Without this the failed card
+  // was a dead-end with no button (and the watchdog now produces failed states
+  // for stranded jobs, so this is the recovery path for those too).
+  const handleBackToScript = () => {
     router.push(`/videos/${parshaSlug}?phase=1`);
     router.refresh();
   };
@@ -229,6 +251,27 @@ export function PlanGeneratingCard({ jobId, startedAt, parshaSlug }: Props) {
             </span>
           )}
         </div>
+      )}
+      {isFailed && (
+        <button
+          type="button"
+          onClick={handleBackToScript}
+          style={{
+            minHeight: 44,
+            marginTop: 4,
+            fontSize: 13,
+            fontWeight: 500,
+            fontFamily: 'inherit',
+            background: 'var(--navy-700)',
+            color: 'var(--linen-50)',
+            border: 'none',
+            borderRadius: 8,
+            padding: '10px 20px',
+            cursor: 'pointer',
+          }}
+        >
+          ← Back to script
+        </button>
       )}
       {showEscapeHatch && (
         <div
