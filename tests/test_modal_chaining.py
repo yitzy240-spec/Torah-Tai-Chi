@@ -1,5 +1,10 @@
 import pytest
 
+# modal_app imports the `modal` SDK at module load; CI installs only the
+# lightweight `.[dev]` extras, so skip this module there rather than fail
+# collection. Runs locally where modal is installed.
+pytest.importorskip("modal")
+
 from modal_app import _resolve_regen_first_frame
 
 

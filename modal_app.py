@@ -7383,6 +7383,11 @@ def reap_stranded_jobs() -> dict:
     spinner for a real failure card with Retry/Start over. Runs every 10 min.
     """
     from datetime import datetime, timedelta, timezone
+    # create_client / log_event / emit_job_event are imported LOCALLY in every
+    # function in this module (not at module scope) — mirror that here.
+    from supabase import create_client
+    from src.events import log_event
+    from src.job_events import emit_job_event
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
