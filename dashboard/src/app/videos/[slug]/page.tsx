@@ -17,7 +17,7 @@ import { notFound, redirect } from 'next/navigation';
 import { triggerPlanOnly } from '@/app/actions/video-page/trigger-plan-only';
 import type { DraftPhase } from '@/lib/page-state';
 import { fetchPageShellData } from './_data/shell-data';
-import { getPhase1Props } from './_data/phase-1-data';
+import { getPhase1Props, shouldStartNewPlan } from './_data/phase-1-data';
 import { getPhase2Props } from './_data/phase-2-data';
 import { getPhase4Props } from './_data/phase-4-data';
 import { getPhase5Props } from './_data/phase-5-data';
@@ -160,7 +160,23 @@ async function PhaseBody({
   // Phase 1: Script editor
   // -------------------------------------------------------------------------
   if (showDraftView && phase === 1) {
-    const props = getPhase1Props(parsha);
+    // Resolve the script the current draft plan was built from (same plan-only
+    // ancestor walk Phase 2 uses) so Phase 1 defaults to THAT script — pressing
+    // Generate on a round-trip then reuses the existing plan instead of
+    // regenerating from the default and orphaning rendered clips.
+    const stateDraftJobId =
+      state.kind === 'draft-in-progress' || state.kind === 'live-and-draft'
+        ? state.draftJobId
+        : null;
+    const draftJobId = resolvePlanJobId(jobsForState, stateDraftJobId);
+    const draftScriptId =
+      jobsForState.find((jj) => jj.id === draftJobId)?.scriptId ?? null;
+    // Rendered clips on the draft plan — if the operator regenerates, these are
+    // discarded, so Phase 1 warns first (see shouldConfirmDiscard).
+    const renderedClipCount = draftJobId
+      ? (clipsByJobId[draftJobId] ?? []).filter((c) => c.storagePath).length
+      : 0;
+    const props = getPhase1Props(parsha, draftScriptId, renderedClipCount);
     if (!props) {
       return (
         <PhaseErrorBoundary phaseLabel="Phase 1 (script)" parshaSlug={parsha.slug}>
@@ -217,9 +233,12 @@ async function PhaseBody({
     // new job reliably).
     let planError: string | null = null;
     if (startPlan && startPlanScriptId) {
-      const scriptMismatch =
-        draftJobForState != null && draftJobForState.scriptId !== startPlanScriptId;
-      if (!draftJobId || scriptMismatch) {
+      // Regenerate the plan (which orphans the current draft's rendered clips)
+      // ONLY when there's no plan yet or the operator deliberately selected a
+      // different script. See shouldStartNewPlan — this is the exact gate that
+      // used to silently orphan clips on a Back-to-Phase-1 round-trip.
+      const draftScriptId = draftJobForState?.scriptId ?? null;
+      if (shouldStartNewPlan({ draftScriptId, requestedScriptId: startPlanScriptId })) {
         const result = await triggerPlanOnly(parsha.id, startPlanScriptId);
         if (result.ok) {
           redirect(`/videos/${parsha.slug}?phase=2`);

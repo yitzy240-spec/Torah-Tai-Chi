@@ -18,6 +18,7 @@ import { useOptimisticSave } from '@/hooks/use-optimistic-save';
 import { analyzeScript } from '@/lib/word-count';
 import { saveScript } from '@/app/actions/video-page/save-script';
 import { createCustomScript } from '@/app/actions/video-page/create-custom-script';
+import { BottomSheet } from './bottom-sheet';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,6 +56,11 @@ interface Props {
    *  the original. */
   onAdvance: (scriptId: string) => void;
   advancing?: boolean;
+  /** Script the current draft plan was built from (null = no plan yet). */
+  draftScriptId: string | null;
+  /** Rendered clips on the current draft — if >0 and Generate would start a
+   *  new plan, confirm before discarding them. */
+  renderedClipCount: number;
 }
 
 /** Draft state for Write / From-Idea modes. Lifted to Phase1Script so
@@ -842,8 +848,11 @@ export function Phase1Script({
   defaultScript,
   onAdvance,
   advancing = false,
+  draftScriptId,
+  renderedClipCount,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabKind>('pick');
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   // selectedScriptId lives here so PickMode (controlled) and the
   // advance button stay in sync.
   const [selectedScriptId, setSelectedScriptId] = useState<string>(defaultScript.id);
@@ -857,22 +866,15 @@ export function Phase1Script({
   const [ideaDraft, setIdeaDraft] = useDraftStorage(`script.${parshaSlug}.idea.draft.v1`);
   const [creating, setCreating] = useState(false);
 
-  async function handleAdvance() {
+  // The actual advance. For Pick, routes the selected script to Phase 2. For
+  // Write/Idea, inserts the custom script first. Validation + the discard
+  // confirm happen in handleAdvance BEFORE this runs.
+  async function doAdvance() {
     if (activeTab === 'pick') {
       onAdvance(selectedScriptId);
       return;
     }
     const draft = activeTab === 'write' ? writeDraft : ideaDraft;
-    if (!draft.title.trim()) {
-      toast.error('Title is required.', {
-        description: 'It becomes the headline on torahtaichi.com.',
-      });
-      return;
-    }
-    if (!draft.text.trim()) {
-      toast.error('Script text is required.');
-      return;
-    }
     setCreating(true);
     try {
       const result = await createCustomScript({
@@ -890,6 +892,35 @@ export function Phase1Script({
       setCreating(false);
     }
   }
+
+  function handleAdvance() {
+    // Validate Write/Idea input up front so errors surface before the confirm.
+    if (activeTab !== 'pick') {
+      const draft = activeTab === 'write' ? writeDraft : ideaDraft;
+      if (!draft.title.trim()) {
+        toast.error('Title is required.', {
+          description: 'It becomes the headline on torahtaichi.com.',
+        });
+        return;
+      }
+      if (!draft.text.trim()) {
+        toast.error('Script text is required.');
+        return;
+      }
+    }
+    // Would Generate start a NEW plan? Pick with the SAME script reuses the
+    // existing plan (no discard); a different pick or any Write/Idea script
+    // starts over. Warn only when that would throw away rendered clips.
+    const wouldStartNewPlan =
+      activeTab !== 'pick' || selectedScriptId !== draftScriptId;
+    if (renderedClipCount > 0 && wouldStartNewPlan) {
+      setConfirmDiscardOpen(true);
+      return;
+    }
+    void doAdvance();
+  }
+
+  const clipNoun = renderedClipCount === 1 ? 'clip' : 'clips';
 
   return (
     <section>
@@ -932,6 +963,31 @@ export function Phase1Script({
       )}
 
       <AdvanceBar onAdvance={handleAdvance} isPending={advancing || creating} />
+
+      {/* Guard: generating a new plan discards the clips already rendered for
+          this teaching. Make that an explicit choice — the SAFE option ("Keep")
+          is the prominent button so a mis-tap never loses Yonah's work; the
+          destructive one is demoted. */}
+      <BottomSheet
+        open={confirmDiscardOpen}
+        onOpenChange={setConfirmDiscardOpen}
+        title="Start over with a new plan?"
+        primaryAction={{
+          label: 'Keep my clips',
+          onClick: () => setConfirmDiscardOpen(false),
+        }}
+        secondaryAction={{
+          label: `Discard ${renderedClipCount} ${clipNoun} & start over`,
+          onClick: () => {
+            setConfirmDiscardOpen(false);
+            void doAdvance();
+          },
+        }}
+      >
+        You&apos;ve already made {renderedClipCount} {clipNoun} for this
+        teaching. Generating a new plan will discard {renderedClipCount === 1 ? 'it' : 'them'} and
+        re-render from scratch. Your rendered {clipNoun} can&apos;t come back.
+      </BottomSheet>
     </section>
   );
 }
