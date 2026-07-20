@@ -7364,60 +7364,64 @@ def compose_video(compose_job_id: str) -> dict | None:
     timeout=120,
 )
 def reap_stranded_jobs() -> dict:
-    """Watchdog: fail jobs left ACTIVE past _STUCK_AFTER so they can't wedge the
-    operator.
+    """Watchdog: fail jobs left ACTIVE too long so they can't wedge the operator.
 
-    A job can be stranded in an active status forever when Modal's dispatch is
-    dropped (it never leaves 'queued') or the container is hard-killed mid-run
-    (SIGKILL/OOM/timeout bypasses the `except` that would set status='failed').
-    A stranded active row then (a) trips uniq_active_plan_only_job so retries
-    error, (b) inflates the Phase-2 elapsed timer, and (c) hangs the Phase-4
-    spinner. This runs every 10 min, marks any active job older than
-    _STUCK_AFTER (30 min — safely past the ~15 min longest legit render) as
-    failed, and broadcasts 'failed' so the dashboard swaps the spinner for a
-    real failure card with Retry/Start over. Weekly-bug class: stranded jobs.
+    Two strand vectors (both are weekly-bug causes):
+      1. DROPPED DISPATCH — the dashboard writes status='queued' then fires
+         Modal fire-and-forget; if that POST is dropped / times out on a cold
+         start, the job sits in 'queued' forever. Worse, 'queued' counts as
+         in-progress, so it PERMANENTLY blocks re-triggering that parsha
+         (resume only fires on 'failed'). Reap after 15 min → the parsha
+         unblocks and the operator can retry.
+      2. HARD KILL — a container SIGKILLed / OOMed / past Modal's timeout never
+         runs its `except`, so the row is stuck in its last in-flight status.
+         Modal's hard cap is 60 min, so anything in-flight past 75 min is
+         provably dead — reaping there can never kill a legitimate render.
+
+    Reaped jobs are marked failed (with completed_at, which the pipeline's own
+    failure path omits) and broadcast 'failed', so the dashboard swaps the
+    spinner for a real failure card with Retry/Start over. Runs every 10 min.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
     )
-    # 'queued' (dropped dispatch) + every in-flight status (dead worker).
-    active = ["queued", *sorted(_IN_FLIGHT_STATUSES)]
-    cutoff = (datetime.now(timezone.utc) - _STUCK_AFTER).isoformat()
+    now = datetime.now(timezone.utc)
+    queued_cutoff = (now - timedelta(minutes=15)).isoformat()
+    inflight_cutoff = (now - timedelta(minutes=75)).isoformat()
+    inflight = sorted(_IN_FLIGHT_STATUSES)
 
-    candidates = (
-        sb.table("jobs")
-        .select("id, status, kind, triggered_at")
-        .in_("status", active)
-        .lt("triggered_at", cutoff)
-        .is_("completed_at", "null")
-        .execute()
-        .data
-        or []
-    )
+    def _stale(status_filter, cutoff):
+        q = sb.table("jobs").select("id, status, kind, triggered_at")
+        q = q.eq("status", status_filter) if isinstance(status_filter, str) else q.in_("status", status_filter)
+        return q.lt("triggered_at", cutoff).is_("completed_at", "null").execute().data or []
+
+    candidates = _stale("queued", queued_cutoff) + _stale(inflight, inflight_cutoff)
+    all_active = ["queued", *inflight]
 
     reaped: list[str] = []
-    mins = int(_STUCK_AFTER.total_seconds() // 60)
     for j in candidates:
         # Re-read to avoid racing a job that finished between the query and now.
         cur = (
             sb.table("jobs").select("status, completed_at")
             .eq("id", j["id"]).maybe_single().execute().data
         )
-        if not cur or cur.get("completed_at") or cur.get("status") not in active:
+        if not cur or cur.get("completed_at") or cur.get("status") not in all_active:
             continue
-        msg = (
-            f"Timed out — stuck in '{j['status']}' for over {mins} minutes. "
-            "This usually means the worker died mid-run. Please try again."
-        )
+        if j["status"] == "queued":
+            msg = ("Couldn't reach the worker — the job never started. "
+                   "This is usually a hiccup dispatching to the renderer. Please try again.")
+        else:
+            msg = (f"Timed out — stuck in '{j['status']}' for over an hour. "
+                   "The worker died mid-run. Please try again.")
         sb.table("jobs").update(
             {"status": "failed", "error_message": msg, "completed_at": "now()"}
         ).eq("id", j["id"]).execute()
         log_event(
             sb, actor="system", level="warn", event="pipeline.reaped",
             subject_type="job", subject_id=j["id"], message=msg,
-            details={"prev_status": j["status"], "kind": j["kind"], "stuck_min": mins},
+            details={"prev_status": j["status"], "kind": j["kind"]},
         )
         emit_job_event(job_id=j["id"], stage="failed", message=msg)
         reaped.append(j["id"])
