@@ -250,3 +250,92 @@ def test_build_final_timeline_appends_outro_with_fade(tmp_path):
 
     assert timeline == [*clips, outro]
     assert cuts == [HARD, FADE]
+
+
+# ── HARD-cut micro-crossfade (Eikev "weird frame jump", 2026-07-28) ─────
+# Chained clips start from the previous clip's last frame, but Seedance
+# re-synthesizes the anchor ~3% off in scale and ~4% off in exposure. A
+# butt-joined hard cut showed that snap in a single frame. Hard cuts now
+# overlap by a 0.12s video+audio micro-crossfade — invisible as a
+# transition, but it smears the snap across ~4 frames. (Audio is safe:
+# the outgoing tail is already artifact-faded to silence at hard cuts.)
+
+@pytest.mark.slow
+def test_hard_cut_has_a_blended_frame_at_the_join(tmp_path):
+    a = tmp_path / "a.mp4"
+    b = tmp_path / "b.mp4"
+    _make_test_clip(a, seconds=2, color="red")
+    _make_test_clip(b, seconds=2, color="blue")
+    out = concat_clips([a, b], tmp_path / "out.mp4", cut_types=["hard"])
+
+    frames_dir = tmp_path / "frames"
+    frames_dir.mkdir()
+    subprocess.run([
+        "ffmpeg", "-y", "-ss", "1.5", "-to", "2.4", "-i", str(out),
+        "-vsync", "0", str(frames_dir / "f_%03d.png"),
+    ], check=True, capture_output=True)
+
+    from PIL import Image
+    saw_red = saw_blend = saw_blue = False
+    for f in sorted(frames_dir.glob("f_*.png")):
+        r, g, bl = Image.open(f).convert("RGB").resize((1, 1)).getpixel((0, 0))
+        if r > 150 and bl < 80:
+            saw_red = True
+        elif bl > 150 and r < 80:
+            saw_blue = True
+        elif r > 40 and bl > 40:
+            saw_blend = True
+    assert saw_red and saw_blue, "expected both pure sides around the join"
+    assert saw_blend, "hard cut must pass through at least one blended frame"
+
+
+@pytest.mark.slow
+def test_hard_cut_overlap_shortens_total_by_the_blend(tmp_path):
+    a = tmp_path / "a.mp4"
+    b = tmp_path / "b.mp4"
+    _make_test_clip(a, seconds=2, color="red")
+    _make_test_clip(b, seconds=2, color="blue")
+    out = concat_clips([a, b], tmp_path / "out.mp4", cut_types=["hard"])
+    dur = stitcher._probe_duration(out)
+    # 2 + 2 minus one 0.12s overlap (small mux tolerance).
+    assert 3.7 <= dur <= 4.02, f"duration {dur}"
+
+
+@pytest.mark.slow
+def test_hard_cut_survives_audio_outlasting_video(tmp_path):
+    """Real Seedance clips mux audio past the last video frame. An xfade
+    offset computed from CONTAINER duration lands past the outgoing clip's
+    final video frame — the transition never fires and the first clip
+    VANISHES from the output (found stitching Eikev locally, 2026-07-28).
+    Offsets must come from the video stream's duration."""
+    def tail_clip(path, color, seconds):
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", f"color=c={color}:s=320x240:d={seconds}",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds + 0.1}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+            str(path),
+        ], check=True, capture_output=True)
+
+    a = tmp_path / "a.mp4"
+    b = tmp_path / "b.mp4"
+    tail_clip(a, "red", 2.0)
+    tail_clip(b, "blue", 2.0)
+    out = concat_clips([a, b], tmp_path / "out.mp4", cut_types=["hard"])
+
+    dur = stitcher._probe_video_duration(out)
+    assert 3.6 <= dur <= 4.05, f"first clip vanished? video duration {dur}"
+
+    from PIL import Image
+    frames_dir = tmp_path / "fr"
+    frames_dir.mkdir()
+    subprocess.run([
+        "ffmpeg", "-y", "-i", str(out), "-vf", "fps=2", "-vsync", "0",
+        str(frames_dir / "f_%03d.png"),
+    ], check=True, capture_output=True)
+    seq = []
+    for f in sorted(frames_dir.glob("f_*.png")):
+        r, g, bl = Image.open(f).convert("RGB").resize((1, 1)).getpixel((0, 0))
+        seq.append("R" if r > 150 and bl < 80 else ("B" if bl > 150 and r < 80 else "x"))
+    assert "R" in seq and "B" in seq and seq.index("R") < len(seq) - 1 - seq[::-1].index("B"), \
+        f"expected red before blue in output, got {''.join(seq)}"

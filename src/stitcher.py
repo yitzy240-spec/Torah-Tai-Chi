@@ -70,6 +70,21 @@ def build_final_timeline(
     return [*clips, outro_path], [*content_cuts, FADE]
 
 
+def _probe_video_duration(mp4: Path) -> float:
+    """Duration of the VIDEO stream, not the container. They differ on
+    Seedance-derived clips (audio outlasts video) — see _transition_concat."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(mp4)],
+        capture_output=True, text=True,
+    )
+    try:
+        return float(result.stdout.strip().splitlines()[0])
+    except (ValueError, IndexError):
+        return _probe_duration(mp4)
+
+
 def _probe_duration(mp4: Path) -> float:
     result = subprocess.run([
         _FFPROBE, "-v", "error", "-show_entries", "format=duration",
@@ -196,19 +211,97 @@ def _preprocess_clip(
     return dest
 
 
-def _hard_concat(files: list[Path], dest: Path) -> Path:
-    lst = dest.parent / f"{dest.stem}_list.txt"
-    with lst.open("w", encoding="utf-8") as f:
-        for p in files:
-            f.write(f"file '{p.name}'\n")
-    r = subprocess.run(
-        [_FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(lst),
-         "-c", "copy", "-movflags", "+faststart", str(dest)],
-        capture_output=True,
-    )
+# Video+audio overlap at a HARD cut. Chained clips start from the previous
+# clip's extracted last frame, but Seedance re-synthesizes that anchor ~3%
+# off in scale and ~4% off in exposure — a butt joint showed the snap in a
+# single frame ("weird frame jump", Eikev 2026-07-28). Four frames of
+# crossfade read as a straight cut but smear the snap below perception.
+# Audio is safe to overlap at this width: hard-cut outgoing tails are
+# already artifact-faded to near-silence over the SAME 0.12s window.
+_MICRO_XFADE_S = 0.12
+
+
+def _transition_concat(
+    files: list[Path], dest: Path, cut_types: list[str], has_audio: bool,
+) -> Path:
+    """Assemble preprocessed clips in one filter graph: HARD boundaries
+    overlap by a micro-crossfade (xfade + acrossfade); FADE boundaries are
+    butt joints via the concat filter — their sequential fade-out/fade-in
+    is already baked into the clips by _preprocess_clip."""
+    # Runs of consecutive clips joined by HARD cuts.
+    runs: list[list[int]] = [[0]]
+    for i, ct in enumerate(cut_types):
+        if ct == HARD:
+            runs[-1].append(i + 1)
+        else:
+            runs.append([i + 1])
+
+    # xfade offsets MUST come from the VIDEO stream's duration, not the
+    # container's. Seedance-derived clips mux audio ~60-100ms past the
+    # last video frame; an offset computed from container duration lands
+    # past the first input's final frame, the transition never fires, and
+    # ffmpeg passes through the second input wholesale (the first clip
+    # vanishes from the output). Same audio-tail geometry that broke
+    # last-frame chaining (16a3d82). The 0.005s margin keeps the whole
+    # fade window strictly inside the outgoing clip's video stream.
+    durs = [_probe_video_duration(f) for f in files]
+    fc: list[str] = []
+    for i in range(len(files)):
+        fc.append(f"[{i}:v]settb=AVTB,fps=30[v{i}]")
+        if has_audio:
+            fc.append(
+                f"[{i}:a]aformat=channel_layouts=stereo,"
+                f"aresample=async=1:out_sample_rate=48000[a{i}]"
+            )
+
+    run_v: list[str] = []
+    run_a: list[str] = []
+    for r_idx, run in enumerate(runs):
+        vlab, alab = f"v{run[0]}", f"a{run[0]}"
+        acc = durs[run[0]]
+        for j, idx in enumerate(run[1:], start=1):
+            nv = f"rv{r_idx}_{j}"
+            off = max(0.0, acc - _MICRO_XFADE_S - 0.005)
+            fc.append(
+                f"[{vlab}][v{idx}]xfade=transition=fade:"
+                f"duration={_MICRO_XFADE_S}:offset={off:.3f}[{nv}]"
+            )
+            vlab = nv
+            if has_audio:
+                na = f"ra{r_idx}_{j}"
+                fc.append(f"[{alab}][a{idx}]acrossfade=d={_MICRO_XFADE_S}[{na}]")
+                alab = na
+            # The chained output's video runs to off + in2's full length.
+            acc = off + durs[idx]
+        run_v.append(vlab)
+        run_a.append(alab)
+
+    if len(runs) == 1:
+        out_v, out_a = run_v[0], run_a[0]
+    else:
+        if has_audio:
+            ins = "".join(f"[{v}][{a}]" for v, a in zip(run_v, run_a))
+            fc.append(f"{ins}concat=n={len(runs)}:v=1:a=1[vout][aout]")
+            out_v, out_a = "vout", "aout"
+        else:
+            ins = "".join(f"[{v}]" for v in run_v)
+            fc.append(f"{ins}concat=n={len(runs)}:v=1:a=0[vout]")
+            out_v, out_a = "vout", ""
+
+    args = [_FFMPEG, "-y"]
+    for f in files:
+        args += ["-i", str(f)]
+    args += ["-filter_complex", ";".join(fc), "-map", f"[{out_v}]"]
+    if has_audio:
+        args += ["-map", f"[{out_a}]", "-c:a", "aac", "-b:a", "192k"]
+    args += ["-c:v", "libx264", "-preset", "medium", "-crf", "18",
+             "-pix_fmt", "yuv420p", "-r", "30",
+             "-movflags", "+faststart", str(dest)]
+    r = subprocess.run(args, capture_output=True)
     if r.returncode != 0:
         raise RuntimeError(
-            f"_hard_concat failed ({len(files)} files): "
+            f"_transition_concat failed ({len(files)} files, "
+            f"cuts={cut_types}): "
             f"{r.stderr.decode('utf-8', errors='replace')[-800:]}"
         )
     return dest
@@ -289,7 +382,7 @@ def concat_clips(
             artifact_fade_s=artifact, end_audio_fade=is_last,
         ))
 
-    return _hard_concat(pps, dest)
+    return _transition_concat(pps, dest, cut_types, has_audio)
 
 
 def concat_final_video(
