@@ -1616,29 +1616,16 @@ def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:
     clip exactly where the previous one ended (frame-perfect
     continuity within the same setting).
 
-    Raises subprocess.CalledProcessError if ffmpeg fails or
-    subprocess.TimeoutExpired if it hangs. Caller is expected to
-    catch and degrade to no-chain behavior.
+    Delegates to src.frame_extract.extract_last_frame — this used to be
+    a duplicate with a 100ms -sseof window that returned EMPTY output
+    (ffmpeg exit 0, no file) on real Seedance clips, whose audio stream
+    outlasts the video. Every chain attempt then silently degraded to
+    no-chain (Eikev continuity break, 2026-07-27) while the fixed src
+    util (bf95c8e) sat unused. Raises on failure; callers catch and
+    degrade to no-chain behavior.
     """
-    import subprocess
-    # -sseof -0.1 seeks 0.1s before EOF — close enough to grab the
-    # final visible frame without risking past-EOF on short clips.
-    # -update 1 -frames:v 1 emits exactly one image to dest.
-    subprocess.run(
-        [
-            "ffmpeg", "-y",
-            "-sseof", "-0.1",
-            "-i", str(mp4_path),
-            "-update", "1",
-            "-q:v", "1",
-            "-frames:v", "1",
-            str(dest_png),
-        ],
-        check=True,
-        timeout=30,
-        capture_output=True,
-    )
-    return dest_png
+    from src.frame_extract import extract_last_frame
+    return extract_last_frame(mp4_path, dest_png)
 
 
 async def _upload_first_frame(kie: "KieClient", png_path: Path) -> str:  # noqa: F821
