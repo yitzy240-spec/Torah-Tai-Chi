@@ -15,6 +15,13 @@ export type Phase4Props = {
   videoMp4Path: string | null;
   thumbPath: string | null;
   composeJobId: string | null;
+  /** jobs.status for the compose/render job, read server-side. The failed
+   * state MUST be renderable from the DB row alone: the 2026-07-28 Eikev
+   * incident had compose crash before broadcasting 'failed', so a client
+   * that only trusts the realtime event shows "Stitching…" forever — through
+   * every refresh, all night. */
+  composeJobStatus: string | null;
+  composeJobError: string | null;
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
@@ -41,12 +48,13 @@ export async function getPhase4Props(
 ): Promise<Phase4Props> {
   const supabase = await createClient();
 
-  const [videoResult, planResult, clipsResult] = await Promise.all([
+  const [videoResult, planResult, clipsResult, jobResult] = await Promise.all([
     supabase.from('videos').select('id, mp4_path, thumb_path, job_id, stitch_settings, composed_from_clip_ids').eq('id', draftVideoId).single(),
     clipPlanId
       ? supabase.from('clip_plans').select('plan_json').eq('id', clipPlanId).single()
       : Promise.resolve({ data: null }),
     supabase.from('clips').select('id, index').eq('job_id', draftJobId).order('index'),
+    supabase.from('jobs').select('status, error_message').eq('id', draftJobId).maybeSingle(),
   ]);
 
   const videoRow = videoResult.data as {
@@ -57,6 +65,9 @@ export async function getPhase4Props(
   const videoMp4Path = videoRow?.mp4_path ?? null;
   const thumbPath = videoRow?.thumb_path ?? null;
   const composeJobId = videoRow?.job_id ?? null;
+  const jobRow = jobResult.data as { status: string | null; error_message: string | null } | null;
+  const composeJobStatus = jobRow?.status ?? null;
+  const composeJobError = jobRow?.error_message ?? null;
 
   const cutOverrides: Record<string, CutType> = {};
   for (const [k, v] of Object.entries(videoRow?.stitch_settings?.cuts ?? {})) {
@@ -115,6 +126,8 @@ export async function getPhase4Props(
     videoMp4Path,
     thumbPath,
     composeJobId,
+    composeJobStatus,
+    composeJobError,
     captionsVttDataUrl,
     clipBoundariesS,
     totalDurationS,

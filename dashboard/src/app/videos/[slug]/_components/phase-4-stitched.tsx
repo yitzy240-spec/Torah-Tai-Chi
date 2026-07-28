@@ -21,6 +21,8 @@ interface Props {
   videoMp4Path: string | null;
   thumbPath: string | null;
   composeJobId: string | null;
+  composeJobStatus: string | null;
+  composeJobError: string | null;
   captionsVttDataUrl: string | null;
   /** Cumulative start-of-clip offsets in seconds, e.g. [0, 9, 19, 28] */
   clipBoundariesS: number[];
@@ -36,6 +38,8 @@ export function Phase4Stitched({
   videoMp4Path,
   thumbPath,
   composeJobId,
+  composeJobStatus,
+  composeJobError,
   captionsVttDataUrl,
   clipBoundariesS,
   totalDurationS,
@@ -58,9 +62,19 @@ export function Phase4Stitched({
   const effectiveMp4 = liveEvent?.videoPath ?? videoMp4Path;
   const effectiveThumb = thumbPath; // thumb refreshes via router.refresh on done — see useEffect below
 
-  const composeFailed = liveEvent?.stage === 'failed';
-  const composeCancelled = liveEvent?.stage === 'cancelled';
-  const composeError = liveEvent?.message ?? null;
+  // Failure/cancel state comes from EITHER the realtime event OR the jobs
+  // row read server-side. The DB is the backstop: on 2026-07-27 (Eikev)
+  // compose crashed before broadcasting 'failed', and with only the event
+  // path the operator sat on "Stitching…" through refreshes all night while
+  // jobs.status already said failed. The 20s poll below re-reads server
+  // props, so the DB status also self-heals a dropped broadcast.
+  const dbFailed = !videoMp4Path && composeJobStatus === 'failed';
+  const dbCancelled = !videoMp4Path && composeJobStatus === 'cancelled';
+  const composeFailed = liveEvent?.stage === 'failed' || dbFailed;
+  const composeCancelled = liveEvent?.stage === 'cancelled' || dbCancelled;
+  const composeError = liveEvent?.stage === 'failed'
+    ? (liveEvent?.message ?? composeJobError)
+    : (composeJobError ?? liveEvent?.message ?? null);
 
   // When the pipeline reaches a terminal stage, ask the server for a fresh
   // render so we pick up thumb_path (and any other fields not on the event)

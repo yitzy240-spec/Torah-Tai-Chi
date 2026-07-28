@@ -7136,6 +7136,7 @@ def compose_video(compose_job_id: str) -> dict | None:
     )
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
+    from src.job_events import emit_job_event
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]

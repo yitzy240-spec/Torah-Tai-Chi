@@ -13,6 +13,8 @@ interface Props {
   videoMp4Path: string | null;
   thumbPath: string | null;
   composeJobId: string | null;
+  composeJobStatus: string | null;
+  composeJobError: string | null;
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
