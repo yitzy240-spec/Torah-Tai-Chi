@@ -88,6 +88,35 @@ def _inject_sentence_beats(voiceover: str) -> str:
     return "\n".join(parts) + "\n"
 
 
+# Quoted spans inside a delivery note. Openers must not be glued to a
+# word character on the left (protects contractions: the ' in "doesn't"
+# has word chars on both sides and never matches). Curly variants too —
+# Claude-authored plans use them.
+_QUOTED_SPAN = re.compile(
+    r"(?<!\w)['‘“]([^'‘’“”]{1,80})['’”](?!\w)"
+)
+_EMPTY_PARENS = re.compile(r"\(\s*[,;\s]*\)")
+_PUNCT_RUNS = re.compile(r"\s*,(\s*,)+")
+_SPACE_RUNS = re.compile(r"\s{2,}")
+
+
+def _sanitize_emotive_note(note: str) -> str:
+    """Strip quoted fragments from a delivery note before prompt injection.
+
+    Eikev 2026-07-28: the plan's note quoted script phrases —
+    "each phrase ('seeing clearly,' 'feeling deeply,' ...) lands with a
+    brief natural pause" — so Seedance saw the same words as speech AND
+    instruction, blended them, and Rav Eli stuttered a spoken "brief"
+    mid-sentence. Delivery notes direct TONE; any quoted text in them is
+    script echo and must not reach the model.
+    """
+    out = _QUOTED_SPAN.sub("", note)
+    out = _EMPTY_PARENS.sub("", out)
+    out = _PUNCT_RUNS.sub(",", out)
+    out = _SPACE_RUNS.sub(" ", out)
+    return out.strip(" ,;—-").strip()
+
+
 def normalize_voiceover_for_tts(text: str) -> str:
     """Apply known-good substitutions before sending voiceover to
     Seedance. Safety net for operator-edited voiceovers that bypass
@@ -151,10 +180,11 @@ def build_seedance_input(
     # voice and Yonah's audience hears the same monotone every clip.
     # The note also tells the model to vary delivery across the video
     # so adjacent clips don't sound identical.
+    emotive_note = _sanitize_emotive_note(getattr(clip, "emotive_note", None) or "")
     emotive_clause = (
-        f'Delivery: {clip.emotive_note.strip()}. '
+        f'Delivery: {emotive_note}. '
         f'Speak with natural rise and fall — not a flat reading voice.\n'
-        if getattr(clip, "emotive_note", None) and clip.emotive_note.strip()
+        if emotive_note
         else 'Speak with natural rise and fall, like a teacher who cares about the words — not a flat reading voice.\n'
     )
     motion_addendum = (

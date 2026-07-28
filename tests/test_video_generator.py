@@ -245,3 +245,57 @@ def test_build_seedance_input_voiceover_gets_sentence_beats():
     beat_idx = prompt.index("holds the moment")
     second_idx = prompt.index('"He stayed until dawn."')
     assert first_idx < beat_idx < second_idx
+
+
+# ── emotive_note sanitization (Eikev "brief" leak, 2026-07-28) ──────────
+# The plan wrote a delivery note that QUOTED script phrases:
+#   "each phrase ('seeing clearly,' 'feeling deeply,' ...) lands with a
+#    brief natural pause between them"
+# Injected verbatim as the Delivery: line, Seedance saw the same words as
+# speech AND instruction and blended them — Rav Eli stuttered and spoke
+# the word "brief" mid-sentence at the quoted phrases. Delivery notes must
+# never carry quoted script text into the prompt.
+
+def _eikev_clip() -> Clip:
+    return Clip(
+        index=1,
+        voiceover="We see clearly, feel deeply, and draw closer.",
+        visual_prompt="Rav Eli stands on the indigo runner",
+        duration_s=11, setting_id="DOJO",
+        emotive_note=("measured and patient, teacher tone — each phrase "
+                      "('seeing clearly,' 'feeling deeply,' 'drawing closer') "
+                      "lands with a brief natural pause between them"),
+    )
+
+
+def test_emotive_note_quoted_script_fragments_are_stripped():
+    payload = build_seedance_input(
+        _eikev_clip(),
+        character_ref_urls=["https://x/a.png"], dojo_ref_urls=["https://x/d.png"],
+        first_frame_url=None, audio_url=None, resolution="720p",
+    )
+    delivery_line = next(
+        l for l in payload["prompt"].splitlines() if l.startswith("Delivery:")
+    )
+    assert "seeing clearly" not in delivery_line
+    assert "feeling deeply" not in delivery_line
+    assert "drawing closer" not in delivery_line
+    # The tone direction itself survives.
+    assert "measured and patient" in delivery_line
+
+
+def test_emotive_note_contractions_survive_sanitization():
+    clip = _eikev_clip().model_copy(update={
+        "emotive_note": "warm, doesn't rush, isn't preachy — lands 'balance' gently",
+    })
+    payload = build_seedance_input(
+        clip,
+        character_ref_urls=["https://x/a.png"], dojo_ref_urls=["https://x/d.png"],
+        first_frame_url=None, audio_url=None, resolution="720p",
+    )
+    delivery_line = next(
+        l for l in payload["prompt"].splitlines() if l.startswith("Delivery:")
+    )
+    assert "doesn't rush" in delivery_line
+    assert "isn't preachy" in delivery_line
+    assert "'balance'" not in delivery_line

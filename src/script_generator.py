@@ -401,6 +401,14 @@ contrasts: held vs. lifting, intimate vs. expansive, measured vs.
 declarative. The goal is a video that breathes through changes in
 delivery, not a single tone repeated 4 times.
 
+NEVER quote words or phrases from the voiceover inside an emotive note
+(no "lands on 'seeing clearly'" style references). The note is injected
+into the video model's prompt next to the speech text; quoted script
+fragments make the model read the instruction as dialogue — it stuttered
+and spoke the word "brief" from exactly such a note (Eikev 2026-07-28).
+Describe WHERE in the line with positional words instead: "the final
+phrase", "the three-item list", "after the question".
+
 If Yonah's DIRECTION section includes tone direction (e.g., "start in
 a vibrant tone, deliver the meditation line slowly"), map that to the
 appropriate clip's emotive_note — that override wins.
