@@ -1,5 +1,6 @@
 import { createServiceClient } from '@/lib/supabase/service';
 import { getPostExternalLinks } from '@/lib/buffer';
+import { normalizeFacebookPostUrl } from '@/lib/fb-post-url';
 
 /**
  * Resolve Buffer-backed posts' externalLinks for a single video and
@@ -59,8 +60,11 @@ export async function refreshVideoPostUrls(videoId: string): Promise<void> {
   let videosChanged = false;
 
   for (const c of candidates) {
-    const url = links[c.buffer_update_id];
+    let url = links[c.buffer_update_id];
     if (!url) continue;
+    // Buffer sometimes returns Facebook's raw composite id as a URL,
+    // which isn't a resolvable permalink — see fb-post-url.ts.
+    if (c.platform === 'facebook') url = normalizeFacebookPostUrl(url);
     // Update the per-row posts.post_url for audit + downstream uses.
     await sb.from('posts').update({ post_url: url }).eq('id', c.id);
     if (merged[c.platform] !== url) {
