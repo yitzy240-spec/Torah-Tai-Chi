@@ -9,6 +9,7 @@
 'use client';
 import { useMemo } from 'react';
 import { EditableField } from './editable-field';
+import { splitCaption, joinCaption } from '@/lib/caption-tags';
 
 interface Props {
   storageKey: string;
@@ -40,13 +41,3 @@ export function CaptionAndHashtags({ storageKey, initialCombined, onSave }: Prop
   );
 }
 
-function splitCaption(s: string): { body: string; tags: string } {
-  // Find trailing hashtag block (handles multiline without the /s flag)
-  const m = s.match(/^([\s\S]*?)(?:\n+)?((?:#[\w_]+\s*)+)$/);
-  if (!m) return { body: s, tags: '' };
-  return { body: m[1].trim(), tags: m[2].trim() };
-}
-
-function joinCaption(body: string, tags: string): string {
-  return tags ? `${body}\n\n${tags}` : body;
-}
