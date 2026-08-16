@@ -63,17 +63,47 @@ export async function startFromEmpty(
   // The Phase 1 editor will bind to this row; whatever Yonah types becomes
   // the draft_text. No Modal call. No cost. No surprise pipeline runs.
   const svc = createServiceClient();
+
+  // `scripts.title` is NOT NULL with no default (0001_slice1_schema.sql).
+  // Omitting it is what surfaced as
+  //   null value in column "title" of relation "scripts" violates not-null constraint
+  // when Yonah clicked "Start scripting" on Ki Teitzei — the first parsha
+  // reached that had no seeded script row, so it was the first click to
+  // actually run this insert. Seed the title from the parsha name rather
+  // than '' so the website's A-tight title fallback
+  // (website/src/lib/parshiot.ts) still reads sensibly if a video ships
+  // before the title is edited.
+  const { data: parsha } = await svc
+    .from('parshiot')
+    .select('name')
+    .eq('id', parshaId)
+    .maybeSingle();
+  const placeholderTitle = (parsha?.name as string | undefined)?.trim() || 'Untitled';
+
   const { data: placeholder, error: insertErr } = await svc
     .from('scripts')
     .insert({
       parsha_id: parshaId,
       option: 'A-tight',
+      title: placeholderTitle,
       draft_text: '',
     })
     .select('id')
     .single();
 
   if (insertErr || !placeholder) {
+    // A double-click (or two tabs) can race past the existence check above
+    // and trip the unique (parsha_id, option) constraint. That's a win, not
+    // an error — the row the other call created is exactly what we wanted.
+    if (insertErr?.code === '23505') {
+      const { data: raced } = await svc
+        .from('scripts')
+        .select('id')
+        .eq('parsha_id', parshaId)
+        .eq('option', 'A-tight')
+        .maybeSingle();
+      if (raced) return { ok: true, scriptId: raced.id as string };
+    }
     return { ok: false, error: insertErr?.message ?? 'Could not create placeholder script' };
   }
 
