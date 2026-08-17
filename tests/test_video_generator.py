@@ -201,6 +201,32 @@ def test_inject_sentence_beats_three_sentences_two_beats():
     assert lines[-1].startswith("Character speaks:")
 
 
+def test_inject_sentence_beats_question_mark_does_not_beat():
+    """A question keeps its natural TTS pause — no written beat after `?`.
+
+    Ki Teitzei 2026-08-17: the written beat after a hook question rendered
+    as 1.3–2.6s of dead air (measured across four renders), and the
+    operator could not remove it — deleting the `?` just made the `.`
+    split instead. Question joins stay inside one quoted block; the
+    verified beat remains for `.` and `!` joins."""
+    out = _inject_sentence_beats(
+        "How does a fence on the roof connect with Tai Chi? In this week's "
+        "Tora portion, God commands us to build a fence around a roof."
+    )
+    assert out.count("Character speaks:") == 1
+    assert "holds the moment" not in out
+    assert "Tai Chi? In this week's" in out
+
+
+def test_inject_sentence_beats_question_then_period_mixed():
+    """`A? B. C.` — the `?` join stays in-block; the `.` join still beats."""
+    out = _inject_sentence_beats("Why did he stay? He was not afraid. He trusted.")
+    assert out.count("Character speaks:") == 2
+    assert out.count("holds the moment") == 1
+    assert '"Why did he stay? He was not afraid."' in out
+    assert '"He trusted."' in out
+
+
 def test_inject_sentence_beats_abbreviation_does_not_split():
     """`Dr. Cohen said hello. He walked away.` should split at ONE
     boundary (between `hello.` and `He`) — not at `Dr. Cohen`. The
