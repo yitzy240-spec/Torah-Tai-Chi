@@ -39,6 +39,25 @@ const IN_FLIGHT = new Set([
   'stitching',
 ]);
 
+/**
+ * The `hasScripts` predicate, kept next to the state machine that consumes it
+ * because the two have to agree on what "has a script" means.
+ *
+ * A placeholder row — created by startFromEmpty with draft_text '' so Phase 1
+ * has something to bind to — COUNTS. Requiring non-empty draft_text instead
+ * (what shell-data did until 2026-08-16) made "Start scripting" a dead end:
+ * the row was written, hasScripts stayed false, the page stayed in 'empty',
+ * and the empty state's button pushed ?phase=1 into a page that returns
+ * EmptyState before it ever looks at the phase param. Yonah: "when I click
+ * the button, nothing happens."
+ *
+ * An empty draft is exactly the state Phase 1 exists to fix, so it must not
+ * be the thing that keeps Phase 1 from opening.
+ */
+export function hasScriptRows(scripts: ReadonlyArray<unknown>): boolean {
+  return scripts.length > 0;
+}
+
 export function selectPageState(input: PageStateInput): PageState {
   const { jobs, videos, posts, clipsByJobId, hasScripts } = input;
 

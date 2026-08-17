@@ -4,19 +4,23 @@
 // video, nothing live. Per spec §3 table: "Empty — Single CTA: Start your
 // video".
 //
-// On click: navigate to ?phase=1. The page-state machine (hasScripts in
-// shell-data) routes parshas with existing scripts directly to Phase 1,
-// so this state should only render for parshas where the offline script
-// pipeline hasn't populated yet. In that case Phase 1 shows a
-// "Generating the script… check back" placeholder.
+// On click: create the placeholder script row, then navigate to ?phase=1.
 //
-// Note: this button does NOT call any server action. The previous
-// implementation tried to insert a placeholder script row and hung
-// when RLS blocked the insert.
+// Pushing ?phase=1 on its own is NOT enough, and used to make this button do
+// visibly nothing: page.tsx returns EmptyState as soon as state.kind is
+// 'empty', before it reads the phase param, so navigating to ?phase=1 while
+// the parsha still has no script re-renders this very card. The row has to
+// exist first — that's what flips the state machine to Phase 1.
+//
+// startFromEmpty is the same action the home-page cards use. It writes via
+// the service-role client, which is what fixed the earlier version of this
+// button that hung when RLS blocked an authed insert. It queues no job and
+// calls no Modal pipeline — it only creates the row Phase 1 binds to.
 
 'use client';
-import { useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
+import { startFromEmpty } from '@/app/actions/video-page/start-from-empty';
 
 interface Props {
   parshaName: string;
@@ -24,12 +28,19 @@ interface Props {
   parshaSlug: string;
 }
 
-export function EmptyState({ parshaName, parshaSlug }: Props) {
+export function EmptyState({ parshaName, parshaId, parshaSlug }: Props) {
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   function handleStart() {
-    startTransition(() => {
+    setError(null);
+    startTransition(async () => {
+      const res = await startFromEmpty(parshaId, parshaSlug);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
       router.push(`/videos/${parshaSlug}?phase=1`);
     });
   }
@@ -77,6 +88,20 @@ export function EmptyState({ parshaName, parshaSlug }: Props) {
       >
         {isPending ? 'Starting…' : 'Start scripting'}
       </button>
+
+      {error && (
+        <p
+          style={{
+            marginTop: 16,
+            fontSize: 13,
+            color: 'var(--tassel)',
+            maxWidth: 380,
+            marginInline: 'auto',
+          }}
+        >
+          {error}
+        </p>
+      )}
     </section>
   );
 }
