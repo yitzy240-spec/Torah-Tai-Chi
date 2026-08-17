@@ -85,7 +85,15 @@ def _inject_sentence_beats(voiceover: str) -> str:
     )
     sentences = _SENTENCE_SPLIT.split(masked)
     sentences = [s.replace('\x00', '.').strip() for s in sentences if s.strip()]
-    if len(sentences) <= 1:
+    # Two segments render as ONE block: with a single join, the written
+    # beat is one conspicuous mid-clip hold — measured 1.28-2.65s (mean
+    # ~2.1s) across 5 renders on 2 two-sentence Ki Teitzei clips
+    # (2026-08-17), and the operator flagged it as dead air both times.
+    # Natural one-block cadence measured 0.4-0.93s at the same
+    # boundaries. 3+ segments keep the beat — that's the multi-sentence
+    # flow the June cadence feature was built for ("videos read as
+    # rushed").
+    if len(sentences) <= 2:
         return f'Character speaks: "{voiceover}"\n'
     parts: list[str] = []
     for i, s in enumerate(sentences):

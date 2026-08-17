@@ -173,20 +173,21 @@ def test_inject_sentence_beats_single_sentence_unchanged():
     assert "holds the moment" not in out
 
 
-def test_inject_sentence_beats_two_sentences_one_beat():
-    """Two sentences produce two Character speaks: blocks separated by
-    exactly one beat line."""
+def test_inject_sentence_beats_two_sentences_single_block_no_beat():
+    """Two sentences render as ONE block with no written beat.
+
+    Ki Teitzei 2026-08-17: across 5 renders on 2 two-sentence clips the
+    written beat realized 1.28-2.65s (mean ~2.1s) — a single mid-clip
+    hold that the operator called dead air both times. Natural one-block
+    cadence measured 0.4-0.93s at the same boundaries. With only one
+    join, the hold dominates the clip; 3+ sentence flows keep the beat
+    (that's where the June 'rushed' complaint lived)."""
     out = _inject_sentence_beats(
         "When Yaakov wrestled the angel, he did not run. He stayed in contact until dawn."
     )
-    expected = (
-        'Character speaks: "When Yaakov wrestled the angel, he did not run."\n'
-        'Rav Eli holds the moment, breathes calmly, then continues:\n'
-        'Character speaks: "He stayed in contact until dawn."\n'
-    )
-    assert out == expected
-    assert out.count("Character speaks:") == 2
-    assert out.count("holds the moment") == 1
+    assert out.count("Character speaks:") == 1
+    assert "holds the moment" not in out
+    assert "he did not run. He stayed" in out
 
 
 def test_inject_sentence_beats_three_sentences_two_beats():
@@ -219,21 +220,33 @@ def test_inject_sentence_beats_question_mark_does_not_beat():
 
 
 def test_inject_sentence_beats_question_then_period_mixed():
-    """`A? B. C.` — the `?` join stays in-block; the `.` join still beats."""
+    """`A? B. C.` — the `?` join never splits, leaving two segments,
+    and two segments render as a single block (no beat)."""
     out = _inject_sentence_beats("Why did he stay? He was not afraid. He trusted.")
-    assert out.count("Character speaks:") == 2
-    assert out.count("holds the moment") == 1
-    assert '"Why did he stay? He was not afraid."' in out
-    assert '"He trusted."' in out
+    assert out.count("Character speaks:") == 1
+    assert "holds the moment" not in out
+    assert "Why did he stay? He was not afraid. He trusted." in out
+
+
+def test_inject_sentence_beats_four_segments_keep_beats():
+    """3+ segments keep the verified beat between every adjacent pair —
+    the June cadence feature is unchanged for longer flows."""
+    out = _inject_sentence_beats(
+        "He walked the path. He thought about it. He prayed at dusk. He slept."
+    )
+    assert out.count("Character speaks:") == 4
+    assert out.count("holds the moment") == 3
 
 
 def test_inject_sentence_beats_abbreviation_does_not_split():
-    """`Dr. Cohen said hello. He walked away.` should split at ONE
-    boundary (between `hello.` and `He`) — not at `Dr. Cohen`. The
-    abbreviation pre-mask handles this."""
-    out = _inject_sentence_beats("Dr. Cohen said hello. He walked away.")
-    assert out.count("Character speaks:") == 2
-    assert out.count("holds the moment") == 1
+    """`Dr.` must not count as a sentence boundary. With three real
+    sentences (3 segments → beats active), the first block keeps
+    `Dr. Cohen said hello.` intact — the abbreviation pre-mask holds."""
+    out = _inject_sentence_beats(
+        "Dr. Cohen said hello. He walked away. He returned at dawn."
+    )
+    assert out.count("Character speaks:") == 3
+    assert out.count("holds the moment") == 2
     # The Dr. abbreviation survives unchanged in the rendered output
     assert '"Dr. Cohen said hello."' in out
 
@@ -246,12 +259,15 @@ def test_inject_sentence_beats_empty_string_does_not_crash():
 
 
 def test_build_seedance_input_voiceover_gets_sentence_beats():
-    """End-to-end: a clip with a two-sentence voiceover produces a
-    payload['prompt'] containing TWO Character speaks: blocks and ONE
-    beat between them. Verifies the helper is wired in."""
+    """End-to-end: a clip with a THREE-sentence voiceover produces a
+    payload['prompt'] containing three Character speaks: blocks and two
+    beats between them. Verifies the helper is wired in."""
     clip = Clip(
         index=0,
-        voiceover="When Yaakov wrestled the angel, he did not run. He stayed until dawn.",
+        voiceover=(
+            "When Yaakov wrestled the angel, he did not run. "
+            "He stayed until dawn. He earned a new name."
+        ),
         visual_prompt="Rav Eli sits, dolly in, soft morning light",
         duration_s=10,
         setting_id="DOJO",
@@ -265,7 +281,7 @@ def test_build_seedance_input_voiceover_gets_sentence_beats():
         resolution="720p",
     )
     prompt = payload["prompt"]
-    assert prompt.count("Character speaks:") == 2
+    assert prompt.count("Character speaks:") == 3
     assert "Rav Eli holds the moment, breathes calmly, then continues:" in prompt
     first_idx = prompt.index('"When Yaakov wrestled the angel, he did not run."')
     beat_idx = prompt.index("holds the moment")
