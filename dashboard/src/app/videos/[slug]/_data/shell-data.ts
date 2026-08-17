@@ -8,7 +8,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { DOUBLE_PARSHA_PARTNER, joinParshaNames } from '@/lib/parsha-display';
-import { selectPageState } from '@/lib/page-state';
+import { selectPageState, hasScriptRows } from '@/lib/page-state';
 import type { DraftPhase, PageState } from '@/lib/page-state';
 import type { PersistentLiveStrip } from '../_components/persistent-live-strip';
 
@@ -228,9 +228,7 @@ export async function fetchPageShellData(
     videos: videosForState,
     posts: postsForState,
     clipsByJobId,
-    hasScripts: (parsha.scripts ?? []).some(
-      (s) => (s.draft_text ?? '').trim().length > 0,
-    ),
+    hasScripts: hasScriptRows(parsha.scripts ?? []),
   });
 
   // Live-strip props (live-and-draft state only)

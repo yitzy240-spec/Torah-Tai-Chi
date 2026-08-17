@@ -1,7 +1,7 @@
 // dashboard/src/lib/page-state.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectPageState } from './page-state.ts';
+import { selectPageState, hasScriptRows } from './page-state.ts';
 
 const base = { jobs: [], videos: [], posts: [], clipsByJobId: {}, hasScripts: false };
 
@@ -147,6 +147,38 @@ test('script-only WITH a live video -> live-and-draft phase 1 with null jobId', 
   });
   assert.equal(s.kind, 'live-and-draft');
   if (s.kind === 'live-and-draft') {
+    assert.equal(s.phase, 1);
+    assert.equal(s.draftJobId, null);
+  }
+});
+
+// ── hasScriptRows ──────────────────────────────────────────────────────────
+//
+// Regression guard for the "Start scripting does nothing" dead end
+// (Yonah, Ki Teitzei, 2026-08-16). startFromEmpty writes a placeholder row
+// with draft_text ''. shell-data used to require non-empty draft_text here,
+// so the row never flipped the page out of 'empty' and the button appeared
+// inert. A placeholder MUST count as a script.
+
+test('hasScriptRows: no rows -> false', () => {
+  assert.equal(hasScriptRows([]), false);
+});
+
+test('hasScriptRows: placeholder row with empty draft_text -> true', () => {
+  assert.equal(hasScriptRows([{ id: 's1', option: 'A-tight', draft_text: '' }]), true);
+});
+
+test('hasScriptRows: written script -> true', () => {
+  assert.equal(hasScriptRows([{ id: 's1', option: 'A-tight', draft_text: 'Shalom.' }]), true);
+});
+
+test('placeholder script alone opens Phase 1 rather than the empty state', () => {
+  const s = selectPageState({
+    ...base,
+    hasScripts: hasScriptRows([{ id: 's1', option: 'A-tight', draft_text: '' }]),
+  });
+  assert.equal(s.kind, 'draft-in-progress');
+  if (s.kind === 'draft-in-progress') {
     assert.equal(s.phase, 1);
     assert.equal(s.draftJobId, null);
   }
