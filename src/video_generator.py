@@ -56,7 +56,13 @@ _BEAT_TEXT = "Rav Eli holds the moment, breathes calmly, then continues:"
 # the operator's natural prose ("Dr. Cohen said hello. He walked
 # away.") splits at ONE boundary, not two.
 _ABBREV_MASK = re.compile(r'\b(Dr|Mr|Mrs|Ms|St|Sr|Jr|vs|etc)\.(\s+)(?=[A-Z])')
-_SENTENCE_SPLIT = re.compile(r'(?<=[.!?])\s+(?=[A-Z])')
+# `?` is deliberately NOT a split boundary: Seedance's TTS already gives
+# a question its natural rising pause inside a quoted block, and the
+# written beat on top of it rendered as 1.3–2.6s of dead air (measured
+# across four Ki Teitzei clip-1 renders, 2026-08-17). The operator can't
+# opt out — deleting the `?` just hands the split to the `.` — so the
+# question join must not beat at all.
+_SENTENCE_SPLIT = re.compile(r'(?<=[.!])\s+(?=[A-Z])')
 
 
 def _inject_sentence_beats(voiceover: str) -> str:
@@ -65,9 +71,10 @@ def _inject_sentence_beats(voiceover: str) -> str:
 
     Single-sentence voiceovers render identically to the pre-beat
     behavior so the change is a no-op for short clips. The split regex
-    requires sentence-end punctuation followed by whitespace and a
-    capital letter; common short abbreviations (Dr., Mr., etc.) are
-    pre-masked so they don't false-split.
+    requires `.` or `!` followed by whitespace and a capital letter
+    (`?` joins keep their natural TTS pause — see _SENTENCE_SPLIT);
+    common short abbreviations (Dr., Mr., etc.) are pre-masked so they
+    don't false-split.
     """
     # Mask abbreviation periods with a placeholder so the split regex
     # skips them. We use a NUL byte (\x00) which can't appear in real
@@ -78,7 +85,15 @@ def _inject_sentence_beats(voiceover: str) -> str:
     )
     sentences = _SENTENCE_SPLIT.split(masked)
     sentences = [s.replace('\x00', '.').strip() for s in sentences if s.strip()]
-    if len(sentences) <= 1:
+    # Two segments render as ONE block: with a single join, the written
+    # beat is one conspicuous mid-clip hold — measured 1.28-2.65s (mean
+    # ~2.1s) across 5 renders on 2 two-sentence Ki Teitzei clips
+    # (2026-08-17), and the operator flagged it as dead air both times.
+    # Natural one-block cadence measured 0.4-0.93s at the same
+    # boundaries. 3+ segments keep the beat — that's the multi-sentence
+    # flow the June cadence feature was built for ("videos read as
+    # rushed").
+    if len(sentences) <= 2:
         return f'Character speaks: "{voiceover}"\n'
     parts: list[str] = []
     for i, s in enumerate(sentences):

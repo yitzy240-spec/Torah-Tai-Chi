@@ -362,6 +362,7 @@ export function LiveAtRest(p: Props) {
               post={latestPostByPlatform['facebook'] ?? null}
               postUrl={p.postUrls['facebook'] ?? null}
               socialMetadata={p.socialMetadata}
+              videoMp4Url={p.videoMp4Url}
             />
           )}
 
