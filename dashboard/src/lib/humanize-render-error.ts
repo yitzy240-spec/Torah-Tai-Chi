@@ -21,6 +21,14 @@ export function humanizeRenderError(raw: string | null | undefined): string {
   }
   const lower = raw.toLowerCase();
 
+  // ─── Kie queue backlog: our poller gave up but the render may still
+  // finish (and bill) on Kie's side — Ki Tavo clip 4 completed 4 minutes
+  // after the old 30-min window on 2026-08-24 and was recovered manually.
+  // Steer the operator away from an immediate re-render (double billing).
+  if (lower.includes('poll timeout')) {
+    return 'The video service is very backed up and our wait timed out — but your render may still finish on their side. Don’t re-render right away: wait 30 minutes, refresh, and if the clip hasn’t appeared ask Yitzy to recover it before paying for another attempt.';
+  }
+
   // ─── Kie / Seedance upstream issues ─────────────────────────────────
   // Yonah hit kieai.redpandaai.co 500 on file-base64-upload 2026-05-28.
   // Modal now retries 5xx 3x, but a sustained Kie outage still surfaces.
