@@ -42,6 +42,21 @@ image = (
 )
 
 
+def _maybe_row(query) -> dict | None:
+    """Execute a .maybe_single() query safely.
+
+    supabase-py returns None (not a response object) when zero rows
+    match a maybe_single query, so chaining .execute().data raises
+    AttributeError. That landmine crashed clips_only_job AFTER Kie
+    billing on 2026-08-23 (Ki Tavo): Yonah added a 5th clip to the
+    plan, the stitch-prep loop asked for the plan-owner row of an
+    index that had none, and two paid clip renders were discarded
+    by the crash. Route every maybe_single through this helper.
+    """
+    resp = query.execute()
+    return resp.data if resp is not None else None
+
+
 def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
     """Fetch the tai_chi_moves row for the given slug. Returns (move_dict, mp4_url).
 
@@ -49,13 +64,11 @@ def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
     """
     if not slug:
         return None, None
-    row = (
+    row = _maybe_row(
         sb.table("tai_chi_moves")
         .select("slug, english, pinyin, visual, motion_description, mp4_storage_path")
         .eq("slug", slug)
         .maybe_single()
-        .execute()
-        .data
     )
     if not row:
         return None, None
@@ -1417,13 +1430,11 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
         script_id: str | None = None
         parsha_id: str | None = None
         for _ in range(25):
-            row = (
+            row = _maybe_row(
                 sb.table("jobs")
                 .select("script_id, parsha_id, regen_of_job_id")
                 .eq("id", current_id)
                 .maybe_single()
-                .execute()
-                .data
             )
             if not row:
                 break
@@ -1443,24 +1454,20 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
                 "spoken_script": None,
             }
 
-        script_row = (
+        script_row = _maybe_row(
             sb.table("scripts")
             .select("title, tldr")
             .eq("id", script_id)
             .maybe_single()
-            .execute()
-            .data
         ) or {}
 
         parsha_name: str | None = None
         if parsha_id:
-            parsha_row = (
+            parsha_row = _maybe_row(
                 sb.table("parshiot")
                 .select("name")
                 .eq("id", parsha_id)
                 .maybe_single()
-                .execute()
-                .data
             ) or {}
             parsha_name = parsha_row.get("name")
 
@@ -5918,13 +5925,11 @@ def clips_only_job(job_id: str) -> dict | None:
         # is NULL (operator hasn't picked a move for this clip).
         script_motion: str | None = None
         if parent_job.get("script_id"):
-            script_row = (
+            script_row = _maybe_row(
                 sb.table("scripts")
                 .select("motion_ref_slug")
                 .eq("id", parent_job["script_id"])
                 .maybe_single()
-                .execute()
-                .data
             ) or {}
             script_motion = script_row.get("motion_ref_slug")
 
@@ -6238,14 +6243,12 @@ def clips_only_job(job_id: str) -> dict | None:
         for c in all_planned:
             if c.index in clip_paths_by_index:
                 continue
-            existing = (
+            existing = _maybe_row(
                 sb.table("clips")
                 .select("storage_path")
                 .eq("job_id", plan_owner_job_id)
                 .eq("index", c.index)
                 .maybe_single()
-                .execute()
-                .data
             ) or {}
             sp = existing.get("storage_path")
             if sp:
@@ -6254,7 +6257,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 )
                 # Copy the plan-owner clip row into this job's clips set
                 # so the job has a complete clip set for future regens.
-                parent_clip_full = (
+                parent_clip_full = _maybe_row(
                     sb.table("clips")
                     .select(
                         "voiceover, visual_prompt, setting_id, duration_s, "
@@ -6263,8 +6266,6 @@ def clips_only_job(job_id: str) -> dict | None:
                     .eq("job_id", plan_owner_job_id)
                     .eq("index", c.index)
                     .maybe_single()
-                    .execute()
-                    .data
                 ) or {}
                 sb.table("clips").upsert({
                     "job_id": job_id,
@@ -6628,36 +6629,30 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         _per_clip_slug = target_parent_clip.get("motion_ref_slug")
         if not _per_clip_slug:
             # Fall back to the script-level motion slug via the job chain.
-            _parent_job_row = (
+            _parent_job_row = _maybe_row(
                 sb.table("jobs")
                 .select("script_id, regen_of_job_id")
                 .eq("id", parent_job_id)
                 .maybe_single()
-                .execute()
-                .data
             ) or {}
             _script_id = _parent_job_row.get("script_id")
             if not _script_id:
                 # Walk one level up (regen job → original job).
                 _grandparent_id = _parent_job_row.get("regen_of_job_id")
                 if _grandparent_id:
-                    _gp_row = (
+                    _gp_row = _maybe_row(
                         sb.table("jobs")
                         .select("script_id")
                         .eq("id", _grandparent_id)
                         .maybe_single()
-                        .execute()
-                        .data
                     ) or {}
                     _script_id = _gp_row.get("script_id")
             if _script_id:
-                _script_row = (
+                _script_row = _maybe_row(
                     sb.table("scripts")
                     .select("motion_ref_slug")
                     .eq("id", _script_id)
                     .maybe_single()
-                    .execute()
-                    .data
                 ) or {}
                 _per_clip_slug = _script_row.get("motion_ref_slug")
         _resolved_motion_slug = _per_clip_slug  # None if both sources are NULL
@@ -7396,9 +7391,9 @@ def reap_stranded_jobs() -> dict:
     reaped: list[str] = []
     for j in candidates:
         # Re-read to avoid racing a job that finished between the query and now.
-        cur = (
+        cur = _maybe_row(
             sb.table("jobs").select("status, completed_at")
-            .eq("id", j["id"]).maybe_single().execute().data
+            .eq("id", j["id"]).maybe_single()
         )
         if not cur or cur.get("completed_at") or cur.get("status") not in all_active:
             continue
