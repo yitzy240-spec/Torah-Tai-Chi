@@ -12,6 +12,7 @@
 'use client';
 import { useState, useTransition, type CSSProperties } from 'react';
 import { CaptionAndHashtags } from './_shared/hashtag-field';
+import { downloadUrl } from '@/lib/storage-url';
 import { EditableField } from './_shared/editable-field';
 import { PostedSummaryRow } from './_shared/posted-summary-row';
 import { ReelOrPostToggle } from './_shared/reel-or-post-toggle';
@@ -275,7 +276,7 @@ export function FacebookCard({ jobId, videoId, parshaSlug, caption, post, postUr
           </p>
           {videoMp4Url ? (
             <a
-              href={videoMp4Url}
+              href={downloadUrl(videoMp4Url, `torah-tai-chi-${parshaSlug}.mp4`)}
               download
               target="_blank"
               rel="noopener noreferrer"
