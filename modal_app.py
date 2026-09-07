@@ -1056,6 +1056,11 @@ JEWISH_REF_FILENAMES: dict[str, str] = {
     "sukkah_interior": "sukkah_interior.jpg",
     "shofar": "shofar.jpg",
     "shofar_held": "shofar_held.png",
+    # Picker-only pose variants (empty keyword lists below): the operator
+    # pins these per clip via "+ Refs"; they never auto-inject.
+    "shofar_raised": "shofar_raised.png",
+    "shofar_blowing": "shofar_blowing.png",
+    "shofar_at_side": "shofar_at_side.png",
 }
 
 # Case-insensitive substring keywords. If clip.visual_prompt contains
@@ -1104,6 +1109,9 @@ JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
     "shofar_held": [
         "shofar", "ram's horn", "rams horn", "ram horn", "tekiah",
     ],
+    "shofar_raised": [],
+    "shofar_blowing": [],
+    "shofar_at_side": [],
 }
 
 # Cap per clip — too many ref images dilutes the character/dojo

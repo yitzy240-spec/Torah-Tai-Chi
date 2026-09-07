@@ -70,13 +70,23 @@ unusable shofars in his first two RH attempts).
 Source: generated in-house (gpt-image-2 via Kie, 2026-09-07) from two
 inputs: references/01_front_neutral.png (our character) + shofar.jpg
 (Zachi Evenor, CC BY 2.0 — this image is a derivative; attribution
-retained). Task 3354d9a36f3d3e37b5490328a438ebfa (grip revision — the first
-version held the horn flat on an open palm, "presenting" it; the render
-copied that faithfully. Now a natural carry grip: fist wrapped around
-the narrow third above the mouthpiece, bell up-and-out).
+retained). Pose iterations (2026-09-07, Yitzy art-directing): v1 open-palm
+"presenting" (rejected — render copied it); v2 fist-around-narrow-end
+(rejected — "looks like he's gonna stab someone"); FINAL = raised
+show-and-tell modeled on a real reference photo Yitzy supplied: shofar
+up beside the shoulder, fingers around the curved midsection, bell
+opening tilted up toward camera, mid-speech.
 License: internal asset (derivative of CC BY 2.0 photo).
 Notes: Rav Eli holding the small ram's-horn shofar in his right hand at
 chest height, natural grip, bell up-and-out. Registered alongside the
 object-only shofar.jpg on the same keywords so BOTH inject (challah
 precedent) — anchors object + grip + scale in one shot, added so RH
 renders land the shofar on the first roll instead of after retries.
+
+
+## shofar_raised.png / shofar_blowing.png / shofar_at_side.png
+Source: generated in-house (gpt-image-2 via Kie, 2026-09-07), same
+inputs as shofar_held (character ref + shofar.jpg, CC BY 2.0 Zachi
+Evenor derivative). Picker-only pose variants — registered with EMPTY
+keyword lists so they never auto-inject; the operator pins them per
+clip via "+ Refs" for pre-blow / tekiah / relaxed full-body moments.
