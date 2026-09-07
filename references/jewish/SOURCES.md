@@ -70,7 +70,10 @@ unusable shofars in his first two RH attempts).
 Source: generated in-house (gpt-image-2 via Kie, 2026-09-07) from two
 inputs: references/01_front_neutral.png (our character) + shofar.jpg
 (Zachi Evenor, CC BY 2.0 — this image is a derivative; attribution
-retained). Task 6e10c279a3e709acdaf96544467d582f.
+retained). Task 3354d9a36f3d3e37b5490328a438ebfa (grip revision — the first
+version held the horn flat on an open palm, "presenting" it; the render
+copied that faithfully. Now a natural carry grip: fist wrapped around
+the narrow third above the mouthpiece, bell up-and-out).
 License: internal asset (derivative of CC BY 2.0 photo).
 Notes: Rav Eli holding the small ram's-horn shofar in his right hand at
 chest height, natural grip, bell up-and-out. Registered alongside the
