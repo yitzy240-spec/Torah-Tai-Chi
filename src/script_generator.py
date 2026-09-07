@@ -344,6 +344,13 @@ expand them in visual_prompt using THESE descriptions verbatim:
     silver ornaments — Torah crown (keter) on top, breastplate
     (tas), pointer (yad)."
 
+  Shofar -> "A SMALL curved ram's-horn shofar, about the length of a
+    forearm: natural beige-and-gray horn with ridged texture, ONE
+    gentle curve (NOT a long spiral, NOT a giant Yemenite kudu
+    horn), wide flared bell tapering to a narrow polished
+    mouthpiece, no metal parts, NOT a trumpet or bugle. Held in
+    ONE hand by the narrow mouthpiece end."
+
 GENERAL RULES:
 
 1. **Description over noun.** "Two lit white candles in silver

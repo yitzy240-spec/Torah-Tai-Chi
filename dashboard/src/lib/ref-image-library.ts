@@ -54,6 +54,7 @@ const RAW_REFS: RawRef[] = [
   { path: 'refs/jewish/tallit_worn.jpg',       label: 'Tallit',             category: 'jewish' },
   { path: 'refs/jewish/lulav_etrog.jpg',       label: 'Lulav & etrog',      category: 'jewish' },
   { path: 'refs/jewish/sukkah_interior.jpg',   label: 'Sukkah interior',    category: 'jewish' },
+  { path: 'refs/jewish/shofar.jpg',            label: 'Shofar',             category: 'jewish' },
 ];
 
 /**

@@ -52,3 +52,16 @@ Direct URL: https://upload.wikimedia.org/wikipedia/commons/3/33/Sukkah_in_Ein_Ha
 License: CC BY-SA 3.0 Unported (attribution + share-alike)
 Author: Danny-w (2011)
 Notes: Interior of a decorated sukkah at Kibbutz Ein HaNatziv. Bamboo-mat schach (natural roof) clearly visible overhead, white fabric walls with religious-themed printed panels, paper-chain decorations, and a table/chairs inside. Strong "temporary outdoor structure" feel — exactly the right anchor for the pipeline.
+
+## shofar.jpg
+Source: https://commons.wikimedia.org/wiki/File:Shofar-16-Zachi-Evenor.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/7/76/Shofar-16-Zachi-Evenor.jpg
+License: CC BY 2.0 (attribution)
+Author: Zachi Evenor
+Notes: A classic SMALL Ashkenazi-style ram's-horn shofar isolated on a
+white background — single gentle curve, natural ridged gray-brown horn
+texture, wide flared bell tapering to a narrow polished mouthpiece.
+Chosen for the clean isolation (best object anchor for Seedance) and
+because it matches the "small shofar held in one hand" scenes Yonah
+directs for Rosh Hashanah (added 2026-09-07 after Seedance improvised
+unusable shofars in his first two RH attempts).

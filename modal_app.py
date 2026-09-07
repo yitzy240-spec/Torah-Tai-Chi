@@ -1054,6 +1054,7 @@ JEWISH_REF_FILENAMES: dict[str, str] = {
     "tallit_worn": "tallit_worn.jpg",
     "lulav_etrog": "lulav_etrog.jpg",
     "sukkah_interior": "sukkah_interior.jpg",
+    "shofar": "shofar.jpg",
 }
 
 # Case-insensitive substring keywords. If clip.visual_prompt contains
@@ -1091,6 +1092,11 @@ JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
     ],
     "sukkah_interior": [
         "sukkah", "succah", "schach", "sukkot booth",
+    ],
+    # NB: "shofar" as a substring also catches "shofarot". Deliberately
+    # NOT registering bare "horn" (would false-match "hornbeam" etc.).
+    "shofar": [
+        "shofar", "ram's horn", "rams horn", "ram horn", "tekiah",
     ],
 }
 
@@ -2447,6 +2453,13 @@ substituted with what it knows (a candelabra, a menorah, etc).
     covered braided challah on a wooden board, silver kiddush cup
     beside the challah, bottle of red wine, place settings for the
     seated guests."
+
+  Shofar -> "A SMALL curved ram's-horn shofar, about the length of a
+    forearm: natural beige-and-gray horn with ridged texture, ONE
+    gentle curve (NOT a long spiral, NOT a giant Yemenite kudu horn),
+    wide flared bell tapering to a narrow polished mouthpiece, no
+    metal parts, NOT a trumpet or bugle. Held in ONE hand by the
+    narrow mouthpiece end."
 
 CHARACTER CONSISTENCY: every visual_prompt should include a brief
 reminder anchoring the character: "Rav Eli (consistent character
