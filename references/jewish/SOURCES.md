@@ -65,3 +65,15 @@ Chosen for the clean isolation (best object anchor for Seedance) and
 because it matches the "small shofar held in one hand" scenes Yonah
 directs for Rosh Hashanah (added 2026-09-07 after Seedance improvised
 unusable shofars in his first two RH attempts).
+
+## shofar_held.png
+Source: generated in-house (gpt-image-2 via Kie, 2026-09-07) from two
+inputs: references/01_front_neutral.png (our character) + shofar.jpg
+(Zachi Evenor, CC BY 2.0 — this image is a derivative; attribution
+retained). Task 6e10c279a3e709acdaf96544467d582f.
+License: internal asset (derivative of CC BY 2.0 photo).
+Notes: Rav Eli holding the small ram's-horn shofar in his right hand at
+chest height, natural grip, bell up-and-out. Registered alongside the
+object-only shofar.jpg on the same keywords so BOTH inject (challah
+precedent) — anchors object + grip + scale in one shot, added so RH
+renders land the shofar on the first roll instead of after retries.

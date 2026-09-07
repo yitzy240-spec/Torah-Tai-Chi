@@ -1055,6 +1055,7 @@ JEWISH_REF_FILENAMES: dict[str, str] = {
     "lulav_etrog": "lulav_etrog.jpg",
     "sukkah_interior": "sukkah_interior.jpg",
     "shofar": "shofar.jpg",
+    "shofar_held": "shofar_held.png",
 }
 
 # Case-insensitive substring keywords. If clip.visual_prompt contains
@@ -1096,6 +1097,11 @@ JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
     # NB: "shofar" as a substring also catches "shofarot". Deliberately
     # NOT registering bare "horn" (would false-match "hornbeam" etc.).
     "shofar": [
+        "shofar", "ram's horn", "rams horn", "ram horn", "tekiah",
+    ],
+    # Same keywords on purpose: both the object photo and the held-in-hand
+    # render inject together (challah precedent) — object + grip + scale.
+    "shofar_held": [
         "shofar", "ram's horn", "rams horn", "ram horn", "tekiah",
     ],
 }
