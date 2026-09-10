@@ -107,12 +107,27 @@ export function Phase4Stitched({
   // refresh shows the video" bug — Yonah, weekly). The compose job now
   // broadcasts 'done', but Broadcast is fire-and-forget with no replay, so a
   // dropped message would still hang the spinner. While the initial stitch is
-  // in flight (no video yet, not failed), poll the server every 20s so a
+  // in flight (no video yet, not failed), poll the server (visible tabs only) so a
   // finished mp4_path is picked up even if the event never arrives.
+  // Visibility-gated per the 2026-06/09 Supabase disk-IO audits: the
+  // ungated 20s version of this loop was ~14 queries + an auth round-trip
+  // per tick from BACKGROUNDED tabs, polling hardest exactly when a job
+  // was stuck. 45s visible-only still catches a dropped broadcast fast;
+  // returning to the tab refreshes immediately.
   useEffect(() => {
     if (effectiveMp4 || !composeJobId || composeFailed || composeCancelled) return;
-    const id = setInterval(() => router.refresh(), 20_000);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      router.refresh();
+    }, 45_000);
+    function onVisible() {
+      if (document.visibilityState === 'visible') router.refresh();
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [effectiveMp4, composeJobId, composeFailed, composeCancelled, router]);
 
   if (composeFailed && !effectiveMp4) {

@@ -465,6 +465,29 @@ export async function GET(request: Request) {
 
   const admin = createServiceClient();
 
+  // ── Event-log retention (2026-09-10 disk-IO audit) ──────────────────
+  // execution_events gets a row on EVERY pipeline status transition (plus
+  // ~54/night from this very cron) and had no retention — unbounded
+  // append growth was audit finding #3. 30 days is plenty for the
+  // /admin/events viewer; cost_events (billing history) is deliberately
+  // kept forever. Head-count first so the summary is meaningful.
+  let eventsPurged = 0;
+  if (!dryRun) {
+    const cutoffIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { count } = await admin
+      .from('execution_events')
+      .select('id', { count: 'exact', head: true })
+      .lt('created_at', cutoffIso);
+    if (count && count > 0) {
+      const { error: retErr } = await admin
+        .from('execution_events')
+        .delete()
+        .lt('created_at', cutoffIso);
+      if (!retErr) eventsPurged = count;
+      else console.warn('[purge] execution_events retention failed:', retErr.message);
+    }
+  }
+
   // Fetch all parshiot — the purge logic decides per-parsha whether to act.
   const { data: parshiot, error: parshaErr } = await admin
     .from('parshiot')
@@ -573,6 +596,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     dryRun,
+    eventsPurged,
     parshiotProcessed: parshiot.length,
     parshiotActedOn: acted.length,
     results,

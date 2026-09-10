@@ -83,7 +83,12 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
       }
     };
     tick();
-    linkPollRef.current = setInterval(tick, 5000);
+    // 10s + visibility gate (2026-09 disk-IO audit): every hit runs the
+    // auth middleware even though the route itself is cheap.
+    linkPollRef.current = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      tick();
+    }, 10_000);
     return () => {
       if (linkPollRef.current) clearInterval(linkPollRef.current);
     };
