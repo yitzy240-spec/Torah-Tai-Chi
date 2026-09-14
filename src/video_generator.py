@@ -8,6 +8,26 @@ from src.settings import STYLE_LOCK
 
 
 SEEDANCE_MODEL = "bytedance/seedance-2"
+# Kie's Seedance createTask accepts an INTEGER 4-15s (verified against
+# docs.kie.ai 2026-09-14; default 5) and 422s otherwise. models.py's Clip
+# enforces this, but operator edits reach the renderer via
+# model_copy(update=...) — which does NOT re-run Pydantic validation — so
+# a bad duration_s in the clips table would sail straight to Kie and fail
+# the render AFTER the operator waited (Ha'azinu 2026-09-13, a 3s clip).
+# Clamp at the boundary: this is the last line of defense before the API.
+KIE_DURATION_MIN_S = 4
+KIE_DURATION_MAX_S = 15
+
+
+def clamp_duration_s(seconds) -> int:
+    """Coerce any stored duration into Kie's accepted integer range."""
+    try:
+        n = int(round(float(seconds)))
+    except (TypeError, ValueError):
+        return KIE_DURATION_MIN_S
+    return max(KIE_DURATION_MIN_S, min(KIE_DURATION_MAX_S, n))
+
+
 MAX_REFS = 9
 MAX_DOJO_REFS = 4  # was 3; bumped to improve dojo setting consistency
                    # (previous 2 dojo + 7 char ratio let dojo drift across clips)
@@ -228,7 +248,7 @@ def build_seedance_input(
     )
     payload: dict = {
         "prompt": prompt,
-        "duration": clip.duration_s,
+        "duration": clamp_duration_s(clip.duration_s),
         "resolution": resolution.lower(),
         "aspect_ratio": "9:16",
         "web_search": False,

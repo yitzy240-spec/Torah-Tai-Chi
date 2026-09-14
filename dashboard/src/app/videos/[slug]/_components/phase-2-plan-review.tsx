@@ -40,6 +40,7 @@
 // Realtime subscription on clips via useRealtimeRows.
 
 'use client';
+import { CLIP_DURATION_MIN_S, CLIP_DURATION_MAX_S } from '@/lib/clip-duration';
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -78,8 +79,11 @@ import { publicVideoUrl } from '@/lib/storage-url';
 import { composeVideo } from '@/app/actions/compose-video';
 
 const MAX_REF_IMAGES = 9;
-const DURATION_MIN = 3;
-const DURATION_MAX = 15;
+// 4..15 from the shared module — Kie's Seedance rejects <4 with a 422
+// ("Invalid duration"). This used to be 3, which the UI happily accepted
+// and the renderer always refused (Yonah, Ha'azinu 2026-09-13).
+const DURATION_MIN = CLIP_DURATION_MIN_S;
+const DURATION_MAX = CLIP_DURATION_MAX_S;
 
 interface Clip {
   id: string;

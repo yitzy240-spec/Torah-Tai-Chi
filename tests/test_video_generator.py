@@ -341,3 +341,37 @@ def test_emotive_note_contractions_survive_sanitization():
     assert "doesn't rush" in delivery_line
     assert "isn't preachy" in delivery_line
     assert "'balance'" not in delivery_line
+
+
+# ── duration clamping at the Kie boundary (Ha'azinu 2026-09-13) ─────────
+# Kie's createTask accepts an integer 4-15s and 422s otherwise. The Phase 2
+# UI used to allow 3, and operator edits reach the renderer through
+# model_copy(update=...) which skips Pydantic validation — so an invalid
+# duration reached Kie and failed the render after the operator waited.
+
+def test_clamp_duration_rejects_the_three_second_value():
+    from src.video_generator import clamp_duration_s
+    assert clamp_duration_s(3) == 4
+    assert clamp_duration_s(0) == 4
+    assert clamp_duration_s(-2) == 4
+
+
+def test_clamp_duration_caps_and_coerces():
+    from src.video_generator import clamp_duration_s
+    assert clamp_duration_s(99) == 15
+    assert clamp_duration_s(7.6) == 8
+    assert clamp_duration_s(None) == 4
+    assert clamp_duration_s("nope") == 4
+    for d in (4, 5, 10, 14, 15):
+        assert clamp_duration_s(d) == d
+
+
+def test_seedance_payload_never_sends_an_invalid_duration():
+    """Even if the clips row holds 3s, the payload must carry >= 4."""
+    clip = _dojo_clip().model_copy(update={"duration_s": 3})  # bypasses validation, as prod does
+    payload = build_seedance_input(
+        clip,
+        character_ref_urls=["https://x/a.png"], dojo_ref_urls=["https://x/d.png"],
+        first_frame_url=None, audio_url=None, resolution="720p",
+    )
+    assert payload["duration"] == 4

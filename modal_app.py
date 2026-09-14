@@ -156,7 +156,7 @@ def trigger(payload: dict, request: Request) -> dict:
     )
     existing = (
         sb.table("jobs")
-        .select("status, triggered_at")
+        .select("status, triggered_at, kind")
         .eq("id", job_id)
         .maybe_single()
         .execute()
@@ -205,7 +205,20 @@ def trigger(payload: dict, request: Request) -> dict:
     # fall through to run_pipeline (legacy behaviour for parsha / topic /
     # compose — those have their own endpoints but some callers still hit
     # the main trigger URL with those kinds).
-    kind = (payload.get("kind") or "parsha").lower()
+    # The JOB ROW is the source of truth for what this job is; the payload
+    # is only a hint. On 2026-09-13 a clips-only job (row kind='clips-only',
+    # script_id NULL) reached this endpoint without a payload kind, fell
+    # through to the "parsha" default, and crashed run_pipeline with a raw
+    # Postgres error (invalid uuid "None") — a render Yonah was waiting on.
+    # Prefer payload kind, fall back to the row, and only then to parsha.
+    row_kind = (existing.data or {}).get("kind") if existing else None
+    kind = (payload.get("kind") or row_kind or "parsha").lower()
+    if payload.get("kind") and row_kind and payload["kind"].lower() != row_kind.lower():
+        print(
+            f"[trigger] kind_mismatch job_id={job_id} "
+            f"payload={payload['kind']} row={row_kind} — trusting the row"
+        )
+        kind = row_kind.lower()
     if kind == "plan-only":
         plan_only_job.spawn(job_id)
     elif kind == "clips-only":
@@ -384,6 +397,16 @@ def run_pipeline(job_id: str) -> dict | None:
                 .execute()
                 .data
             )
+            # A NULL script_id here used to reach PostgREST as the string
+            # "None" and surface as `invalid input syntax for type uuid`
+            # — an unreadable error for an operator-facing failure
+            # (Ha'azinu 2026-09-13). Fail with something actionable.
+            if not job.get("script_id"):
+                raise ValueError(
+                    "This job has no script attached, so there is nothing to "
+                    "render. Start from Phase 1 (pick or write a script) and "
+                    "generate again."
+                )
             script = (
                 sb.table("scripts")
                 .select("option, title, style_note, draft_text")
