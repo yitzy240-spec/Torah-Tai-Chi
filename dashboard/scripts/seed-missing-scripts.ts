@@ -12,16 +12,21 @@
 // This script therefore NEVER touches the parshiot table. It only writes
 // scripts, and only for parshiot that are already there.
 //
-// It is safe to re-run:
-//   - a parsha whose scripts are already written is skipped entirely
+// It is safe to re-run, and safe to run against a half-seeded parsha:
+//   - each OPTION is judged on its own (scriptsToSeed). An option holding
+//     real text is left alone; every other option is still written. The
+//     earlier per-parsha version skipped a whole parsha the moment one
+//     option had text — including text the same run had just written — and
+//     so left parshiot stuck with option A and nothing else.
 //   - a placeholder row (draft_text '', created by startFromEmpty when the
-//     operator hits "Start scripting") is treated as empty and filled in,
-//     because the upsert key is (parsha_id, option)
-//   - a parsha with ANY hand-written text is skipped, so an operator's
-//     in-progress draft is never overwritten
+//     operator hits "Start scripting") counts as empty and is filled in
+//     place, because the upsert key is (parsha_id, option)
+//   - an operator's hand-written draft is never overwritten
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { scriptsToSeed } from '../src/lib/seed-scripts.ts';
+import type { ExistingScript } from '../src/lib/seed-scripts.ts';
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -71,15 +76,24 @@ async function main() {
       .eq('parsha_id', parsha.id as string);
     if (scriptsErr) throw scriptsErr;
 
-    const written = (existing ?? []).filter(
-      (s) => ((s.draft_text as string | null) ?? '').trim().length > 0,
+    // Per-option, never per-parsha — see seed-scripts.ts for why that
+    // distinction is the difference between finishing the job and stopping
+    // after option A.
+    const toWrite = scriptsToSeed(
+      (existing ?? []) as ExistingScript[],
+      p.scripts.map((s) => ({
+        option: s.option,
+        title: s.title,
+        style_note: s.style_note,
+        draft: s.draft,
+      })),
     );
-    if (written.length > 0) {
+    if (toWrite.length === 0) {
       skipped++;
       continue;
     }
 
-    for (const s of p.scripts) {
+    for (const s of toWrite) {
       const { error } = await supabase.from('scripts').upsert(
         {
           parsha_id: parsha.id as string,
@@ -93,7 +107,8 @@ async function main() {
       if (error) throw error;
     }
     filled++;
-    console.log(`filled ${p.name} — ${p.scripts.length} scripts`);
+    const opts = toWrite.map((s) => s.option).join(', ');
+    console.log(`filled ${p.name} — ${toWrite.length} scripts (${opts})`);
   }
 
   console.log(`\ndone: ${filled} filled, ${skipped} already written`);
