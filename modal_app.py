@@ -106,6 +106,9 @@ _TERMINAL_STATUSES = frozenset({"done"})
 # spawn but before completing). 30 min comfortably exceeds the longest
 # legitimate generation (~10-15 min for parsha, ~5 min for topic).
 _STUCK_AFTER = timedelta(minutes=30)
+# Watchdog DB timeout: must stay well under the function's Modal timeout
+# (120s) so a stalled query raises instead of being killed mid-flight.
+_WATCHDOG_DB_TIMEOUT_S = 20
 
 # Kie pricing: $5 buys 1000 credits, so $0.005 per credit. Bulk packages
 # go down to ~$0.00455/credit at the largest tier — we use the base
@@ -7419,53 +7422,84 @@ def reap_stranded_jobs() -> dict:
     # create_client / log_event / emit_job_event are imported LOCALLY in every
     # function in this module (not at module scope) — mirror that here.
     from supabase import create_client
+    from supabase.lib.client_options import SyncClientOptions
     from src.events import log_event
     from src.job_events import emit_job_event
 
+    # postgrest-py's DEFAULT client timeout is 120s — exactly this function's
+    # Modal timeout. So a Supabase stall made the HTTP call wait 120s while
+    # Modal killed the container at the same instant: "Timed out after 120
+    # seconds", one alert email, for a janitor whose next tick (10 min later)
+    # does identical work. Bounding the DB timeout well under the Modal
+    # timeout turns a hang into a catchable error we can swallow.
     sb = create_client(
-        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+        os.environ["SUPABASE_URL"],
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+        options=SyncClientOptions(postgrest_client_timeout=_WATCHDOG_DB_TIMEOUT_S),
     )
-    now = datetime.now(timezone.utc)
-    queued_cutoff = (now - timedelta(minutes=15)).isoformat()
-    inflight_cutoff = (now - timedelta(minutes=75)).isoformat()
-    inflight = sorted(_IN_FLIGHT_STATUSES)
+    try:
+        now = datetime.now(timezone.utc)
+        queued_cutoff = (now - timedelta(minutes=15)).isoformat()
+        inflight_cutoff = (now - timedelta(minutes=75)).isoformat()
+        inflight = sorted(_IN_FLIGHT_STATUSES)
 
-    def _stale(status_filter, cutoff):
-        q = sb.table("jobs").select("id, status, kind, triggered_at")
-        q = q.eq("status", status_filter) if isinstance(status_filter, str) else q.in_("status", status_filter)
-        return q.lt("triggered_at", cutoff).is_("completed_at", "null").execute().data or []
+        def _stale(status_filter, cutoff):
+            q = sb.table("jobs").select("id, status, kind, triggered_at")
+            q = q.eq("status", status_filter) if isinstance(status_filter, str) else q.in_("status", status_filter)
+            return q.lt("triggered_at", cutoff).is_("completed_at", "null").execute().data or []
 
-    candidates = _stale("queued", queued_cutoff) + _stale(inflight, inflight_cutoff)
-    all_active = ["queued", *inflight]
+        candidates = _stale("queued", queued_cutoff) + _stale(inflight, inflight_cutoff)
+        all_active = ["queued", *inflight]
 
-    reaped: list[str] = []
-    for j in candidates:
-        # Re-read to avoid racing a job that finished between the query and now.
-        cur = _maybe_row(
-            sb.table("jobs").select("status, completed_at")
-            .eq("id", j["id"]).maybe_single()
-        )
-        if not cur or cur.get("completed_at") or cur.get("status") not in all_active:
-            continue
-        if j["status"] == "queued":
-            msg = ("Couldn't reach the worker — the job never started. "
-                   "This is usually a hiccup dispatching to the renderer. Please try again.")
-        else:
-            msg = (f"Timed out — stuck in '{j['status']}' for over an hour. "
-                   "The worker died mid-run. Please try again.")
-        sb.table("jobs").update(
-            {"status": "failed", "error_message": msg, "completed_at": "now()"}
-        ).eq("id", j["id"]).execute()
-        log_event(
-            sb, actor="system", level="warn", event="pipeline.reaped",
-            subject_type="job", subject_id=j["id"], message=msg,
-            details={"prev_status": j["status"], "kind": j["kind"]},
-        )
-        emit_job_event(job_id=j["id"], stage="failed", message=msg)
-        reaped.append(j["id"])
+        reaped: list[str] = []
+        for j in candidates:
+            # Re-read to avoid racing a job that finished between the query and now.
+            cur = _maybe_row(
+                sb.table("jobs").select("status, completed_at")
+                .eq("id", j["id"]).maybe_single()
+            )
+            if not cur or cur.get("completed_at") or cur.get("status") not in all_active:
+                continue
+            if j["status"] == "queued":
+                msg = ("Couldn't reach the worker — the job never started. "
+                       "This is usually a hiccup dispatching to the renderer. Please try again.")
+            else:
+                msg = (f"Timed out — stuck in '{j['status']}' for over an hour. "
+                       "The worker died mid-run. Please try again.")
+            sb.table("jobs").update(
+                {"status": "failed", "error_message": msg, "completed_at": "now()"}
+            ).eq("id", j["id"]).execute()
+            log_event(
+                sb, actor="system", level="warn", event="pipeline.reaped",
+                subject_type="job", subject_id=j["id"], message=msg,
+                details={"prev_status": j["status"], "kind": j["kind"]},
+            )
+            emit_job_event(job_id=j["id"], stage="failed", message=msg)
+            reaped.append(j["id"])
 
-    print(f"[reap_stranded_jobs] checked {len(candidates)}, reaped {len(reaped)}: {reaped}")
-    return {"checked": len(candidates), "reaped": len(reaped), "ids": reaped}
+        print(f"[reap_stranded_jobs] checked {len(candidates)}, reaped {len(reaped)}: {reaped}")
+        return {"checked": len(candidates), "reaped": len(reaped), "ids": reaped}
+    except Exception as e:
+        # A janitor tick failing is self-correcting: the next run (10 min)
+        # does identical work, and nothing is left half-done — reaping is
+        # per-job and idempotent. So a transient Supabase/network blip must
+        # NOT fail the Modal function, because that emails the owner and
+        # drowns out real alerts. Recorded to execution_events instead, so
+        # a PERSISTENT failure is still visible at /admin/events (and shows
+        # up as stranded jobs nobody reaped).
+        detail = f"{type(e).__name__}: {e}"
+        print(f"[reap_stranded_jobs] tick failed (non-fatal): {detail}")
+        try:
+            log_event(
+                sb, actor="system", level="warn",
+                event="pipeline.watchdog_error",
+                subject_type="job", subject_id=None,
+                message=f"Watchdog tick failed: {detail}",
+                details={"error": detail},
+            )
+        except Exception:
+            pass  # logging the failure must never cause a failure
+        return {"checked": 0, "reaped": 0, "ids": [], "error": detail}
 
 
 @app.function(
