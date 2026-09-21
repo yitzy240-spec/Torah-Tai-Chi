@@ -9,20 +9,32 @@
 # fetch runs here and the bytes travel back through git. Nobody has to run
 # a script on their own machine, and the operator never sees any of this.
 #
-# Modes (workflow_dispatch inputs):
+# Two ways to trigger it:
+#
+#   1. Push a change to .github/fetch-refs-request.txt. The workflow reads
+#      mode / items / force from that file. This is how the Claude Code
+#      environment drives it — its GitHub token can push commits but is
+#      not allowed to dispatch workflows (403 on the dispatch endpoint).
+#   2. "Run workflow" in the Actions tab, for humans.
+#
+# Modes:
 #   browse   list Commons categories with license verdicts   -> read the log
 #   resolve  show metadata for specific File: titles          -> read the log
 #   fetch    download slot=File:Title pairs into references/jewish/,
-#            append SOURCES.md, and commit to the dispatching branch
+#            append SOURCES.md, and commit to the branch
 #
 # Only `fetch` writes anything. The license gate in
 # tools/fetch_jewish_refs.py refuses NonCommercial, NoDerivatives and any
 # unrecognised license before a byte is saved, so a run can only ever add
-# files that are safe to use.
+# files that are safe to use. Commits made here use GITHUB_TOKEN, which
+# does not re-trigger workflows, so a fetch cannot loop.
 
 name: Fetch reference images
 
 on:
+  push:
+    paths:
+      - '.github/fetch-refs-request.txt'
   workflow_dispatch:
     inputs:
       mode:
@@ -51,7 +63,6 @@ concurrency:
 
 jobs:
   fetch:
-    name: ${{ inputs.mode }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -65,21 +76,46 @@ jobs:
 
       - name: Run fetcher
         env:
-          MODE: ${{ inputs.mode }}
-          ITEMS: ${{ inputs.items }}
-          FORCE: ${{ inputs.force }}
+          # Empty on a push event; then the request file is the source.
+          IN_MODE: ${{ inputs.mode }}
+          IN_ITEMS: ${{ inputs.items }}
+          IN_FORCE: ${{ inputs.force }}
         run: |
           python - <<'PY'
           import os, sys
+          from pathlib import Path
           sys.path.insert(0, ".")
           from tools.fetch_jewish_refs import main
 
-          mode = os.environ["MODE"]
-          items = [s.strip() for s in os.environ["ITEMS"].split(";") if s.strip()]
-          force = os.environ.get("FORCE", "false").lower() == "true"
-          if not items:
-              print("no items given")
-              sys.exit(2)
+          mode = os.environ.get("IN_MODE", "").strip()
+          items_raw = os.environ.get("IN_ITEMS", "")
+          force_raw = os.environ.get("IN_FORCE", "false")
+
+          if not mode:
+              req = Path(".github/fetch-refs-request.txt")
+              fields = {}
+              for line in req.read_text(encoding="utf-8").splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#") or ":" not in line:
+                      continue
+                  k, v = line.split(":", 1)
+                  fields[k.strip().lower()] = v.strip()
+              mode = fields.get("mode", "")
+              items_raw = fields.get("items", "")
+              force_raw = fields.get("force", "false")
+              print(f"request file: mode={mode!r} force={force_raw!r}")
+
+          items = [s.strip() for s in items_raw.split(";") if s.strip()]
+          force = force_raw.strip().lower() == "true"
+
+          # Tell the commit step what happened.
+          with open(os.environ["GITHUB_ENV"], "a") as fh:
+              fh.write(f"MODE={mode}\n")
+              fh.write(f"ITEMS={items_raw.replace(chr(10), ' ')}\n")
+
+          if not mode or not items:
+              print("request has no mode or no items — nothing to do")
+              sys.exit(0)
 
           if mode == "browse":
               # An empty category returns 1 from the tool; that's information,
@@ -102,9 +138,7 @@ jobs:
           PY
 
       - name: Commit fetched images
-        if: inputs.mode == 'fetch'
-        env:
-          ITEMS: ${{ inputs.items }}
+        if: env.MODE == 'fetch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

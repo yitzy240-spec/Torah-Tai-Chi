@@ -1,0 +1,16 @@
+# Request file for .github/workflows/fetch-refs.yml.
+#
+# Change this file and push, and the workflow runs with these values on a
+# GitHub runner (which can reach Wikimedia Commons). browse and resolve
+# only print to the run's log. fetch downloads into references/jewish/,
+# appends SOURCES.md, and commits the images back to this branch.
+#
+# mode:  browse | resolve | fetch
+# items: semicolon-separated — categories (browse), File: titles (resolve),
+#        or slot=File:Title pairs (fetch; slots in tools/fetch_jewish_refs.py)
+# force: true to let fetch replace a file that already exists
+
+request: 1
+mode: browse
+items: Category:Sukkah; Category:Etrog; Category:Torah scrolls (open); Category:Torah scrolls (individual images); Category:Torah pointers; Category:Torah arks; Category:Hakafot; Category:Simchat Torah
+force: false
