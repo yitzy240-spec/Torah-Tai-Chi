@@ -170,3 +170,13 @@ Resolution: 6000x4000
 Slot: hakafot — people carrying dressed Torah scrolls in procession, scrolls upright against shoulders
 Notes: Simchat Torah 2017
 Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
+
+## torah_yad.jpg
+Source: https://commons.wikimedia.org/wiki/File:Jüdisches_Museum_München_3.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/1/16/J%C3%BCdisches_Museum_M%C3%BCnchen_3.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC0
+Author: Edelmauswaldgeist
+Resolution: 5472x3648
+Slot: torah_yad — a silver yad on or pointing at parchment text, hand shape readable
+Notes: Jad, Torazeiger.
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
