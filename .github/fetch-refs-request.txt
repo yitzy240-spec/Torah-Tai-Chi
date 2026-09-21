@@ -10,7 +10,7 @@
 #        or slot=File:Title pairs (fetch; slots in tools/fetch_jewish_refs.py)
 # force: true to let fetch replace a file that already exists
 
-request: 2
+request: 3
 mode: fetch
-items: sukkah_exterior=File:Canvas sukkah in the street.JPG; sukkah_schach=File:Sukkah Roofs.jpg; etrog_closeup=File:Etrog5812.jpg; torah_dressed=File:Ingwiller Synagoge 736.jpg; torah_open=File:Open Torah scroll.jpg; torah_yad=File:Open Torah and pointer.jpg; aron_kodesh=File:Hobart Synagogue Aron Kodesh.jpg; hakafot=File:PikiWiki Israel 51038 simchat torah 2017.jpg
-force: false
+items: torah_yad=File:Jüdisches Museum München 3.jpg
+force: true
