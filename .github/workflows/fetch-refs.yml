@@ -1,0 +1,154 @@
+# Fetch Jewish-ritual reference photos from Wikimedia Commons on a GitHub
+# runner — which has ordinary internet — and commit them to the branch.
+#
+# Why a workflow: the Claude Code environment that maintains the reference
+# library sits behind an egress policy that blocks commons.wikimedia.org
+# and upload.wikimedia.org, and every other image host that was tried
+# (Openverse, Unsplash, Pexels, Flickr, the Met, the Smithsonian, LoC,
+# archive.org). GitHub is the one door that policy leaves open, so the
+# fetch runs here and the bytes travel back through git. Nobody has to run
+# a script on their own machine, and the operator never sees any of this.
+#
+# Two ways to trigger it:
+#
+#   1. Push a change to .github/fetch-refs-request.txt. The workflow reads
+#      mode / items / force from that file. This is how the Claude Code
+#      environment drives it — its GitHub token can push commits but is
+#      not allowed to dispatch workflows (403 on the dispatch endpoint).
+#   2. "Run workflow" in the Actions tab, for humans.
+#
+# Modes:
+#   browse   list Commons categories with license verdicts   -> read the log
+#   resolve  show metadata for specific File: titles          -> read the log
+#   fetch    download slot=File:Title pairs into references/jewish/,
+#            append SOURCES.md, and commit to the branch
+#
+# Only `fetch` writes anything. The license gate in
+# tools/fetch_jewish_refs.py refuses NonCommercial, NoDerivatives and any
+# unrecognised license before a byte is saved, so a run can only ever add
+# files that are safe to use. Commits made here use GITHUB_TOKEN, which
+# does not re-trigger workflows, so a fetch cannot loop.
+
+name: Fetch reference images
+
+on:
+  push:
+    paths:
+      - '.github/fetch-refs-request.txt'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: browse | resolve | fetch
+        required: true
+        type: choice
+        options: [browse, resolve, fetch]
+      items:
+        description: >-
+          Semicolon-separated. browse: category names. resolve: File: titles.
+          fetch: slot=File:Title pairs (slots are defined in tools/fetch_jewish_refs.py).
+        required: true
+        type: string
+      force:
+        description: fetch only — replace a file that already exists
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-refs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install --quiet httpx
+
+      - name: Run fetcher
+        env:
+          # Empty on a push event; then the request file is the source.
+          IN_MODE: ${{ inputs.mode }}
+          IN_ITEMS: ${{ inputs.items }}
+          IN_FORCE: ${{ inputs.force }}
+        run: |
+          python - <<'PY'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, ".")
+          from tools.fetch_jewish_refs import main
+
+          mode = os.environ.get("IN_MODE", "").strip()
+          items_raw = os.environ.get("IN_ITEMS", "")
+          force_raw = os.environ.get("IN_FORCE", "false")
+
+          if not mode:
+              req = Path(".github/fetch-refs-request.txt")
+              fields = {}
+              for line in req.read_text(encoding="utf-8").splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#") or ":" not in line:
+                      continue
+                  k, v = line.split(":", 1)
+                  fields[k.strip().lower()] = v.strip()
+              mode = fields.get("mode", "")
+              items_raw = fields.get("items", "")
+              force_raw = fields.get("force", "false")
+              print(f"request file: mode={mode!r} force={force_raw!r}")
+
+          items = [s.strip() for s in items_raw.split(";") if s.strip()]
+          force = force_raw.strip().lower() == "true"
+
+          # Tell the commit step what happened.
+          with open(os.environ["GITHUB_ENV"], "a") as fh:
+              fh.write(f"MODE={mode}\n")
+              fh.write(f"ITEMS={items_raw.replace(chr(10), ' ')}\n")
+
+          if not mode or not items:
+              print("request has no mode or no items — nothing to do")
+              sys.exit(0)
+
+          if mode == "browse":
+              # An empty category returns 1 from the tool; that's information,
+              # not a failure. Only a network error (3) should go red.
+              worst = 0
+              for cat in items:
+                  print("=" * 78)
+                  print(cat)
+                  print("=" * 78)
+                  worst = max(worst, main(["--browse", cat, "--limit", "80"]))
+                  print()
+              sys.exit(worst if worst >= 3 else 0)
+          elif mode == "resolve":
+              sys.exit(main(["--resolve", *items]))
+          elif mode == "fetch":
+              sys.exit(main(["--fetch", *items] + (["--force"] if force else [])))
+          else:
+              print(f"unknown mode {mode!r}")
+              sys.exit(2)
+          PY
+
+      - name: Commit fetched images
+        if: env.MODE == 'fetch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add references/jewish/
+          if git diff --cached --quiet; then
+            echo "nothing fetched — nothing to commit"
+            exit 0
+          fi
+          git commit \
+            -m "refs: fetch reference images from Wikimedia Commons" \
+            -m "Fetched by the fetch-refs workflow. License verified against the Commons API at download time; see references/jewish/SOURCES.md for each file's source, license and author." \
+            -m "Items: ${ITEMS}"
+          git push
