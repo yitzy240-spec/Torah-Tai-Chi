@@ -90,3 +90,83 @@ inputs as shofar_held (character ref + shofar.jpg, CC BY 2.0 Zachi
 Evenor derivative). Picker-only pose variants — registered with EMPTY
 keyword lists so they never auto-inject; the operator pins them per
 clip via "+ Refs" for pre-blow / tekiah / relaxed full-body moments.
+
+## sukkah_exterior.jpg
+Source: https://commons.wikimedia.org/wiki/File:Canvas_sukkah_in_the_street.JPG
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/5/53/Canvas_sukkah_in_the_street.JPG?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC BY-SA 3.0
+Author: Bachrach44
+Resolution: 4608x3456
+Slot: sukkah_exterior — a freestanding sukkah from outside: walls, doorway, roof edge, enough surroundings to read as temporary
+Notes: A canvas sukkah with bamboo schach.
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
+
+## sukkah_schach.jpg
+Source: https://commons.wikimedia.org/wiki/File:Sukkah_Roofs.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/d/db/Sukkah_Roofs.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC BY 2.5
+Author: Yoninah
+Resolution: 1179x780
+Slot: sukkah_schach — the roof from underneath, looking up: cut branches or bamboo mat with daylight through the gaps
+Notes: View of different types of sechach (sukkah roofs).
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
+
+## etrog_closeup.jpg
+Source: https://commons.wikimedia.org/wiki/File:Etrog5812.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/8/8a/Etrog5812.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC BY-SA 3.0
+Author: יעקב
+Resolution: 1551x2662
+Slot: etrog_closeup — one etrog filling the frame, bumpy rind and pitam visible
+Notes: Etrog with Pitam and Gartel
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
+
+## torah_dressed.jpg
+Source: https://commons.wikimedia.org/wiki/File:Ingwiller_Synagoge_736.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/b/b0/Ingwiller_Synagoge_736.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC BY-SA 3.0
+Author: GFreihalter
+Resolution: 3050x4574
+Slot: torah_dressed — a closed sefer Torah standing dressed: mantle, atzei chayim handles, and at least one of crown / rimonim / breastplate
+Notes: Synagoge in Ingwiller im Département Bas-Rhin (Region Alsace-Champagne-Ardenne-Lorraine/Frankreich), Torarolle mit Schild und Zeiger
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
+
+## torah_open.jpg
+Source: https://commons.wikimedia.org/wiki/File:Open_Torah_scroll.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/2/26/Open_Torah_scroll.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC BY 2.0
+Author: Lawrie Cate
+Resolution: 3648x2736
+Slot: torah_open — an open scroll, both rollers visible, hand-written parchment legible as columns (a photograph, not a flat scan)
+Notes: The Torah, the Jewish Holy Book.
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
+
+## torah_yad.jpg
+Source: https://commons.wikimedia.org/wiki/File:Open_Torah_and_pointer.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/d/dd/Open_Torah_and_pointer.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC BY 2.0
+Author: Lawrie Cate
+Resolution: 3648x2736
+Slot: torah_yad — a silver yad on or pointing at parchment text, hand shape readable
+Notes: The Torah, the Jewish Holy Book.
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
+
+## aron_kodesh.jpg
+Source: https://commons.wikimedia.org/wiki/File:Hobart_Synagogue_Aron_Kodesh.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/1/18/Hobart_Synagogue_Aron_Kodesh.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC0
+Author: CutOffTies
+Resolution: 3672x4896
+Slot: aron_kodesh — the ark in a synagogue wall, parochet curtain or carved doors
+Notes: Hobart Synagogue Aron Kodesh
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
+
+## hakafot.jpg
+Source: https://commons.wikimedia.org/wiki/File:PikiWiki_Israel_51038_simchat_torah_2017.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/6/6a/PikiWiki_Israel_51038_simchat_torah_2017.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original
+License: CC BY 2.5
+Author: גדי מינץ
+Resolution: 6000x4000
+Slot: hakafot — people carrying dressed Torah scrolls in procession, scrolls upright against shoulders
+Notes: Simchat Torah 2017
+Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
