@@ -109,8 +109,13 @@ export function AiVideoPanel({ bufferConfigured }: Props) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Start failed (${res.status})`);
       setState({ kind: 'generating', jobId: data.jobId, statusMessage: 'queued' });
-      // Poll every 5s — video pipelines take 10-30 minutes.
-      pollTimer.current = setInterval(() => pollOnce(data.jobId), 5000);
+      // Poll every 10s, visible tabs only (2026-09 disk-IO audit) — video
+      // pipelines take 10-30 minutes and each poll costs a jobs select +
+      // an auth round-trip; a backgrounded tab shouldn't pay for it.
+      pollTimer.current = setInterval(() => {
+        if (document.visibilityState === 'hidden') return;
+        pollOnce(data.jobId);
+      }, 10_000);
       // Also kick one immediate poll so the status updates quickly once
       // Modal picks up the job.
       pollOnce(data.jobId);

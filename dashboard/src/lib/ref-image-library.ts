@@ -54,6 +54,11 @@ const RAW_REFS: RawRef[] = [
   { path: 'refs/jewish/tallit_worn.jpg',       label: 'Tallit',             category: 'jewish' },
   { path: 'refs/jewish/lulav_etrog.jpg',       label: 'Lulav & etrog',      category: 'jewish' },
   { path: 'refs/jewish/sukkah_interior.jpg',   label: 'Sukkah interior',    category: 'jewish' },
+  { path: 'refs/jewish/shofar.jpg',            label: 'Shofar',             category: 'jewish' },
+  { path: 'refs/jewish/shofar_held.png',       label: 'Shofar (held up)',   category: 'jewish' },
+  { path: 'refs/jewish/shofar_raised.png',     label: 'Shofar (to lips)',   category: 'jewish' },
+  { path: 'refs/jewish/shofar_blowing.png',    label: 'Shofar (blowing)',   category: 'jewish' },
+  { path: 'refs/jewish/shofar_at_side.png',    label: 'Shofar (at side)',   category: 'jewish' },
 ];
 
 /**

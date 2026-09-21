@@ -52,3 +52,41 @@ Direct URL: https://upload.wikimedia.org/wikipedia/commons/3/33/Sukkah_in_Ein_Ha
 License: CC BY-SA 3.0 Unported (attribution + share-alike)
 Author: Danny-w (2011)
 Notes: Interior of a decorated sukkah at Kibbutz Ein HaNatziv. Bamboo-mat schach (natural roof) clearly visible overhead, white fabric walls with religious-themed printed panels, paper-chain decorations, and a table/chairs inside. Strong "temporary outdoor structure" feel — exactly the right anchor for the pipeline.
+
+## shofar.jpg
+Source: https://commons.wikimedia.org/wiki/File:Shofar-16-Zachi-Evenor.jpg
+Direct URL: https://upload.wikimedia.org/wikipedia/commons/7/76/Shofar-16-Zachi-Evenor.jpg
+License: CC BY 2.0 (attribution)
+Author: Zachi Evenor
+Notes: A classic SMALL Ashkenazi-style ram's-horn shofar isolated on a
+white background — single gentle curve, natural ridged gray-brown horn
+texture, wide flared bell tapering to a narrow polished mouthpiece.
+Chosen for the clean isolation (best object anchor for Seedance) and
+because it matches the "small shofar held in one hand" scenes Yonah
+directs for Rosh Hashanah (added 2026-09-07 after Seedance improvised
+unusable shofars in his first two RH attempts).
+
+## shofar_held.png
+Source: generated in-house (gpt-image-2 via Kie, 2026-09-07) from two
+inputs: references/01_front_neutral.png (our character) + shofar.jpg
+(Zachi Evenor, CC BY 2.0 — this image is a derivative; attribution
+retained). Pose iterations (2026-09-07, Yitzy art-directing): v1 open-palm
+"presenting" (rejected — render copied it); v2 fist-around-narrow-end
+(rejected — "looks like he's gonna stab someone"); FINAL = raised
+show-and-tell modeled on a real reference photo Yitzy supplied: shofar
+up beside the shoulder, fingers around the curved midsection, bell
+opening tilted up toward camera, mid-speech.
+License: internal asset (derivative of CC BY 2.0 photo).
+Notes: Rav Eli holding the small ram's-horn shofar in his right hand at
+chest height, natural grip, bell up-and-out. Registered alongside the
+object-only shofar.jpg on the same keywords so BOTH inject (challah
+precedent) — anchors object + grip + scale in one shot, added so RH
+renders land the shofar on the first roll instead of after retries.
+
+
+## shofar_raised.png / shofar_blowing.png / shofar_at_side.png
+Source: generated in-house (gpt-image-2 via Kie, 2026-09-07), same
+inputs as shofar_held (character ref + shofar.jpg, CC BY 2.0 Zachi
+Evenor derivative). Picker-only pose variants — registered with EMPTY
+keyword lists so they never auto-inject; the operator pins them per
+clip via "+ Refs" for pre-blow / tekiah / relaxed full-body moments.

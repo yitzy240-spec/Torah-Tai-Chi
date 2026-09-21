@@ -45,14 +45,26 @@ export function PlanGeneratingCard({ jobId, startedAt, parshaSlug }: Props) {
   // Poll backstop: Broadcast is fire-and-forget with no replay, so a dropped
   // 'done' would leave this spinner up until the 3-min escape hatch (and then
   // Retry re-generates a plan that already exists). While generation is still
-  // in flight, refresh the server view every 25s — when the plan lands, the
+  // in flight, refresh the server view every 45s (visible tabs only) — when the plan lands, the
   // server re-render swaps this card for the Phase 2 editor on its own. Same
   // backstop pattern as phase-4-stitched.
   const terminal = stage === 'done' || stage === 'failed' || stage === 'cancelled';
   useEffect(() => {
     if (terminal) return;
-    const id = setInterval(() => router.refresh(), 25_000);
-    return () => clearInterval(id);
+    // Visibility-gated (2026-09 disk-IO audit): each refresh is a full
+    // server re-render; background tabs must not pay for it.
+    const id = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      router.refresh();
+    }, 45_000);
+    function onVisible() {
+      if (document.visibilityState === 'visible') router.refresh();
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [terminal, router]);
 
   // Kick Modal once on mount. The parent component only renders this card

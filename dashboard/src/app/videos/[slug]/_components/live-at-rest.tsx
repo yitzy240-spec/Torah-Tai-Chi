@@ -22,6 +22,7 @@ import { FacebookCard } from './posting-cards/facebook-card';
 import { XCard } from './posting-cards/x-card';
 import { PlatformIcon } from '@/components/platform-icon';
 import { ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
+import { downloadUrl } from '@/lib/storage-url';
 
 export interface PlatformStatus {
   platform: string;
@@ -362,6 +363,7 @@ export function LiveAtRest(p: Props) {
               post={latestPostByPlatform['facebook'] ?? null}
               postUrl={p.postUrls['facebook'] ?? null}
               socialMetadata={p.socialMetadata}
+              videoMp4Url={p.videoMp4Url}
             />
           )}
 
@@ -394,7 +396,7 @@ export function LiveAtRest(p: Props) {
         }}
       >
         <a
-          href={p.videoMp4Url}
+          href={downloadUrl(p.videoMp4Url, `torah-tai-chi-${p.parshaSlug}.mp4`)}
           download
           style={{
             minHeight: 44,

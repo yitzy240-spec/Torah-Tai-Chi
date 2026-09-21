@@ -15,8 +15,15 @@ class KieClient:
     CREATE_URL = "https://api.kie.ai/api/v1/jobs/createTask"
     RECORD_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
 
+    # poll_timeout_s: 1800 -> 3000 on 2026-08-24. Kie's queue completed a
+    # Ki Tavo clip in 34 minutes — 4 minutes past the old 30-min window —
+    # so we abandoned (and Kie billed) a render that finished fine. 50 min
+    # still leaves ~10 min of the clips job's 60-min Modal budget for
+    # download/upload/stitch. If a render outruns even this, the Kie task
+    # id is in the job's error message and the asset is recoverable via
+    # recordInfo — do NOT re-render immediately.
     def __init__(self, api_key: str, timeout_s: int = 60,
-                 poll_interval_s: float = 5.0, poll_timeout_s: int = 1800):
+                 poll_interval_s: float = 5.0, poll_timeout_s: int = 3000):
         self._key = api_key
         self._timeout = timeout_s
         self._poll_interval = poll_interval_s

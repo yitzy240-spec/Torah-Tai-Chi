@@ -42,6 +42,21 @@ image = (
 )
 
 
+def _maybe_row(query) -> dict | None:
+    """Execute a .maybe_single() query safely.
+
+    supabase-py returns None (not a response object) when zero rows
+    match a maybe_single query, so chaining .execute().data raises
+    AttributeError. That landmine crashed clips_only_job AFTER Kie
+    billing on 2026-08-23 (Ki Tavo): Yonah added a 5th clip to the
+    plan, the stitch-prep loop asked for the plan-owner row of an
+    index that had none, and two paid clip renders were discarded
+    by the crash. Route every maybe_single through this helper.
+    """
+    resp = query.execute()
+    return resp.data if resp is not None else None
+
+
 def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
     """Fetch the tai_chi_moves row for the given slug. Returns (move_dict, mp4_url).
 
@@ -49,13 +64,11 @@ def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
     """
     if not slug:
         return None, None
-    row = (
+    row = _maybe_row(
         sb.table("tai_chi_moves")
         .select("slug, english, pinyin, visual, motion_description, mp4_storage_path")
         .eq("slug", slug)
         .maybe_single()
-        .execute()
-        .data
     )
     if not row:
         return None, None
@@ -93,6 +106,9 @@ _TERMINAL_STATUSES = frozenset({"done"})
 # spawn but before completing). 30 min comfortably exceeds the longest
 # legitimate generation (~10-15 min for parsha, ~5 min for topic).
 _STUCK_AFTER = timedelta(minutes=30)
+# Watchdog DB timeout: must stay well under the function's Modal timeout
+# (120s) so a stalled query raises instead of being killed mid-flight.
+_WATCHDOG_DB_TIMEOUT_S = 20
 
 # Kie pricing: $5 buys 1000 credits, so $0.005 per credit. Bulk packages
 # go down to ~$0.00455/credit at the largest tier — we use the base
@@ -143,7 +159,7 @@ def trigger(payload: dict, request: Request) -> dict:
     )
     existing = (
         sb.table("jobs")
-        .select("status, triggered_at")
+        .select("status, triggered_at, kind")
         .eq("id", job_id)
         .maybe_single()
         .execute()
@@ -192,7 +208,20 @@ def trigger(payload: dict, request: Request) -> dict:
     # fall through to run_pipeline (legacy behaviour for parsha / topic /
     # compose — those have their own endpoints but some callers still hit
     # the main trigger URL with those kinds).
-    kind = (payload.get("kind") or "parsha").lower()
+    # The JOB ROW is the source of truth for what this job is; the payload
+    # is only a hint. On 2026-09-13 a clips-only job (row kind='clips-only',
+    # script_id NULL) reached this endpoint without a payload kind, fell
+    # through to the "parsha" default, and crashed run_pipeline with a raw
+    # Postgres error (invalid uuid "None") — a render Yonah was waiting on.
+    # Prefer payload kind, fall back to the row, and only then to parsha.
+    row_kind = (existing.data or {}).get("kind") if existing else None
+    kind = (payload.get("kind") or row_kind or "parsha").lower()
+    if payload.get("kind") and row_kind and payload["kind"].lower() != row_kind.lower():
+        print(
+            f"[trigger] kind_mismatch job_id={job_id} "
+            f"payload={payload['kind']} row={row_kind} — trusting the row"
+        )
+        kind = row_kind.lower()
     if kind == "plan-only":
         plan_only_job.spawn(job_id)
     elif kind == "clips-only":
@@ -371,6 +400,16 @@ def run_pipeline(job_id: str) -> dict | None:
                 .execute()
                 .data
             )
+            # A NULL script_id here used to reach PostgREST as the string
+            # "None" and surface as `invalid input syntax for type uuid`
+            # — an unreadable error for an operator-facing failure
+            # (Ha'azinu 2026-09-13). Fail with something actionable.
+            if not job.get("script_id"):
+                raise ValueError(
+                    "This job has no script attached, so there is nothing to "
+                    "render. Start from Phase 1 (pick or write a script) and "
+                    "generate again."
+                )
             script = (
                 sb.table("scripts")
                 .select("option, title, style_note, draft_text")
@@ -1041,6 +1080,13 @@ JEWISH_REF_FILENAMES: dict[str, str] = {
     "tallit_worn": "tallit_worn.jpg",
     "lulav_etrog": "lulav_etrog.jpg",
     "sukkah_interior": "sukkah_interior.jpg",
+    "shofar": "shofar.jpg",
+    "shofar_held": "shofar_held.png",
+    # Picker-only pose variants (empty keyword lists below): the operator
+    # pins these per clip via "+ Refs"; they never auto-inject.
+    "shofar_raised": "shofar_raised.png",
+    "shofar_blowing": "shofar_blowing.png",
+    "shofar_at_side": "shofar_at_side.png",
 }
 
 # Case-insensitive substring keywords. If clip.visual_prompt contains
@@ -1079,6 +1125,19 @@ JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
     "sukkah_interior": [
         "sukkah", "succah", "schach", "sukkot booth",
     ],
+    # NB: "shofar" as a substring also catches "shofarot". Deliberately
+    # NOT registering bare "horn" (would false-match "hornbeam" etc.).
+    "shofar": [
+        "shofar", "ram's horn", "rams horn", "ram horn", "tekiah",
+    ],
+    # Same keywords on purpose: both the object photo and the held-in-hand
+    # render inject together (challah precedent) — object + grip + scale.
+    "shofar_held": [
+        "shofar", "ram's horn", "rams horn", "ram horn", "tekiah",
+    ],
+    "shofar_raised": [],
+    "shofar_blowing": [],
+    "shofar_at_side": [],
 }
 
 # Cap per clip — too many ref images dilutes the character/dojo
@@ -1417,13 +1476,11 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
         script_id: str | None = None
         parsha_id: str | None = None
         for _ in range(25):
-            row = (
+            row = _maybe_row(
                 sb.table("jobs")
                 .select("script_id, parsha_id, regen_of_job_id")
                 .eq("id", current_id)
                 .maybe_single()
-                .execute()
-                .data
             )
             if not row:
                 break
@@ -1443,24 +1500,20 @@ def _resolve_video_title_fields(sb, job_id: str) -> dict:
                 "spoken_script": None,
             }
 
-        script_row = (
+        script_row = _maybe_row(
             sb.table("scripts")
             .select("title, tldr")
             .eq("id", script_id)
             .maybe_single()
-            .execute()
-            .data
         ) or {}
 
         parsha_name: str | None = None
         if parsha_id:
-            parsha_row = (
+            parsha_row = _maybe_row(
                 sb.table("parshiot")
                 .select("name")
                 .eq("id", parsha_id)
                 .maybe_single()
-                .execute()
-                .data
             ) or {}
             parsha_name = parsha_row.get("name")
 
@@ -2440,6 +2493,13 @@ substituted with what it knows (a candelabra, a menorah, etc).
     covered braided challah on a wooden board, silver kiddush cup
     beside the challah, bottle of red wine, place settings for the
     seated guests."
+
+  Shofar -> "A SMALL curved ram's-horn shofar, about the length of a
+    forearm: natural beige-and-gray horn with ridged texture, ONE
+    gentle curve (NOT a long spiral, NOT a giant Yemenite kudu horn),
+    wide flared bell tapering to a narrow polished mouthpiece, no
+    metal parts, NOT a trumpet or bugle. Held in ONE hand by the
+    narrow mouthpiece end."
 
 CHARACTER CONSISTENCY: every visual_prompt should include a brief
 reminder anchoring the character: "Rav Eli (consistent character
@@ -5918,13 +5978,11 @@ def clips_only_job(job_id: str) -> dict | None:
         # is NULL (operator hasn't picked a move for this clip).
         script_motion: str | None = None
         if parent_job.get("script_id"):
-            script_row = (
+            script_row = _maybe_row(
                 sb.table("scripts")
                 .select("motion_ref_slug")
                 .eq("id", parent_job["script_id"])
                 .maybe_single()
-                .execute()
-                .data
             ) or {}
             script_motion = script_row.get("motion_ref_slug")
 
@@ -6238,14 +6296,12 @@ def clips_only_job(job_id: str) -> dict | None:
         for c in all_planned:
             if c.index in clip_paths_by_index:
                 continue
-            existing = (
+            existing = _maybe_row(
                 sb.table("clips")
                 .select("storage_path")
                 .eq("job_id", plan_owner_job_id)
                 .eq("index", c.index)
                 .maybe_single()
-                .execute()
-                .data
             ) or {}
             sp = existing.get("storage_path")
             if sp:
@@ -6254,7 +6310,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 )
                 # Copy the plan-owner clip row into this job's clips set
                 # so the job has a complete clip set for future regens.
-                parent_clip_full = (
+                parent_clip_full = _maybe_row(
                     sb.table("clips")
                     .select(
                         "voiceover, visual_prompt, setting_id, duration_s, "
@@ -6263,8 +6319,6 @@ def clips_only_job(job_id: str) -> dict | None:
                     .eq("job_id", plan_owner_job_id)
                     .eq("index", c.index)
                     .maybe_single()
-                    .execute()
-                    .data
                 ) or {}
                 sb.table("clips").upsert({
                     "job_id": job_id,
@@ -6628,36 +6682,30 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         _per_clip_slug = target_parent_clip.get("motion_ref_slug")
         if not _per_clip_slug:
             # Fall back to the script-level motion slug via the job chain.
-            _parent_job_row = (
+            _parent_job_row = _maybe_row(
                 sb.table("jobs")
                 .select("script_id, regen_of_job_id")
                 .eq("id", parent_job_id)
                 .maybe_single()
-                .execute()
-                .data
             ) or {}
             _script_id = _parent_job_row.get("script_id")
             if not _script_id:
                 # Walk one level up (regen job → original job).
                 _grandparent_id = _parent_job_row.get("regen_of_job_id")
                 if _grandparent_id:
-                    _gp_row = (
+                    _gp_row = _maybe_row(
                         sb.table("jobs")
                         .select("script_id")
                         .eq("id", _grandparent_id)
                         .maybe_single()
-                        .execute()
-                        .data
                     ) or {}
                     _script_id = _gp_row.get("script_id")
             if _script_id:
-                _script_row = (
+                _script_row = _maybe_row(
                     sb.table("scripts")
                     .select("motion_ref_slug")
                     .eq("id", _script_id)
                     .maybe_single()
-                    .execute()
-                    .data
                 ) or {}
                 _per_clip_slug = _script_row.get("motion_ref_slug")
         _resolved_motion_slug = _per_clip_slug  # None if both sources are NULL
@@ -7374,53 +7422,84 @@ def reap_stranded_jobs() -> dict:
     # create_client / log_event / emit_job_event are imported LOCALLY in every
     # function in this module (not at module scope) — mirror that here.
     from supabase import create_client
+    from supabase.lib.client_options import SyncClientOptions
     from src.events import log_event
     from src.job_events import emit_job_event
 
+    # postgrest-py's DEFAULT client timeout is 120s — exactly this function's
+    # Modal timeout. So a Supabase stall made the HTTP call wait 120s while
+    # Modal killed the container at the same instant: "Timed out after 120
+    # seconds", one alert email, for a janitor whose next tick (10 min later)
+    # does identical work. Bounding the DB timeout well under the Modal
+    # timeout turns a hang into a catchable error we can swallow.
     sb = create_client(
-        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+        os.environ["SUPABASE_URL"],
+        os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+        options=SyncClientOptions(postgrest_client_timeout=_WATCHDOG_DB_TIMEOUT_S),
     )
-    now = datetime.now(timezone.utc)
-    queued_cutoff = (now - timedelta(minutes=15)).isoformat()
-    inflight_cutoff = (now - timedelta(minutes=75)).isoformat()
-    inflight = sorted(_IN_FLIGHT_STATUSES)
+    try:
+        now = datetime.now(timezone.utc)
+        queued_cutoff = (now - timedelta(minutes=15)).isoformat()
+        inflight_cutoff = (now - timedelta(minutes=75)).isoformat()
+        inflight = sorted(_IN_FLIGHT_STATUSES)
 
-    def _stale(status_filter, cutoff):
-        q = sb.table("jobs").select("id, status, kind, triggered_at")
-        q = q.eq("status", status_filter) if isinstance(status_filter, str) else q.in_("status", status_filter)
-        return q.lt("triggered_at", cutoff).is_("completed_at", "null").execute().data or []
+        def _stale(status_filter, cutoff):
+            q = sb.table("jobs").select("id, status, kind, triggered_at")
+            q = q.eq("status", status_filter) if isinstance(status_filter, str) else q.in_("status", status_filter)
+            return q.lt("triggered_at", cutoff).is_("completed_at", "null").execute().data or []
 
-    candidates = _stale("queued", queued_cutoff) + _stale(inflight, inflight_cutoff)
-    all_active = ["queued", *inflight]
+        candidates = _stale("queued", queued_cutoff) + _stale(inflight, inflight_cutoff)
+        all_active = ["queued", *inflight]
 
-    reaped: list[str] = []
-    for j in candidates:
-        # Re-read to avoid racing a job that finished between the query and now.
-        cur = (
-            sb.table("jobs").select("status, completed_at")
-            .eq("id", j["id"]).maybe_single().execute().data
-        )
-        if not cur or cur.get("completed_at") or cur.get("status") not in all_active:
-            continue
-        if j["status"] == "queued":
-            msg = ("Couldn't reach the worker — the job never started. "
-                   "This is usually a hiccup dispatching to the renderer. Please try again.")
-        else:
-            msg = (f"Timed out — stuck in '{j['status']}' for over an hour. "
-                   "The worker died mid-run. Please try again.")
-        sb.table("jobs").update(
-            {"status": "failed", "error_message": msg, "completed_at": "now()"}
-        ).eq("id", j["id"]).execute()
-        log_event(
-            sb, actor="system", level="warn", event="pipeline.reaped",
-            subject_type="job", subject_id=j["id"], message=msg,
-            details={"prev_status": j["status"], "kind": j["kind"]},
-        )
-        emit_job_event(job_id=j["id"], stage="failed", message=msg)
-        reaped.append(j["id"])
+        reaped: list[str] = []
+        for j in candidates:
+            # Re-read to avoid racing a job that finished between the query and now.
+            cur = _maybe_row(
+                sb.table("jobs").select("status, completed_at")
+                .eq("id", j["id"]).maybe_single()
+            )
+            if not cur or cur.get("completed_at") or cur.get("status") not in all_active:
+                continue
+            if j["status"] == "queued":
+                msg = ("Couldn't reach the worker — the job never started. "
+                       "This is usually a hiccup dispatching to the renderer. Please try again.")
+            else:
+                msg = (f"Timed out — stuck in '{j['status']}' for over an hour. "
+                       "The worker died mid-run. Please try again.")
+            sb.table("jobs").update(
+                {"status": "failed", "error_message": msg, "completed_at": "now()"}
+            ).eq("id", j["id"]).execute()
+            log_event(
+                sb, actor="system", level="warn", event="pipeline.reaped",
+                subject_type="job", subject_id=j["id"], message=msg,
+                details={"prev_status": j["status"], "kind": j["kind"]},
+            )
+            emit_job_event(job_id=j["id"], stage="failed", message=msg)
+            reaped.append(j["id"])
 
-    print(f"[reap_stranded_jobs] checked {len(candidates)}, reaped {len(reaped)}: {reaped}")
-    return {"checked": len(candidates), "reaped": len(reaped), "ids": reaped}
+        print(f"[reap_stranded_jobs] checked {len(candidates)}, reaped {len(reaped)}: {reaped}")
+        return {"checked": len(candidates), "reaped": len(reaped), "ids": reaped}
+    except Exception as e:
+        # A janitor tick failing is self-correcting: the next run (10 min)
+        # does identical work, and nothing is left half-done — reaping is
+        # per-job and idempotent. So a transient Supabase/network blip must
+        # NOT fail the Modal function, because that emails the owner and
+        # drowns out real alerts. Recorded to execution_events instead, so
+        # a PERSISTENT failure is still visible at /admin/events (and shows
+        # up as stranded jobs nobody reaped).
+        detail = f"{type(e).__name__}: {e}"
+        print(f"[reap_stranded_jobs] tick failed (non-fatal): {detail}")
+        try:
+            log_event(
+                sb, actor="system", level="warn",
+                event="pipeline.watchdog_error",
+                subject_type="job", subject_id=None,
+                message=f"Watchdog tick failed: {detail}",
+                details={"error": detail},
+            )
+        except Exception:
+            pass  # logging the failure must never cause a failure
+        return {"checked": 0, "reaped": 0, "ids": [], "error": detail}
 
 
 @app.function(

@@ -1,15 +1,18 @@
 'use server';
+import { CLIP_DURATION_MIN_S, CLIP_DURATION_MAX_S } from '@/lib/clip-duration';
 import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 
 const MAX_VOICEOVER_CHARS = 1500;
 const MAX_VISUAL_PROMPT_CHARS = 5000;
-// Match phase-2-plan-review.tsx DURATION_MIN/MAX (3..15) — caller already
+// Match phase-2-plan-review.tsx DURATION_MIN/MAX (4..15) — caller already
 // clamps to that range, but pin here too so a future caller that forgets
 // to clamp can't smuggle out-of-range durations into the pipeline
 // (modal_app + word-count + tai_chi_moves all assume <=15s clips).
-const DURATION_MIN_S = 1;
-const DURATION_MAX_S = 15;
+// Bounds come from the shared module — Kie rejects anything outside
+// 4-15 with a 422. Previously 1 here and 3 in the UI; see clip-duration.ts.
+const DURATION_MIN_S = CLIP_DURATION_MIN_S;
+const DURATION_MAX_S = CLIP_DURATION_MAX_S;
 
 /**
  * Saves user-edited voiceover, visual_prompt, and/or duration_s to the
