@@ -107,10 +107,15 @@ SLOTS: dict[str, Slot] = {
     ),
     "sukkah_schach": Slot(
         filename="sukkah_schach.jpg",
-        label="Sukkah — schach roof",
+        label="Sukkah — schach roofs",
+        # What landed (Sukkah Roofs.jpg) is several roofs seen from ABOVE —
+        # palm fronds, bamboo mats, plywood — i.e. what schach is made of.
+        # The from-underneath view is already in sukkah_interior.jpg. A
+        # true looking-up shot wasn't in the first 80 files of
+        # Category:Sukkah; worth a second browse page if one is wanted.
         must_show=(
-            "the roof from underneath, looking up: cut branches or bamboo "
-            "mat with daylight through the gaps"
+            "schach roofs: cut palm fronds or bamboo mats laid over a "
+            "sukkah frame, so the model learns what the covering is made of"
         ),
         keywords=[
             "schach",
@@ -172,8 +177,8 @@ SLOTS: dict[str, Slot] = {
         ),
         keywords=[
             "open torah",
-            "open scroll",
-            "unrolled scroll",
+            "unrolled torah",
+            "unrolls the torah",
             "torah reading",
             "columns of parchment",
             "laining",
@@ -182,14 +187,16 @@ SLOTS: dict[str, Slot] = {
     "torah_yad": Slot(
         filename="torah_yad.jpg",
         label="Yad (Torah pointer)",
-        must_show="a silver yad on or pointing at parchment text, hand shape readable",
-        keywords=["yad", "torah pointer", "silver pointer"],
+        must_show="a yad by itself, close enough to read the hand-and-finger shape",
+        # Not bare "yad" — three letters, and a substring of "Yad Vashem".
+        keywords=["the yad", "a yad", "silver yad", "torah pointer", "silver pointer"],
     ),
     "aron_kodesh": Slot(
         filename="aron_kodesh.jpg",
         label="Aron kodesh (ark)",
         must_show="the ark in a synagogue wall, parochet curtain or carved doors",
-        keywords=["aron kodesh", "holy ark", "the ark", "parochet"],
+        # Not bare "the ark" — Parshat Noach has one too.
+        keywords=["aron kodesh", "holy ark", "torah ark", "parochet", "ark curtain"],
     ),
     "hakafot": Slot(
         filename="hakafot.jpg",
@@ -340,7 +347,9 @@ def _parse_pages(payload: dict) -> list[CommonsFile]:
         out.append(
             CommonsFile(
                 title=page.get("title", ""),
-                url=info.get("url", ""),
+                # The API appends ?utm_source=...&utm_content=original to
+                # every url. Harmless to fetch, ugly in SOURCES.md; drop it.
+                url=(info.get("url", "") or "").split("?")[0],
                 width=int(info.get("width") or 0),
                 height=int(info.get("height") or 0),
                 license_code=meta("License"),

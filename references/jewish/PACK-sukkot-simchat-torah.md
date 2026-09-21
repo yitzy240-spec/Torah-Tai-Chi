@@ -43,24 +43,24 @@ so it never auto-injects and the operator pins it per clip via "+ Refs".
 |---|---|---|---|---|
 | `sukkah_interior` | `sukkah_interior.jpg` | **have** | auto | inside a decorated sukkah, schach overhead, table |
 | `lulav_etrog` | `lulav_etrog.jpg` | **have** | auto | four species laid out: lulav, hadass, aravah, etrog |
-| `sukkah_exterior` | `sukkah_exterior.jpg` | to fetch | auto | a freestanding sukkah seen from outside — walls, doorway, roof edge, and enough surroundings to read as temporary |
-| `sukkah_schach` | `sukkah_schach.jpg` | to fetch | auto | the roof from underneath, looking up: cut branches or bamboo mat, daylight/sky visible through the gaps |
-| `etrog_closeup` | `etrog_closeup.jpg` | to fetch | auto | one etrog filling the frame, bumpy rind and pitam visible, ideally in its box |
+| `sukkah_exterior` | `sukkah_exterior.jpg` | **have** | auto | a freestanding sukkah seen from outside — walls, doorway, roof edge, and enough surroundings to read as temporary |
+| `sukkah_schach` | `sukkah_schach.jpg` | **have** (see note) | auto | schach roofs — cut palm fronds, bamboo mats, plywood laid over sukkah frames — so the model learns what the covering is made of. The view from underneath is already in `sukkah_interior.jpg` |
+| `etrog_closeup` | `etrog_closeup.jpg` | **have** | auto | one etrog filling the frame, bumpy rind and pitam visible |
 | `lulav_held` | `lulav_held.png` | in-house | auto | Rav Eli holding the bundle: lulav upright in the right hand, spine toward him, etrog in the left, both at chest height |
 | `lulav_shaking` | `lulav_shaking.png` | in-house | picker | the same grip mid-na'anuim, bundle extended and tilted away from the body |
 
 ### Simchat Torah
 
-Nothing in this section exists yet. The library has no Torah scroll in
-any form.
+Before 2026-09-21 the library had no Torah scroll in any form. The five
+Commons slots landed that day; the two character renders are still to do.
 
 | slot | file | status | mode | must show |
 |---|---|---|---|---|
-| `torah_dressed` | `torah_dressed.jpg` | to fetch | auto | a closed sefer Torah standing dressed — fabric mantle, atzei chayim handles, and at least one of crown / rimonim / breastplate |
-| `torah_open` | `torah_open.jpg` | to fetch | auto | an open scroll, both rollers visible, columns of hand-written parchment legible as columns (not a flat scan) |
-| `torah_yad` | `torah_yad.jpg` | to fetch | auto | a silver yad resting on or pointing at parchment text, close enough to read the hand shape |
-| `aron_kodesh` | `aron_kodesh.jpg` | to fetch | auto | the ark in a synagogue wall, parochet curtain or carved doors, ner tamid above if present |
-| `hakafot` | `hakafot.jpg` | to fetch | auto | people carrying dressed Torah scrolls in procession, scrolls held upright against shoulders |
+| `torah_dressed` | `torah_dressed.jpg` | **have** | auto | a dressed sefer Torah — velvet mantle, breastplate and yad, close enough to read the embroidery. A detail shot; the full carried-scroll silhouette is in `hakafot.jpg` |
+| `torah_open` | `torah_open.jpg` | **have** | auto | an open scroll, both rollers visible, columns of hand-written parchment legible as columns (not a flat scan) |
+| `torah_yad` | `torah_yad.jpg` | **have** | auto | a silver yad by itself, close enough to read the hand shape |
+| `aron_kodesh` | `aron_kodesh.jpg` | **have** | auto | the ark in a synagogue wall — red parochet with a Magen David, columns, luchot, ner tamid |
+| `hakafot` | `hakafot.jpg` | **have** | auto | men dancing with dressed Torah scrolls held upright against their shoulders — also the best grip-and-scale input for the `torah_held` render |
 | `torah_held` | `torah_held.png` | in-house | auto | Rav Eli cradling a dressed sefer Torah upright against his right shoulder, left arm supporting underneath, mid-speech |
 | `torah_dancing` | `torah_dancing.png` | in-house | picker | the same hold mid-turn, scroll leaning back, weight on the ball of one foot |
 
@@ -103,10 +103,12 @@ Proposed keyword lists:
 "lulav_shaking":    []
 "torah_dressed":    ["sefer torah", "torah scroll", "torah mantle",
                      "torah crown", "rimonim", "breastplate"]
-"torah_open":       ["open torah", "open scroll", "unrolled scroll",
+"torah_open":       ["open torah", "unrolled torah", "unrolls the torah",
                      "torah reading", "columns of parchment", "laining"]
-"torah_yad":        ["yad", "torah pointer", "silver pointer"]
-"aron_kodesh":      ["aron kodesh", "holy ark", "the ark", "parochet"]
+"torah_yad":        ["the yad", "a yad", "silver yad", "torah pointer",
+                     "silver pointer"]
+"aron_kodesh":      ["aron kodesh", "holy ark", "torah ark", "parochet",
+                     "ark curtain"]
 "hakafot":          ["hakafot", "hakafah", "hakafos", "seven circuits",
                      "dancing with the torah", "simchat torah"]
 "torah_held":       ["sefer torah", "torah scroll", "holding the torah",
@@ -202,28 +204,35 @@ of these are harder:
 Do these last, after the Commons object photos exist, so they can be
 used as the object input.
 
-## Candidate Commons files
+## What landed (2026-09-21)
 
-Search-derived starting points, **not verified**. Licenses and exact
-URLs are unknown until `--resolve` or `--fetch` reads them from the API;
-the tool refuses non-free licenses, so treat these as a shortlist to
-check, not a decision. Browsing the category is usually better than
-taking a title from this list.
+Sourced by `.github/workflows/fetch-refs.yml` from a browse of eight
+Commons categories (417 free-licensed candidates), picked from captions,
+then checked by eye after download. Sources, licences and authors are in
+`SOURCES.md`. Every file was then normalised in place: EXIF orientation
+baked into the pixels (the ark photo was stored sideways with a rotation
+tag, which not every consumer honours), longest side capped at 3000 px,
+JPEG quality 88 — so nothing here is over 1.5 MB, in line with the
+existing refs.
 
-| slot | candidates / category to browse |
-|---|---|
-| `sukkah_exterior` | `Category:Sukkah`, `File:Sukkah.jpg`, `File:Sukkah of the Signs.JPG`, `File:Views of a sukkah in and around Mea Shearim neighborhood in Jerusalem in October 2019 during Sukkot 32.jpg` |
-| `sukkah_schach` | `File:Sukkah Roofs.jpg`, `Category:Sukkah` |
-| `etrog_closeup` | `Category:Etrog` |
-| `torah_dressed` | `File:Sefer Torah.JPG`, `File:SeferTorah.jpg`, `File:Hebrew Sefer Torah Scroll.JPG`, `Category:Torah scrolls (individual images)` |
-| `torah_open` | `File:Open Torah scroll.jpg`, `Category:Torah scrolls (open)` |
-| `torah_yad` | `File:Closeup of Torah Scroll.jpg`, `Category:Torah pointers` |
-| `aron_kodesh` | `Category:Torah arks` |
-| `hakafot` | `Category:Hakafot`, `File:PikiWiki Israel 51038 simchat torah 2017.jpg` |
+| slot | Commons file | what it actually shows |
+|---|---|---|
+| `sukkah_exterior` | Canvas sukkah in the street | canvas-walled sukkah with printed Jerusalem-window panels, bamboo schach, in a parking area between apartment blocks. Exactly the slot. |
+| `sukkah_schach` | Sukkah Roofs | several sukkah roofs from above — palm fronds, bamboo mat, plywood. **Not** the from-underneath view the slot first asked for; kept because it teaches what schach is made of, and `sukkah_interior.jpg` already shows the roof from inside. Only 1179×780. |
+| `etrog_closeup` | Etrog5812 | one ripe yellow etrog on wood, pitam at the top, gartel ridge, bumpy rind. Exactly the slot. |
+| `torah_dressed` | Ingwiller Synagoge 736 | tight detail of a dressed scroll: burgundy velvet mantle with gold embroidery (lion, flowers), silver breastplate, silver yad hanging on a chain. Handles and crown are out of frame — it is a detail shot. |
+| `torah_open` | Open Torah scroll (Lawrie Cate) | open scroll on a reading table, both wooden rollers with silver finials, three columns of text, a yad lying on the parchment. Exactly the slot. |
+| `torah_yad` | Jüdisches Museum München 3 | CC0 museum close-up of a yad on its own. Replaced the first pick, which was the `torah_open` scene again with the yad a few dozen pixels wide. |
+| `aron_kodesh` | Hobart Synagogue Aron Kodesh | classical ark: red velvet parochet with an embroidered Magen David, turned wooden columns with gilt capitals, gilt cornice, luchot on either side, ner tamid chain. Exactly the slot. |
+| `hakafot` | PikiWiki Israel 51038 simchat torah 2017 | hasidic men dancing in a beit midrash holding two dressed scrolls upright on the shoulder — one in a blue mantle with a crown motif, one in a cylindrical tik. Exactly the slot, and the best real-world reference for how a scroll is carried. |
 
-Prefer, in this order: a clean isolated object on a plain background
-(best anchor — this is why `shofar.jpg` was chosen over busier shots),
-then a single clear subject in context, then a crowd scene. Avoid
-engravings, woodcuts and paintings entirely: `File:Simchat torah
-Picart.png` is a historical print and would teach Seedance a drawing
-style, not an object.
+Selection rule that held up: a clean isolated object on a plain
+background beats a busy scene (the etrog and the yad), a single clear
+subject in context is next (the ark, the open scroll), a crowd scene is
+fine when the crowd *is* the subject (hakafot). Engravings and paintings
+were skipped on sight — `File:Simchat torah Picart.png` is in the
+category and would teach a drawing style, not an object.
+
+Two of the eight were mis-picked from captions alone and caught only by
+looking at the download (the yad, the schach). Captions are not enough;
+budget a look at every file before wiring it.

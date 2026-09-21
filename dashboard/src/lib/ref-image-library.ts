@@ -54,6 +54,18 @@ const RAW_REFS: RawRef[] = [
   { path: 'refs/jewish/tallit_worn.jpg',       label: 'Tallit',             category: 'jewish' },
   { path: 'refs/jewish/lulav_etrog.jpg',       label: 'Lulav & etrog',      category: 'jewish' },
   { path: 'refs/jewish/sukkah_interior.jpg',   label: 'Sukkah interior',    category: 'jewish' },
+
+  // Sukkot + Simchat Torah pack (2026-09-21). Sourced from Wikimedia
+  // Commons by .github/workflows/fetch-refs.yml; licences in
+  // references/jewish/SOURCES.md.
+  { path: 'refs/jewish/sukkah_exterior.jpg',   label: 'Sukkah exterior',    category: 'jewish' },
+  { path: 'refs/jewish/sukkah_schach.jpg',     label: 'Sukkah schach roof', category: 'jewish' },
+  { path: 'refs/jewish/etrog_closeup.jpg',     label: 'Etrog (close-up)',   category: 'jewish' },
+  { path: 'refs/jewish/torah_dressed.jpg',     label: 'Sefer Torah (dressed)', category: 'jewish' },
+  { path: 'refs/jewish/torah_open.jpg',        label: 'Sefer Torah (open)', category: 'jewish' },
+  { path: 'refs/jewish/torah_yad.jpg',         label: 'Yad on parchment',   category: 'jewish' },
+  { path: 'refs/jewish/aron_kodesh.jpg',       label: 'Aron kodesh',        category: 'jewish' },
+  { path: 'refs/jewish/hakafot.jpg',           label: 'Hakafot',            category: 'jewish' },
   { path: 'refs/jewish/shofar.jpg',            label: 'Shofar',             category: 'jewish' },
   { path: 'refs/jewish/shofar_held.png',       label: 'Shofar (held up)',   category: 'jewish' },
   { path: 'refs/jewish/shofar_raised.png',     label: 'Shofar (to lips)',   category: 'jewish' },

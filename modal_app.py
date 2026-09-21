@@ -1078,8 +1078,19 @@ JEWISH_REF_FILENAMES: dict[str, str] = {
     "kiddush_cup": "kiddush_cup.jpg",
     "tefillin_worn": "tefillin_worn.jpg",
     "tallit_worn": "tallit_worn.jpg",
+    # Simchat Torah (2026-09-21). Subject refs — the scroll is what the
+    # clip is about — so they sit ABOVE the settings below. See the
+    # ordering note on JEWISH_REF_KEYWORDS.
+    "torah_dressed": "torah_dressed.jpg",
+    "torah_open": "torah_open.jpg",
+    "torah_yad": "torah_yad.jpg",
     "lulav_etrog": "lulav_etrog.jpg",
+    "etrog_closeup": "etrog_closeup.jpg",
     "sukkah_interior": "sukkah_interior.jpg",
+    "sukkah_exterior": "sukkah_exterior.jpg",
+    "sukkah_schach": "sukkah_schach.jpg",
+    "aron_kodesh": "aron_kodesh.jpg",
+    "hakafot": "hakafot.jpg",
     "shofar": "shofar.jpg",
     "shofar_held": "shofar_held.png",
     # Picker-only pose variants (empty keyword lists below): the operator
@@ -1119,11 +1130,58 @@ JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
     "tallit_worn": [
         "tallit", "tallis", "prayer shawl", "tzitzit",
     ],
+    # ORDERING: _jewish_refs_for_clip walks this dict in declaration order
+    # and stops at MAX_JEWISH_REFS_PER_CLIP. Position IS priority. A
+    # Simchat Torah clip can match five refs at once, so the subject (the
+    # scroll) is declared above the setting (the sukkah, the ark, the
+    # crowd) and wins the cap. New entries are inserted where they belong;
+    # existing pairs are never reordered, so no earlier clip changes.
+    #
+    # NEVER register bare "torah". This show's directions say "Torah" in
+    # most scenes; it would inject a scroll photo into half the series.
+    # Every Torah keyword here is a multi-word phrase. Same reasoning as
+    # the bare-"horn" note on shofar below. Likewise no bare "the ark"
+    # (Parshat Noach) and no bare "yad" (a substring of "Yad Vashem").
+    "torah_dressed": [
+        "sefer torah", "torah scroll", "torah mantle", "torah crown",
+        "rimonim", "breastplate",
+    ],
+    "torah_open": [
+        "open torah", "unrolled torah", "unrolls the torah", "torah reading",
+        "columns of parchment", "laining",
+    ],
+    "torah_yad": [
+        "the yad", "a yad", "silver yad", "torah pointer", "silver pointer",
+    ],
     "lulav_etrog": [
         "lulav", "etrog", "four species", "arba minim", "sukkot bundle",
     ],
+    # "etrog" on purpose on both: the laid-out bundle and the fruit detail
+    # inject together (challah precedent).
+    "etrog_closeup": [
+        "etrog", "citron",
+    ],
     "sukkah_interior": [
         "sukkah", "succah", "schach", "sukkot booth",
+    ],
+    # Deliberately does NOT claim bare "sukkah" — that stays with the
+    # interior, or the venue would spend two of the three slots.
+    "sukkah_exterior": [
+        "sukkah from outside", "outside the sukkah", "approaches the sukkah",
+        "courtyard sukkah", "sukkah in the yard",
+    ],
+    # "schach" on both the interior and the roof close-up, so a roof line
+    # pulls the detail and the room together.
+    "sukkah_schach": [
+        "schach", "s'chach", "bamboo roof", "branches overhead",
+        "roof of the sukkah", "stars through the roof",
+    ],
+    "aron_kodesh": [
+        "aron kodesh", "holy ark", "torah ark", "parochet", "ark curtain",
+    ],
+    "hakafot": [
+        "hakafot", "hakafah", "hakafos", "seven circuits",
+        "dancing with the torah", "simchat torah",
     ],
     # NB: "shofar" as a substring also catches "shofarot". Deliberately
     # NOT registering bare "horn" (would false-match "hornbeam" etc.).
