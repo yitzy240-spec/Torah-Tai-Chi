@@ -11,7 +11,7 @@ export type JobStage =
   | 'generating_plan'
   | 'uploading_refs'
   | 'generating_clips'
-  | 'clip_done'      // not yet emitted by Modal; dashboard handlers reference it
+  | 'clip_done'      // one clip landed mid-job (clips_only_job, per clip)
   | 'clip_failed'    // not yet emitted by Modal; dashboard handlers reference it
   | 'stitching'
   | 'done'

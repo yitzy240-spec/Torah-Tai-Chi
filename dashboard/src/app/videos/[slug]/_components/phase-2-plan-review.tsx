@@ -190,6 +190,33 @@ export function Phase2PlanReview({
     };
   }, [pendingJobIds, router]);
 
+  // Backstop for the subscription above, which is Broadcast-only. Broadcast
+  // is fire-and-forget with no replay, so any message published while this
+  // client is disconnected — a backgrounded phone, a network blip — is lost
+  // permanently, and nothing else refreshes the grid. That also covers the
+  // cards seeded from initialPendingByIndex on a fresh load, whose render
+  // may have finished before the page was even opened.
+  //
+  // Visible tabs only, and only while renders are actually in flight, per
+  // the 2026-06/09 Supabase disk-IO audits — an idle Phase 2 generates
+  // nothing. Returning to the tab refreshes immediately, which is the case
+  // that actually bites.
+  useEffect(() => {
+    if (pendingJobIds.length === 0) return;
+    const id = setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      router.refresh();
+    }, 30_000);
+    function onVisible() {
+      if (document.visibilityState === 'visible') router.refresh();
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [pendingJobIds, router]);
+
   // Realtime tracks ONLY the plan-only's own clip rows (those carry the
   // editable metadata — voiceover, scene direction, motion ref, etc.).
   // The rendered mp4 paths live in separate rows under clips-only
@@ -717,10 +744,28 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
         }
       }
     };
+    // Check immediately, then on a timer, then every time the tab comes
+    // back. The immediate check closes the window where the job finished
+    // between the server render and this effect mounting. The visibility
+    // listener is the phone case, and the phone is how Yonah works: the
+    // screen locks during a 10-minute render, iOS suspends the page and
+    // the websocket with it, and Broadcast has no replay — so the single
+    // 'done' message is gone for good. Before this, coming back to the tab
+    // meant a spinner for up to another 12s, and he refreshed by hand
+    // first, every time ("every render requires me to refresh the page in
+    // order to see the updated version", 2026-09-22). Phase 4 has had this
+    // exact pattern since the previous round of the same complaint; Phase 2
+    // only ever got the interval.
+    void poll();
     const id = setInterval(poll, 12000);
+    function onVisible() {
+      if (document.visibilityState === 'visible') void poll();
+    }
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
       clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [liveJobId, thisRendering, clip.index, router]);
 
