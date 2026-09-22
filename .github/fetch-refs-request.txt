@@ -8,6 +8,7 @@
 # fulfilled request stays fulfilled when the branch merges.
 #
 # To make a new request: bump `request`, set mode/items/force, push.
+# Values may carry a trailing comment after " # " (space, hash, space).
 #
 # mode:  browse | resolve | fetch | done
 # items: semicolon-separated — categories (browse), File: titles (resolve),

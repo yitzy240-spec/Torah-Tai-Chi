@@ -95,7 +95,7 @@ jobs:
           IN_FORCE: ${{ inputs.force }}
         run: |
           python - <<'PY'
-          import os, sys
+          import os, re, sys
           from pathlib import Path
           sys.path.insert(0, ".")
           from tools.fetch_jewish_refs import main
@@ -114,7 +114,11 @@ jobs:
                   if not line or line.startswith("#") or ":" not in line:
                       continue
                   k, v = line.split(":", 1)
-                  fields[k.strip().lower()] = v.strip()
+                  # Inline comments: the commit step itself writes
+                  # `mode: done  # fulfilled by run ...`. A comment is
+                  # whitespace, "#", whitespace — so "File:Ark #2.jpg"
+                  # keeps its "#2" and only " # fulfilled" is dropped.
+                  fields[k.strip().lower()] = re.split(r"\s+#\s", v, 1)[0].strip()
               mode = fields.get("mode", "")
               items_raw = fields.get("items", "")
               force_raw = fields.get("force", "false")
