@@ -3,14 +3,19 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Threshold below which we show the banner. A typical 720p Fast regen
- * costs ~240 credits, a 1080p Standard ~720, so 800 credits ≈ "barely
- * enough for one render at the higher quality" — that's the floor at
- * which Yonah needs a heads-up before the next click silently fails on
- * the Kie side. The sidebar's existing pulsing-dot indicator stays at
- * the same threshold for consistency.
+ * Threshold below which we show the banner, and the observed cost of one
+ * clip render used to translate credits into something meaningful.
+ *
+ * MEASURED from production jobs (2026-09): a 720p standard clip bills
+ * ~450-530 credits (e.g. 492 credits = $2.87). The old threshold of 800
+ * therefore fired when barely ONE render remained — far too late to act.
+ * On 2026-09-22 Yonah ran 16 renders (~$42, ~7,100 credits), hit zero
+ * mid-session, and got five "balance is insufficient" failures in a row.
+ * 2,500 gives roughly five renders of runway — enough to top up without
+ * interrupting a working session.
  */
-const LOW_THRESHOLD = 800;
+const CREDITS_PER_RENDER = 500;
+const LOW_THRESHOLD = 2500;
 // Bumped 60s → 5min and visibility-gated. See kie-balance.tsx for
 // rationale — balance only changes when Modal runs a paid clip.
 const POLL_MS = 300_000;
@@ -103,7 +108,9 @@ export function KieLowBalanceBanner() {
         >
           {exhausted
             ? 'Kie credits are exhausted'
-            : `Kie credits low — ${state.credits.toLocaleString()} left`}
+            : `Kie credits low — about ${Math.floor(state.credits / CREDITS_PER_RENDER)} render${
+                Math.floor(state.credits / CREDITS_PER_RENDER) === 1 ? '' : 's'
+              } left`}
         </div>
         <div
           style={{
@@ -116,8 +123,8 @@ export function KieLowBalanceBanner() {
           }}
         >
           {exhausted
-            ? 'Any new render will fail on Kie’s side. Top up before re-rendering.'
-            : 'A typical re-render costs 240–720 credits. Top up before scheduling more.'}
+            ? 'Any new render will fail on Kie’s side (you won’t be charged). Top up before re-rendering.'
+            : `${state.credits.toLocaleString()} credits left; one clip render costs about ${CREDITS_PER_RENDER}. Top up before you start a session.`}
         </div>
       </div>
       <a

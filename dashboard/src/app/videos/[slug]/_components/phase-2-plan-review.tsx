@@ -651,6 +651,12 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
     if (liveJobStatus === 'failed') {
       setThisRendering(false);
       const failedJobId = liveJobId;
+      // This effect re-runs while liveJobStatus is still 'failed' — and by
+      // then liveJobId has been nulled below. The old code wrote
+      // `jobId: failedJobId ?? 'unknown'`, so the SECOND pass overwrote a
+      // good id and the banner's "View log" pointed at /jobs/unknown — a
+      // 404 (Yonah, 2026-09-22). Bail instead: the failure is already shown.
+      if (!failedJobId) return;
       setLiveJobId(null);
       setRenderStartedAt(null);
       const fullMessage = liveJobError ?? 'Job failed without an error message.';
@@ -659,7 +665,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       // Toast + banner both run the raw message through humanizeRenderError
       // so Yonah sees "Kie is having a server issue" instead of a Python
       // traceback (2026-05-28 Yonah feedback).
-      setLastFailedError({ jobId: failedJobId ?? 'unknown', message: fullMessage });
+      setLastFailedError({ jobId: failedJobId, message: fullMessage });
       toast.error(`Clip ${clip.index + 1} render failed`, {
         description: humanizeRenderError(fullMessage),
         action: {

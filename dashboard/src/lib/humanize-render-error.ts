@@ -48,6 +48,21 @@ export function humanizeRenderError(raw: string | null | undefined): string {
   }
 
   // ─── Kie credits / quota (existing patterns from editable-clip-card) ─
+  // Kie's error 605 reads "Your balance is insufficient. Please top up your
+  // account." — note it never says "credit", so the credit-AND-insufficient
+  // rule below missed it entirely and Yonah got a raw Python traceback five
+  // times in a row (2026-09-22, after ~$42 of renders drained the balance).
+  // NB: match 605 only as an error CODE ("605:"), never as bare digits —
+  // tracebacks carry line numbers and uuids that would false-positive and
+  // tell the operator they're out of money when they aren't.
+  if (
+    /\b605\s*:/.test(lower) ||
+    lower.includes('balance is insufficient') ||
+    lower.includes('insufficient balance') ||
+    (lower.includes('top up') && lower.includes('account'))
+  ) {
+    return 'Your Kie credits have run out — that render was not charged. Top up at kie.ai/billing, then try again.';
+  }
   if (
     lower.includes('credit') &&
     (lower.includes('exhaust') || lower.includes('insufficient') || lower.includes('not enough'))
