@@ -51,7 +51,14 @@ export function humanizeRenderError(raw: string | null | undefined): string {
   // Kie's error 605 reads "Your balance is insufficient. Please top up your
   // account." — note it never says "credit", so the credit-AND-insufficient
   // rule below missed it entirely and Yonah got a raw Python traceback five
-  // times in a row (2026-09-22, after ~$42 of renders drained the balance).
+  // times in a row (2026-09-22).
+  //
+  // DO NOT tell the operator to top up. Verified 2026-09-23: the account
+  // held ~8,500 credits during those failures, Modal uses the same key the
+  // balance widget polls, and a live task billed normally against that same
+  // pool (8506.02 -> 8500.02). So 605 fires with a perfectly healthy
+  // balance — it is a Kie-side billing fault, and their message is
+  // misleading. Word it so BOTH cases lead somewhere useful.
   // NB: match 605 only as an error CODE ("605:"), never as bare digits —
   // tracebacks carry line numbers and uuids that would false-positive and
   // tell the operator they're out of money when they aren't.
@@ -61,7 +68,7 @@ export function humanizeRenderError(raw: string | null | undefined): string {
     lower.includes('insufficient balance') ||
     (lower.includes('top up') && lower.includes('account'))
   ) {
-    return 'Your Kie credits have run out — that render was not charged. Top up at kie.ai/billing, then try again.';
+    return 'Kie refused to bill this render, so nothing was charged. Check your balance at kie.ai/billing — if it looks healthy, this is a fault on Kie’s side: wait a few minutes and try again.';
   }
   if (
     lower.includes('credit') &&
