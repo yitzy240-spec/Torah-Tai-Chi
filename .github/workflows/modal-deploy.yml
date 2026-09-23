@@ -1,0 +1,89 @@
+# Deploy the Modal pipeline (modal_app.py) from a GitHub runner.
+#
+# Why: Vercel auto-deploys the dashboard from main, but Modal only ever
+# changed when someone ran `modal deploy modal_app.py` from their own
+# machine. That split bit on 2026-09-21: the merged Sukkot / Simchat Torah
+# reference pack showed up in the dashboard picker within minutes, while
+# the registry that makes those refs actually reach Seedance sat undeployed
+# in modal_app.py. This workflow makes Modal follow main the way Vercel
+# does, so the two halves of the system cannot disagree about what exists.
+#
+# Triggers:
+#   * push to main touching the pipeline — modal_app.py, src/, references/,
+#     pyproject.toml — or the request file below
+#   * .github/modal-deploy-request.txt — bump it in a PR to force a deploy
+#     on merge (how the Claude Code environment asks for one: it can open
+#     PRs but holds no Modal token and cannot reach api.modal.com)
+#   * "Run workflow" in the Actions tab, for humans
+#
+# Needs two repository secrets, created once under
+# Settings → Secrets and variables → Actions:
+#   MODAL_TOKEN_ID, MODAL_TOKEN_SECRET   (from `modal token new`, or the
+#   Modal dashboard → Settings → API Tokens)
+# The pipeline's own secrets (Supabase, Kie, ...) live in Modal's secret
+# store and are not needed here — the deploy only ships code.
+#
+# Deploy semantics: `modal deploy` swaps the app to the new version for
+# NEW calls; invocations already running on the old version finish there.
+# Web endpoint URLs are stable across deploys for a named app.
+
+name: Deploy Modal pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'modal_app.py'
+      - 'src/**'
+      - 'references/**'
+      - 'pyproject.toml'
+      - '.github/modal-deploy-request.txt'
+      - '.github/workflows/modal-deploy.yml'
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one that has started — a
+# half-applied deploy is worse than a queued one.
+concurrency:
+  group: modal-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets are configured
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ] || [ -z "$MODAL_TOKEN_SECRET" ]; then
+            echo "::error::MODAL_TOKEN_ID and MODAL_TOKEN_SECRET are not set as repository secrets."
+            echo "Add them under Settings → Secrets and variables → Actions, then re-run this workflow."
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # modal_app.py imports only modal + fastapi at module level; the
+      # pipeline's real dependencies are installed into the Modal image
+      # during the deploy, not on this runner.
+      - run: pip install --quiet modal fastapi
+
+      - name: modal deploy
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: '1'
+        run: |
+          modal deploy modal_app.py
+          echo "deployed torah-tai-chi-pipeline from ${GITHUB_SHA::7}"

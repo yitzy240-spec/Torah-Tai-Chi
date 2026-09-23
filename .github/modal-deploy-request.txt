@@ -1,0 +1,6 @@
+# Bump the number and merge to force .github/workflows/modal-deploy.yml to
+# run, even when nothing under modal_app.py / src/ / references/ changed.
+# Each merge to main that changes this file deploys the Modal pipeline.
+
+request: 1
+reason: first automated deploy — ship the Sukkot / Simchat Torah reference registry (PR #8) to Modal
