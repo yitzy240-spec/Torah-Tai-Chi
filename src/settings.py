@@ -151,12 +151,20 @@ STYLE_LOCK = (
 # cross scenes in the clip. But the room [shouldn't] just unnaturally morph
 # and change." A change of place has to happen physically (he walks or
 # turns there) or as a clean cut; the room itself never reshapes.
+#
+# The last sentence is the actual Bereishit failure: both clip-1 renders
+# opened ~7s on the plain grey backdrop of the character portraits
+# (references/01_front_neutral.png), then hard-cut to the dojo. Not a morph
+# — a clean cut — so the sentences above allowed it. The portraits are
+# identity refs only; their studio backdrop is never a place.
 ENVIRONMENT_LOCK = (
     "ENVIRONMENT: the setting is physically solid. Walls, floor, furniture "
     "and background never morph, melt, warp, dissolve, or transform into a "
     "different place. If the scene moves Rav Eli somewhere new, he "
     "physically walks or turns there, or the shot cuts cleanly — the room "
-    "never reshapes itself around him."
+    "never reshapes itself around him. The clip opens inside its scene's "
+    "setting from the very first frame — never on a plain studio or grey "
+    "backdrop like the character reference portraits."
 )
 
 
