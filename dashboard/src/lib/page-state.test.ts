@@ -183,3 +183,107 @@ test('placeholder script alone opens Phase 1 rather than the empty state', () =>
     assert.equal(s.draftJobId, null);
   }
 });
+
+// ── recency beats job class ────────────────────────────────────────────────
+//
+// Regression guard for Yonah's Bereishit report (2026-10-04): "I select write
+// my own script but when he generates clip plan it comes from the AI variant
+// instead." Bereishit carried an old test render — done, with a video, never
+// published — which matched the done-unpublished class forever. Because the
+// draft was chosen by class before recency, that render outranked his newly
+// generated plan the instant the plan-only job left the in-flight statuses.
+
+const OLD_STRANDED_RENDER = {
+  id: 'j-old-test',
+  status: 'done',
+  kind: 'parsha',
+  videoId: 'v-old',
+  clipPlanId: 'cp-ai-variant',
+  completedAt: '2026-04-01T10:00:00Z',
+  triggeredAt: '2026-04-01T09:00:00Z',
+};
+
+test('a newly finished plan-only job outranks an old never-published render', () => {
+  const s = selectPageState({
+    ...base,
+    hasScripts: true,
+    jobs: [
+      OLD_STRANDED_RENDER,
+      {
+        id: 'j-his-plan',
+        status: 'done',
+        kind: 'plan-only',
+        videoId: null,
+        clipPlanId: 'cp-his-script',
+        completedAt: '2026-10-04T12:05:00Z',
+        triggeredAt: '2026-10-04T12:00:00Z',
+      },
+    ],
+    videos: [{ id: 'v-old', jobId: 'j-old-test', publishedToWebsite: false }],
+  });
+  assert.equal(s.kind, 'draft-in-progress');
+  if (s.kind === 'draft-in-progress') {
+    assert.equal(s.draftJobId, 'j-his-plan');
+    assert.equal(s.phase, 2);
+  }
+});
+
+test('that plan also wins while it is still generating', () => {
+  const s = selectPageState({
+    ...base,
+    hasScripts: true,
+    jobs: [
+      OLD_STRANDED_RENDER,
+      {
+        id: 'j-his-plan',
+        status: 'generating_plan',
+        kind: 'plan-only',
+        videoId: null,
+        clipPlanId: null,
+        completedAt: null,
+        triggeredAt: '2026-10-04T12:00:00Z',
+      },
+    ],
+    videos: [{ id: 'v-old', jobId: 'j-old-test', publishedToWebsite: false }],
+  });
+  assert.equal(s.kind, 'draft-in-progress');
+  if (s.kind === 'draft-in-progress') assert.equal(s.draftJobId, 'j-his-plan');
+});
+
+test('the old render still wins when nothing newer exists', () => {
+  const s = selectPageState({
+    ...base,
+    hasScripts: true,
+    jobs: [OLD_STRANDED_RENDER],
+    videos: [{ id: 'v-old', jobId: 'j-old-test', publishedToWebsite: false }],
+  });
+  assert.equal(s.kind, 'draft-in-progress');
+  if (s.kind === 'draft-in-progress') {
+    assert.equal(s.draftJobId, 'j-old-test');
+    assert.equal(s.phase, 4);
+  }
+});
+
+test('draft selection does not depend on the order jobs arrive in', () => {
+  const jobs = [
+    OLD_STRANDED_RENDER,
+    {
+      id: 'j-compose',
+      status: 'done',
+      kind: 'compose',
+      videoId: 'v-new',
+      clipPlanId: 'cp-his-script',
+      completedAt: '2026-10-04T13:00:00Z',
+      triggeredAt: '2026-10-04T12:50:00Z',
+    },
+  ];
+  const videos = [
+    { id: 'v-old', jobId: 'j-old-test', publishedToWebsite: false },
+    { id: 'v-new', jobId: 'j-compose', publishedToWebsite: false },
+  ];
+  for (const ordered of [jobs, [...jobs].reverse()]) {
+    const s = selectPageState({ ...base, hasScripts: true, jobs: ordered, videos });
+    assert.equal(s.kind, 'draft-in-progress');
+    if (s.kind === 'draft-in-progress') assert.equal(s.draftJobId, 'j-compose');
+  }
+});
