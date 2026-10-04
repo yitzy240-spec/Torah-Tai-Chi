@@ -375,3 +375,47 @@ def test_seedance_payload_never_sends_an_invalid_duration():
         first_frame_url=None, audio_url=None, resolution="720p",
     )
     assert payload["duration"] == 4
+
+
+# ── no morphing ─────────────────────────────────────────────────────────────
+#
+# Yonah, Bereishit 2026-10-04: clip 1 "changes the background in the middle".
+# STYLE_LOCK pinned the man but nothing pinned the world, so conflicting
+# environment inputs came out as the room morphing into another room.
+
+def test_every_clip_prompt_carries_the_environment_lock():
+    from src.settings import ENVIRONMENT_LOCK
+    for clip in (_dojo_clip(), _outdoor_clip()):
+        payload = build_seedance_input(
+            clip, ["https://x/char.png"], ["https://x/dojo.png"], None, None,
+        )
+        assert ENVIRONMENT_LOCK in payload["prompt"]
+
+
+def test_environment_lock_forbids_morphing_but_allows_moving():
+    # Yitzy: "He may cross scenes in the clip. But the room [shouldn't]
+    # just unnaturally morph." Moving is fine; morphing isn't.
+    from src.settings import ENVIRONMENT_LOCK
+    text = ENVIRONMENT_LOCK.lower()
+    assert "morph" in text
+    assert "walks" in text and "cuts cleanly" in text
+    assert "same background" not in text
+
+
+def test_environment_lock_forbids_opening_on_the_portrait_backdrop():
+    # Bereishit clip 1, twice: ~7s on the grey portrait backdrop, then a
+    # clean cut to the dojo — allowed by "cuts cleanly" until this line.
+    from src.settings import ENVIRONMENT_LOCK
+    text = ENVIRONMENT_LOCK.lower()
+    assert "first frame" in text
+    assert "grey" in text and "portrait" in text
+
+
+def test_motion_reference_contributes_movement_only():
+    payload = build_seedance_input(
+        _dojo_clip(), ["https://x/char.png"], ["https://x/dojo.png"], None, None,
+        reference_video_url="https://x/move.mp4",
+    )
+    text = payload["prompt"].lower()
+    assert "only the body movement" in text
+    assert "not its location, background" in text

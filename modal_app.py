@@ -756,10 +756,10 @@ def run_pipeline(job_id: str) -> dict | None:
                 if getattr(curr_clip, "motion_ref_slug", None):
                     return False
                 prev_kws = _jewish_ref_ids_in_prompt(
-                    prev_clip.visual_prompt or ""
+                    prev_clip.visual_prompt or "", curr_clip.setting_id
                 )
                 curr_kws = _jewish_ref_ids_in_prompt(
-                    curr_clip.visual_prompt or ""
+                    curr_clip.visual_prompt or "", curr_clip.setting_id
                 )
                 # If the new clip has any ritual keyword the previous
                 # didn't, treat as a fresh scene so ritual refs flow.
@@ -1202,6 +1202,36 @@ JEWISH_REF_KEYWORDS: dict[str, list[str]] = {
 # anchors and confuses Seedance.
 MAX_JEWISH_REFS_PER_CLIP = 3
 
+# Room-scale photos: each one IS a place — a sukkah, a shul with its ark, a
+# crowd mid-hakafot, a set dining table — not an object held somewhere. A
+# DOJO clip's place is the dojo, which the dojo refs already anchor, so a
+# second room alongside them hands Seedance two environments to reconcile.
+# It reconciles them by morphing one into the other mid-clip: the room melts
+# into a different room around Rav Eli (Yonah, Bereishit, 2026-10-04: "it
+# changes the background in the middle ... where does it find the
+# chutzpa"). Bereishit is read the Shabbat after Simchat Torah, and the
+# hakafot photo triggers on the phrase "simchat torah".
+#
+# So these never AUTO-inject into a DOJO clip, and never break a DOJO chain
+# to try to. Object refs (scroll, shofar, challah, cup, lulav...) still
+# inject anywhere, and outdoor clips — whose setting is text-only — still
+# get the rooms. The operator can pin any of these on a dojo clip via
+# "+ Refs"; that path (override_ref_urls) bypasses this on purpose.
+ROOM_SCALE_JEWISH_REFS: frozenset[str] = frozenset({
+    "shabbat_table",
+    "sukkah_interior",
+    "sukkah_exterior",
+    "sukkah_schach",
+    "aron_kodesh",
+    "hakafot",
+})
+
+
+def _auto_jewish_ref_allowed(ref_id: str, setting_id: str | None) -> bool:
+    """Whether keyword matching may inject this ref into a clip of this
+    setting. See ROOM_SCALE_JEWISH_REFS."""
+    return not (setting_id == "DOJO" and ref_id in ROOM_SCALE_JEWISH_REFS)
+
 
 def _build_path_url_map(
     char_refs: list[str],
@@ -1270,7 +1300,9 @@ async def _upload_jewish_refs(kie: "KieClient") -> dict[str, str]:  # noqa: F821
     return out
 
 
-def _jewish_ref_ids_in_prompt(visual_prompt: str) -> set[str]:
+def _jewish_ref_ids_in_prompt(
+    visual_prompt: str, setting_id: str | None = None,
+) -> set[str]:
     """Set of jewish ref_ids whose keywords appear in this prompt.
 
     Used by chain-decision logic in the full pipeline + regen_agent to
@@ -1278,10 +1310,17 @@ def _jewish_ref_ids_in_prompt(visual_prompt: str) -> set[str]:
     didn't have. If it does, we MUST break first-frame chaining so the
     ritual ref images can flow (refs and first_frame are mutually
     exclusive in Seedance).
+
+    Pass the clip's setting_id: a ref that can't inject into this setting
+    (ROOM_SCALE_JEWISH_REFS on DOJO) must not break the chain either, or a
+    dojo clip that mentions a sukkah would lose its anchor frame and get
+    nothing in return.
     """
     text = (visual_prompt or "").lower()
     found: set[str] = set()
     for ref_id, kws in JEWISH_REF_KEYWORDS.items():
+        if not _auto_jewish_ref_allowed(ref_id, setting_id):
+            continue
         if any(kw in text for kw in kws):
             found.add(ref_id)
     return found
@@ -1303,8 +1342,11 @@ def _jewish_refs_for_clip(clip, jewish_refs: dict[str, str]) -> list[str]:
     matches: list[str] = []
     matched_ids: list[str] = []
     seen: set[str] = set()
+    setting_id = getattr(clip, "setting_id", None)
     for ref_id, keywords in JEWISH_REF_KEYWORDS.items():
         if ref_id in seen:
+            continue
+        if not _auto_jewish_ref_allowed(ref_id, setting_id):
             continue
         if any(kw in prompt for kw in keywords):
             url = jewish_refs.get(ref_id)
@@ -1862,8 +1904,10 @@ async def _resolve_regen_first_frame(
         return None
 
     # Gate 5: no new Jewish ritual keyword introduced.
-    prev_kws = _jewish_ref_ids_in_prompt(prev_row.get("visual_prompt") or "")
-    curr_kws = _jewish_ref_ids_in_prompt(clip_visual_prompt or "")
+    prev_kws = _jewish_ref_ids_in_prompt(
+        prev_row.get("visual_prompt") or "", clip_setting_id
+    )
+    curr_kws = _jewish_ref_ids_in_prompt(clip_visual_prompt or "", clip_setting_id)
     if curr_kws - prev_kws:
         new_kws = ", ".join(sorted(curr_kws - prev_kws))
         print(
@@ -6282,8 +6326,12 @@ def clips_only_job(job_id: str) -> dict | None:
             # Operator explicitly broke the chain on this clip.
             if per_clip_chain_broken.get(curr_c.index, False):
                 return False
-            prev_kws = _jewish_ref_ids_in_prompt(prev_c.visual_prompt or "")
-            curr_kws = _jewish_ref_ids_in_prompt(curr_c.visual_prompt or "")
+            prev_kws = _jewish_ref_ids_in_prompt(
+                prev_c.visual_prompt or "", curr_c.setting_id
+            )
+            curr_kws = _jewish_ref_ids_in_prompt(
+                curr_c.visual_prompt or "", curr_c.setting_id
+            )
             # New ritual keyword introduced — chain would drop the new
             # ref images. Break to let them flow through.
             return not (curr_kws - prev_kws)

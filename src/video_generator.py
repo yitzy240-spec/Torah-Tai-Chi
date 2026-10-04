@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from src.kie_client import KieClient
 from src.models import Clip
-from src.settings import STYLE_LOCK
+from src.settings import ENVIRONMENT_LOCK, STYLE_LOCK
 
 
 SEEDANCE_MODEL = "bytedance/seedance-2"
@@ -229,7 +229,9 @@ def build_seedance_input(
         "speak the voiceover line naturally throughout — do not mute him or "
         "freeze his face. If the reference video cuts before the move "
         "resolves, continue past that cutoff and settle the body back to "
-        "center.\n"
+        "center. Take ONLY the body movement from the reference video — not "
+        "its location, background, lighting, camera, or the demonstrator's "
+        "appearance. The scene is the one described above.\n"
         if reference_video_url else ""
     )
     normalized_vo = normalize_voiceover_for_tts(clip.voiceover)
@@ -243,7 +245,8 @@ def build_seedance_input(
         f"{_inject_sentence_beats(normalized_vo)}"
         f"{emotive_clause}"
         f"{voice_clause}"
-        f"{STYLE_LOCK}"
+        f"{STYLE_LOCK}\n"
+        f"{ENVIRONMENT_LOCK}"
         f"{motion_addendum}"
     )
     payload: dict = {

@@ -38,3 +38,11 @@ test('the 605 error-code branch fires on its own (not dead code)', () => {
   const out = humanizeRenderError('KieTaskFailed: 605: rendering rejected');
   assert.match(out, /nothing was charged|fault on Kie/i);
 });
+
+test('a stale tab after a deploy says reload, not retry', () => {
+  const out = humanizeRenderError(
+    'Server Action "70f520ea8f1f07cd3226d1060f04cc41cbf0e7ba21" was not found on the server.',
+  );
+  assert.match(out, /Reload the page/);
+  assert.doesNotMatch(out, /Kie/);
+});

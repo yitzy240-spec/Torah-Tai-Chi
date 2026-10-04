@@ -99,6 +99,15 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Unit tests (node:test on lib/*.test.ts)
+        # Same loop as the dashboard job. articles.test.ts predates this step
+        # and was never run in CI; parsha-videos.test.ts guards which video
+        # heroes a parsha page once a parsha has several years of teachings.
+        run: |
+          for f in src/lib/*.test.ts; do
+            node --test --experimental-strip-types "$f" || exit 1
+          done
+
       - name: Build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co

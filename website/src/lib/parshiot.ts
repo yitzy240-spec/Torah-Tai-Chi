@@ -1,5 +1,6 @@
 import { supabaseClient } from "./supabase";
 import { publicVideoUrl } from "./storage-url";
+import { groupByParsha, splitHero, type ParshaVideo, type VideoRow } from "./parsha-videos";
 import { HEBREW_NAMES } from "@/data/hebrew-names";
 
 export interface Parsha {
@@ -54,6 +55,11 @@ export interface Parsha {
    *  `tiktok` is kept in the type for historical records (TikTok was
    *  retired 2026-05-28) but no longer surfaces in WatchOnRow. */
   postUrls?: Partial<Record<'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'twitter', string>>;
+  /** Every OTHER published teaching for this parsha — previous years' and
+   *  other ideas — newest first. The fields above all describe the newest
+   *  (the hero); these sit behind the "Earlier teachings" button. Empty when
+   *  the parsha has one video or none. See lib/parsha-videos.ts. */
+  earlierVideos?: ParshaVideo[];
 }
 
 // All known slugs for generateStaticParams fallback
@@ -97,7 +103,7 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       .eq("option", "A-tight"),
     client
       .from("videos")
-      .select("parsha_id, thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description, created_at")
+      .select("id, parsha_id, thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description, created_at")
       .in("parsha_id", parshaIds),
   ]);
 
@@ -106,52 +112,22 @@ export async function getAllParshiot(): Promise<Parsha[]> {
     scriptMap.set(s.parsha_id, s);
   }
 
-  const thumbMap = new Map<string, string | null>();
-  const videoMap = new Map<string, string | null>();
-  const captionMap = new Map<string, string | null>();
-  const spokenScriptMap = new Map<string, string | null>();
-  const postUrlsMap = new Map<string, Parsha["postUrls"]>();
-  const titleMap = new Map<string, string | null>();
-  const subtitleMap = new Map<string, string | null>();
-  const descriptionMap = new Map<string, string | null>();
-  const videoPublishedAtMap = new Map<string, string>();
-  for (const v of (videosResult.data ?? []) as Array<{
-    parsha_id: string | null;
-    thumb_path: string | null;
-    mp4_path: string | null;
-    website_caption: string | null;
-    spoken_script: string | null;
-    post_urls: Record<string, string> | null;
-    title: string | null;
-    subtitle: string | null;
-    description: string | null;
-    created_at: string | null;
-  }>) {
-    if (!v.parsha_id) continue;
-    if (v.thumb_path) thumbMap.set(v.parsha_id, v.thumb_path);
-    if (v.mp4_path) videoMap.set(v.parsha_id, v.mp4_path);
-    if (v.website_caption) captionMap.set(v.parsha_id, v.website_caption);
-    if (v.spoken_script) spokenScriptMap.set(v.parsha_id, v.spoken_script);
-    if (v.post_urls && Object.keys(v.post_urls).length > 0) {
-      postUrlsMap.set(v.parsha_id, v.post_urls as Parsha["postUrls"]);
-    }
-    // videos.title is the snapshot written at stitch time (spec §11.6).
-    // Fall back to A-tight script title for old rows where the snapshot
-    // wasn't yet written.
-    titleMap.set(v.parsha_id, v.title ?? null);
-    subtitleMap.set(v.parsha_id, v.subtitle ?? null);
-    descriptionMap.set(v.parsha_id, v.description ?? null);
-    if (v.created_at) videoPublishedAtMap.set(v.parsha_id, v.created_at);
+  // A parsha keeps every teaching it has published; the newest is the hero
+  // and every per-parsha field below comes from that ONE row (splitHero).
+  const videosByParsha = new Map<string, ReturnType<typeof splitHero>>();
+  for (const [parshaId, rows] of groupByParsha((videosResult.data ?? []) as VideoRow[])) {
+    videosByParsha.set(parshaId, splitHero(rows, publicVideoUrl));
   }
 
   return parshiotData.map((row: { id: string; order: number; name: string; slug: string; book: string; kind: string }) => {
     const script = scriptMap.get(row.id);
-    const thumbPath = thumbMap.get(row.id) ?? null;
-    const mp4Path = videoMap.get(row.id) ?? null;
-    const spoken = spokenScriptMap.get(row.id) ?? null;
+    const { hero, earlier } = videosByParsha.get(row.id) ?? { hero: null, earlier: [] };
+    const thumbPath = hero?.thumb_path ?? null;
+    const mp4Path = hero?.mp4_path ?? null;
+    const spoken = hero?.spoken_script ?? null;
     // Read title directly from videos.title snapshot; fall back to A-tight
     // for old rows where the snapshot wasn't written yet.
-    const resolvedTitle = titleMap.get(row.id) ?? script?.title;
+    const resolvedTitle = hero?.title ?? script?.title;
     return {
       id: row.id,
       order: row.order,
@@ -164,13 +140,16 @@ export async function getAllParshiot(): Promise<Parsha[]> {
       // actual voiceovers); fall back to the draft when none exists yet.
       atightScript: spoken ?? script?.draft_text,
       atightTitle: resolvedTitle,
-      videoSubtitle: subtitleMap.get(row.id) ?? null,
-      videoDescription: descriptionMap.get(row.id) ?? null,
+      videoSubtitle: hero?.subtitle ?? null,
+      videoDescription: hero?.description ?? null,
       thumbUrl: thumbPath ? publicVideoUrl(thumbPath) : null,
       videoUrl: mp4Path ? publicVideoUrl(mp4Path) : null,
-      websiteCaption: captionMap.get(row.id) ?? null,
-      postUrls: postUrlsMap.get(row.id),
-      videoPublishedAt: videoPublishedAtMap.get(row.id) ?? null,
+      websiteCaption: hero?.website_caption ?? null,
+      postUrls: hero?.post_urls && Object.keys(hero.post_urls).length > 0
+        ? (hero.post_urls as Parsha["postUrls"])
+        : undefined,
+      videoPublishedAt: hero?.created_at ?? null,
+      earlierVideos: earlier,
     };
   });
 }
@@ -204,24 +183,21 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     // public-readable anyway.
     // title/subtitle/description are snapshotted at stitch time (spec §11.6)
     // so this query never needs to walk jobs → scripts anymore.
+    //
+    // Every published teaching for the parsha, not maybeSingle(): a parsha
+    // keeps last year's video (and any other idea) live alongside this
+    // year's, and maybeSingle() errors on more than one row — which would
+    // have blanked the page's video the moment a second one was published.
     client
       .from("videos")
-      .select("thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description, created_at")
-      .eq("parsha_id", parshaData.id)
-      .maybeSingle(),
+      .select("id, thumb_path, mp4_path, website_caption, spoken_script, post_urls, title, subtitle, description, created_at")
+      .eq("parsha_id", parshaData.id),
   ]);
 
-  const videoData = videoResult.data as {
-    thumb_path?: string | null;
-    mp4_path?: string | null;
-    website_caption?: string | null;
-    spoken_script?: string | null;
-    post_urls?: Record<string, string> | null;
-    title?: string | null;
-    subtitle?: string | null;
-    description?: string | null;
-    created_at?: string | null;
-  } | null;
+  const { hero: videoData, earlier } = splitHero(
+    (videoResult.data ?? []) as VideoRow[],
+    publicVideoUrl,
+  );
 
   const thumbPath = videoData?.thumb_path ?? null;
   const mp4Path = videoData?.mp4_path ?? null;
@@ -250,6 +226,7 @@ export async function getParshaBySlug(slug: string): Promise<Parsha | null> {
     postUrls: postUrlsRaw && Object.keys(postUrlsRaw).length > 0
       ? (postUrlsRaw as Parsha["postUrls"])
       : undefined,
+    earlierVideos: earlier,
   };
 }
 

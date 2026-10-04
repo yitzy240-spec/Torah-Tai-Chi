@@ -21,6 +21,16 @@ export function humanizeRenderError(raw: string | null | undefined): string {
   }
   const lower = raw.toLowerCase();
 
+  // ─── Stale tab after a deploy ───────────────────────────────────────
+  // Next.js identifies each server action by a build hash. A tab opened
+  // before a deploy calls the OLD hash, which the new build doesn't have:
+  // 'Server Action "70f5…" was not found on the server.' Nothing was sent
+  // to Modal, so the fix is a reload, not a retry (Yonah's screenshot,
+  // 2026-09-21; the dashboard deployed again 2026-10-04).
+  if (lower.includes('server action') && lower.includes('not found')) {
+    return 'The dashboard was updated while this page was open, so the button couldn’t reach it. Reload the page, then try again.';
+  }
+
   // ─── Kie queue backlog: our poller gave up but the render may still
   // finish (and bill) on Kie's side — Ki Tavo clip 4 completed 4 minutes
   // after the old 30-min window on 2026-08-24 and was recovered manually.

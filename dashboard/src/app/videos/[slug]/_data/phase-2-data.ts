@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/server';
 import { listTaiChiMoves } from '@/lib/tai-chi-moves';
 import { getRefImageLibrary } from '@/lib/ref-image-library';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
+import { lastFailedRenderByIndex, type LastFailedRender } from '@/lib/render-outcome';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
 import type { RefImage } from '@/app/videos/[slug]/_components/_shared/reference-image-picker-sheet';
 
@@ -62,6 +63,9 @@ export type Phase2Props = {
    *  rendering spinner from this on mount so refresh-mid-render no
    *  longer shows an idle Re-render button. */
   initialPendingByIndex: Record<number, PendingRender>;
+  /** The newest failed render per index that nothing has superseded.
+   *  Seeds the card's failure banner so it survives a refresh. */
+  initialLastFailedByIndex: Record<number, LastFailedRender>;
   initialResolution: Resolution;
   initialModelTier: ModelTier;
   moves: TaiChiMove[];
@@ -109,7 +113,7 @@ export async function getPhase2Props(
   //     For each pending job × index, we'll later skip indexes that
   //     already have a rendered clip — so the per-clip spinner clears
   //     as soon as that clip lands, even while siblings still render.
-  const [clipsResult, jobDetailsResult, moves, versionJobsResult, pendingJobsResult] =
+  const [clipsResult, jobDetailsResult, moves, versionJobsResult, pendingJobsResult, failedJobsResult] =
     await Promise.all([
       supabase
         .from('clips')
@@ -130,6 +134,18 @@ export async function getPhase2Props(
         .eq('kind', 'clips-only')
         .not('status', 'in', '(done,failed,cancelled)')
         .order('triggered_at', { ascending: false }),
+      // Failed renders, so a card can say "your last render failed" after a
+      // refresh instead of looking identical to "never tried" (see
+      // lib/render-outcome.ts). Bounded: only the newest unsuperseded one
+      // per clip is ever shown.
+      supabase
+        .from('jobs')
+        .select('id, clip_indexes, triggered_at, error_message')
+        .eq('regen_of_job_id', draftJobId)
+        .eq('kind', 'clips-only')
+        .eq('status', 'failed')
+        .order('triggered_at', { ascending: false })
+        .limit(25),
     ]);
 
   // Build the per-index version list: every rendered clip row under any
@@ -230,6 +246,22 @@ export async function getPhase2Props(
     }
   }
 
+  const newestVersionAtByIndex = new Map<number, string>();
+  for (const [idx, list] of versionsByIndex) {
+    if (list[0]) newestVersionAtByIndex.set(idx, list[0].createdAt);
+  }
+  const initialLastFailedByIndex = lastFailedRenderByIndex({
+    failedJobs: (failedJobsResult.data ?? []).map((j) => ({
+      id: j.id as string,
+      clipIndexes: (j.clip_indexes as number[] | null) ?? null,
+      triggeredAt: j.triggered_at as string,
+      errorMessage: (j.error_message as string | null) ?? null,
+    })),
+    planIndexes,
+    newestVersionAtByIndex,
+    pendingIndexes: new Set(Object.keys(initialPendingByIndex).map(Number)),
+  });
+
   const draftJobDetails = jobDetailsResult.data;
   const resolution = (draftJobDetails?.resolution as Resolution | null) ?? '720p';
   const modelTier = (draftJobDetails?.model_tier as ModelTier | null) ?? 'standard';
@@ -241,6 +273,7 @@ export async function getPhase2Props(
     initialClips,
     initialVersionsByIndex,
     initialPendingByIndex,
+    initialLastFailedByIndex,
     initialResolution: resolution,
     initialModelTier: modelTier,
     moves,

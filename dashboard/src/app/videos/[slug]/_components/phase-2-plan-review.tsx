@@ -74,6 +74,7 @@ import { BottomSheet } from './bottom-sheet';
 import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { ClipVersion, PendingRender } from '../_data/phase-2-data';
+import type { LastFailedRender } from '@/lib/render-outcome';
 import { cancelJob } from '@/app/actions/cancel-job';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { composeVideo } from '@/app/actions/compose-video';
@@ -111,6 +112,8 @@ interface Props {
    *  render no longer wipes the spinner (and stops the operator from
    *  re-firing Modal on a clip that's still going). */
   initialPendingByIndex: Record<number, PendingRender>;
+  /** Newest unsuperseded failed render per index (lib/render-outcome). */
+  initialLastFailedByIndex: Record<number, LastFailedRender>;
   initialResolution: Resolution; // default tier comes from the plan-only job (or fallback)
   initialModelTier: ModelTier;
   moves: TaiChiMove[]; // server-fetched library, passed in from page-new
@@ -126,6 +129,7 @@ export function Phase2PlanReview({
   initialClips,
   initialVersionsByIndex,
   initialPendingByIndex,
+  initialLastFailedByIndex,
   initialResolution,
   initialModelTier,
   moves,
@@ -404,6 +408,7 @@ export function Phase2PlanReview({
           prevIndex={i === 0 ? null : i - 1}
           tier={tier}
           initialPending={initialPendingByIndex[c.index] ?? null}
+          initialLastFailed={initialLastFailedByIndex[c.index] ?? null}
         />
       ))}
 
@@ -490,9 +495,12 @@ interface CardProps {
    *  the spinner instead of an idle Re-render button. Null when no
    *  clips-only job is in flight for this index. */
   initialPending: PendingRender | null;
+  /** Server-derived: this clip's last render failed and nothing has
+   *  superseded it. Seeds the failure banner so a refresh keeps saying so. */
+  initialLastFailed: LastFailedRender | null;
 }
 
-function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, versions, prevRendered, prevIndex, tier, initialPending }: CardProps) {
+function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, versions, prevRendered, prevIndex, tier, initialPending, initialLastFailed }: CardProps) {
   const router = useRouter();
   const [motionPickerOpen, setMotionPickerOpen] = useState(false);
 
@@ -576,10 +584,21 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   // banner is the persistent one for operators who glanced away.
   // Cleared when the operator re-renders (start of generateThisClip)
   // or when a successful version lands (clip.storage_path effect).
+  //
+  // Seeded from the server (initialLastFailed) so a refresh keeps saying
+  // the last render failed. Before, a refresh wiped this and a failed render
+  // looked identical to "never tried" and to "still running" — Yonah,
+  // 2026-10-04: "how am I to know if I should click it again, or if
+  // something is still happening in the background?" jobId is null when the
+  // render never started (no job, so no log to link).
   const [lastFailedError, setLastFailedError] = useState<{
-    jobId: string;
+    jobId: string | null;
     message: string;
-  } | null>(null);
+  } | null>(() =>
+    initialLastFailed
+      ? { jobId: initialLastFailed.jobId, message: initialLastFailed.message }
+      : null,
+  );
 
   // Watch the clips-only job we just triggered so we can detect failure
   // and surface it to the operator. useJobStream subscribes to Broadcast
@@ -592,8 +611,18 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   // Success path — clip mp4 appeared in storage. Clears the spinner and
   // closes out the live job watch. Also clears any stale failure banner
   // so it doesn't linger next to a successful render.
+  //
+  // Fires on a CHANGE of storage_path only — never on mount. clip.storage_path
+  // is the newest rendered version (the grid overlays versions[0]), so on a
+  // RE-render it is already set when the card mounts. Firing on mount wiped
+  // the spinner the card had just restored from initialPending: refresh the
+  // page during a re-render and the card showed an idle "Re-render" button
+  // while the job was still running (Yonah, 2026-10-04).
+  const lastStoragePathRef = useRef<string | null>(clip.storage_path);
   useEffect(() => {
-    if (clip.storage_path) {
+    const prev = lastStoragePathRef.current;
+    lastStoragePathRef.current = clip.storage_path;
+    if (clip.storage_path && clip.storage_path !== prev) {
       setThisRendering(false);
       setLiveJobId(null);
       setRenderStartedAt(null);
@@ -723,11 +752,14 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
       const { data } = await supabase
         .from('jobs')
-        .select('status')
+        .select('status, error_message')
         .eq('id', watchedJobId)
         .maybeSingle();
       if (cancelled || !data) return;
-      const status = (data as { status: string }).status;
+      const { status, error_message: errorMessage } = data as {
+        status: string;
+        error_message: string | null;
+      };
       if (status === 'done' || status === 'failed' || status === 'cancelled') {
         setThisRendering(false);
         setLiveJobId(null);
@@ -737,10 +769,13 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
         } else if (status === 'cancelled') {
           setCancelling(false);
         } else {
-          // Rich error detail comes from the broadcast path when it arrives;
-          // this is the fallback when that message was lost.
+          // The broadcast that carries the error was lost (or the tab was
+          // asleep), so read the reason from the row. Set the banner too: a
+          // 12-second toast alone is how a failure went unnoticed.
+          const message = errorMessage?.trim() || 'The render stopped without an error message.';
+          setLastFailedError({ jobId: watchedJobId, message });
           toast.error(`Clip ${clip.index + 1} render failed`, {
-            description: 'The render reported a failure. Open the log for details.',
+            description: humanizeRenderError(message),
             action: {
               label: 'View log',
               onClick: () => window.open(`/jobs/${watchedJobId}`, '_blank'),
@@ -809,6 +844,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
       setThisRendering(false);
       setLiveJobId(null);
       setRenderStartedAt(null);
+      setLastFailedError({ jobId: null, message: (e as Error).message });
       toast.error("Couldn't start clip generation.", {
         description: (e as Error).message,
       });
@@ -1414,7 +1450,11 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
           until clip N-1 has a rendered mp4, so scene-group chaining (clip
           N's first frame = clip N-1's last frame) is never broken by
           out-of-order generation. */}
-      {!clip.storage_path && lastFailedError && !thisRendering && (
+      {/* Shown on RE-renders too. It used to require !clip.storage_path,
+          and clip.storage_path is the newest existing version — so a failed
+          re-render (the clip already had one) never showed a banner at all,
+          only a 12-second toast. */}
+      {lastFailedError && !thisRendering && (
         <div
           role="alert"
           style={{
@@ -1433,15 +1473,28 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
         >
           <span aria-hidden="true" style={{ color: 'var(--tassel)', fontWeight: 700, flexShrink: 0 }}>!</span>
           <span>
+            {/* State only what's certain. The spinner is the "still
+                running" signal; this banner means the attempt ended. It must
+                not claim "nothing is running" for a poll timeout — the
+                humanized message rightly says Kie may still finish it. */}
+            <strong style={{ color: 'var(--ink-900)' }}>
+              {lastFailedError.jobId === null
+                ? 'Couldn’t start the render — nothing was sent.'
+                : clip.storage_path
+                  ? 'Last re-render failed — still showing the previous version.'
+                  : 'Last render failed.'}
+            </strong>{' '}
             {humanizeRenderError(lastFailedError.message)}{' '}
-            <a
-              href={`/jobs/${lastFailedError.jobId}`}
-              target="_blank"
-              rel="noopener"
-              style={{ color: 'var(--navy-700)', textDecoration: 'underline' }}
-            >
-              View log →
-            </a>
+            {lastFailedError.jobId && (
+              <a
+                href={`/jobs/${lastFailedError.jobId}`}
+                target="_blank"
+                rel="noopener"
+                style={{ color: 'var(--navy-700)', textDecoration: 'underline' }}
+              >
+                View log →
+              </a>
+            )}
           </span>
         </div>
       )}

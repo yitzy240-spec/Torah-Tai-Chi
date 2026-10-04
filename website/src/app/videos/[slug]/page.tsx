@@ -12,6 +12,7 @@ import VideoCard from "@/components/VideoCard";
 import ShareRow from "@/components/ShareRow";
 import WatchOnRow from "@/components/WatchOnRow";
 import VideoPlayer from "@/components/VideoPlayer";
+import EarlierTeachings from "@/components/EarlierTeachings";
 import { videoSchema, breadcrumbSchema } from "@/lib/jsonld";
 import { getSiteContent } from "@/lib/site-content";
 
@@ -256,6 +257,15 @@ export default async function VideoDetailPage({ params }: Props) {
               label={content['share.share_label']}
             />
           )}
+
+          <EarlierTeachings
+            videos={parsha.earlierVideos ?? []}
+            parshaSlug={parsha.slug}
+            parshaName={displayName}
+            showLabel={content['video_detail.earlier.show']}
+            hideLabel={content['video_detail.earlier.hide']}
+            watchOnLabel={content['share.watch_on_label']}
+          />
         </>
       ) : (
         <div style={{ maxWidth: "900px", margin: "0 auto", padding: "48px 48px 0" }}>

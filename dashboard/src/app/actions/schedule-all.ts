@@ -23,7 +23,7 @@ interface ScheduleAllArgs {
  *
  * When `shareNow` is true AND the video isn't already published to the
  * site, this also flips published_to_website=true (and unpublishes any
- * sibling version of the same parsha — see set-video-published.ts).
+ * earlier cut of the same teaching — see set-video-published.ts).
  * The intent: "post now" should mean "this video is going public,
  * everywhere," not "social only, remember to also click the site
  * toggle." Scheduled-for-later runs leave the site toggle alone.
