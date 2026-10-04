@@ -11,6 +11,7 @@ import type { TaiChiMove } from '@/lib/tai-chi-moves';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { RefImage } from './_shared/reference-image-picker-sheet';
 import type { ClipVersion, PendingRender } from '../_data/phase-2-data';
+import type { LastFailedRender } from '@/lib/render-outcome';
 import { Phase2PlanReview } from './phase-2-plan-review';
 
 interface Clip {
@@ -32,6 +33,7 @@ interface Props {
   initialClips: Clip[];
   initialVersionsByIndex: Record<number, ClipVersion[]>;
   initialPendingByIndex: Record<number, PendingRender>;
+  initialLastFailedByIndex: Record<number, LastFailedRender>;
   initialResolution: Resolution;
   initialModelTier: ModelTier;
   moves: TaiChiMove[];
