@@ -9,6 +9,7 @@ import {
   getPhase1Props,
   shouldStartNewPlan,
   shouldConfirmDiscard,
+  countRenderedClips,
 } from '../app/videos/[slug]/_data/phase-1-data.ts';
 
 type Script = { id: string; option: string; title: string | null; draft_text: string | null };
@@ -137,5 +138,86 @@ test('confirm: first run (no draft) has no clips → no warn', () => {
   assert.equal(
     shouldConfirmDiscard({ draftScriptId: null, requestedScriptId: 's-atight', renderedClipCount: 0 }),
     false,
+  );
+});
+
+// ── countRenderedClips: the confirm that never fired ───────────────────────
+//
+// Yonah regenerated a plan over a finished Bereishit render and got no
+// "you'll discard N clips" warning (2026-10-04, screen recording). The count
+// read only the plan-only root's clip rows, but plan_only_job leaves those at
+// storage_path NULL and each clips-only render upserts its own full set under
+// ITS job id — so the root reads as 0 rendered for the normal Phase 2 flow.
+
+const PLAN_TREE = [
+  { id: 'root', regenOfJobId: null },
+  { id: 'clips-a', regenOfJobId: 'root' },
+  { id: 'clips-b', regenOfJobId: 'root' },
+  { id: 'other-parsha-job', regenOfJobId: null },
+];
+
+test('countRenderedClips: null root -> 0', () => {
+  assert.equal(countRenderedClips(PLAN_TREE, {}, null), 0);
+});
+
+test('countRenderedClips: root rows still NULL, clips rendered under a child', () => {
+  const n = countRenderedClips(
+    PLAN_TREE,
+    {
+      root: [
+        { index: 0, storagePath: null },
+        { index: 1, storagePath: null },
+        { index: 2, storagePath: null },
+      ],
+      'clips-a': [
+        { index: 0, storagePath: 'jobs/clips-a/clips/clip_00.mp4' },
+        { index: 1, storagePath: 'jobs/clips-a/clips/clip_01.mp4' },
+      ],
+    },
+    'root',
+  );
+  assert.equal(n, 2); // was 0 before the fix — no confirm, clips lost silently
+});
+
+test('countRenderedClips: a re-render of the same index counts once', () => {
+  const n = countRenderedClips(
+    PLAN_TREE,
+    {
+      'clips-a': [{ index: 3, storagePath: 'a/clip_03.mp4' }],
+      'clips-b': [{ index: 3, storagePath: 'b/clip_03.mp4' }],
+    },
+    'root',
+  );
+  assert.equal(n, 1);
+});
+
+test('countRenderedClips: another parsha job in the list is not counted', () => {
+  const n = countRenderedClips(
+    PLAN_TREE,
+    {
+      'clips-a': [{ index: 0, storagePath: 'a/clip_00.mp4' }],
+      'other-parsha-job': [
+        { index: 0, storagePath: 'x/clip_00.mp4' },
+        { index: 1, storagePath: 'x/clip_01.mp4' },
+      ],
+    },
+    'root',
+  );
+  assert.equal(n, 1);
+});
+
+test('shouldConfirmDiscard fires once the tree-wide count is non-zero', () => {
+  const renderedClipCount = countRenderedClips(
+    PLAN_TREE,
+    { 'clips-a': [{ index: 0, storagePath: 'a/clip_00.mp4' }] },
+    'root',
+  );
+  assert.equal(
+    shouldConfirmDiscard({
+      draftScriptId: 's-old',
+      requestedScriptId: 's-his-own',
+      renderedClipCount,
+    }),
+    true,
   );
 });

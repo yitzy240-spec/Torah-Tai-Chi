@@ -111,3 +111,55 @@ export function shouldStartNewPlan(args: {
   if (args.draftScriptId == null) return true;
   return args.draftScriptId !== args.requestedScriptId;
 }
+
+/**
+ * How many clips of the draft plan are actually rendered — the number
+ * shouldConfirmDiscard gates on, and the number the confirm sheet quotes.
+ *
+ * Has to span the plan's whole job tree, not just the plan-only root. A
+ * plan's rendered clips are spread across jobs by design: plan_only_job
+ * inserts the row set under the ROOT with storage_path NULL, then each
+ * clips-only render "upserts the clip row so this job owns a full clips
+ * set" — under ITS OWN job id (modal_app.py, clips_only_job). So the root's
+ * rows can stay NULL forever while every clip is rendered.
+ *
+ * Counting only the root (what page.tsx did until 2026-10-04) therefore
+ * returned 0 for the normal case — clips rendered from Phase 2 — so the
+ * discard confirm never fired for exactly the drafts it exists to protect.
+ * Yonah regenerated a plan over a finished Bereishit render and got no
+ * warning at all.
+ *
+ * De-duplicated by clip index: re-rendering clip 3 twice creates a row
+ * under each child job (that's what the Phase 2 version chips are), and
+ * that's one rendered clip, not two.
+ */
+export function countRenderedClips(
+  jobs: ReadonlyArray<{ id: string; regenOfJobId: string | null }>,
+  clipsByJobId: Record<string, ReadonlyArray<{ index: number; storagePath: string | null }>>,
+  rootJobId: string | null,
+): number {
+  if (!rootJobId) return 0;
+
+  // Collect the root plus every job descending from it. Walking children
+  // (rather than each job's ancestor chain) keeps this linear-ish and needs
+  // no cycle guard beyond the visited set.
+  const tree = new Set<string>([rootJobId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const j of jobs) {
+      if (!tree.has(j.id) && j.regenOfJobId && tree.has(j.regenOfJobId)) {
+        tree.add(j.id);
+        grew = true;
+      }
+    }
+  }
+
+  const rendered = new Set<number>();
+  for (const jobId of tree) {
+    for (const c of clipsByJobId[jobId] ?? []) {
+      if (c.storagePath) rendered.add(c.index);
+    }
+  }
+  return rendered.size;
+}

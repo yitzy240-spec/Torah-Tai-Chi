@@ -287,3 +287,105 @@ test('draft selection does not depend on the order jobs arrive in', () => {
     if (s.kind === 'draft-in-progress') assert.equal(s.draftJobId, 'j-compose');
   }
 });
+
+// ── year over year ─────────────────────────────────────────────────────────
+//
+// A parsha gets one published video per year, so from the second cycle on
+// there are several live videos and the newest has to win. liveVideo used to
+// be `videos.find(...)` over an array shell-data fetches with no ORDER BY —
+// row order, i.e. a coin flip. Landing on last year's video made this year's
+// freshly published one a phantom draft: it isn't the single liveVideo, so
+// its compose job matched the done-unpublished class and the page presented
+// the live video as unfinished work at Phase 4, with last year's video on
+// the live strip. Yitzy, 2026-10-04: "this highlights a general problem with
+// year over year creation."
+
+const LAST_YEAR_PUBLISHED = {
+  id: 'j-2026',
+  status: 'done',
+  kind: 'compose',
+  videoId: 'v-2026',
+  clipPlanId: 'cp-2026',
+  completedAt: '2026-04-05T10:00:00+00:00',
+  triggeredAt: '2026-04-05T09:00:00+00:00',
+};
+const THIS_YEAR_PLAN = {
+  id: 'j-2027-plan',
+  status: 'done',
+  kind: 'plan-only',
+  videoId: null,
+  clipPlanId: 'cp-2027',
+  completedAt: '2027-03-20T12:05:00+00:00',
+  triggeredAt: '2027-03-20T12:00:00+00:00',
+};
+const THIS_YEAR_COMPOSE = {
+  id: 'j-2027-compose',
+  status: 'done',
+  kind: 'compose',
+  videoId: 'v-2027',
+  clipPlanId: 'cp-2027',
+  completedAt: '2027-03-20T14:00:00+00:00',
+  triggeredAt: '2027-03-20T13:50:00+00:00',
+};
+
+test("last year's published video + this year's new plan -> this year is the draft", () => {
+  const s = selectPageState({
+    ...base,
+    hasScripts: true,
+    jobs: [THIS_YEAR_PLAN, LAST_YEAR_PUBLISHED],
+    videos: [{ id: 'v-2026', jobId: 'j-2026', publishedToWebsite: true }],
+  });
+  assert.equal(s.kind, 'live-and-draft');
+  if (s.kind === 'live-and-draft') {
+    assert.equal(s.liveVideoId, 'v-2026');
+    assert.equal(s.draftJobId, 'j-2027-plan');
+    assert.equal(s.phase, 2);
+  }
+});
+
+test('both years published -> the NEWEST is live, in either videos order', () => {
+  const jobs = [THIS_YEAR_COMPOSE, THIS_YEAR_PLAN, LAST_YEAR_PUBLISHED];
+  const videos = [
+    { id: 'v-2026', jobId: 'j-2026', publishedToWebsite: true },
+    { id: 'v-2027', jobId: 'j-2027-compose', publishedToWebsite: true },
+  ];
+  for (const ordered of [videos, [...videos].reverse()]) {
+    const s = selectPageState({ ...base, hasScripts: true, jobs, videos: ordered });
+    assert.equal(s.kind, 'live-and-draft');
+    if (s.kind === 'live-and-draft') {
+      // This year's video is live, and is NOT also offered as a draft to
+      // finish — the phantom-draft-at-Phase-4 bug.
+      assert.equal(s.liveVideoId, 'v-2027');
+      assert.equal(s.draftJobId, null);
+    }
+  }
+});
+
+test("last year's video stays live while this year's is only part-rendered", () => {
+  const s = selectPageState({
+    ...base,
+    hasScripts: true,
+    jobs: [
+      { ...THIS_YEAR_PLAN, status: 'generating_plan', clipPlanId: null, completedAt: null },
+      LAST_YEAR_PUBLISHED,
+    ],
+    videos: [{ id: 'v-2026', jobId: 'j-2026', publishedToWebsite: true }],
+  });
+  assert.equal(s.kind, 'live-and-draft');
+  if (s.kind === 'live-and-draft') {
+    assert.equal(s.liveVideoId, 'v-2026');
+    assert.equal(s.draftJobId, 'j-2027-plan');
+  }
+});
+
+test('a video published only via a post counts as live', () => {
+  const s = selectPageState({
+    ...base,
+    hasScripts: true,
+    jobs: [THIS_YEAR_PLAN, LAST_YEAR_PUBLISHED],
+    videos: [{ id: 'v-2026', jobId: 'j-2026', publishedToWebsite: false }],
+    posts: [{ videoId: 'v-2026', status: 'published' }],
+  });
+  assert.equal(s.kind, 'live-and-draft');
+  if (s.kind === 'live-and-draft') assert.equal(s.draftJobId, 'j-2027-plan');
+});

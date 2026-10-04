@@ -67,7 +67,12 @@ export type ShellData = {
     completedAt: string | null;
     triggeredAt: string;
   }>;
-  clipsByJobId: Record<string, Array<{ storagePath: string | null }>>;
+  /** Clip rows per OWNING job id. `index` is carried because a plan's
+   *  rendered clips are spread across jobs: plan-only inserts the row set
+   *  with storage_path NULL, and each clips-only render upserts its own
+   *  full set under ITS job id. Counting rendered work therefore means
+   *  unioning a job tree and de-duplicating by index. */
+  clipsByJobId: Record<string, Array<{ index: number; storagePath: string | null }>>;
   liveStripProps: React.ComponentProps<typeof PersistentLiveStrip> | null;
   phase: DraftPhase | null;
   statePhase: DraftPhase | null;
@@ -157,7 +162,7 @@ export async function fetchPageShellData(
       ? supabase.from('clip_plans').select('id, job_id').in('job_id', allJobIds)
       : Promise.resolve({ data: [] }),
     allJobIds.length > 0
-      ? supabase.from('clips').select('job_id, storage_path').in('job_id', allJobIds)
+      ? supabase.from('clips').select('job_id, index, storage_path').in('job_id', allJobIds)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -215,11 +220,14 @@ export async function fetchPageShellData(
     platform: p.platform as string,
   }));
 
-  const clipsByJobId: Record<string, Array<{ storagePath: string | null }>> = {};
+  const clipsByJobId: Record<string, Array<{ index: number; storagePath: string | null }>> = {};
   for (const c of clipsResult.data ?? []) {
     const jid = c.job_id as string;
     if (!clipsByJobId[jid]) clipsByJobId[jid] = [];
-    clipsByJobId[jid].push({ storagePath: c.storage_path as string | null });
+    clipsByJobId[jid].push({
+      index: c.index as number,
+      storagePath: c.storage_path as string | null,
+    });
   }
 
   // Compute page state (pure)

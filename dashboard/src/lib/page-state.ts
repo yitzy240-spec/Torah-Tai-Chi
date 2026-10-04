@@ -67,10 +67,29 @@ export function selectPageState(input: PageStateInput): PageState {
   const { jobs, videos, posts, clipsByJobId, hasScripts } = input;
 
   // A live video = published to website OR has at least one published post.
-  const liveVideo = videos.find((v) => {
-    if (v.publishedToWebsite) return true;
-    return posts.some((p) => p.videoId === v.id && p.status === 'published');
-  });
+  //
+  // A parsha accumulates one of these per YEAR, so from the second cycle on
+  // there are several and "which one is live" has to be the NEWEST, not
+  // whichever the videos array happens to list first. shell-data fetches
+  // videos with `.in('job_id', …)` and no ORDER BY, so that was row order —
+  // a coin flip. Landing on last year's video made this year's freshly
+  // published one a phantom draft (it isn't the single liveVideo, so its
+  // compose job matches isDoneUnpublished) and the page showed the live
+  // video as unfinished work at Phase 4, with last year's on the live strip.
+  const liveVideos = videos
+    .filter(
+      (v) =>
+        v.publishedToWebsite ||
+        posts.some((p) => p.videoId === v.id && p.status === 'published'),
+    )
+    .map((v) => ({
+      video: v,
+      triggeredAt: jobs.find((j) => j.id === v.jobId)?.triggeredAt ?? '',
+    }))
+    .sort((a, b) =>
+      a.triggeredAt < b.triggeredAt ? 1 : a.triggeredAt > b.triggeredAt ? -1 : 0,
+    );
+  const liveVideo = liveVideos[0]?.video;
 
   // A draft = any in-flight job, OR a done job whose video isn't yet live
   // (needs review/posting), OR a done plan-only job still awaiting clip rendering.
@@ -86,7 +105,10 @@ export function selectPageState(input: PageStateInput): PageState {
   // clips.storage_path realtime path on the Phase 2/3 cards.
   const isDraftKind = (k: string | null) =>
     k === null || k === 'parsha' || k === 'plan-only' || k === 'compose' || k === 'video_topic';
-  const liveVideoIds = new Set(liveVideo ? [liveVideo.id] : []);
+  // EVERY live video, not just the newest. This set is what keeps a
+  // published video from being read back as an unpublished draft, and last
+  // year's video is every bit as published as this year's.
+  const liveVideoIds = new Set(liveVideos.map((lv) => lv.video.id));
 
   // Cutoff: a "draft" compose/parsha must have been triggered AFTER the
   // live video's job. Without this, every previous compose attempt for
