@@ -53,6 +53,8 @@ const FALLBACKS: SiteContentMap = {
   'video_detail.more.heading_before_em': 'More ',
   'video_detail.more.heading_em': 'teachings',
   'video_detail.more.cta_label': 'All 54 parshiot \u2192',
+  'video_detail.earlier.show': 'Earlier teachings on this parsha',
+  'video_detail.earlier.hide': 'Hide earlier teachings',
   'video_detail.not_found.title': 'Teaching not found',
   'video_detail.not_found.cta': 'Browse all teachings \u2192',
   // ── ABOUT ─────────────────────────────────────────────────────────

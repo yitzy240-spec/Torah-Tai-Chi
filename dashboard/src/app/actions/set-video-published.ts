@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { revalidatePath } from 'next/cache';
 import { getCanonicalClipPlan } from '@/lib/clip-plan';
+import { sameTeachingJobIds, type JobForTeaching } from '@/lib/teaching';
 
 /**
  * Toggle whether a video is visible on the public website. Backed by
@@ -12,9 +13,16 @@ import { getCanonicalClipPlan } from '@/lib/clip-plan';
  * gate Yonah controls before a video goes live.
  *
  * Invariants:
- *   1. At most ONE video per parsha is published at a time. Sibling
- *      versions are unpublished automatically before the new one goes
- *      live, so the public site never has two competing takes.
+ *   1. At most ONE published video per TEACHING (see lib/teaching.ts).
+ *      Publishing a newer cut of a teaching unpublishes its earlier cuts,
+ *      so the site never shows two competing takes of the same script.
+ *      Other teachings of the same parsha — last year's, or another idea —
+ *      stay published: the website heroes the newest and lists the rest
+ *      under "Earlier teachings". This used to be one per PARSHA, which
+ *      would have silently pulled every prior year's video off the site
+ *      the moment its successor went live. Yitzy, 2026-10-04: "we
+ *      shouldnt scrap last years published videos. We dont want to kill
+ *      those links."
  *   2. When publishing, snapshot the clip-plan voiceovers into
  *      videos.spoken_script. The website renders that text on the video
  *      page; without the snapshot it would show the original script,
@@ -60,15 +68,16 @@ export async function setVideoPublished(
     }
     const parshaId = jobRow.parsha_id as string | null;
 
-    // If this video belongs to a parsha, unpublish any sibling videos
-    // that are currently live.
+    // Unpublish earlier cuts of THIS teaching that are currently live.
+    // Other teachings of the parsha are left alone (invariant 1).
     if (parshaId) {
-      const { data: siblingJobs } = await sb
+      const { data: parshaJobs } = await sb
         .from('jobs')
-        .select('id')
+        .select('id, script_id, regen_of_job_id')
         .eq('parsha_id', parshaId);
-      const siblingJobIds = (siblingJobs ?? []).map(
-        (j: { id: string }) => j.id,
+      const siblingJobIds = sameTeachingJobIds(
+        (parshaJobs ?? []) as JobForTeaching[],
+        jobId,
       );
       if (siblingJobIds.length > 0) {
         const { data: replaced } = await sb

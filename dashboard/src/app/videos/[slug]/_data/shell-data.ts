@@ -108,12 +108,15 @@ export async function fetchPageShellData(
     const { data: partner } = await supabase
       .from('parshiot').select('id, name, hebrew_name').eq('slug', partnerSlug).maybeSingle();
     if (partner) {
-      const { data: partnerVid } = await supabase
+      // limit(1), not maybeSingle(): a parsha keeps every year's published
+      // teaching now, and maybeSingle() errors on two rows — which would
+      // read as "partner has no video" and wrongly merge the names.
+      const { data: partnerVids } = await supabase
         .from('videos').select('id')
         .eq('parsha_id', partner.id as string)
         .eq('published_to_website', true)
-        .maybeSingle();
-      if (!partnerVid) {
+        .limit(1);
+      if (!partnerVids?.length) {
         displayName = joinParshaNames(displayName, partner.name as string);
         if (displayHebrew && partner.hebrew_name) {
           displayHebrew = joinParshaNames(displayHebrew, partner.hebrew_name as string);
