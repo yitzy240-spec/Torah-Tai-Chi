@@ -1,16 +1,21 @@
 # Request file for .github/workflows/fetch-refs.yml.
 #
-# Change this file and push, and the workflow runs with these values on a
-# GitHub runner (which can reach Wikimedia Commons). browse and resolve
-# only print to the run's log. fetch downloads into references/jewish/,
-# appends SOURCES.md, and commits the images back to this branch.
+# Change this file and push it on a FEATURE BRANCH (the workflow ignores
+# main), and it runs with these values on a GitHub runner, which can reach
+# Wikimedia Commons. browse and resolve only print to the run's log. fetch
+# downloads into references/jewish/, appends SOURCES.md, rewrites this
+# file to `mode: done`, and commits all of it back to the branch — so a
+# fulfilled request stays fulfilled when the branch merges.
 #
-# mode:  browse | resolve | fetch
+# To make a new request: bump `request`, set mode/items/force, push.
+# Values may carry a trailing comment after " # " (space, hash, space).
+#
+# mode:  browse | resolve | fetch | done
 # items: semicolon-separated — categories (browse), File: titles (resolve),
 #        or slot=File:Title pairs (fetch; slots in tools/fetch_jewish_refs.py)
 # force: true to let fetch replace a file that already exists
 
 request: 3
-mode: fetch
+mode: done  # fulfilled 2026-09-21 by run 35648219966; re-ran on main by mistake before this guard existed
 items: torah_yad=File:Jüdisches Museum München 3.jpg
 force: true

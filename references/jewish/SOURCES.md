@@ -178,13 +178,3 @@ Slot: torah_yad — a silver yad on or pointing at parchment text, hand shape re
 Notes: Jad, Torazeiger.
 Stored as: 3000x2000 JPEG q88, EXIF orientation baked into the pixels, longest side capped at 3000 px (2026-09-21) — the Commons original is at the Direct URL above.
 Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).
-
-## torah_yad.jpg
-Source: https://commons.wikimedia.org/wiki/File:Jüdisches_Museum_München_3.jpg
-Direct URL: https://upload.wikimedia.org/wikipedia/commons/1/16/J%C3%BCdisches_Museum_M%C3%BCnchen_3.jpg
-License: CC0
-Author: Edelmauswaldgeist
-Resolution: 5472x3648
-Slot: torah_yad — a yad by itself, close enough to read the hand-and-finger shape
-Notes: Jad, Torazeiger.
-Fetched by tools/fetch_jewish_refs.py (license verified against the Commons API at download time).

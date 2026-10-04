@@ -17,7 +17,7 @@ import { notFound, redirect } from 'next/navigation';
 import { triggerPlanOnly } from '@/app/actions/video-page/trigger-plan-only';
 import type { DraftPhase } from '@/lib/page-state';
 import { fetchPageShellData } from './_data/shell-data';
-import { getPhase1Props, shouldStartNewPlan } from './_data/phase-1-data';
+import { getPhase1Props, shouldStartNewPlan, countRenderedClips } from './_data/phase-1-data';
 import { getPhase2Props } from './_data/phase-2-data';
 import { getPhase4Props } from './_data/phase-4-data';
 import { getPhase5Props } from './_data/phase-5-data';
@@ -173,9 +173,7 @@ async function PhaseBody({
       jobsForState.find((jj) => jj.id === draftJobId)?.scriptId ?? null;
     // Rendered clips on the draft plan — if the operator regenerates, these are
     // discarded, so Phase 1 warns first (see shouldConfirmDiscard).
-    const renderedClipCount = draftJobId
-      ? (clipsByJobId[draftJobId] ?? []).filter((c) => c.storagePath).length
-      : 0;
+    const renderedClipCount = countRenderedClips(jobsForState, clipsByJobId, draftJobId);
     const props = getPhase1Props(parsha, draftScriptId, renderedClipCount);
     if (!props) {
       return (

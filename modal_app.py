@@ -6243,6 +6243,25 @@ def clips_only_job(job_id: str) -> dict | None:
                 "generating_clips",
                 f"Generating {completed_count} of {len(target_planned)} clips",
             )
+            # Per-clip completion signal. The clip row is committed above, so
+            # a dashboard that refreshes on this event finds the new version
+            # already there.
+            #
+            # job-event-types.ts has typed 'clip_done' since the Broadcast
+            # migration, and BOTH the phase-2 grid and the job viewer already
+            # branch on it — but nothing ever emitted it, so those branches
+            # were dead code. Every card kept spinning until the WHOLE job
+            # flipped to 'done', which for a 13-clip run is ten minutes after
+            # the first clip actually landed. (Yonah 2026-06-02: "they wont
+            # return at the same time, so they should clear up as they
+            # finish"; again 2026-09-22: "every render requires me to refresh
+            # the page in order to see the updated version".)
+            emit_job_event(
+                job_id=job_id,
+                stage="clip_done",
+                clip_index=c.index,
+                total_clips=len(target_planned),
+            )
             return c.index, dest
 
         # ── Scene-group chaining ──────────────────────────────────────

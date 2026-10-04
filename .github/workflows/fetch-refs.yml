@@ -11,28 +11,41 @@
 #
 # Two ways to trigger it:
 #
-#   1. Push a change to .github/fetch-refs-request.txt. The workflow reads
-#      mode / items / force from that file. This is how the Claude Code
-#      environment drives it — its GitHub token can push commits but is
-#      not allowed to dispatch workflows (403 on the dispatch endpoint).
+#   1. Push a change to .github/fetch-refs-request.txt on a feature branch.
+#      The workflow reads mode / items / force from that file. This is how
+#      the Claude Code environment drives it — its GitHub token can push
+#      commits but is not allowed to dispatch workflows (403).
 #   2. "Run workflow" in the Actions tab, for humans.
 #
 # Modes:
 #   browse   list Commons categories with license verdicts   -> read the log
 #   resolve  show metadata for specific File: titles          -> read the log
 #   fetch    download slot=File:Title pairs into references/jewish/,
-#            append SOURCES.md, and commit to the branch
+#            append SOURCES.md, mark the request done, commit to the branch
+#   done     a fulfilled request; nothing happens
 #
 # Only `fetch` writes anything. The license gate in
 # tools/fetch_jewish_refs.py refuses NonCommercial, NoDerivatives and any
 # unrecognised license before a byte is saved, so a run can only ever add
 # files that are safe to use. Commits made here use GITHUB_TOKEN, which
 # does not re-trigger workflows, so a fetch cannot loop.
+#
+# Two guards, both learned on 2026-09-21 when merging PR #8 to main put the
+# request file there as a NEW file — a push touching that path — and the
+# workflow re-ran a fetch that had already been fulfilled on the branch,
+# overwriting a normalised image with the raw original and duplicating its
+# SOURCES.md entry:
+#   * the push trigger ignores main. Refs are fetched on feature branches
+#     and reach main by PR, never by a run on main itself.
+#   * a successful fetch rewrites the request file to `mode: done` in the
+#     same commit, so the request it carries is spent wherever the commit
+#     travels.
 
 name: Fetch reference images
 
 on:
   push:
+    branches-ignore: [main]
     paths:
       - '.github/fetch-refs-request.txt'
   workflow_dispatch:
@@ -82,7 +95,7 @@ jobs:
           IN_FORCE: ${{ inputs.force }}
         run: |
           python - <<'PY'
-          import os, sys
+          import os, re, sys
           from pathlib import Path
           sys.path.insert(0, ".")
           from tools.fetch_jewish_refs import main
@@ -90,8 +103,10 @@ jobs:
           mode = os.environ.get("IN_MODE", "").strip()
           items_raw = os.environ.get("IN_ITEMS", "")
           force_raw = os.environ.get("IN_FORCE", "false")
+          from_file = False
 
           if not mode:
+              from_file = True
               req = Path(".github/fetch-refs-request.txt")
               fields = {}
               for line in req.read_text(encoding="utf-8").splitlines():
@@ -99,7 +114,11 @@ jobs:
                   if not line or line.startswith("#") or ":" not in line:
                       continue
                   k, v = line.split(":", 1)
-                  fields[k.strip().lower()] = v.strip()
+                  # Inline comments: the commit step itself writes
+                  # `mode: done  # fulfilled by run ...`. A comment is
+                  # whitespace, "#", whitespace — so "File:Ark #2.jpg"
+                  # keeps its "#2" and only " # fulfilled" is dropped.
+                  fields[k.strip().lower()] = re.split(r"\s+#\s", v, 1)[0].strip()
               mode = fields.get("mode", "")
               items_raw = fields.get("items", "")
               force_raw = fields.get("force", "false")
@@ -111,8 +130,12 @@ jobs:
           # Tell the commit step what happened.
           with open(os.environ["GITHUB_ENV"], "a") as fh:
               fh.write(f"MODE={mode}\n")
+              fh.write(f"FROM_FILE={'true' if from_file else 'false'}\n")
               fh.write(f"ITEMS={items_raw.replace(chr(10), ' ')}\n")
 
+          if mode == "done":
+              print("request already fulfilled — nothing to do")
+              sys.exit(0)
           if not mode or not items:
               print("request has no mode or no items — nothing to do")
               sys.exit(0)
@@ -137,11 +160,18 @@ jobs:
               sys.exit(2)
           PY
 
-      - name: Commit fetched images
-        if: env.MODE == 'fetch'
+      # `success() &&` is load-bearing: a bare `if:` replaces the implicit
+      # success() condition, and this step must never commit after a fetch
+      # that failed part-way.
+      - name: Mark the request spent and commit fetched images
+        if: success() && env.MODE == 'fetch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$FROM_FILE" = "true" ]; then
+            sed -i "s/^mode: fetch\$/mode: done  # fulfilled by run ${GITHUB_RUN_ID} on $(date -u +%Y-%m-%d)/" .github/fetch-refs-request.txt
+            git add .github/fetch-refs-request.txt
+          fi
           git add references/jewish/
           if git diff --cached --quiet; then
             echo "nothing fetched — nothing to commit"

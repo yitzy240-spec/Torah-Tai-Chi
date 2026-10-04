@@ -11,16 +11,21 @@ export type PageState =
 
 export type DraftPhase = 1 | 2 | 3 | 4 | 5;
 
+export interface JobForState {
+  id: string;
+  status: string;
+  kind: string | null;
+  videoId: string | null;
+  clipPlanId: string | null;
+  completedAt: string | null;
+  triggeredAt: string;
+}
+
 export interface PageStateInput {
-  jobs: Array<{
-    id: string;
-    status: string;
-    kind: string | null;
-    videoId: string | null;
-    clipPlanId: string | null;
-    completedAt: string | null;
-    triggeredAt: string;
-  }>;
+  /** Any order — selectPageState sorts by triggeredAt DESC itself, because
+   *  "which draft is current" is decided by recency and must not depend on
+   *  the caller's query happening to carry the right ORDER BY. */
+  jobs: JobForState[];
   videos: Array<{ id: string; jobId: string; publishedToWebsite: boolean }>;
   posts: Array<{ videoId: string; status: string }>;
   clipsByJobId: Record<string, Array<{ storagePath: string | null }>>;
@@ -62,10 +67,29 @@ export function selectPageState(input: PageStateInput): PageState {
   const { jobs, videos, posts, clipsByJobId, hasScripts } = input;
 
   // A live video = published to website OR has at least one published post.
-  const liveVideo = videos.find((v) => {
-    if (v.publishedToWebsite) return true;
-    return posts.some((p) => p.videoId === v.id && p.status === 'published');
-  });
+  //
+  // A parsha accumulates one of these per YEAR, so from the second cycle on
+  // there are several and "which one is live" has to be the NEWEST, not
+  // whichever the videos array happens to list first. shell-data fetches
+  // videos with `.in('job_id', …)` and no ORDER BY, so that was row order —
+  // a coin flip. Landing on last year's video made this year's freshly
+  // published one a phantom draft (it isn't the single liveVideo, so its
+  // compose job matches isDoneUnpublished) and the page showed the live
+  // video as unfinished work at Phase 4, with last year's on the live strip.
+  const liveVideos = videos
+    .filter(
+      (v) =>
+        v.publishedToWebsite ||
+        posts.some((p) => p.videoId === v.id && p.status === 'published'),
+    )
+    .map((v) => ({
+      video: v,
+      triggeredAt: jobs.find((j) => j.id === v.jobId)?.triggeredAt ?? '',
+    }))
+    .sort((a, b) =>
+      a.triggeredAt < b.triggeredAt ? 1 : a.triggeredAt > b.triggeredAt ? -1 : 0,
+    );
+  const liveVideo = liveVideos[0]?.video;
 
   // A draft = any in-flight job, OR a done job whose video isn't yet live
   // (needs review/posting), OR a done plan-only job still awaiting clip rendering.
@@ -81,7 +105,10 @@ export function selectPageState(input: PageStateInput): PageState {
   // clips.storage_path realtime path on the Phase 2/3 cards.
   const isDraftKind = (k: string | null) =>
     k === null || k === 'parsha' || k === 'plan-only' || k === 'compose' || k === 'video_topic';
-  const liveVideoIds = new Set(liveVideo ? [liveVideo.id] : []);
+  // EVERY live video, not just the newest. This set is what keeps a
+  // published video from being read back as an unpublished draft, and last
+  // year's video is every bit as published as this year's.
+  const liveVideoIds = new Set(liveVideos.map((lv) => lv.video.id));
 
   // Cutoff: a "draft" compose/parsha must have been triggered AFTER the
   // live video's job. Without this, every previous compose attempt for
@@ -105,23 +132,44 @@ export function selectPageState(input: PageStateInput): PageState {
   // job from before the publish point isn't a current draft. Pairs with
   // the /videos page staleness filter (2h) — that's a UI-list defense;
   // this is the parsha-state-of-the-world correctness.
-  const inFlightJob = jobs.find(
-    (j) => IN_FLIGHT.has(j.status) && isDraftKind(j.kind) && isAfterLive(j),
-  );
+  const isInFlight = (j: JobForState) =>
+    IN_FLIGHT.has(j.status) && isDraftKind(j.kind) && isAfterLive(j);
 
-  const doneUnpublished = jobs.find(
-    (j) =>
-      j.status === 'done' &&
-      isDraftKind(j.kind) &&
-      j.kind !== 'plan-only' &&
-      j.videoId !== null &&
-      !liveVideoIds.has(j.videoId) &&
-      isAfterLive(j),
-  );
-  const planOnlyAwaiting = jobs.find(
-    (j) => j.kind === 'plan-only' && j.status === 'done' && !j.videoId && isAfterLive(j),
-  );
-  const draftJob = inFlightJob ?? doneUnpublished ?? planOnlyAwaiting;
+  const isDoneUnpublished = (j: JobForState) =>
+    j.status === 'done' &&
+    isDraftKind(j.kind) &&
+    j.kind !== 'plan-only' &&
+    j.videoId !== null &&
+    !liveVideoIds.has(j.videoId) &&
+    isAfterLive(j);
+
+  const isPlanOnlyAwaiting = (j: JobForState) =>
+    j.kind === 'plan-only' && j.status === 'done' && !j.videoId && isAfterLive(j);
+
+  // MOST RECENT candidate wins, whichever class it falls into.
+  //
+  // This used to be `inFlightJob ?? doneUnpublished ?? planOnlyAwaiting` —
+  // three separate finds, resolved by job CLASS before recency. That made a
+  // stranded render permanently outrank every newer plan for the parsha:
+  //
+  //   Bereishit had an old test render — done, with a video, never published,
+  //   so it matched isDoneUnpublished forever. Yonah then wrote his own
+  //   script. While his plan-only job was generating it matched isInFlight
+  //   and the page followed it correctly; the moment it finished it dropped
+  //   to isPlanOnlyAwaiting, the LAST class, and the 6-month-old test render
+  //   took the page back. His plan was generated correctly from his script
+  //   and sat in clip_plans, simply never pointed at — so Phase 2 showed the
+  //   AI variant's clips and every render came from that. "Every time I try
+  //   to generate the clips with the script, it is going back to the one you
+  //   made" (Yonah, 2026-10-04).
+  //
+  // There is no case where an OLDER job in a higher-priority class should
+  // beat a newer draft: a stale queued job hijacking the page is the same
+  // bug wearing the other hat. isAfterLive only guards this when a live
+  // video exists, and a never-published test render means there is none.
+  const draftJob = [...jobs]
+    .sort((a, b) => (a.triggeredAt < b.triggeredAt ? 1 : a.triggeredAt > b.triggeredAt ? -1 : 0))
+    .find((j) => isInFlight(j) || isDoneUnpublished(j) || isPlanOnlyAwaiting(j));
 
   // Script-only draft: the parsha has scripts but no job has been queued
   // yet. Tap "Start scripting" → script row inserted → land here. The
