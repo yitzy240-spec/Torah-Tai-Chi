@@ -264,9 +264,13 @@ export async function fetchPageShellData(
       : null;
   const phase = phaseParam ?? statePhase;
 
+  // live-at-rest + ?phase=2 is the live page's "Edit clips": Phase 2 on the
+  // published video's own plan (editablePlanJobId). Other phases still need a
+  // draft, so they keep falling through to the live page.
   const showDraftView =
     state.kind === 'draft-in-progress' ||
-    (state.kind === 'live-and-draft' && (continueParam || phaseParam !== null));
+    (state.kind === 'live-and-draft' && (continueParam || phaseParam !== null)) ||
+    (state.kind === 'live-at-rest' && phaseParam === 2);
 
   return {
     parsha,

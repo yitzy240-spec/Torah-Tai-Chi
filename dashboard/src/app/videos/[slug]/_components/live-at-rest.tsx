@@ -7,12 +7,17 @@
 //   1. Hero strip: video player + LIVE pill + display title + parsha attribution.
 //   2. Site CMS card: 5 editable fields + "Publish changes" + "Unpublish".
 //   3. Per-platform cards (Phase 5 cards in their "posted" state — published only).
-//   4. Footer: "Download mp4" + "Replace with a new version".
+//   4. Footer: "Download mp4" + "Edit clips" + "Replace with a new version".
+//
+// "Edit clips" opens Phase 2 on THIS video's own clips (?phase=2&edit=live):
+// fix one clip, stitch again, publish — the new video takes this one's place.
+// "Replace" starts over from the script.
 //
 // "Replace" opens a BottomSheet confirm per spec §5.4; confirm calls onReplace.
 
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRealtimeRows } from '@/hooks/use-realtime-rows';
 import { BottomSheet } from './bottom-sheet';
 import { LiveSiteCmsCard } from './live-site-cms-card';
@@ -410,23 +415,43 @@ export function LiveAtRest(p: Props) {
         >
           Download mp4
         </a>
-        <button
-          type="button"
-          onClick={() => setConfirmReplace(true)}
-          style={{
-            minHeight: 44,
-            fontSize: 13,
-            fontWeight: 500,
-            background: 'white',
-            color: 'var(--navy-700)',
-            border: '1px solid var(--navy-700)',
-            borderRadius: 8,
-            padding: '0 16px',
-            cursor: 'pointer',
-          }}
-        >
-          Replace with a new version
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <Link
+            href={`/videos/${p.parshaSlug}?phase=2&edit=live`}
+            style={{
+              minHeight: 44,
+              display: 'inline-flex',
+              alignItems: 'center',
+              fontSize: 13,
+              fontWeight: 500,
+              background: 'var(--navy-700)',
+              color: 'white',
+              border: '1px solid var(--navy-700)',
+              borderRadius: 8,
+              padding: '0 16px',
+              textDecoration: 'none',
+            }}
+          >
+            Edit clips
+          </Link>
+          <button
+            type="button"
+            onClick={() => setConfirmReplace(true)}
+            style={{
+              minHeight: 44,
+              fontSize: 13,
+              fontWeight: 500,
+              background: 'white',
+              color: 'var(--navy-700)',
+              border: '1px solid var(--navy-700)',
+              borderRadius: 8,
+              padding: '0 16px',
+              cursor: 'pointer',
+            }}
+          >
+            Replace with a new version
+          </button>
+        </div>
       </div>
 
       {/* Replace confirm bottom-sheet per spec §5.4 */}
@@ -448,7 +473,8 @@ export function LiveAtRest(p: Props) {
         }}
       >
         {p.versionLabel} stays live on torahtaichi.com + the social platforms until you publish
-        the new one. The new draft starts from the same script — you can change it.
+        the new one. The new draft starts from the same script — you can change it — and
+        every clip is made again. To fix one clip in this video, use Edit clips instead.
       </BottomSheet>
     </section>
   );
