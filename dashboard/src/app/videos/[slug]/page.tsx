@@ -18,6 +18,7 @@ import { triggerPlanOnly } from '@/app/actions/video-page/trigger-plan-only';
 import type { DraftPhase } from '@/lib/page-state';
 import { fetchPageShellData } from './_data/shell-data';
 import { getPhase1Props, shouldStartNewPlan, countRenderedClips } from './_data/phase-1-data';
+import { resolvePlanJobId, editablePlanJobId } from '@/lib/plan-job';
 import { getPhase2Props } from './_data/phase-2-data';
 import { getPhase4Props } from './_data/phase-4-data';
 import { getPhase5Props } from './_data/phase-5-data';
@@ -36,40 +37,6 @@ import { DraftCalloutStrip } from './_components/draft-callout-strip';
 import { PlanGeneratingCard } from './_components/plan-generating-card';
 import { PhaseErrorBoundary } from './_components/phase-error-boundary';
 import type { ShellData } from './_data/shell-data';
-
-/**
- * Walk up the regen_of_job_id chain to find the plan-only ancestor.
- *
- * Why: `state.draftJobId` is whatever job most recently advanced the
- * draft. Once a compose job exists, that becomes the draftJobId — but
- * the compose job owns the stitched mp4, not the editable clip
- * metadata. Phase 2 (plan review) and Phase 3 (clips) MUST operate on
- * the plan-only root, because that's where the per-clip
- * voiceover/visual_prompt/motion_ref_slug rows live. Without this
- * traversal, navigating BACK to Phase 2 or 3 from Phase 4 or 5
- * (Yonah's 2026-06-01 "back to clips" report) lands on the compose
- * job's empty clip set and renders nothing.
- *
- * Returns the input id if it's already a plan-only / root (regenOfJobId
- * is null), or null if the chain breaks.
- */
-function resolvePlanJobId(
-  jobsForState: ShellData['jobsForState'],
-  jobId: string | null,
-): string | null {
-  if (!jobId) return null;
-  let current: string | null = jobId;
-  const seen = new Set<string>();
-  while (current !== null) {
-    if (seen.has(current)) return null; // cycle guard, shouldn't happen
-    seen.add(current);
-    const job = jobsForState.find((j) => j.id === current);
-    if (!job) return null;
-    if (!job.regenOfJobId) return current; // root reached
-    current = job.regenOfJobId;
-  }
-  return null;
-}
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -129,6 +96,7 @@ async function PhaseBody({
   statePhase,
   startPlan,
   startPlanScriptId,
+  editLive,
 }: {
   phase: DraftPhase | null;
   showDraftView: boolean;
@@ -140,6 +108,8 @@ async function PhaseBody({
   statePhase: ShellData['statePhase'];
   startPlan: boolean;
   startPlanScriptId: string | null;
+  /** ?edit=live — the live page's "Edit clips": Phase 2 on the live video's plan. */
+  editLive: boolean;
 }) {
   // -------------------------------------------------------------------------
   // State: empty
@@ -205,7 +175,20 @@ async function PhaseBody({
     // Phase 4 used to hit the compose job and fall into an infinite
     // "Starting clip plan…" spinner because compose jobs have no
     // clipPlanId. (2026-06-01 audit alongside the Phase 3 fix.)
-    const draftJobId = resolvePlanJobId(jobsForState, stateDraftJobId);
+    //
+    // With no draft — the video is published — this is the LIVE video's plan,
+    // so the operator can fix a clip and re-stitch (see editablePlanJobId).
+    const liveJobId =
+      state.kind === 'live-at-rest' || state.kind === 'live-and-draft'
+        ? videosForState.find((v) => v.id === state.liveVideoId)?.jobId ?? null
+        : null;
+    const draftJobId = editablePlanJobId({
+      jobs: jobsForState,
+      draftJobId: stateDraftJobId,
+      liveJobId,
+      editLive,
+      startPlan: startPlan && !!startPlanScriptId,
+    });
     const draftJobForState = jobsForState.find((jj) => jj.id === draftJobId);
     const clipPlanId = draftJobForState?.clipPlanId ?? null;
 
@@ -580,6 +563,7 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
       : null;
   const startPlan = sp.start_plan === '1';
   const startPlanScriptId = typeof sp.script === 'string' ? sp.script : null;
+  const editLive = sp.edit === 'live';
 
   const shell = await fetchPageShellData(slug, continueParam, phaseParam);
   if (!shell) notFound();
@@ -621,6 +605,7 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
             statePhase={statePhase}
             startPlan={startPlan}
             startPlanScriptId={startPlanScriptId}
+            editLive={editLive}
           />
         </Suspense>
       </div>
@@ -652,6 +637,7 @@ export default async function VideoDetailPageNew({ params, searchParams }: PageP
           statePhase={statePhase}
           startPlan={startPlan}
           startPlanScriptId={startPlanScriptId}
+          editLive={editLive}
         />
       </Suspense>
     </div>
