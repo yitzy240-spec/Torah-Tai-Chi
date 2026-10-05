@@ -57,6 +57,39 @@ def _maybe_row(query) -> dict | None:
     return resp.data if resp is not None else None
 
 
+# Waits between upload attempts; len + 1 = total attempts.
+_UPLOAD_RETRY_WAITS_S = (2, 6)
+
+
+def _upload_mp4(sb, storage_path: str, data: bytes) -> None:
+    """Upload an mp4 to the videos bucket, retrying transient failures.
+
+    Every mp4 upload in this file runs AFTER Kie has billed the render, so a
+    one-off storage blip used to fail the whole job and hide a paid clip.
+    Bereishit 2026-10-05: clip 5's re-render rendered and saved fine, then
+    the stitched-preview upload got an empty-body error from Supabase
+    Storage (storage3 surfaced it as "JSONDecodeError: Expecting value"),
+    the job went 'failed', and the dashboard hid the $2.87 clip. upsert is
+    on, so a retry can never duplicate. Route every videos-bucket mp4
+    upload through here (tests/test_storage_upload_retry.py enforces it).
+    """
+    for attempt, wait_s in enumerate((*_UPLOAD_RETRY_WAITS_S, None), start=1):
+        try:
+            sb.storage.from_("videos").upload(
+                storage_path, data,
+                file_options={"content-type": "video/mp4", "upsert": "true"},
+            )
+            return
+        except Exception as err:
+            if wait_s is None:
+                raise
+            print(
+                f"[storage] upload {storage_path} attempt {attempt} failed "
+                f"({type(err).__name__}: {err}); retrying in {wait_s}s"
+            )
+            time.sleep(wait_s)
+
+
 def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
     """Fetch the tai_chi_moves row for the given slug. Returns (move_dict, mp4_url).
 
@@ -846,10 +879,7 @@ def run_pipeline(job_id: str) -> dict | None:
         # --- Upload final to Supabase Storage ---
         storage_path = f"jobs/{job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
-            sb.storage.from_("videos").upload(
-                storage_path, f.read(),
-                file_options={"content-type": "video/mp4", "upsert": "true"},
-            )
+            _upload_mp4(sb, storage_path, f.read())
 
         # --- Extract and upload thumbnail ---
         # A thumbnail failure should not fail the whole video; fall through to
@@ -2394,13 +2424,7 @@ async def _generate_clip_with_verify(
         # Storage path is consistent with the final mp4.
         clip_storage_path = f"jobs/{job_id}/clips/clip_{clip.index:02d}.mp4"
         with open(local_path, "rb") as cf:
-            sb.storage.from_("videos").upload(
-                clip_storage_path, cf.read(),
-                file_options={
-                    "content-type": "video/mp4",
-                    "upsert": "true",
-                },
-            )
+            _upload_mp4(sb, clip_storage_path, cf.read())
 
         # ---- Mark verifying in DB so the dashboard shows the spinner
         #      on this specific clip. If the row doesn't exist yet
@@ -3177,10 +3201,7 @@ def regen_smart(job_id: str) -> dict | None:
                 f"jobs/{job_id}/clips/clip_{target_idx:02d}.mp4"
             )
             with open(local_path, "rb") as cf:
-                sb.storage.from_("videos").upload(
-                    new_clip_storage_path, cf.read(),
-                    file_options={"content-type": "video/mp4", "upsert": "true"},
-                )
+                _upload_mp4(sb, new_clip_storage_path, cf.read())
             sb.table("clips").insert({
                 "job_id": job_id,
                 "index": target_clip_pydantic.index,
@@ -3249,10 +3270,7 @@ def regen_smart(job_id: str) -> dict | None:
         # 12. Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
-            sb.storage.from_("videos").upload(
-                final_storage_path, f.read(),
-                file_options={"content-type": "video/mp4", "upsert": "true"},
-            )
+            _upload_mp4(sb, final_storage_path, f.read())
 
         thumb_storage_path: str | None = None
         try:
@@ -3649,10 +3667,7 @@ def regen_clip(job_id: str) -> dict | None:
         # feedback round on this regen will treat THIS as the parent).
         new_clip_storage_path = f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
         with open(new_local_path, "rb") as cf:
-            sb.storage.from_("videos").upload(
-                new_clip_storage_path, cf.read(),
-                file_options={"content-type": "video/mp4", "upsert": "true"},
-            )
+            _upload_mp4(sb, new_clip_storage_path, cf.read())
         sb.table("clips").insert({
             "job_id": job_id,
             "index": target_clip_pydantic.index,
@@ -3715,10 +3730,7 @@ def regen_clip(job_id: str) -> dict | None:
         # 10. Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
-            sb.storage.from_("videos").upload(
-                final_storage_path, f.read(),
-                file_options={"content-type": "video/mp4", "upsert": "true"},
-            )
+            _upload_mp4(sb, final_storage_path, f.read())
 
         thumb_storage_path: str | None = None
         try:
@@ -5019,10 +5031,7 @@ def regen_agent(job_id: str) -> dict | None:
         # 12. Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
-            sb.storage.from_("videos").upload(
-                final_storage_path, f.read(),
-                file_options={"content-type": "video/mp4", "upsert": "true"},
-            )
+            _upload_mp4(sb, final_storage_path, f.read())
 
         thumb_storage_path: str | None = None
         try:
@@ -5520,13 +5529,7 @@ def regen_single_clip(job_id: str) -> dict | None:
             f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
         )
         with open(local_path, "rb") as f:
-            sb.storage.from_("videos").upload(
-                new_clip_storage_path, f.read(),
-                file_options={
-                    "content-type": "video/mp4",
-                    "upsert": "true",
-                },
-            )
+            _upload_mp4(sb, new_clip_storage_path, f.read())
 
         # Insert clip rows: new for the regen'd clip, copy parent for the rest.
         sb.table("clips").insert({
@@ -5584,12 +5587,7 @@ def regen_single_clip(job_id: str) -> dict | None:
         # Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
-            sb.storage.from_("videos").upload(
-                final_storage_path, f.read(),
-                file_options={
-                    "content-type": "video/mp4", "upsert": "true",
-                },
-            )
+            _upload_mp4(sb, final_storage_path, f.read())
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
@@ -6253,12 +6251,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 f"jobs/{job_id}/clips/clip_{c.index:02d}.mp4"
             )
             with open(dest, "rb") as f:
-                sb.storage.from_("videos").upload(
-                    clip_storage_path, f.read(),
-                    file_options={
-                        "content-type": "video/mp4", "upsert": "true",
-                    },
-                )
+                _upload_mp4(sb, clip_storage_path, f.read())
             # Upsert the clip row so this job owns a full clips set.
             sb.table("clips").upsert({
                 "job_id": job_id,
@@ -6475,10 +6468,7 @@ def clips_only_job(job_id: str) -> dict | None:
 
         final_storage_path = f"jobs/{job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
-            sb.storage.from_("videos").upload(
-                final_storage_path, f.read(),
-                file_options={"content-type": "video/mp4", "upsert": "true"},
-            )
+            _upload_mp4(sb, final_storage_path, f.read())
 
         thumb_storage_path: str | None = None
         try:
@@ -6927,13 +6917,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
         )
         with open(local_path, "rb") as f:
-            sb.storage.from_("videos").upload(
-                new_clip_storage_path, f.read(),
-                file_options={
-                    "content-type": "video/mp4",
-                    "upsert": "true",
-                },
-            )
+            _upload_mp4(sb, new_clip_storage_path, f.read())
 
         new_clip = sb.table("clips").insert({
             "job_id": job_id,
@@ -6987,12 +6971,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         # Upload final + thumbnail + insert videos row.
         final_storage_path = f"jobs/{job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
-            sb.storage.from_("videos").upload(
-                final_storage_path, f.read(),
-                file_options={
-                    "content-type": "video/mp4", "upsert": "true",
-                },
-            )
+            _upload_mp4(sb, final_storage_path, f.read())
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
@@ -7395,12 +7374,7 @@ def compose_video(compose_job_id: str) -> dict | None:
         # Upload final + thumbnail.
         final_storage_path = f"jobs/{compose_job_id}/final.mp4"
         with open(final_mp4, "rb") as f:
-            sb.storage.from_("videos").upload(
-                final_storage_path, f.read(),
-                file_options={
-                    "content-type": "video/mp4", "upsert": "true",
-                },
-            )
+            _upload_mp4(sb, final_storage_path, f.read())
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
