@@ -307,6 +307,8 @@ export function LiveAtRest(p: Props) {
         description={p.siteDescription}
         websiteCaption={p.siteWebsiteCaption}
         spokenScript={p.siteSpokenScript}
+        videoMp4Url={p.videoMp4Url}
+        thumbUrl={p.thumbPath}
       />
 
       {/* ------------------------------------------------------------ */}
