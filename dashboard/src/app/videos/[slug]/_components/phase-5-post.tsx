@@ -270,6 +270,8 @@ export function Phase5Post(p: Props) {
         subtitle={p.siteSubtitle}
         description={p.siteDescription}
         websiteUrl={p.websiteUrl}
+        videoMp4Url={p.videoMp4Url}
+        thumbUrl={p.thumbPath}
         onReplace={p.onSiteReplace}
       />
 
