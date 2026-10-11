@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import {
+  KIE_CREDITS_TO_USD,
+  getLowBalanceThresholdUsd,
+  parseKieCredits,
+  usdToCredits,
+} from '@/lib/kie-balance';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +15,10 @@ export const dynamic = 'force-dynamic';
  * Proxies Kie's credit-balance endpoint so the client can poll without
  * exposing KIE_AI_API_KEY. Auth-gated on Supabase user to prevent the
  * endpoint from being publicly scrapable.
+ *
+ * Also returns the low-balance threshold (site_content
+ * settings.kie_low_balance_usd → KIE_LOW_BALANCE_USD → $20) so the banner
+ * and sidebar share one configurable number with the Modal pre-flight.
  */
 export async function GET() {
   const supabase = await createClient();
@@ -19,30 +29,28 @@ export async function GET() {
   if (!key) return NextResponse.json({ error: 'KIE_AI_API_KEY not configured' }, { status: 500 });
 
   try {
-    const r = await fetch('https://api.kie.ai/api/v1/chat/credit', {
-      headers: { Authorization: `Bearer ${key}` },
-      cache: 'no-store',
-    });
+    const [r, lowThresholdUsd] = await Promise.all([
+      fetch('https://api.kie.ai/api/v1/chat/credit', {
+        headers: { Authorization: `Bearer ${key}` },
+        cache: 'no-store',
+      }),
+      getLowBalanceThresholdUsd(supabase),
+    ]);
     if (!r.ok) {
       return NextResponse.json({ error: `Kie ${r.status}` }, { status: 502 });
     }
     const data = await r.json();
-    // Defensive field lookup. Observed shape from Kie (Apr 2026):
-    //   { code: 200, msg: 'success', data: 1226.98 }
-    // — `data` is a raw number, not an object. We also handle the nested
-    //   `data.credits` / `data.balance` variants in case Kie changes it.
-    const credits =
-      (typeof data?.data === 'number' ? data.data : undefined) ??
-      (data?.data?.credits as number | undefined) ??
-      (data?.data?.balance as number | undefined) ??
-      (data?.credits as number | undefined) ??
-      (data?.balance as number | undefined) ??
-      null;
-    // Kie credits convert to USD at $0.005 per credit (published pricing,
-    // Apr 2026). Surfaced here so the GenerateDialog can compare estimated
-    // spend against balance without duplicating the conversion.
-    const usdBalance = typeof credits === 'number' ? credits * 0.005 : null;
-    return NextResponse.json({ credits, usdBalance, raw: data });
+    const credits = parseKieCredits(data);
+    // Surfaced here so the GenerateDialog can compare estimated spend
+    // against balance without duplicating the conversion.
+    const usdBalance = typeof credits === 'number' ? credits * KIE_CREDITS_TO_USD : null;
+    return NextResponse.json({
+      credits,
+      usdBalance,
+      lowThresholdUsd,
+      lowThresholdCredits: usdToCredits(lowThresholdUsd),
+      raw: data,
+    });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 502 });
   }

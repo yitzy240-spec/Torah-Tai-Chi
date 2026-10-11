@@ -303,6 +303,7 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.video_generator import generate_clip, generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
+    from src.kie_balance import preflight_kie_balance
     from src.models import ClipPlan
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
@@ -608,6 +609,13 @@ def run_pipeline(job_id: str) -> dict | None:
         # --- Upload refs ---
         set_status("uploading_refs", "Uploading character and dojo references")
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        # Fail fast before any Seedance spend if Kie can't cover the clips
+        # this run will actually render (reused clips cost nothing).
+        preflight_kie_balance(
+            sb, kie, job_id=job_id,
+            durations_s=[c.duration_s for c in plan.clips if c.index not in reusable_indices],
+            model_tier=model_tier, resolution=resolution,
+        )
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
         jewish_refs = asyncio.run(_upload_jewish_refs(kie))
@@ -2956,6 +2964,7 @@ def regen_smart(job_id: str) -> dict | None:
     from src.video_generator import generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
+    from src.kie_balance import preflight_kie_balance
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
@@ -3125,6 +3134,11 @@ def regen_smart(job_id: str) -> dict | None:
             sb, regen_job.get("motion_ref_slug")
         )
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        preflight_kie_balance(
+            sb, kie, job_id=job_id,
+            durations_s=[c.duration_s for c in new_plan.clips if c.index in changed_indices],
+            model_tier=model_tier, resolution=resolution,
+        )
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
         jewish_refs = asyncio.run(_upload_jewish_refs(kie))
@@ -3433,6 +3447,7 @@ def regen_clip(job_id: str) -> dict | None:
     from src.video_generator import generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
+    from src.kie_balance import preflight_kie_balance
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
@@ -3599,6 +3614,11 @@ def regen_clip(job_id: str) -> dict | None:
         )
 
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        preflight_kie_balance(
+            sb, kie, job_id=job_id,
+            durations_s=[target_clip_pydantic.duration_s],
+            model_tier=model_tier, resolution=resolution,
+        )
         # Surgery doesn't change the character or dojo refs — they're the
         # same physical PNGs in /root/references/. Re-upload to get fresh
         # short-lived Kie URLs.
@@ -4507,6 +4527,7 @@ def regen_agent(job_id: str) -> dict | None:
     from src.video_generator import generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
+    from src.kie_balance import preflight_kie_balance
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
@@ -4833,6 +4854,11 @@ def regen_agent(job_id: str) -> dict | None:
             sb, regen_job.get("motion_ref_slug")
         )
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        preflight_kie_balance(
+            sb, kie, job_id=job_id,
+            durations_s=[c.duration_s for c in new_plan.clips if c.index in edited_indices],
+            model_tier=model_tier, resolution=resolution,
+        )
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
         jewish_refs = asyncio.run(_upload_jewish_refs(kie))
@@ -5288,6 +5314,7 @@ def regen_single_clip(job_id: str) -> dict | None:
     from src.video_generator import generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
+    from src.kie_balance import preflight_kie_balance
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
@@ -5442,6 +5469,11 @@ def regen_single_clip(job_id: str) -> dict | None:
             sb, regen_job.get("motion_ref_slug")
         )
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        preflight_kie_balance(
+            sb, kie, job_id=job_id,
+            durations_s=[c.duration_s for c in new_plan.clips if c.index == target_index],
+            model_tier=model_tier, resolution=resolution,
+        )
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
         jewish_refs = asyncio.run(_upload_jewish_refs(kie))
@@ -5972,6 +6004,7 @@ def clips_only_job(job_id: str) -> dict | None:
     from src.video_generator import generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
+    from src.kie_balance import preflight_kie_balance
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
@@ -6183,6 +6216,11 @@ def clips_only_job(job_id: str) -> dict | None:
         set_status("generating_clips", f"Generating 0 of {len(target_planned)} clips")
 
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        preflight_kie_balance(
+            sb, kie, job_id=job_id,
+            durations_s=[c.duration_s for c in target_planned],
+            model_tier=model_tier, resolution=resolution,
+        )
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
         jewish_refs = asyncio.run(_upload_jewish_refs(kie))
@@ -6646,6 +6684,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     from src.video_generator import generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
+    from src.kie_balance import preflight_kie_balance
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
@@ -6889,6 +6928,10 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             else "bytedance/seedance-2"
         )
         kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+        preflight_kie_balance(
+            sb, kie, job_id=job_id, durations_s=[clip.duration_s],
+            model_tier=model_tier, resolution=resolution,
+        )
         char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
         dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
         jewish_refs = asyncio.run(_upload_jewish_refs(kie))

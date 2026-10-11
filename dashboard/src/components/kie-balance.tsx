@@ -1,13 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { DEFAULT_LOW_BALANCE_USD, usdToCredits } from '@/lib/kie-balance';
 
 interface BalanceState {
   status: 'loading' | 'ok' | 'error';
   credits: number | null;
+  lowThreshold: number;
 }
 
-const LOW_THRESHOLD = 2000;
+// Configurable via site_content settings.kie_low_balance_usd; the real
+// value arrives with each /api/kie-balance response (same as the banner).
+const FALLBACK_LOW_THRESHOLD = usdToCredits(DEFAULT_LOW_BALANCE_USD);
 // Bumped from 60s → 5min and visibility-gated. Balance moves slowly
 // (changes only when Modal runs a paid clip); minute-resolution refresh
 // was burning auth/route-handler IO continuously while any tab was
@@ -15,7 +19,11 @@ const LOW_THRESHOLD = 2000;
 const POLL_MS = 300_000;
 
 export function KieBalance() {
-  const [state, setState] = useState<BalanceState>({ status: 'loading', credits: null });
+  const [state, setState] = useState<BalanceState>({
+    status: 'loading',
+    credits: null,
+    lowThreshold: FALLBACK_LOW_THRESHOLD,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -25,12 +33,19 @@ export function KieBalance() {
         const data = await r.json();
         if (cancelled) return;
         if (!r.ok || typeof data.credits !== 'number') {
-          setState({ status: 'error', credits: null });
+          setState((s) => ({ ...s, status: 'error', credits: null }));
         } else {
-          setState({ status: 'ok', credits: data.credits });
+          setState({
+            status: 'ok',
+            credits: data.credits,
+            lowThreshold:
+              typeof data.lowThresholdCredits === 'number'
+                ? data.lowThresholdCredits
+                : FALLBACK_LOW_THRESHOLD,
+          });
         }
       } catch {
-        if (!cancelled) setState({ status: 'error', credits: null });
+        if (!cancelled) setState((s) => ({ ...s, status: 'error', credits: null }));
       }
     };
     void load();
@@ -49,7 +64,7 @@ export function KieBalance() {
     };
   }, []);
 
-  const low = state.status === 'ok' && state.credits !== null && state.credits < LOW_THRESHOLD;
+  const low = state.status === 'ok' && state.credits !== null && state.credits < state.lowThreshold;
   const numberColor = low ? 'var(--cedar-600)' : 'var(--ink-700)';
 
   return (

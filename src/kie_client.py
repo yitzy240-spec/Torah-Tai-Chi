@@ -14,6 +14,7 @@ class KieTaskFailed(Exception):
 class KieClient:
     CREATE_URL = "https://api.kie.ai/api/v1/jobs/createTask"
     RECORD_URL = "https://api.kie.ai/api/v1/jobs/recordInfo"
+    CREDIT_URL = "https://api.kie.ai/api/v1/chat/credit"
 
     # poll_timeout_s: 1800 -> 3000 on 2026-08-24. Kie's queue completed a
     # Ki Tavo clip in 34 minutes — 4 minutes past the old 30-min window —
@@ -32,6 +33,30 @@ class KieClient:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._key}",
                 "Content-Type": "application/json"}
+
+    async def get_credits(self, timeout_s: float = 10.0) -> float:
+        """Return the account's remaining Kie credits. Raises on any failure.
+
+        Same endpoint the dashboard's /api/kie-balance proxies. Observed
+        shape (Apr 2026): {"code": 200, "msg": "success", "data": 1226.98}
+        — `data` is a bare number; nested credits/balance variants are
+        accepted in case Kie changes it. No retries: callers use this for a
+        best-effort pre-flight and must proceed if it fails.
+        """
+        async with httpx.AsyncClient(timeout=timeout_s) as c:
+            r = await c.get(self.CREDIT_URL, headers=self._headers())
+            r.raise_for_status()
+            data = r.json()
+        if data.get("code") not in (None, 200):
+            raise RuntimeError(f"credit endpoint error: {data}")
+        d = data.get("data")
+        for v in (d,
+                  d.get("credits") if isinstance(d, dict) else None,
+                  d.get("balance") if isinstance(d, dict) else None,
+                  data.get("credits"), data.get("balance")):
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return float(v)
+        raise RuntimeError(f"credit endpoint returned no balance: {data}")
 
     async def create_task(self, model: str, input_payload: dict[str, Any]) -> str:
         """Create a Kie.ai task. Retries:
