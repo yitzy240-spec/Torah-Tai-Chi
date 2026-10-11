@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { CREDITS_PER_RENDER, DEFAULT_LOW_BALANCE_USD, usdToCredits } from '@/lib/kie-balance';
 
 /**
  * Threshold below which we show the banner, and the observed cost of one
@@ -11,11 +12,13 @@ import { useEffect, useState } from 'react';
  * therefore fired when barely ONE render remained — far too late to act.
  * On 2026-09-22 Yonah ran 16 renders (~$42, ~7,100 credits), hit zero
  * mid-session, and got five "balance is insufficient" failures in a row.
- * 2,500 gives roughly five renders of runway — enough to top up without
- * interrupting a working session.
+ *
+ * The threshold is now configurable (site_content
+ * settings.kie_low_balance_usd → KIE_LOW_BALANCE_USD → $20, ~8 renders of
+ * runway) and arrives with each /api/kie-balance response. The default
+ * below only applies until the first response lands.
  */
-const CREDITS_PER_RENDER = 500;
-const LOW_THRESHOLD = 2500;
+const FALLBACK_LOW_THRESHOLD = usdToCredits(DEFAULT_LOW_BALANCE_USD);
 // Bumped 60s → 5min and visibility-gated. See kie-balance.tsx for
 // rationale — balance only changes when Modal runs a paid clip.
 const POLL_MS = 300_000;
@@ -23,6 +26,7 @@ const POLL_MS = 300_000;
 interface BalanceState {
   status: 'loading' | 'ok' | 'error';
   credits: number | null;
+  lowThreshold: number;
 }
 
 /**
@@ -38,7 +42,11 @@ interface BalanceState {
  * doesn't double our quota cost in any meaningful way.
  */
 export function KieLowBalanceBanner() {
-  const [state, setState] = useState<BalanceState>({ status: 'loading', credits: null });
+  const [state, setState] = useState<BalanceState>({
+    status: 'loading',
+    credits: null,
+    lowThreshold: FALLBACK_LOW_THRESHOLD,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -48,12 +56,19 @@ export function KieLowBalanceBanner() {
         const data = await r.json();
         if (cancelled) return;
         if (!r.ok || typeof data.credits !== 'number') {
-          setState({ status: 'error', credits: null });
+          setState((s) => ({ ...s, status: 'error', credits: null }));
         } else {
-          setState({ status: 'ok', credits: data.credits });
+          setState({
+            status: 'ok',
+            credits: data.credits,
+            lowThreshold:
+              typeof data.lowThresholdCredits === 'number'
+                ? data.lowThresholdCredits
+                : FALLBACK_LOW_THRESHOLD,
+          });
         }
       } catch {
-        if (!cancelled) setState({ status: 'error', credits: null });
+        if (!cancelled) setState((s) => ({ ...s, status: 'error', credits: null }));
       }
     };
     void load();
@@ -77,7 +92,7 @@ export function KieLowBalanceBanner() {
   // Kie/network blip. The user-facing case we care about is the
   // unambiguous one: credits are clearly low.
   if (state.status !== 'ok' || state.credits === null) return null;
-  if (state.credits >= LOW_THRESHOLD) return null;
+  if (state.credits >= state.lowThreshold) return null;
 
   const exhausted = state.credits <= 0;
   return (

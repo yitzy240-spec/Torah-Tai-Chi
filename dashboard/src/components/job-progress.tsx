@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { retriggerJob } from '@/app/actions/retrigger-job';
 import { cancelJob } from '@/app/actions/cancel-job';
+import { humanizeRenderError, isKieBalancePreflightError } from '@/lib/humanize-render-error';
 
 // Ordered list of the pipeline's "happy-path" stages. Terminal states
 // (failed/cancelled) aren't in this list — we render those by lighting up the
@@ -903,10 +904,18 @@ function FailureCallout({
       <p className="text-sm font-medium text-red-700 dark:text-red-300">
         Something went wrong during {stage.toLowerCase()}.
       </p>
-      <p className="text-xs text-red-700/80 dark:text-red-300/80">
-        Click <strong>Try again</strong> to retry. This is usually a temporary issue
-        with the AI provider.
-      </p>
+      {isKieBalancePreflightError(errorMessage) ? (
+        // Balance pre-flight refused the render: retrying won't help until
+        // Kie is topped up, so say that instead of "temporary issue".
+        <p className="text-xs text-red-700/80 dark:text-red-300/80">
+          {humanizeRenderError(errorMessage)}
+        </p>
+      ) : (
+        <p className="text-xs text-red-700/80 dark:text-red-300/80">
+          Click <strong>Try again</strong> to retry. This is usually a temporary issue
+          with the AI provider.
+        </p>
+      )}
       {actionError && (
         <p className="text-xs text-red-700 dark:text-red-300">{actionError}</p>
       )}

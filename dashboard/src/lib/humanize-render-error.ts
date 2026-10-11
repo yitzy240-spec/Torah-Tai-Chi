@@ -15,11 +15,33 @@
 // Original error text is preserved verbatim in the View log link so
 // engineers can still debug from a screenshot.
 
+/**
+ * True when the job was stopped by the Modal balance pre-flight
+ * (src/kie_balance.py) — i.e. we checked Kie's balance, it couldn't cover
+ * the planned clips, and nothing was rendered. Distinct from Kie's own 605.
+ */
+export function isKieBalancePreflightError(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  return lower.includes('insufficientkiebalance') || lower.includes('not enough kie credits to start');
+}
+
 export function humanizeRenderError(raw: string | null | undefined): string {
   if (!raw || !raw.trim()) {
     return 'Render failed. Open the View log link for details.';
   }
   const lower = raw.toLowerCase();
+
+  // ─── Our own balance pre-flight refused the render ──────────────────
+  // Checked BEFORE the 605 branch: the pre-flight read a real balance
+  // that can't cover the clips, so "top up" is the right advice here —
+  // unlike 605, which has fired on a healthy balance. Modal already
+  // wrote an operator-ready sentence (balance, estimate, nothing
+  // charged); show it as-is minus the exception class and traceback.
+  if (isKieBalancePreflightError(raw)) {
+    const firstLine = raw.split('\n')[0]?.trim() ?? raw;
+    return firstLine.replace(/^InsufficientKieBalance:\s*/, '');
+  }
 
   // ─── Stale tab after a deploy ───────────────────────────────────────
   // Next.js identifies each server action by a build hash. A tab opened
