@@ -49,6 +49,28 @@ LOW_BALANCE_ENV = "KIE_LOW_BALANCE_USD"
 # starts blocking renders that would succeed: set to 1/true/on in the
 # Modal secret to skip the check entirely.
 PREFLIGHT_DISABLED_ENV = "KIE_BALANCE_PREFLIGHT_DISABLED"
+# Re-render headroom. The verify loop can re-render a clip once after a
+# failed check, so a render can cost up to 2x the single-attempt estimate.
+# Not every clip fails verify, so default to 1.5x (half the clips retried
+# once) rather than a full 2x that would block renders that would succeed.
+# Set KIE_PREFLIGHT_RETRY_FACTOR=2 for a worst-case guarantee, 1 to disable.
+# Values < 1 or unparseable fall back to the default.
+RETRY_FACTOR_ENV = "KIE_PREFLIGHT_RETRY_FACTOR"
+DEFAULT_RETRY_FACTOR = 1.5
+
+
+def resolve_retry_factor() -> float:
+    """KIE_PREFLIGHT_RETRY_FACTOR env -> 1.5. Never raises; clamped to [1, 3]."""
+    raw = os.environ.get(RETRY_FACTOR_ENV)
+    if raw is None or not str(raw).strip():
+        return DEFAULT_RETRY_FACTOR
+    try:
+        v = float(str(raw).strip())
+    except ValueError:
+        return DEFAULT_RETRY_FACTOR
+    if v != v or v < 1.0:  # NaN or below one attempt
+        return DEFAULT_RETRY_FACTOR
+    return min(v, 3.0)
 
 
 class InsufficientKieBalance(RuntimeError):
@@ -131,7 +153,7 @@ def insufficient_message(check: BalanceCheck, n_clips: int,
         f"{check.balance_credits:,.0f} credits (${check.balance_usd:.2f}) left, "
         f"but {n_clips} clip{'s' if n_clips != 1 else ''} at {resolution} "
         f"{model_tier} would cost about ${check.estimate_usd:.2f} "
-        f"({est_credits:,.0f} credits). Nothing was rendered or charged. "
+        f"({est_credits:,.0f} credits, including headroom for re-renders). Nothing was rendered or charged. "
         f"Top up at kie.ai/billing, then try again."
     )
 
@@ -155,7 +177,10 @@ def preflight_kie_balance(
     tier = (model_tier or "standard").lower()
     res = (resolution or "720p").lower()
     n = len(durations_s)
-    estimate = estimate_render_cost_usd(durations_s, tier, res)
+    single_attempt = estimate_render_cost_usd(durations_s, tier, res)
+    retry_factor = resolve_retry_factor()
+    # Headroom for verify-loop re-renders (see DEFAULT_RETRY_FACTOR).
+    estimate = round(single_attempt * retry_factor, 2)
     ev = dict(subject_type="job", subject_id=job_id)
 
     if n == 0:
@@ -184,7 +209,8 @@ def preflight_kie_balance(
     )
     details = {
         "balance_credits": credits, "balance_usd": check.balance_usd,
-        "estimate_usd": estimate, "clips": n, "model_tier": tier,
+        "estimate_usd": estimate, "single_attempt_usd": single_attempt,
+        "retry_factor": retry_factor, "clips": n, "model_tier": tier,
         "resolution": res, "threshold_usd": threshold,
     }
     print(f"[kie_balance] job={job_id} {details}")

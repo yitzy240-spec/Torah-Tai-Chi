@@ -14,6 +14,7 @@ from src.kie_balance import (
     estimate_render_cost_usd,
     preflight_kie_balance,
     resolve_low_balance_threshold_usd,
+    resolve_retry_factor,
 )
 from src.kie_client import KieClient
 
@@ -166,12 +167,13 @@ def test_threshold_env_used_when_no_row_or_row_unreadable(monkeypatch):
 # ---------- preflight ---------------------------------------------------------
 
 def test_insufficient_balance_fails_fast_with_clear_message():
-    kie = FakeKie(credits=600)  # $3.00 vs ~$4.92 needed
+    kie = FakeKie(credits=600)  # $3.00 vs $4.92 x 1.5 = $7.38 needed
     with pytest.raises(InsufficientKieBalance) as ei:
         _run(kie)
     msg = str(ei.value)
     assert "Not enough Kie credits" in msg
-    assert "$3.00" in msg and "$4.92" in msg and "2 clips" in msg
+    assert "$3.00" in msg and "$7.38" in msg and "2 clips" in msg
+    assert "re-render" in msg
     assert "Nothing was rendered or charged" in msg
     assert "kie.ai/billing" in msg
     # Must not read like Kie's own 605 wording, which the dashboard
@@ -191,7 +193,9 @@ def test_insufficient_balance_is_logged_to_execution_events():
     assert ev["event"] == "kie.balance_insufficient"
     assert ev["level"] == "error"
     assert ev["subject_type"] == "job" and ev["subject_id"] == "job-9"
-    assert ev["details"]["estimate_usd"] == pytest.approx(2.46)
+    assert ev["details"]["estimate_usd"] == pytest.approx(3.69)
+    assert ev["details"]["single_attempt_usd"] == pytest.approx(2.46)
+    assert ev["details"]["retry_factor"] == pytest.approx(1.5)
     assert ev["details"]["balance_usd"] == 0
 
 
@@ -224,9 +228,36 @@ def test_threshold_from_settings_drives_low_warning():
 
 
 def test_exact_balance_is_enough():
-    # 984 credits = $4.92 = the estimate for 2 x 12s.
-    result, _ = _run(FakeKie(credits=984))
+    # 1476 credits = $7.38 = 2 x 12s ($4.92) x default 1.5 retry headroom.
+    result, _ = _run(FakeKie(credits=1476))
     assert result.sufficient
+
+
+def test_single_attempt_balance_is_not_enough_with_default_headroom():
+    # $4.92 covers one attempt per clip but not the re-render headroom.
+    with pytest.raises(InsufficientKieBalance):
+        _run(FakeKie(credits=984))
+
+
+def test_retry_factor_env_is_applied(monkeypatch):
+    monkeypatch.setenv("KIE_PREFLIGHT_RETRY_FACTOR", "1")
+    result, _ = _run(FakeKie(credits=984))
+    assert result.sufficient and result.estimate_usd == pytest.approx(4.92)
+    monkeypatch.setenv("KIE_PREFLIGHT_RETRY_FACTOR", "2")
+    with pytest.raises(InsufficientKieBalance):
+        _run(FakeKie(credits=1476))
+
+
+@pytest.mark.parametrize("raw,expected", [
+    (None, 1.5), ("", 1.5), ("abc", 1.5), ("0.5", 1.5), ("nan", 1.5),
+    ("1", 1.0), ("2", 2.0), (" 1.25 ", 1.25), ("10", 3.0),
+])
+def test_resolve_retry_factor(monkeypatch, raw, expected):
+    if raw is None:
+        monkeypatch.delenv("KIE_PREFLIGHT_RETRY_FACTOR", raising=False)
+    else:
+        monkeypatch.setenv("KIE_PREFLIGHT_RETRY_FACTOR", raw)
+    assert resolve_retry_factor() == pytest.approx(expected)
 
 
 def test_no_clips_to_render_skips_the_call():
