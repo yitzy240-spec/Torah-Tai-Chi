@@ -678,7 +678,7 @@ def run_pipeline(job_id: str) -> dict | None:
                 # can fetch it.
                 async def _seedance_for_clip(c):
                     clip_jewish_refs = _jewish_refs_for_clip(c, jewish_refs)
-                    _path, _meta = await generate_clip_with_meta(
+                    _path, _meta, _task_id = await generate_clip_with_meta(
                         kie, c,
                         character_ref_urls=char_refs,
                         dojo_ref_urls=dojo_refs,
@@ -3159,7 +3159,7 @@ def regen_smart(job_id: str) -> dict | None:
                 kie=kie,
                 work_dir=work_dir,
             )
-            _, kie_meta = await generate_clip_with_meta(
+            _, kie_meta, _task_id = await generate_clip_with_meta(
                 kie, target_clip_pydantic,
                 character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
                 dest=local_path, resolution=resolution,
@@ -3641,7 +3641,7 @@ def regen_clip(job_id: str) -> dict | None:
                 jewish_ref_urls=clip_jewish_refs,
             )
 
-        _, kie_meta = asyncio.run(_regen_one())
+        _, kie_meta, _task_id = asyncio.run(_regen_one())
         credits = (
             kie_meta.get("creditsConsumed")
             or kie_meta.get("credits_consumed")
@@ -4873,7 +4873,7 @@ def regen_agent(job_id: str) -> dict | None:
             # are concrete to what the user complained about.
             async def _seedance_for_clip(c):
                 clip_jewish_refs = _jewish_refs_for_clip(c, jewish_refs)
-                _p, _m = await generate_clip_with_meta(
+                _p, _m, _task_id = await generate_clip_with_meta(
                     kie, c,
                     character_ref_urls=char_refs,
                     dojo_ref_urls=dojo_refs,
@@ -5479,7 +5479,7 @@ def regen_single_clip(job_id: str) -> dict | None:
         )
 
         async def _seedance_for_clip(c):
-            return await generate_clip_with_meta(
+            _p, _m, _task_id = await generate_clip_with_meta(
                 kie, c,
                 character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
                 dest=local_path_dest, resolution=resolution,
@@ -5488,6 +5488,7 @@ def regen_single_clip(job_id: str) -> dict | None:
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
             )
+            return _p, _m
 
         async def _render():
             return await _generate_clip_with_verify(
@@ -6227,7 +6228,35 @@ def clips_only_job(job_id: str) -> dict | None:
                             f"operator-picked refs (overriding defaults)"
                         )
 
-            _, kie_meta = await generate_clip_with_meta(
+            # Resume path: check if this clip already has a Kie task_id
+            # and no stored mp4. If so, try to resume polling that task
+            # instead of re-rendering (saves cost on retries/watchdog reaps).
+            existing_clip = _maybe_row(
+                sb.table("clips")
+                .select("seedance_task_id, storage_path")
+                .eq("job_id", job_id)
+                .eq("index", c.index)
+                .maybe_single()
+            )
+            resume_task_id = None
+            if existing_clip:
+                saved_task_id = existing_clip.get("seedance_task_id")
+                has_storage = existing_clip.get("storage_path")
+                if saved_task_id and not has_storage:
+                    resume_task_id = saved_task_id
+                    print(
+                        f"[kie_resume] clip {c.index}: resuming task "
+                        f"{saved_task_id} (no mp4 yet)"
+                    )
+                    log_event(
+                        sb, actor="modal", level="info",
+                        event="kie.resume_task",
+                        subject_type="clip", subject_id=existing_clip.get("id"),
+                        message=f"Resuming Kie task {saved_task_id} for clip {c.index}",
+                        details={"task_id": saved_task_id, "clip_index": c.index},
+                    )
+
+            _, kie_meta, task_id = await generate_clip_with_meta(
                 kie, c,
                 character_ref_urls=char_refs,
                 dojo_ref_urls=dojo_refs,
@@ -6238,7 +6267,20 @@ def clips_only_job(job_id: str) -> dict | None:
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
                 override_ref_urls=override_refs,
+                resume_task_id=resume_task_id,
             )
+            
+            # Persist the task_id immediately after creation (before polling
+            # completes) so we can resume if the worker dies mid-poll.
+            if not resume_task_id:
+                sb.table("clips").upsert({
+                    "job_id": job_id,
+                    "index": c.index,
+                    "seedance_task_id": task_id,
+                    "status": "pending",
+                }, on_conflict="job_id,index").execute()
+                print(f"[kie_persist] clip {c.index}: saved task_id {task_id}")
+            
             credits = (
                 kie_meta.get("credits_consumed")
                 or kie_meta.get("creditsConsumed")
@@ -6260,6 +6302,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 "visual_prompt": c.visual_prompt,
                 "setting_id": c.setting_id,
                 "duration_s": c.duration_s,
+                "seedance_task_id": task_id,
                 "motion_ref_slug": slug,
                 "motion_ref_url": motion_url,
                 "storage_path": clip_storage_path,
@@ -6874,7 +6917,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         )
 
         set_status("generating_clips", f"Re-rendering clip {target_index}")
-        local_path, kie_meta = asyncio.run(generate_clip_with_meta(
+        local_path, kie_meta, _task_id = asyncio.run(generate_clip_with_meta(
             kie, clip,
             character_ref_urls=char_refs,
             dojo_ref_urls=dojo_refs,

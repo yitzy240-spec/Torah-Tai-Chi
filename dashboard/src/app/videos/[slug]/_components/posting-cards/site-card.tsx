@@ -25,6 +25,7 @@ import { EditableField } from './_shared/editable-field';
 import { BottomSheet } from '../bottom-sheet';
 import { setVideoPublished } from '@/app/actions/set-video-published';
 import { saveSiteField } from '@/app/actions/video-page/save-site-fields';
+import { SiteCoverPicker } from './_shared/site-cover-picker';
 
 interface Props {
   videoId: string;
@@ -36,6 +37,9 @@ interface Props {
   subtitle: string;
   description: string;
   websiteUrl: string;
+  /** Stitched mp4 + current cover (public URLs) for the cover picker. */
+  videoMp4Url: string | null;
+  thumbUrl: string | null;
   onReplace: () => void;  // routes parent to Phase 1 of a fresh draft
 }
 
@@ -82,6 +86,13 @@ export function SiteCard(p: Props) {
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{p.title || '(no title)'}</div>
         <div style={{ fontSize: 13, color: 'var(--ink-700)', marginBottom: 4 }}>{p.subtitle}</div>
         <div style={{ fontSize: 12, color: 'var(--ink-500)', marginBottom: 14 }}>{p.description}</div>
+        <SiteCoverPicker
+          videoId={p.videoId}
+          parshaSlug={p.parshaSlug}
+          videoUrl={p.videoMp4Url}
+          thumbUrl={p.thumbUrl}
+          isLive
+        />
         <button
           type="button"
           onClick={() => setConfirmReplace(true)}
@@ -154,6 +165,13 @@ export function SiteCard(p: Props) {
         onSave={(v) => saveSiteField(p.videoId, 'description', v)}
         minHeight={80}
         placeholder="Longer copy + SEO meta…"
+      />
+      <SiteCoverPicker
+        videoId={p.videoId}
+        parshaSlug={p.parshaSlug}
+        videoUrl={p.videoMp4Url}
+        thumbUrl={p.thumbUrl}
+        isLive={false}
       />
 
       {error && (

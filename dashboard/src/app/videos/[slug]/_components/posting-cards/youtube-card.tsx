@@ -16,7 +16,7 @@
 import { useState, useTransition } from 'react';
 import { EditableField } from './_shared/editable-field';
 import { PostedSummaryRow } from './_shared/posted-summary-row';
-import { FramePicker } from './_shared/frame-picker';
+import { FramePicker, blobToDataUrl } from './_shared/frame-picker';
 import { ScheduleForLaterSheet } from './_shared/schedule-for-later-sheet';
 import { ScheduledStateCard } from './_shared/scheduled-state-card';
 import { PostedExpandedHeader } from './_shared/posted-expanded-header';
@@ -101,10 +101,7 @@ export function YouTubeCard({
   }
 
   async function handlePickFrame(blob: Blob): Promise<void> {
-    // Convert blob to base64 for server action
-    const buffer = await blob.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-    const { url } = await saveYouTubeThumbnail(videoId, base64);
+    const { url } = await saveYouTubeThumbnail(videoId, await blobToDataUrl(blob));
     setPickedThumbUrl(url);
   }
 

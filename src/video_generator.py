@@ -316,22 +316,34 @@ async def generate_clip_with_meta(
     reference_video_url: Optional[str] = None,
     jewish_ref_urls: Optional[list[str]] = None,
     override_ref_urls: Optional[list[str]] = None,
-) -> tuple[Path, dict]:
+    resume_task_id: Optional[str] = None,
+) -> tuple[Path, dict, str]:
     """Same as generate_clip but also returns Kie's task metadata so the
     caller can extract real cost (credits_consumed / costCredits / etc).
 
     If override_ref_urls is non-empty, it bypasses the char/dojo/jewish
     selection and goes directly into Seedance's reference_image_urls.
     Used to honor the operator's per-clip ref picks from Phase 2.
+
+    If resume_task_id is provided, skips task creation and resumes polling
+    that task (resume path for recovering already-billed renders).
+    
+    Returns (dest_path, kie_meta, task_id) so the caller can persist the
+    task_id before polling completes.
     """
-    payload = build_seedance_input(
-        clip, character_ref_urls, dojo_ref_urls,
-        first_frame_url, audio_url, resolution,
-        reference_video_url=reference_video_url,
-        jewish_ref_urls=jewish_ref_urls,
-        override_ref_urls=override_ref_urls,
-    )
-    task_id = await client.create_task(model, payload)
+    if resume_task_id:
+        print(f"[kie_client] resuming task {resume_task_id} for clip {clip.index}")
+        task_id = resume_task_id
+    else:
+        payload = build_seedance_input(
+            clip, character_ref_urls, dojo_ref_urls,
+            first_frame_url, audio_url, resolution,
+            reference_video_url=reference_video_url,
+            jewish_ref_urls=jewish_ref_urls,
+            override_ref_urls=override_ref_urls,
+        )
+        task_id = await client.create_task(model, payload)
+    
     urls, meta = await client.poll_task(task_id)
     await client.download(urls[0], dest)
-    return dest, meta
+    return dest, meta, task_id

@@ -22,6 +22,7 @@ import { BottomSheet } from './bottom-sheet';
 import { saveSiteField } from '@/app/actions/video-page/save-site-fields';
 import { publishSiteChanges } from '@/app/actions/video-page/publish-site-changes';
 import { unpublishSite } from '@/app/actions/video-page/unpublish-site';
+import { SiteCoverPicker } from './posting-cards/_shared/site-cover-picker';
 
 interface Props {
   videoId: string;
@@ -34,6 +35,9 @@ interface Props {
   description: string;
   websiteCaption: string;
   spokenScript: string;
+  /** Stitched mp4 + current cover (public URLs) for the cover picker. */
+  videoMp4Url: string;
+  thumbUrl: string | null;
 }
 
 type FieldKey = 'title' | 'subtitle' | 'description' | 'websiteCaption' | 'spokenScript';
@@ -192,6 +196,8 @@ export function LiveSiteCmsCard({
   description,
   websiteCaption,
   spokenScript,
+  videoMp4Url,
+  thumbUrl,
 }: Props) {
   const [unpublishOpen, setUnpublishOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -408,6 +414,17 @@ export function LiveSiteCmsCard({
           />
         ),
       )}
+
+      {/* Website cover image — saves + goes live on its own */}
+      <div style={{ marginTop: 12 }}>
+        <SiteCoverPicker
+          videoId={videoId}
+          parshaSlug={parshaSlug}
+          videoUrl={videoMp4Url || null}
+          thumbUrl={thumbUrl}
+          isLive
+        />
+      </div>
 
       {/* "X fields editing" context note */}
       {hasEdits && (
