@@ -419,3 +419,102 @@ def test_motion_reference_contributes_movement_only():
     text = payload["prompt"].lower()
     assert "only the body movement" in text
     assert "not its location, background" in text
+
+
+# ── Resume from task_id (Kie polling resilience) ────────────────────────
+
+@pytest.mark.asyncio
+async def test_generate_clip_with_meta_returns_task_id():
+    """generate_clip_with_meta now returns (path, meta, task_id) so the
+    caller can persist task_id before polling completes."""
+    pytest.importorskip("respx")
+    from pathlib import Path
+    from src.video_generator import generate_clip_with_meta
+    from src.kie_client import KieClient
+    
+    async with pytest.importorskip("respx").mock(assert_all_called=False) as mock:
+        mock.post("https://api.kie.ai/api/v1/jobs/createTask").mock(
+            return_value=pytest.importorskip("httpx").Response(
+                200, json={"code": 200, "data": {"taskId": "t-new"}}
+            )
+        )
+        mock.get(url__regex=r".*recordInfo.*taskId=t-new").mock(
+            return_value=pytest.importorskip("httpx").Response(
+                200, json={"code": 200, "data": {
+                    "state": "success",
+                    "resultJson": '{"resultUrls": ["https://cdn/clip.mp4"]}',
+                    "credits_consumed": 100,
+                }}
+            )
+        )
+        mock.get("https://cdn/clip.mp4").mock(
+            return_value=pytest.importorskip("httpx").Response(200, content=b"video")
+        )
+        
+        client = KieClient(api_key="k", poll_interval_s=0)
+        clip = _dojo_clip()
+        dest = Path("/tmp/test_clip.mp4")
+        dest.parent.mkdir(exist_ok=True, parents=True)
+        
+        path, meta, task_id = await generate_clip_with_meta(
+            client, clip,
+            character_ref_urls=["https://x/c.png"],
+            dojo_ref_urls=["https://x/d.png"],
+            dest=dest,
+        )
+        
+        assert path == dest
+        assert meta["state"] == "success"
+        assert task_id == "t-new"
+        assert dest.exists()
+        dest.unlink()
+
+
+@pytest.mark.asyncio
+async def test_generate_clip_with_meta_resumes_from_task_id():
+    """When resume_task_id is provided, skip task creation and resume
+    polling that task (resume path for recovering already-billed renders)."""
+    pytest.importorskip("respx")
+    from pathlib import Path
+    from src.video_generator import generate_clip_with_meta
+    from src.kie_client import KieClient
+    
+    async with pytest.importorskip("respx").mock(assert_all_called=False) as mock:
+        # Should NOT call createTask
+        mock.post("https://api.kie.ai/api/v1/jobs/createTask").mock(
+            return_value=pytest.importorskip("httpx").Response(
+                200, json={"code": 200, "data": {"taskId": "should-not-call"}}
+            )
+        )
+        # Should resume polling the existing task
+        mock.get(url__regex=r".*recordInfo.*taskId=t-resume").mock(
+            return_value=pytest.importorskip("httpx").Response(
+                200, json={"code": 200, "data": {
+                    "state": "success",
+                    "resultJson": '{"resultUrls": ["https://cdn/resumed.mp4"]}',
+                    "credits_consumed": 100,
+                }}
+            )
+        )
+        mock.get("https://cdn/resumed.mp4").mock(
+            return_value=pytest.importorskip("httpx").Response(200, content=b"resumed")
+        )
+        
+        client = KieClient(api_key="k", poll_interval_s=0)
+        clip = _dojo_clip()
+        dest = Path("/tmp/test_resume.mp4")
+        dest.parent.mkdir(exist_ok=True, parents=True)
+        
+        path, meta, task_id = await generate_clip_with_meta(
+            client, clip,
+            character_ref_urls=["https://x/c.png"],
+            dojo_ref_urls=["https://x/d.png"],
+            dest=dest,
+            resume_task_id="t-resume",
+        )
+        
+        assert path == dest
+        assert meta["state"] == "success"
+        assert task_id == "t-resume"
+        assert dest.read_bytes() == b"resumed"
+        dest.unlink()
