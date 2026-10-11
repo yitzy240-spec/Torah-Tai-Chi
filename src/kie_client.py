@@ -94,37 +94,111 @@ class KieClient:
         and other metadata. Field names vary by endpoint — common
         candidates include credits_consumed, costCredits, cost — caller
         decides which to read.
+
+        Retries transient errors (read/connect timeouts, HTTP 5xx/429,
+        non-JSON/empty responses) with exponential backoff + jitter for
+        the full poll window, so a temporary Kie API hiccup doesn't lose
+        an already-billed render. Does NOT retry on definitive failure
+        states (state="fail").
         """
+        import random
         deadline = time.monotonic() + self._poll_timeout
+        consecutive_failures = 0
         async with httpx.AsyncClient(timeout=self._timeout) as c:
             while time.monotonic() < deadline:
-                r = await c.get(f"{self.RECORD_URL}?taskId={task_id}",
-                                headers=self._headers())
-                r.raise_for_status()
-                d = r.json().get("data") or {}
-                state = d.get("state")
-                if state == "success":
-                    rj = d.get("resultJson") or "{}"
-                    parsed = json.loads(rj) if isinstance(rj, str) else rj
-                    urls = parsed.get("resultUrls") or []
-                    if not urls:
-                        raise RuntimeError(f"success without urls: {d}")
-                    # One-time per-task log of all top-level keys + numeric
-                    # values so we can identify the cost field. Excludes
-                    # heavy fields (resultJson is already parsed above).
-                    cost_hint = {
-                        k: v for k, v in d.items()
-                        if k != "resultJson"
-                        and isinstance(v, (int, float, str))
-                        and not (isinstance(v, str) and len(v) > 80)
-                    }
-                    print(f"[kie_client] task {task_id} success meta={cost_hint}")
-                    return urls, d
-                if state == "fail":
-                    raise KieTaskFailed(
-                        f"{d.get('failCode')}: {d.get('failMsg')}"
+                try:
+                    r = await c.get(f"{self.RECORD_URL}?taskId={task_id}",
+                                    headers=self._headers())
+                    
+                    # Retry on HTTP 5xx and 429 (rate limit)
+                    if r.status_code >= 500 or r.status_code == 429:
+                        raise httpx.HTTPStatusError(
+                            f"Kie poll {r.status_code}: {r.text[:200]}",
+                            request=r.request, response=r,
+                        )
+                    
+                    r.raise_for_status()
+                    
+                    # Try to parse JSON; retry on malformed/empty response
+                    try:
+                        data = r.json()
+                    except Exception as json_err:
+                        raise RuntimeError(
+                            f"Non-JSON response (len={len(r.content)}): "
+                            f"{r.text[:200]}"
+                        ) from json_err
+                    
+                    d = data.get("data") or {}
+                    if not d:
+                        raise RuntimeError(
+                            f"Empty data in response: {data}"
+                        )
+                    
+                    state = d.get("state")
+                    
+                    # Terminal success: extract results and return
+                    if state == "success":
+                        rj = d.get("resultJson") or "{}"
+                        parsed = json.loads(rj) if isinstance(rj, str) else rj
+                        urls = parsed.get("resultUrls") or []
+                        if not urls:
+                            raise RuntimeError(f"success without urls: {d}")
+                        # One-time per-task log of all top-level keys + numeric
+                        # values so we can identify the cost field. Excludes
+                        # heavy fields (resultJson is already parsed above).
+                        cost_hint = {
+                            k: v for k, v in d.items()
+                            if k != "resultJson"
+                            and isinstance(v, (int, float, str))
+                            and not (isinstance(v, str) and len(v) > 80)
+                        }
+                        print(f"[kie_client] task {task_id} success meta={cost_hint}")
+                        return urls, d
+                    
+                    # Terminal failure: raise immediately, no retry
+                    if state == "fail":
+                        raise KieTaskFailed(
+                            f"{d.get('failCode')}: {d.get('failMsg')}"
+                        )
+                    
+                    # Non-terminal state (waiting/running): reset failure count
+                    # and continue polling
+                    consecutive_failures = 0
+                    await asyncio.sleep(self._poll_interval)
+                
+                except (httpx.ConnectError, httpx.ReadError, httpx.ReadTimeout,
+                        httpx.RemoteProtocolError, httpx.HTTPStatusError,
+                        RuntimeError) as e:
+                    # Don't retry KieTaskFailed (definitive failure state)
+                    if isinstance(e, KieTaskFailed):
+                        raise
+                    
+                    consecutive_failures += 1
+                    time_left = deadline - time.monotonic()
+                    
+                    # If we've run out of time, raise
+                    if time_left <= 0:
+                        raise TimeoutError(
+                            f"poll timeout for task {task_id} after "
+                            f"{consecutive_failures} consecutive failures"
+                        ) from e
+                    
+                    # Exponential backoff: 1s, 2s, 4s, 8s, ... capped at 60s
+                    base_backoff = min(2 ** (consecutive_failures - 1), 60)
+                    # Add jitter: ±25% of base_backoff
+                    jitter = base_backoff * 0.25 * (2 * random.random() - 1)
+                    backoff = max(1, base_backoff + jitter)
+                    # Don't wait longer than time remaining
+                    backoff = min(backoff, time_left)
+                    
+                    print(
+                        f"[kie_client] poll transient error on task {task_id} "
+                        f"(attempt {consecutive_failures}): "
+                        f"{type(e).__name__}: {e}; retrying in {backoff:.1f}s "
+                        f"(time_left={time_left:.1f}s)"
                     )
-                await asyncio.sleep(self._poll_interval)
+                    await asyncio.sleep(backoff)
+        
         raise TimeoutError(f"poll timeout for task {task_id}")
 
     async def download(self, url: str, dest: Path) -> None:
