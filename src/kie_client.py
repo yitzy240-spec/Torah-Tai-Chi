@@ -202,10 +202,11 @@ class KieClient:
                     consecutive_failures = 0
                     await asyncio.sleep(self._poll_interval)
                 
-                except (httpx.ConnectError, httpx.ReadError, httpx.ReadTimeout,
-                        httpx.RemoteProtocolError, httpx.HTTPStatusError,
-                        httpx.ConnectTimeout, httpx.PoolTimeout,
-                        httpx.WriteError, RuntimeError) as e:
+                # TransportError covers every network-level failure
+                # (connect/read/write timeouts and errors, protocol and
+                # proxy errors); HTTPStatusError is a separate branch.
+                except (httpx.TransportError, httpx.HTTPStatusError,
+                        RuntimeError) as e:
                     # Don't retry KieTaskFailed (definitive failure state)
                     if isinstance(e, KieTaskFailed):
                         raise
