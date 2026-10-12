@@ -167,17 +167,10 @@ export async function editPostedOnPlatform(
       channelService: platform,
     });
 
-    // 5. Retire the old posts row, insert the new one. posts_status_check
-    // only allows pending/scheduled/published/failed — the old 'unposted'
-    // write was rejected (unchecked), leaving TWO 'published' rows, one
-    // pointing at the Buffer post we just deleted. 'failed' + an
-    // explanatory error_message takes it out of every .eq('status',
-    // 'published') read.
-    const { error: retireErr } = await supabase
-      .from('posts')
-      .update({ status: 'failed', error_message: `Replaced by repost ${fresh.id} (old Buffer post deleted)` })
-      .eq('id', post.id);
-    if (retireErr) console.error(`[editPostedOnPlatform] could not retire post ${post.id}: ${retireErr.message}`);
+    // 5. Insert the new posts row FIRST, then retire the old one. If the
+    // insert fails we keep the old row as-is: retiring it first left the
+    // platform's only row at 'failed' (a failure card on a live post, and
+    // page.tsx's .eq('status','published') dropped the platform icon).
     const { error: insertErr } = await supabase.from('posts').insert({
       video_id: videoId,
       platform,
@@ -190,6 +183,16 @@ export async function editPostedOnPlatform(
       // The repost is live on the platform; only our record of it failed.
       return { ok: false, mode: 'reposted', error: `Reposted, but saving the post record failed: ${insertErr.message}` };
     }
+    // posts_status_check only allows pending/scheduled/published/failed —
+    // the old 'unposted' write was rejected (unchecked), leaving TWO
+    // 'published' rows, one pointing at the Buffer post we just deleted.
+    // 'failed' + an explanatory error_message takes it out of every
+    // .eq('status', 'published') read.
+    const { error: retireErr } = await supabase
+      .from('posts')
+      .update({ status: 'failed', error_message: `Replaced by repost ${fresh.id} (old Buffer post deleted)` })
+      .eq('id', post.id);
+    if (retireErr) console.error(`[editPostedOnPlatform] could not retire post ${post.id}: ${retireErr.message}`);
 
     revalidatePath('/', 'layout');
     return { ok: true, mode: 'reposted' };
