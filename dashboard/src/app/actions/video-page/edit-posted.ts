@@ -2,7 +2,7 @@
 
 // Single action that branches on process.env.EDITPOST_BRANCH (default 'B').
 // Branch A: calls editPostBuffer on the existing post's buffer_update_id (in-place edit).
-// Branch B: calls deletePostBuffer then re-creates the post; marks old posts row unposted.
+// Branch B: calls deletePostBuffer then re-creates the post; retires the old posts row (status 'failed').
 // See spec §13. Default is B (delete+repost is the safe default until verification runs).
 //
 // Phase 0.7: the `newText` arg from the client is treated as a LAST-RESORT
@@ -167,9 +167,18 @@ export async function editPostedOnPlatform(
       channelService: platform,
     });
 
-    // 5. Mark old posts row as unposted, insert new row.
-    await supabase.from('posts').update({ status: 'unposted' }).eq('id', post.id);
-    await supabase.from('posts').insert({
+    // 5. Retire the old posts row, insert the new one. posts_status_check
+    // only allows pending/scheduled/published/failed — the old 'unposted'
+    // write was rejected (unchecked), leaving TWO 'published' rows, one
+    // pointing at the Buffer post we just deleted. 'failed' + an
+    // explanatory error_message takes it out of every .eq('status',
+    // 'published') read.
+    const { error: retireErr } = await supabase
+      .from('posts')
+      .update({ status: 'failed', error_message: `Replaced by repost ${fresh.id} (old Buffer post deleted)` })
+      .eq('id', post.id);
+    if (retireErr) console.error(`[editPostedOnPlatform] could not retire post ${post.id}: ${retireErr.message}`);
+    const { error: insertErr } = await supabase.from('posts').insert({
       video_id: videoId,
       platform,
       buffer_update_id: fresh.id,
@@ -177,6 +186,10 @@ export async function editPostedOnPlatform(
       status: 'published',
       caption: textForBuffer,
     });
+    if (insertErr) {
+      // The repost is live on the platform; only our record of it failed.
+      return { ok: false, mode: 'reposted', error: `Reposted, but saving the post record failed: ${insertErr.message}` };
+    }
 
     revalidatePath('/', 'layout');
     return { ok: true, mode: 'reposted' };

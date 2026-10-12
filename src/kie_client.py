@@ -152,19 +152,30 @@ class KieClient:
                             f"Non-JSON response (len={len(r.content)}): "
                             f"{r.text[:200]}"
                         ) from json_err
-                    
-                    d = data.get("data") or {}
-                    if not d:
+
+                    d = data.get("data") if isinstance(data, dict) else None
+                    if not d or not isinstance(d, dict):
                         raise RuntimeError(
                             f"Empty data in response: {data}"
                         )
-                    
+
                     state = d.get("state")
-                    
+
                     # Terminal success: extract results and return
                     if state == "success":
+                        # A truncated/garbled resultJson on an already-billed
+                        # success used to escape as JSONDecodeError (a
+                        # ValueError, not caught below) and kill the poll.
+                        # Treat it as transient: the next poll re-reads it.
                         rj = d.get("resultJson") or "{}"
-                        parsed = json.loads(rj) if isinstance(rj, str) else rj
+                        try:
+                            parsed = json.loads(rj) if isinstance(rj, str) else rj
+                        except ValueError as rj_err:
+                            raise RuntimeError(
+                                f"unparseable resultJson: {str(rj)[:200]}"
+                            ) from rj_err
+                        if not isinstance(parsed, dict):
+                            raise RuntimeError(f"resultJson not an object: {str(rj)[:200]}")
                         urls = parsed.get("resultUrls") or []
                         if not urls:
                             raise RuntimeError(f"success without urls: {d}")
@@ -193,7 +204,8 @@ class KieClient:
                 
                 except (httpx.ConnectError, httpx.ReadError, httpx.ReadTimeout,
                         httpx.RemoteProtocolError, httpx.HTTPStatusError,
-                        RuntimeError) as e:
+                        httpx.ConnectTimeout, httpx.PoolTimeout,
+                        httpx.WriteError, RuntimeError) as e:
                     # Don't retry KieTaskFailed (definitive failure state)
                     if isinstance(e, KieTaskFailed):
                         raise
@@ -226,11 +238,40 @@ class KieClient:
         
         raise TimeoutError(f"poll timeout for task {task_id}")
 
+    # Waits between download attempts; len + 1 = total attempts.
+    DOWNLOAD_RETRY_WAITS_S: tuple[float, ...] = (2, 5, 15)
+
     async def download(self, url: str, dest: Path) -> None:
-        async with httpx.AsyncClient(timeout=self._timeout * 3) as c:
-            r = await c.get(url)
-            r.raise_for_status()
-            dest.write_bytes(r.content)
+        """Fetch a finished render to `dest`, retrying transient failures.
+
+        Runs AFTER Kie has billed the task, so a single CDN blip (timeout,
+        5xx, empty body) used to fail the whole job and strand a paid clip.
+        Any HTTP/transport error or empty body is retried; the file is
+        written via a temp name so a partial body never looks complete.
+        """
+        dest = Path(dest)
+        tmp = dest.with_name(dest.name + ".part")
+        for attempt, wait_s in enumerate((*self.DOWNLOAD_RETRY_WAITS_S, None), start=1):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self._timeout * 3, follow_redirects=True,
+                ) as c:
+                    r = await c.get(url)
+                    r.raise_for_status()
+                    body = r.content
+                if not body:
+                    raise RuntimeError(f"empty download body from {url}")
+                tmp.write_bytes(body)
+                tmp.replace(dest)
+                return
+            except (httpx.HTTPError, RuntimeError) as e:
+                if wait_s is None:
+                    raise
+                print(
+                    f"[kie_client] download attempt {attempt} failed "
+                    f"({type(e).__name__}: {e}); retrying in {wait_s}s"
+                )
+                await asyncio.sleep(wait_s)
 
     async def upload_file(self, path: Path, remote_dir: str = "torah-tai-chi") -> str:
         """Upload via base64 endpoint, return downloadUrl.

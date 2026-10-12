@@ -304,10 +304,14 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
+    from src.kie_task_persist import (
+        persist_kie_task_id, retry_db_write, unsaved_render_logger,
+    )
     from src.models import ClipPlan
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -327,9 +331,7 @@ def run_pipeline(job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", job_id).execute()
         # Mirror every status transition into the diagnostics feed so the
         # dashboard viewer can show a timeline even when jobs.status gets
@@ -347,10 +349,9 @@ def run_pipeline(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert({
-            "job_id": job_id, "action": action, "vendor": vendor,
-            "cost_usd": cost_usd, "notes": notes,
-        }).execute()
+        sb.table("cost_events").insert(
+            cost_event_row(job_id, action, vendor, cost_usd, notes)
+        ).execute()
         # Bump the job's running total
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
@@ -695,6 +696,16 @@ def run_pipeline(job_id: str) -> dict | None:
                         reference_video_url=clip_ref_video_url,
                         first_frame_url=first_frame_url,
                         jewish_ref_urls=clip_jewish_refs,
+                        # The pending row was upserted above; stamp the
+                        # billed task_id on it before polling (full row —
+                        # never raises) so a dead worker's render is
+                        # recoverable.
+                        on_task_created=lambda tid: persist_kie_task_id(
+                            sb, job_id, c, tid,
+                            motion_ref_slug=c.motion_ref_slug,
+                            motion_ref_url=clip_ref_video_url,
+                        ),
+                        on_unsaved=unsaved_render_logger(sb, job_id, c.index),
                     )
                     return _path, _meta
 
@@ -759,7 +770,13 @@ def run_pipeline(job_id: str) -> dict | None:
                 }
                 if clip_ref_video_url:
                     clip_update["motion_ref_url"] = clip_ref_video_url
-                sb.table("clips").update(clip_update).eq("job_id", job_id).eq("index", clip.index).execute()
+                # The mp4 is already in Storage; retry the idempotent row
+                # update so a DB blip doesn't orphan a paid clip.
+                retry_db_write(
+                    lambda: sb.table("clips").update(clip_update)
+                    .eq("job_id", job_id).eq("index", clip.index).execute(),
+                    label=f"clip {clip.index} done-update",
+                )
                 if real_cost_usd is not None:
                     log_cost(
                         "clip", "kie", real_cost_usd,
@@ -900,7 +917,7 @@ def run_pipeline(job_id: str) -> dict | None:
         except Exception as thumb_err:
             print(f"[thumb] skipped for job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
 
-        video_row: dict = {"job_id": job_id, "mp4_path": storage_path}
+        video_row: dict = build_video_row(job_id, storage_path)
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -2965,9 +2982,14 @@ def regen_smart(job_id: str) -> dict | None:
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
+    from src.kie_task_persist import (
+        build_done_clip_row, record_kie_task_created, save_paid_clip,
+        unsaved_render_logger,
+    )
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -2984,9 +3006,7 @@ def regen_smart(job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", job_id).execute()
         log_event(
             sb, actor="modal", level="info",
@@ -2997,10 +3017,9 @@ def regen_smart(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert({
-            "job_id": job_id, "action": action, "vendor": vendor,
-            "cost_usd": cost_usd, "notes": notes,
-        }).execute()
+        sb.table("cost_events").insert(
+            cost_event_row(job_id, action, vendor, cost_usd, notes)
+        ).execute()
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
     try:
@@ -3181,6 +3200,10 @@ def regen_smart(job_id: str) -> dict | None:
                 reference_video_url=clip_ref_video_url,
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
+                on_task_created=lambda tid: record_kie_task_created(
+                    sb, job_id, target_idx, tid,
+                ),
+                on_unsaved=unsaved_render_logger(sb, job_id, target_idx),
             )
             credits = (
                 kie_meta.get("creditsConsumed")
@@ -3191,7 +3214,7 @@ def regen_smart(job_id: str) -> dict | None:
             cost_usd = (
                 float(credits) * KIE_CREDITS_TO_USD if credits is not None else 0.0
             )
-            return target_idx, local_path, kie_meta, credits, cost_usd, clip_ref_video_url
+            return target_idx, local_path, kie_meta, credits, cost_usd, clip_ref_video_url, _task_id
 
         async def _regen_all():
             return await asyncio.gather(
@@ -3208,30 +3231,37 @@ def regen_smart(job_id: str) -> dict | None:
         # 9. Insert new clip rows + upload to Storage. cost_usd is per
         #    real Kie credits → USD. regen_of_clip_id chains to parent
         #    for the version-history view.
-        for target_idx, local_path, kie_meta, credits, cost_usd, clip_ref_video_url in regen_results:
+        for target_idx, local_path, kie_meta, credits, cost_usd, clip_ref_video_url, task_id in regen_results:
             target_clip_pydantic = new_clips_by_index[target_idx]
             parent_target = parent_by_index[target_idx]
             new_clip_storage_path = (
                 f"jobs/{job_id}/clips/clip_{target_idx:02d}.mp4"
             )
             with open(local_path, "rb") as cf:
-                _upload_mp4(sb, new_clip_storage_path, cf.read())
-            sb.table("clips").insert({
-                "job_id": job_id,
-                "index": target_clip_pydantic.index,
-                "voiceover": target_clip_pydantic.voiceover,
-                "visual_prompt": target_clip_pydantic.visual_prompt,
-                "setting_id": target_clip_pydantic.setting_id,
-                "duration_s": target_clip_pydantic.duration_s,
-                "motion_ref_slug": target_clip_pydantic.motion_ref_slug,
-                "motion_ref_url": clip_ref_video_url,
-                "storage_path": new_clip_storage_path,
-                "mp4_path": new_clip_storage_path,
-                "status": "done",
-                "cost_usd": cost_usd,
-                "completed_at": "now()",
-                "regen_of_clip_id": parent_target["id"],
-            }).execute()
+                new_clip_bytes = cf.read()
+
+            def _save_new_clip(
+                target_clip_pydantic=target_clip_pydantic,
+                new_clip_storage_path=new_clip_storage_path,
+                new_clip_bytes=new_clip_bytes, task_id=task_id,
+                cost_usd=cost_usd, clip_ref_video_url=clip_ref_video_url,
+                parent_target=parent_target,
+            ):
+                _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)
+                sb.table("clips").upsert(
+                    build_done_clip_row(
+                        job_id, target_clip_pydantic, task_id=task_id,
+                        storage_path=new_clip_storage_path, cost_usd=cost_usd,
+                        motion_ref_slug=target_clip_pydantic.motion_ref_slug,
+                        motion_ref_url=clip_ref_video_url,
+                        regen_of_clip_id=parent_target["id"],
+                    ),
+                    on_conflict="job_id,index",
+                ).execute()
+
+            save_paid_clip(
+                sb, job_id, target_idx, task_id, kie_meta, _save_new_clip,
+            )
             if credits is not None:
                 log_cost(
                     "clip", "kie", cost_usd,
@@ -3268,7 +3298,7 @@ def regen_smart(job_id: str) -> dict | None:
         # 11. Stitch — new clips already on local disk; download the rest.
         set_status("stitching", "Crossfading clips into the final video")
         clip_paths_by_index: dict[int, Path] = {}
-        for target_idx, local_path, _kie_meta, _credits, _cost_usd, _ref_url in regen_results:
+        for target_idx, local_path, _kie_meta, _credits, _cost_usd, _ref_url, _tid in regen_results:
             clip_paths_by_index[target_idx] = local_path
         for parent_c in parent_clips:
             if parent_c["index"] in changed_set:
@@ -3294,7 +3324,7 @@ def regen_smart(job_id: str) -> dict | None:
         except Exception as thumb_err:
             print(f"[thumb] skipped for smart regen job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
 
-        video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
+        video_row: dict = build_video_row(job_id, final_storage_path)
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -3448,9 +3478,14 @@ def regen_clip(job_id: str) -> dict | None:
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
+    from src.kie_task_persist import (
+        build_done_clip_row, record_kie_task_created, save_paid_clip,
+        unsaved_render_logger,
+    )
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -3467,9 +3502,7 @@ def regen_clip(job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", job_id).execute()
         log_event(
             sb, actor="modal", level="info",
@@ -3480,10 +3513,9 @@ def regen_clip(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert({
-            "job_id": job_id, "action": action, "vendor": vendor,
-            "cost_usd": cost_usd, "notes": notes,
-        }).execute()
+        sb.table("cost_events").insert(
+            cost_event_row(job_id, action, vendor, cost_usd, notes)
+        ).execute()
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
     try:
@@ -3659,6 +3691,10 @@ def regen_clip(job_id: str) -> dict | None:
                 reference_video_url=clip_ref_video_url,
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
+                on_task_created=lambda tid: record_kie_task_created(
+                    sb, job_id, target_index, tid,
+                ),
+                on_unsaved=unsaved_render_logger(sb, job_id, target_index),
             )
 
         _, kie_meta, _task_id = asyncio.run(_regen_one())
@@ -3687,23 +3723,25 @@ def regen_clip(job_id: str) -> dict | None:
         # feedback round on this regen will treat THIS as the parent).
         new_clip_storage_path = f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
         with open(new_local_path, "rb") as cf:
-            _upload_mp4(sb, new_clip_storage_path, cf.read())
-        sb.table("clips").insert({
-            "job_id": job_id,
-            "index": target_clip_pydantic.index,
-            "voiceover": target_clip_pydantic.voiceover,
-            "visual_prompt": target_clip_pydantic.visual_prompt,
-            "setting_id": target_clip_pydantic.setting_id,
-            "duration_s": target_clip_pydantic.duration_s,
-            "motion_ref_slug": target_clip_pydantic.motion_ref_slug,
-            "motion_ref_url": clip_ref_video_url,
-            "storage_path": new_clip_storage_path,
-            "mp4_path": new_clip_storage_path,
-            "status": "done",
-            "cost_usd": new_clip_cost_usd,
-            "completed_at": "now()",
-            "regen_of_clip_id": parent_target["id"],
-        }).execute()
+            new_clip_bytes = cf.read()
+
+        def _save_new_clip():
+            _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)
+            sb.table("clips").upsert(
+                build_done_clip_row(
+                    job_id, target_clip_pydantic, task_id=_task_id,
+                    storage_path=new_clip_storage_path,
+                    cost_usd=new_clip_cost_usd,
+                    motion_ref_slug=target_clip_pydantic.motion_ref_slug,
+                    motion_ref_url=clip_ref_video_url,
+                    regen_of_clip_id=parent_target["id"],
+                ),
+                on_conflict="job_id,index",
+            ).execute()
+
+        save_paid_clip(
+            sb, job_id, target_index, _task_id, kie_meta, _save_new_clip,
+        )
 
         # 8. Copy the other clips from the parent into this regen job.
         # cost_usd=0 because they didn't actually run this round.
@@ -3760,7 +3798,7 @@ def regen_clip(job_id: str) -> dict | None:
         except Exception as thumb_err:
             print(f"[thumb] skipped for surgery job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
 
-        video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
+        video_row: dict = build_video_row(job_id, final_storage_path)
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -4528,9 +4566,14 @@ def regen_agent(job_id: str) -> dict | None:
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
+    from src.kie_task_persist import (
+        build_done_clip_row, record_kie_task_created, save_paid_clip,
+        unsaved_render_logger,
+    )
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -4547,9 +4590,7 @@ def regen_agent(job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", job_id).execute()
         log_event(
             sb, actor="modal", level="info",
@@ -4561,10 +4602,9 @@ def regen_agent(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert({
-            "job_id": job_id, "action": action, "vendor": vendor,
-            "cost_usd": cost_usd, "notes": notes,
-        }).execute()
+        sb.table("cost_events").insert(
+            cost_event_row(job_id, action, vendor, cost_usd, notes)
+        ).execute()
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
     try:
@@ -4908,6 +4948,10 @@ def regen_agent(job_id: str) -> dict | None:
                     reference_video_url=clip_ref_video_url,
                     first_frame_url=first_frame_url,
                     jewish_ref_urls=clip_jewish_refs,
+                    on_task_created=lambda tid: record_kie_task_created(
+                        sb, job_id, c.index, tid,
+                    ),
+                    on_unsaved=unsaved_render_logger(sb, job_id, c.index),
                 )
                 return _p, _m
 
@@ -4977,29 +5021,28 @@ def regen_agent(job_id: str) -> dict | None:
             new_clip_storage_path = (
                 f"jobs/{job_id}/clips/clip_{target_idx:02d}.mp4"
             )
-            sb.table("clips").insert({
-                "job_id": job_id,
-                "index": target_clip_pydantic.index,
-                # Persist any prompt augmentation the verify loop
-                # applied to this clip — the dashboard's clip plan /
-                # debug tools should see the prompt that ACTUALLY
-                # shipped, not the pre-retry version.
-                "voiceover": target_clip_pydantic.voiceover,
-                "visual_prompt": target_clip_pydantic.visual_prompt,
-                "setting_id": target_clip_pydantic.setting_id,
-                "duration_s": target_clip_pydantic.duration_s,
-                "motion_ref_slug": target_clip_pydantic.motion_ref_slug,
-                "motion_ref_url": clip_ref_video_url,
-                "storage_path": new_clip_storage_path,
-                "mp4_path": new_clip_storage_path,
-                "status": "done",
-                "cost_usd": cost_usd,
-                "completed_at": "now()",
-                "regen_of_clip_id": parent_target["id"],
+            # Persist any prompt augmentation the verify loop applied to
+            # this clip — the dashboard's clip plan / debug tools should
+            # see the prompt that ACTUALLY shipped, not the pre-retry
+            # version. Upsert (not insert) so a retried write can't 23505.
+            new_clip_row = build_done_clip_row(
+                job_id, target_clip_pydantic, task_id=None,
+                storage_path=new_clip_storage_path, cost_usd=cost_usd,
+                motion_ref_slug=target_clip_pydantic.motion_ref_slug,
+                motion_ref_url=clip_ref_video_url,
+                regen_of_clip_id=parent_target["id"],
+            )
+            new_clip_row.update({
                 "verification_status": verify_status,
                 "verification_attempts": verify_attempts,
                 "verification_notes": verify_notes,
-            }).execute()
+            })
+            save_paid_clip(
+                sb, job_id, target_idx, None, kie_meta,
+                lambda new_clip_row=new_clip_row: sb.table("clips").upsert(
+                    new_clip_row, on_conflict="job_id,index",
+                ).execute(),
+            )
             if credits is not None:
                 log_cost(
                     "clip", "kie", cost_usd,
@@ -5067,7 +5110,7 @@ def regen_agent(job_id: str) -> dict | None:
         except Exception as thumb_err:
             print(f"[thumb] skipped for regen_agent job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
 
-        video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
+        video_row: dict = build_video_row(job_id, final_storage_path)
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -5315,9 +5358,14 @@ def regen_single_clip(job_id: str) -> dict | None:
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
+    from src.kie_task_persist import (
+        build_done_clip_row, record_kie_task_created, save_paid_clip,
+        unsaved_render_logger,
+    )
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
     from src.claude_call import claude_call
     from src.script_generator import _extract_json_block
     from src.models import ClipPlan
@@ -5335,9 +5383,7 @@ def regen_single_clip(job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", job_id).execute()
         log_event(
             sb, actor="modal", level="info",
@@ -5349,10 +5395,9 @@ def regen_single_clip(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert({
-            "job_id": job_id, "action": action, "vendor": vendor,
-            "cost_usd": cost_usd, "notes": notes,
-        }).execute()
+        sb.table("cost_events").insert(
+            cost_event_row(job_id, action, vendor, cost_usd, notes)
+        ).execute()
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
     try:
@@ -5519,6 +5564,10 @@ def regen_single_clip(job_id: str) -> dict | None:
                 reference_video_url=clip_ref_video_url,
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
+                on_task_created=lambda tid: record_kie_task_created(
+                    sb, job_id, target_index, tid,
+                ),
+                on_unsaved=unsaved_render_logger(sb, job_id, target_index),
             )
             return _p, _m
 
@@ -5562,28 +5611,32 @@ def regen_single_clip(job_id: str) -> dict | None:
             f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
         )
         with open(local_path, "rb") as f:
-            _upload_mp4(sb, new_clip_storage_path, f.read())
+            new_clip_bytes = f.read()
 
         # Insert clip rows: new for the regen'd clip, copy parent for the rest.
-        sb.table("clips").insert({
-            "job_id": job_id,
-            "index": target_clip_pydantic.index,
-            "voiceover": target_clip_pydantic.voiceover,
-            "visual_prompt": target_clip_pydantic.visual_prompt,
-            "setting_id": target_clip_pydantic.setting_id,
-            "duration_s": target_clip_pydantic.duration_s,
-            "motion_ref_slug": target_clip_pydantic.motion_ref_slug,
-            "motion_ref_url": clip_ref_video_url,
-            "storage_path": new_clip_storage_path,
-            "mp4_path": new_clip_storage_path,
-            "status": "done",
-            "cost_usd": cost_usd,
-            "completed_at": "now()",
-            "regen_of_clip_id": target_parent_clip["id"],
+        new_clip_row = build_done_clip_row(
+            job_id, target_clip_pydantic, task_id=None,
+            storage_path=new_clip_storage_path, cost_usd=cost_usd,
+            motion_ref_slug=target_clip_pydantic.motion_ref_slug,
+            motion_ref_url=clip_ref_video_url,
+            regen_of_clip_id=target_parent_clip["id"],
+        )
+        new_clip_row.update({
             "verification_status": verify_status,
             "verification_attempts": verify_attempts,
             "verification_notes": verify_notes,
-        }).execute()
+        })
+
+        def _save_new_clip():
+            _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)
+            # Upsert (not insert) so a retried write can't 23505.
+            sb.table("clips").upsert(
+                new_clip_row, on_conflict="job_id,index",
+            ).execute()
+
+        save_paid_clip(
+            sb, job_id, target_index, None, kie_meta, _save_new_clip,
+        )
         for parent_c in parent_clips:
             if parent_c["index"] == target_index:
                 continue
@@ -5633,7 +5686,7 @@ def regen_single_clip(job_id: str) -> dict | None:
                 f"[thumb] regen_single_clip skipped: "
                 f"{type(thumb_err).__name__}: {thumb_err}"
             )
-        video_row: dict = {"job_id": job_id, "mp4_path": final_storage_path}
+        video_row: dict = build_video_row(job_id, final_storage_path)
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -5829,6 +5882,7 @@ def plan_only_job(job_id: str) -> dict | None:
     from src.models import ClipPlan
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -5842,9 +5896,7 @@ def plan_only_job(job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", job_id).execute()
         log_event(
             sb, actor="modal", level="info",
@@ -6005,10 +6057,14 @@ def clips_only_job(job_id: str) -> dict | None:
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
-    from src.kie_task_persist import persist_kie_task_id, log_paid_render_unsaved
+    from src.kie_task_persist import (
+        build_done_clip_row, persist_kie_task_id, save_paid_clip,
+        unsaved_render_logger,
+    )
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
     from src.models import Clip
 
     sb = create_client(
@@ -6023,9 +6079,7 @@ def clips_only_job(job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", job_id).execute()
         log_event(
             sb, actor="modal", level="info",
@@ -6037,10 +6091,9 @@ def clips_only_job(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert({
-            "job_id": job_id, "action": action, "vendor": vendor,
-            "cost_usd": cost_usd, "notes": notes,
-        }).execute()
+        sb.table("cost_events").insert(
+            cost_event_row(job_id, action, vendor, cost_usd, notes)
+        ).execute()
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
     try:
@@ -6272,7 +6325,7 @@ def clips_only_job(job_id: str) -> dict | None:
             # instead of re-rendering (saves cost on retries/watchdog reaps).
             existing_clip = _maybe_row(
                 sb.table("clips")
-                .select("seedance_task_id, storage_path")
+                .select("id, seedance_task_id, storage_path")
                 .eq("job_id", job_id)
                 .eq("index", c.index)
                 .maybe_single()
@@ -6317,6 +6370,7 @@ def clips_only_job(job_id: str) -> dict | None:
                     sb, job_id, c, tid,
                     motion_ref_slug=slug, motion_ref_url=motion_url,
                 ),
+                on_unsaved=unsaved_render_logger(sb, job_id, c.index),
             )
             print(f"[kie] clip {c.index}: Kie task {task_id} complete")
 
@@ -6331,33 +6385,25 @@ def clips_only_job(job_id: str) -> dict | None:
             clip_storage_path = (
                 f"jobs/{job_id}/clips/clip_{c.index:02d}.mp4"
             )
-            try:
-                with open(dest, "rb") as f:
-                    _upload_mp4(sb, clip_storage_path, f.read())
+            with open(dest, "rb") as f:
+                clip_bytes = f.read()
+
+            def _save_clip():
+                _upload_mp4(sb, clip_storage_path, clip_bytes)
                 # Upsert the clip row so this job owns a full clips set.
-                sb.table("clips").upsert({
-                    "job_id": job_id,
-                    "index": c.index,
-                    "voiceover": c.voiceover,
-                    "visual_prompt": c.visual_prompt,
-                    "setting_id": c.setting_id,
-                    "duration_s": c.duration_s,
-                    "seedance_task_id": task_id,
-                    "motion_ref_slug": slug,
-                    "motion_ref_url": motion_url,
-                    "storage_path": clip_storage_path,
-                    "mp4_path": clip_storage_path,
-                    "status": "done",
-                    "cost_usd": cost_usd,
-                    "completed_at": "now()",
-                }, on_conflict="job_id,index").execute()
-            except Exception as save_err:
-                # Kie already billed this render. Leave a recoverable
-                # trail (task_id + result URLs) before failing the job.
-                log_paid_render_unsaved(
-                    sb, job_id, c.index, task_id, kie_meta, save_err,
-                )
-                raise
+                sb.table("clips").upsert(
+                    build_done_clip_row(
+                        job_id, c, task_id=task_id,
+                        storage_path=clip_storage_path, cost_usd=cost_usd,
+                        motion_ref_slug=slug, motion_ref_url=motion_url,
+                    ),
+                    on_conflict="job_id,index",
+                ).execute()
+
+            # Kie already billed this render: retry the (idempotent)
+            # upload + upsert, and on final failure leave a recoverable
+            # trail (task_id + result URLs) before failing the job.
+            save_paid_clip(sb, job_id, c.index, task_id, kie_meta, _save_clip)
 
             if cost_usd:
                 log_cost(
@@ -6694,9 +6740,14 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
+    from src.kie_task_persist import (
+        build_done_clip_row, record_kie_task_created, save_paid_clip,
+        unsaved_render_logger,
+    )
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
     from src.models import Clip
 
     sb = create_client(
@@ -6711,9 +6762,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", job_id).execute()
         log_event(
             sb, actor="modal", level="info",
@@ -6725,10 +6774,9 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert({
-            "job_id": job_id, "action": action, "vendor": vendor,
-            "cost_usd": cost_usd, "notes": notes,
-        }).execute()
+        sb.table("cost_events").insert(
+            cost_event_row(job_id, action, vendor, cost_usd, notes)
+        ).execute()
         sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
 
     try:
@@ -6979,6 +7027,10 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             reference_video_url=clip_ref_video_url,
             first_frame_url=first_frame_url,
             jewish_ref_urls=clip_jewish_refs,
+            on_task_created=lambda tid: record_kie_task_created(
+                sb, job_id, target_index, tid,
+            ),
+            on_unsaved=unsaved_render_logger(sb, job_id, target_index),
         ))
 
         # Cost accounting from Kie meta.
@@ -7012,24 +7064,25 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             f"jobs/{job_id}/clips/clip_{target_index:02d}.mp4"
         )
         with open(local_path, "rb") as f:
-            _upload_mp4(sb, new_clip_storage_path, f.read())
+            new_clip_bytes = f.read()
 
-        new_clip = sb.table("clips").insert({
-            "job_id": job_id,
-            "index": clip.index,
-            "voiceover": clip.voiceover,
-            "visual_prompt": clip.visual_prompt,
-            "setting_id": clip.setting_id,
-            "duration_s": clip.duration_s,
-            "motion_ref_slug": clip.motion_ref_slug,
-            "motion_ref_url": clip_ref_video_url,
-            "storage_path": new_clip_storage_path,
-            "mp4_path": new_clip_storage_path,
-            "status": "done",
-            "cost_usd": cost_usd,
-            "completed_at": "now()",
-            "regen_of_clip_id": target_parent_clip["id"],
-        }).execute()
+        def _save_new_clip():
+            _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)
+            # Upsert (not insert) so a retried write can't 23505.
+            return sb.table("clips").upsert(
+                build_done_clip_row(
+                    job_id, clip, task_id=_task_id,
+                    storage_path=new_clip_storage_path, cost_usd=cost_usd,
+                    motion_ref_slug=clip.motion_ref_slug,
+                    motion_ref_url=clip_ref_video_url,
+                    regen_of_clip_id=target_parent_clip["id"],
+                ),
+                on_conflict="job_id,index",
+            ).execute()
+
+        new_clip = save_paid_clip(
+            sb, job_id, target_index, _task_id, kie_meta, _save_new_clip,
+        )
         for parent_c in parent_clips:
             if parent_c["index"] == target_index:
                 continue
@@ -7371,6 +7424,7 @@ def compose_video(compose_job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import build_video_row, cost_event_row, job_status_update
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -7384,9 +7438,7 @@ def compose_video(compose_job_id: str) -> dict | None:
         return {"status": "already_done"}
 
     def set_status(status: str, message: str | None = None) -> None:
-        update = {"status": status}
-        if message is not None:
-            update["status_message"] = message
+        update = job_status_update(status, message)
         sb.table("jobs").update(update).eq("id", compose_job_id).execute()
         log_event(
             sb, actor="modal", level="info",

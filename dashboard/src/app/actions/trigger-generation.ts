@@ -8,7 +8,7 @@ const TYPICAL_DURATION_S = 60; // conservative ballpark before Claude writes the
 const DIRECTOR_NOTES_MAX_CHARS = 1000;
 const IN_PROGRESS_STATUSES = [
   'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
-  'generating_clips', 'stitching',
+  'generating_clips', 'verifying', 'stitching',
 ];
 
 /**

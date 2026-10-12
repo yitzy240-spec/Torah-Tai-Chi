@@ -1,0 +1,286 @@
+{
+  "enums": {
+    "job_status": ["queued", "loading_parsha", "generating_plan", "uploading_refs", "generating_clips", "stitching", "done", "failed", "cancelled", "verifying"]
+  },
+  "tables": {
+    "buffer_profiles_cache": {
+      "checks": {},
+      "columns": {
+        "org_id": {"default": null, "nullable": true, "type": "text"},
+        "profiles": {"default": null, "nullable": false, "type": "jsonb"},
+        "token_hash": {"default": null, "nullable": false, "type": "text"},
+        "updated_at": {"default": "now()", "nullable": false, "type": "timestamptz"}
+      },
+      "unique": [["token_hash"]]
+    },
+    "clip_plans": {
+      "checks": {},
+      "columns": {
+        "claude_cost_usd": {"default": "0", "nullable": true, "type": "numeric"},
+        "created_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "job_id": {"default": null, "nullable": false, "type": "uuid"},
+        "plan_json": {"default": null, "nullable": false, "type": "jsonb"},
+        "social_metadata": {"default": null, "nullable": true, "type": "jsonb"},
+        "youtube_tags": {"default": null, "nullable": true, "type": "_text"}
+      },
+      "unique": [["id"]]
+    },
+    "clips": {
+      "checks": {
+        "clips_verification_status_check": "CHECK ((verification_status = ANY (ARRAY['unchecked'::text, 'verifying'::text, 'verified'::text, 'failed'::text])))"
+      },
+      "columns": {
+        "chain_broken": {"default": "false", "nullable": true, "type": "bool"},
+        "completed_at": {"default": null, "nullable": true, "type": "timestamptz"},
+        "cost_usd": {"default": "0", "nullable": true, "type": "numeric"},
+        "created_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "duration_s": {"default": null, "nullable": false, "type": "int4"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "index": {"default": null, "nullable": false, "type": "int4"},
+        "job_id": {"default": null, "nullable": false, "type": "uuid"},
+        "motion_ref_slug": {"default": null, "nullable": true, "type": "text"},
+        "motion_ref_url": {"default": null, "nullable": true, "type": "text"},
+        "mp4_path": {"default": null, "nullable": true, "type": "text"},
+        "reference_image_paths": {"default": null, "nullable": true, "type": "_text"},
+        "regen_of_clip_id": {"default": null, "nullable": true, "type": "uuid"},
+        "seedance_task_id": {"default": null, "nullable": true, "type": "text"},
+        "setting_id": {"default": null, "nullable": false, "type": "text"},
+        "status": {"default": "'pending'::text", "nullable": true, "type": "text"},
+        "storage_path": {"default": null, "nullable": true, "type": "text"},
+        "verification_attempts": {"default": "0", "nullable": true, "type": "int4"},
+        "verification_notes": {"default": null, "nullable": true, "type": "jsonb"},
+        "verification_status": {"default": "'unchecked'::text", "nullable": true, "type": "text"},
+        "visual_prompt": {"default": null, "nullable": false, "type": "text"},
+        "voiceover": {"default": null, "nullable": false, "type": "text"}
+      },
+      "unique": [["id"], ["job_id", "index"]]
+    },
+    "contact_messages": {
+      "checks": {},
+      "columns": {
+        "created_at": {"default": "now()", "nullable": false, "type": "timestamptz"},
+        "email": {"default": null, "nullable": false, "type": "text"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "ip": {"default": null, "nullable": true, "type": "text"},
+        "message": {"default": null, "nullable": false, "type": "text"},
+        "name": {"default": null, "nullable": false, "type": "text"},
+        "sent_via_email": {"default": "false", "nullable": false, "type": "bool"}
+      },
+      "unique": [["id"]]
+    },
+    "cost_events": {
+      "checks": {},
+      "columns": {
+        "action": {"default": null, "nullable": false, "type": "text"},
+        "cost_usd": {"default": null, "nullable": false, "type": "numeric"},
+        "created_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "job_id": {"default": null, "nullable": true, "type": "uuid"},
+        "notes": {"default": null, "nullable": true, "type": "text"},
+        "vendor": {"default": null, "nullable": false, "type": "text"}
+      },
+      "unique": [["id"]]
+    },
+    "execution_events": {
+      "checks": {},
+      "columns": {
+        "actor": {"default": null, "nullable": false, "type": "text"},
+        "created_at": {"default": "now()", "nullable": false, "type": "timestamptz"},
+        "details": {"default": null, "nullable": true, "type": "jsonb"},
+        "event": {"default": null, "nullable": false, "type": "text"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "level": {"default": null, "nullable": false, "type": "text"},
+        "message": {"default": null, "nullable": false, "type": "text"},
+        "resolved": {"default": "false", "nullable": false, "type": "bool"},
+        "resolved_at": {"default": null, "nullable": true, "type": "timestamptz"},
+        "resolved_by": {"default": null, "nullable": true, "type": "text"},
+        "subject_id": {"default": null, "nullable": true, "type": "uuid"},
+        "subject_type": {"default": null, "nullable": true, "type": "text"}
+      },
+      "unique": [["id"]]
+    },
+    "feedback": {
+      "checks": {
+        "feedback_status_check": "CHECK ((status = ANY (ARRAY['submitted'::text, 'processing'::text, 'applied'::text, 'rejected'::text])))",
+        "feedback_text_check": "CHECK ((length(text) > 0))"
+      },
+      "columns": {
+        "applied_to_job_id": {"default": null, "nullable": true, "type": "uuid"},
+        "clip_id": {"default": null, "nullable": true, "type": "uuid"},
+        "created_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "created_by": {"default": null, "nullable": true, "type": "uuid"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "status": {"default": "'submitted'::text", "nullable": false, "type": "text"},
+        "text": {"default": null, "nullable": false, "type": "text"},
+        "video_id": {"default": null, "nullable": false, "type": "uuid"}
+      },
+      "unique": [["id"]]
+    },
+    "jobs": {
+      "checks": {
+        "jobs_kind_check": "CHECK ((kind = ANY (ARRAY['parsha'::text, 'video_topic'::text, 'compose'::text, 'plan-only'::text, 'clips-only'::text])))",
+        "jobs_model_tier_check": "CHECK ((model_tier = ANY (ARRAY['standard'::text, 'fast'::text])))",
+        "jobs_resolution_check": "CHECK ((resolution = ANY (ARRAY['480p'::text, '720p'::text, '1080p'::text])))"
+      },
+      "columns": {
+        "clip_indexes": {"default": null, "nullable": true, "type": "_int4"},
+        "clip_plan_id": {"default": null, "nullable": true, "type": "uuid"},
+        "completed_at": {"default": null, "nullable": true, "type": "timestamptz"},
+        "director_notes": {"default": null, "nullable": true, "type": "text"},
+        "error_message": {"default": null, "nullable": true, "type": "text"},
+        "feedback_clip_index": {"default": null, "nullable": true, "type": "int4"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "kind": {"default": "'parsha'::text", "nullable": false, "type": "text"},
+        "model_tier": {"default": "'standard'::text", "nullable": true, "type": "text"},
+        "motion_ref_slug": {"default": null, "nullable": true, "type": "text"},
+        "parsha_id": {"default": null, "nullable": true, "type": "uuid"},
+        "partner_parsha_id": {"default": null, "nullable": true, "type": "uuid"},
+        "regen_of_job_id": {"default": null, "nullable": true, "type": "uuid"},
+        "resolution": {"default": "'720p'::text", "nullable": true, "type": "text"},
+        "script_id": {"default": null, "nullable": true, "type": "uuid"},
+        "status": {"default": "'queued'::job_status", "nullable": false, "type": "job_status"},
+        "status_message": {"default": null, "nullable": true, "type": "text"},
+        "topic": {"default": null, "nullable": true, "type": "text"},
+        "total_cost_usd": {"default": "0", "nullable": true, "type": "numeric"},
+        "triggered_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "triggered_by": {"default": null, "nullable": true, "type": "uuid"}
+      },
+      "unique": [["id"]]
+    },
+    "oauth_tokens": {
+      "checks": {},
+      "columns": {
+        "access_token": {"default": null, "nullable": true, "type": "text"},
+        "access_token_expires_at": {"default": null, "nullable": true, "type": "timestamptz"},
+        "account_id": {"default": null, "nullable": true, "type": "text"},
+        "account_name": {"default": null, "nullable": true, "type": "text"},
+        "connected_at": {"default": "now()", "nullable": false, "type": "timestamptz"},
+        "refresh_token": {"default": null, "nullable": false, "type": "text"},
+        "scopes": {"default": null, "nullable": true, "type": "_text"},
+        "service": {"default": null, "nullable": false, "type": "text"},
+        "updated_at": {"default": "now()", "nullable": false, "type": "timestamptz"}
+      },
+      "unique": [["service"]]
+    },
+    "parshiot": {
+      "checks": {
+        "parshiot_kind_check": "CHECK ((kind = ANY (ARRAY['parsha'::text, 'holiday'::text])))"
+      },
+      "columns": {
+        "book": {"default": null, "nullable": false, "type": "text"},
+        "hebrew_name": {"default": null, "nullable": true, "type": "text"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "kind": {"default": "'parsha'::text", "nullable": false, "type": "text"},
+        "name": {"default": null, "nullable": false, "type": "text"},
+        "order": {"default": null, "nullable": true, "type": "int4"},
+        "slug": {"default": null, "nullable": false, "type": "text"},
+        "special_flag": {"default": null, "nullable": true, "type": "text"}
+      },
+      "unique": [["id"], ["order"], ["slug"]]
+    },
+    "posts": {
+      "checks": {
+        "posts_platform_check": "CHECK ((platform = ANY (ARRAY['tiktok'::text, 'instagram'::text, 'youtube'::text, 'facebook'::text, 'twitter'::text])))",
+        "posts_status_check": "CHECK ((status = ANY (ARRAY['pending'::text, 'scheduled'::text, 'published'::text, 'failed'::text])))"
+      },
+      "columns": {
+        "buffer_update_id": {"default": null, "nullable": true, "type": "text"},
+        "caption": {"default": null, "nullable": false, "type": "text"},
+        "created_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "error_message": {"default": null, "nullable": true, "type": "text"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "platform": {"default": null, "nullable": false, "type": "text"},
+        "post_url": {"default": null, "nullable": true, "type": "text"},
+        "published_at": {"default": null, "nullable": true, "type": "timestamptz"},
+        "qa_seed": {"default": "false", "nullable": false, "type": "bool"},
+        "scheduled_at": {"default": null, "nullable": true, "type": "timestamptz"},
+        "status": {"default": "'pending'::text", "nullable": false, "type": "text"},
+        "video_id": {"default": null, "nullable": false, "type": "uuid"}
+      },
+      "unique": [["id"]]
+    },
+    "scripts": {
+      "checks": {},
+      "columns": {
+        "approved_at": {"default": null, "nullable": true, "type": "timestamptz"},
+        "approved_by": {"default": null, "nullable": true, "type": "uuid"},
+        "created_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "director_notes": {"default": null, "nullable": true, "type": "text"},
+        "draft_text": {"default": null, "nullable": false, "type": "text"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "motion_ref_slug": {"default": null, "nullable": true, "type": "text"},
+        "option": {"default": null, "nullable": false, "type": "text"},
+        "parsha_id": {"default": null, "nullable": false, "type": "uuid"},
+        "style_note": {"default": null, "nullable": true, "type": "text"},
+        "title": {"default": null, "nullable": false, "type": "text"},
+        "tldr": {"default": null, "nullable": true, "type": "text"}
+      },
+      "unique": [["id"], ["parsha_id", "option"]]
+    },
+    "settings": {
+      "checks": {},
+      "columns": {
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "key": {"default": null, "nullable": false, "type": "text"},
+        "updated_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "user_id": {"default": null, "nullable": true, "type": "uuid"},
+        "value": {"default": null, "nullable": false, "type": "jsonb"}
+      },
+      "unique": [["id"], ["user_id", "key"]]
+    },
+    "site_content": {
+      "checks": {},
+      "columns": {
+        "description": {"default": null, "nullable": true, "type": "text"},
+        "key": {"default": null, "nullable": false, "type": "text"},
+        "updated_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "value": {"default": null, "nullable": false, "type": "text"}
+      },
+      "unique": [["key"]]
+    },
+    "tai_chi_moves": {
+      "checks": {
+        "tai_chi_moves_duration_s_check": "CHECK (((duration_s > 0) AND (duration_s <= 15)))"
+      },
+      "columns": {
+        "created_at": {"default": "now()", "nullable": false, "type": "timestamptz"},
+        "duration_s": {"default": null, "nullable": false, "type": "int4"},
+        "english": {"default": null, "nullable": false, "type": "text"},
+        "motion_description": {"default": null, "nullable": false, "type": "text"},
+        "mp4_storage_path": {"default": null, "nullable": false, "type": "text"},
+        "pinyin": {"default": null, "nullable": false, "type": "text"},
+        "section": {"default": null, "nullable": false, "type": "text"},
+        "slug": {"default": null, "nullable": false, "type": "text"},
+        "thumb_poster_path": {"default": null, "nullable": true, "type": "text"},
+        "updated_at": {"default": "now()", "nullable": false, "type": "timestamptz"},
+        "visual": {"default": null, "nullable": false, "type": "text"}
+      },
+      "unique": [["slug"]]
+    },
+    "videos": {
+      "checks": {},
+      "columns": {
+        "composed_from_clip_ids": {"default": null, "nullable": true, "type": "jsonb"},
+        "created_at": {"default": "now()", "nullable": true, "type": "timestamptz"},
+        "description": {"default": null, "nullable": true, "type": "text"},
+        "duration_s": {"default": null, "nullable": true, "type": "numeric"},
+        "id": {"default": "gen_random_uuid()", "nullable": false, "type": "uuid"},
+        "job_id": {"default": null, "nullable": false, "type": "uuid"},
+        "mp4_path": {"default": null, "nullable": false, "type": "text"},
+        "parsha_id": {"default": null, "nullable": true, "type": "uuid"},
+        "post_urls": {"default": "'{}'::jsonb", "nullable": false, "type": "jsonb"},
+        "published_to_website": {"default": "false", "nullable": false, "type": "bool"},
+        "qa_seed": {"default": "false", "nullable": false, "type": "bool"},
+        "spoken_script": {"default": null, "nullable": true, "type": "text"},
+        "stitch_settings": {"default": null, "nullable": true, "type": "jsonb"},
+        "subtitle": {"default": null, "nullable": true, "type": "text"},
+        "thumb_path": {"default": null, "nullable": true, "type": "text"},
+        "title": {"default": null, "nullable": true, "type": "text"},
+        "website_caption": {"default": null, "nullable": true, "type": "text"},
+        "youtube_thumbnail_url": {"default": null, "nullable": true, "type": "text"}
+      },
+      "unique": [["id"], ["job_id"]]
+    }
+  }
+}

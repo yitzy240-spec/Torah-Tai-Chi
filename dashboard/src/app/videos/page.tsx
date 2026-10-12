@@ -4,7 +4,7 @@ import { publicVideoUrl } from '@/lib/storage-url';
 
 const IN_FLIGHT_STATUSES = new Set([
   'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
-  'generating_clips', 'stitching',
+  'generating_clips', 'verifying', 'stitching',
 ]);
 
 // Maximum time a job can sit in any in-flight status before we treat

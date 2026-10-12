@@ -3,7 +3,8 @@ import inspect
 import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional, Union
-from src.kie_client import KieClient
+from src.kie_client import KieClient, KieTaskFailed
+from src.kie_task_persist import kie_result_urls
 from src.models import Clip
 from src.settings import ENVIRONMENT_LOCK, STYLE_LOCK
 
@@ -27,6 +28,25 @@ def clamp_duration_s(seconds) -> int:
     except (TypeError, ValueError):
         return KIE_DURATION_MIN_S
     return max(KIE_DURATION_MIN_S, min(KIE_DURATION_MAX_S, n))
+
+
+class KieRenderNotSaved(RuntimeError):
+    """A Kie task was created (and billed) but its render never reached
+    local disk — poll timed out / kept erroring, or every download failed.
+
+    Carries the task_id and any known result URLs so the job's
+    error_message and logs point straight at the recoverable asset.
+    """
+
+    def __init__(self, task_id: str, result_urls: list[str], cause: BaseException):
+        self.task_id = task_id
+        self.result_urls = list(result_urls)
+        self.cause = cause
+        super().__init__(
+            f"Kie task {task_id} was billed but its render was not retrieved "
+            f"({type(cause).__name__}: {cause}); recover via Kie recordInfo"
+            + (f" — result URL {self.result_urls[0]}" if self.result_urls else "")
+        )
 
 
 MAX_REFS = 9
@@ -321,6 +341,9 @@ async def generate_clip_with_meta(
     on_task_created: Optional[
         Callable[[str], Union[None, Awaitable[Any]]]
     ] = None,
+    on_unsaved: Optional[
+        Callable[[str, Optional[dict], BaseException], None]
+    ] = None,
 ) -> tuple[Path, dict, str]:
     """Same as generate_clip but also returns Kie's task metadata so the
     caller can extract real cost (credits_consumed / costCredits / etc).
@@ -338,6 +361,13 @@ async def generate_clip_with_meta(
     mid-poll can resume the already-billed task. Not called on the
     resume path (the task_id is already persisted). Exceptions from the
     callback propagate — callers that want best-effort must catch.
+
+    If polling or downloading fails after the task exists (Kie has billed),
+    on_unsaved(task_id, kie_meta_or_None, error) is called best-effort —
+    the caller's hook to leave a recovery trail (see
+    kie_task_persist.log_paid_render_unsaved) — and KieRenderNotSaved is
+    raised carrying the task_id. A definitive Kie failure (KieTaskFailed)
+    propagates unchanged: there is no render to recover.
 
     Returns (dest_path, kie_meta, task_id).
     """
@@ -358,6 +388,17 @@ async def generate_clip_with_meta(
             if inspect.isawaitable(maybe_awaitable):
                 await maybe_awaitable
 
-    urls, meta = await client.poll_task(task_id)
-    await client.download(urls[0], dest)
+    meta: Optional[dict] = None
+    try:
+        urls, meta = await client.poll_task(task_id)
+        await client.download(urls[0], dest)
+    except KieTaskFailed:
+        raise
+    except Exception as err:
+        if on_unsaved is not None:
+            try:
+                on_unsaved(task_id, meta, err)
+            except Exception as cb_err:  # recovery logging must not mask err
+                print(f"[kie_client] on_unsaved hook failed: {cb_err!r}")
+        raise KieRenderNotSaved(task_id, kie_result_urls(meta), err) from err
     return dest, meta, task_id
