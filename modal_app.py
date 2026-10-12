@@ -6005,6 +6005,7 @@ def clips_only_job(job_id: str) -> dict | None:
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
+    from src.kie_task_persist import persist_kie_task_id, log_paid_render_unsaved
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
@@ -6306,19 +6307,19 @@ def clips_only_job(job_id: str) -> dict | None:
                 jewish_ref_urls=clip_jewish_refs,
                 override_ref_urls=override_refs,
                 resume_task_id=resume_task_id,
+                # Persist the task_id right after Kie creates (and bills)
+                # the task, BEFORE polling, so a worker that dies mid-poll
+                # can resume it. Must be a full row: voiceover etc. are
+                # NOT NULL, and the old bare {job_id,index,task_id} upsert
+                # 23502'd on a fresh job AFTER the paid render finished.
+                # Best-effort — persist_kie_task_id never raises.
+                on_task_created=lambda tid: persist_kie_task_id(
+                    sb, job_id, c, tid,
+                    motion_ref_slug=slug, motion_ref_url=motion_url,
+                ),
             )
-            
-            # Persist the task_id immediately after creation (before polling
-            # completes) so we can resume if the worker dies mid-poll.
-            if not resume_task_id:
-                sb.table("clips").upsert({
-                    "job_id": job_id,
-                    "index": c.index,
-                    "seedance_task_id": task_id,
-                    "status": "pending",
-                }, on_conflict="job_id,index").execute()
-                print(f"[kie_persist] clip {c.index}: saved task_id {task_id}")
-            
+            print(f"[kie] clip {c.index}: Kie task {task_id} complete")
+
             credits = (
                 kie_meta.get("credits_consumed")
                 or kie_meta.get("creditsConsumed")
@@ -6330,25 +6331,33 @@ def clips_only_job(job_id: str) -> dict | None:
             clip_storage_path = (
                 f"jobs/{job_id}/clips/clip_{c.index:02d}.mp4"
             )
-            with open(dest, "rb") as f:
-                _upload_mp4(sb, clip_storage_path, f.read())
-            # Upsert the clip row so this job owns a full clips set.
-            sb.table("clips").upsert({
-                "job_id": job_id,
-                "index": c.index,
-                "voiceover": c.voiceover,
-                "visual_prompt": c.visual_prompt,
-                "setting_id": c.setting_id,
-                "duration_s": c.duration_s,
-                "seedance_task_id": task_id,
-                "motion_ref_slug": slug,
-                "motion_ref_url": motion_url,
-                "storage_path": clip_storage_path,
-                "mp4_path": clip_storage_path,
-                "status": "done",
-                "cost_usd": cost_usd,
-                "completed_at": "now()",
-            }, on_conflict="job_id,index").execute()
+            try:
+                with open(dest, "rb") as f:
+                    _upload_mp4(sb, clip_storage_path, f.read())
+                # Upsert the clip row so this job owns a full clips set.
+                sb.table("clips").upsert({
+                    "job_id": job_id,
+                    "index": c.index,
+                    "voiceover": c.voiceover,
+                    "visual_prompt": c.visual_prompt,
+                    "setting_id": c.setting_id,
+                    "duration_s": c.duration_s,
+                    "seedance_task_id": task_id,
+                    "motion_ref_slug": slug,
+                    "motion_ref_url": motion_url,
+                    "storage_path": clip_storage_path,
+                    "mp4_path": clip_storage_path,
+                    "status": "done",
+                    "cost_usd": cost_usd,
+                    "completed_at": "now()",
+                }, on_conflict="job_id,index").execute()
+            except Exception as save_err:
+                # Kie already billed this render. Leave a recoverable
+                # trail (task_id + result URLs) before failing the job.
+                log_paid_render_unsaved(
+                    sb, job_id, c.index, task_id, kie_meta, save_err,
+                )
+                raise
 
             if cost_usd:
                 log_cost(
