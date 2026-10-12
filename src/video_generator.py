@@ -1,7 +1,8 @@
 from __future__ import annotations
+import inspect
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Awaitable, Callable, Optional, Union
 from src.kie_client import KieClient
 from src.models import Clip
 from src.settings import ENVIRONMENT_LOCK, STYLE_LOCK
@@ -317,6 +318,9 @@ async def generate_clip_with_meta(
     jewish_ref_urls: Optional[list[str]] = None,
     override_ref_urls: Optional[list[str]] = None,
     resume_task_id: Optional[str] = None,
+    on_task_created: Optional[
+        Callable[[str], Union[None, Awaitable[Any]]]
+    ] = None,
 ) -> tuple[Path, dict, str]:
     """Same as generate_clip but also returns Kie's task metadata so the
     caller can extract real cost (credits_consumed / costCredits / etc).
@@ -327,9 +331,15 @@ async def generate_clip_with_meta(
 
     If resume_task_id is provided, skips task creation and resumes polling
     that task (resume path for recovering already-billed renders).
-    
-    Returns (dest_path, kie_meta, task_id) so the caller can persist the
-    task_id before polling completes.
+
+    If on_task_created is provided, it is called with the new task_id
+    right after create_task and BEFORE polling (sync or async). This is
+    the caller's hook to persist the task_id so a worker that dies
+    mid-poll can resume the already-billed task. Not called on the
+    resume path (the task_id is already persisted). Exceptions from the
+    callback propagate — callers that want best-effort must catch.
+
+    Returns (dest_path, kie_meta, task_id).
     """
     if resume_task_id:
         print(f"[kie_client] resuming task {resume_task_id} for clip {clip.index}")
@@ -343,7 +353,11 @@ async def generate_clip_with_meta(
             override_ref_urls=override_ref_urls,
         )
         task_id = await client.create_task(model, payload)
-    
+        if on_task_created is not None:
+            maybe_awaitable = on_task_created(task_id)
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
+
     urls, meta = await client.poll_task(task_id)
     await client.download(urls[0], dest)
     return dest, meta, task_id
