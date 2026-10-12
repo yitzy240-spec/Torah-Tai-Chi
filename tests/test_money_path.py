@@ -262,6 +262,30 @@ def test_every_modal_render_call_leaves_a_recovery_trail():
     assert not missing, f"modal_app.py render calls missing hooks: {missing}"
 
 
+def test_modal_paid_clip_saves_never_drop_the_task_id():
+    """Static guard: a done clip row / paid-clip save must carry the billed
+    Kie task_id — passing None leaves seedance_task_id NULL and the
+    kie.paid_render_unsaved event without a recoverable handle."""
+    import re
+    text = (Path(__file__).resolve().parent.parent / "modal_app.py").read_text(
+        encoding="utf-8")
+    hits = [
+        text[: m.start()].count("\n") + 1
+        for m in re.finditer(
+            r"build_done_clip_row\([^)]*task_id=None"
+            r"|save_paid_clip\(\s*sb,\s*job_id,\s*[\w.]+,\s*None\b",
+            text,
+        )
+    ]
+    assert not hits, f"modal_app.py drops the Kie task_id at lines {hits}"
+    # Every verify-loop seedance_call must hand the task_id back.
+    returns = re.findall(
+        r"async def _seedance_for_clip\(c\):.*?\n\s+return ([^\n]+)", text,
+        flags=re.S,
+    )
+    assert returns and all(r.count(",") == 2 for r in returns), returns
+
+
 def test_done_row_carries_all_not_null_columns():
     row = build_done_clip_row(
         "job-1", _clip(), task_id="t-9", storage_path="jobs/j/clips/clip_02.mp4",

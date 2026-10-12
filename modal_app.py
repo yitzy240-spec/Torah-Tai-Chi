@@ -707,7 +707,7 @@ def run_pipeline(job_id: str) -> dict | None:
                         ),
                         on_unsaved=unsaved_render_logger(sb, job_id, c.index),
                     )
-                    return _path, _meta
+                    return _path, _meta, _task_id
 
                 (
                     local_path,
@@ -717,6 +717,7 @@ def run_pipeline(job_id: str) -> dict | None:
                     verify_status,
                     verify_notes,
                     _checks_used,
+                    seedance_task_id,
                 ) = await _generate_clip_with_verify(
                     clip=clip,
                     seedance_call=_seedance_for_clip,
@@ -2385,11 +2386,11 @@ async def _generate_clip_with_verify(
             visual_prompt / voiceover (the caller still owns the
             object, so the augmented version is what gets persisted to
             the clips row).
-        seedance_call: Async callable (clip) -> tuple[Path, dict].
+        seedance_call: Async callable (clip) -> tuple[Path, dict, str].
             The caller wires this to the right
             generate_clip_with_meta invocation (with the right
             char_refs / dojo_refs / motion_ref_url). Returns
-            (local_mp4_path, kie_meta).
+            (local_mp4_path, kie_meta, kie_task_id).
         job_id: For Storage upload path + diagnostics.
         sb: Supabase service client.
         feedback_text / diagnosis: When called from regen_agent, both
@@ -2405,7 +2406,9 @@ async def _generate_clip_with_verify(
             interpolate.
 
     Returns ``(local_path, kie_meta_last, total_cost_usd, attempts,
-    final_status, last_verify_notes, last_checks)``. The caller is
+    final_status, last_verify_notes, last_checks, last_task_id)``.
+    last_task_id is the Kie task of the SHIPPED attempt (the loop can
+    re-render) — persist it as clips.seedance_task_id. The caller is
     responsible for uploading to Storage + writing the clip row.
 
     Bounded at MAX_VERIFY_ATTEMPTS attempts. Never more, regardless
@@ -2416,6 +2419,7 @@ async def _generate_clip_with_verify(
     total_credits = 0.0
     attempts = 0
     last_kie_meta: dict = {}
+    last_task_id: str | None = None
     last_local_path: Path = Path("/tmp/missing.mp4")
     last_verify_notes: dict = {}
     last_checks: list[dict] = []
@@ -2428,9 +2432,10 @@ async def _generate_clip_with_verify(
     while attempts < MAX_VERIFY_ATTEMPTS:
         attempts += 1
         # ---- Generate (Seedance) ----
-        local_path, kie_meta = await seedance_call(clip)
+        local_path, kie_meta, task_id = await seedance_call(clip)
         last_local_path = local_path
         last_kie_meta = kie_meta
+        last_task_id = task_id
         credits = (
             kie_meta.get("creditsConsumed")
             or kie_meta.get("credits_consumed")
@@ -2574,6 +2579,7 @@ async def _generate_clip_with_verify(
         final_status,
         last_verify_notes,
         last_checks,
+        last_task_id,
     )
 
 
@@ -4953,7 +4959,7 @@ def regen_agent(job_id: str) -> dict | None:
                     ),
                     on_unsaved=unsaved_render_logger(sb, job_id, c.index),
                 )
-                return _p, _m
+                return _p, _m, _task_id
 
             (
                 local_path,
@@ -4963,6 +4969,7 @@ def regen_agent(job_id: str) -> dict | None:
                 verify_status,
                 verify_notes,
                 _checks_used,
+                seedance_task_id,
             ) = await _generate_clip_with_verify(
                 clip=target_clip_pydantic,
                 seedance_call=_seedance_for_clip,
@@ -4987,6 +4994,7 @@ def regen_agent(job_id: str) -> dict | None:
                 verify_attempts,
                 verify_status,
                 verify_notes,
+                seedance_task_id,
             )
 
         async def _regen_all():
@@ -5014,7 +5022,7 @@ def regen_agent(job_id: str) -> dict | None:
         for (
             target_idx, local_path, kie_meta, credits, cost_usd,
             clip_ref_video_url, verify_attempts, verify_status,
-            verify_notes,
+            verify_notes, seedance_task_id,
         ) in regen_results:
             target_clip_pydantic = new_clips_by_index[target_idx]
             parent_target = parent_by_index[target_idx]
@@ -5026,7 +5034,7 @@ def regen_agent(job_id: str) -> dict | None:
             # see the prompt that ACTUALLY shipped, not the pre-retry
             # version. Upsert (not insert) so a retried write can't 23505.
             new_clip_row = build_done_clip_row(
-                job_id, target_clip_pydantic, task_id=None,
+                job_id, target_clip_pydantic, task_id=seedance_task_id,
                 storage_path=new_clip_storage_path, cost_usd=cost_usd,
                 motion_ref_slug=target_clip_pydantic.motion_ref_slug,
                 motion_ref_url=clip_ref_video_url,
@@ -5038,7 +5046,7 @@ def regen_agent(job_id: str) -> dict | None:
                 "verification_notes": verify_notes,
             })
             save_paid_clip(
-                sb, job_id, target_idx, None, kie_meta,
+                sb, job_id, target_idx, seedance_task_id, kie_meta,
                 lambda new_clip_row=new_clip_row: sb.table("clips").upsert(
                     new_clip_row, on_conflict="job_id,index",
                 ).execute(),
@@ -5569,7 +5577,7 @@ def regen_single_clip(job_id: str) -> dict | None:
                 ),
                 on_unsaved=unsaved_render_logger(sb, job_id, target_index),
             )
-            return _p, _m
+            return _p, _m, _task_id
 
         async def _render():
             return await _generate_clip_with_verify(
@@ -5593,6 +5601,7 @@ def regen_single_clip(job_id: str) -> dict | None:
             verify_status,
             verify_notes,
             _checks_used,
+            seedance_task_id,
         ) = asyncio.run(_render())
         cost_usd = total_credits * KIE_CREDITS_TO_USD if total_credits else 0.0
         if total_credits:
@@ -5615,7 +5624,7 @@ def regen_single_clip(job_id: str) -> dict | None:
 
         # Insert clip rows: new for the regen'd clip, copy parent for the rest.
         new_clip_row = build_done_clip_row(
-            job_id, target_clip_pydantic, task_id=None,
+            job_id, target_clip_pydantic, task_id=seedance_task_id,
             storage_path=new_clip_storage_path, cost_usd=cost_usd,
             motion_ref_slug=target_clip_pydantic.motion_ref_slug,
             motion_ref_url=clip_ref_video_url,
@@ -5635,7 +5644,8 @@ def regen_single_clip(job_id: str) -> dict | None:
             ).execute()
 
         save_paid_clip(
-            sb, job_id, target_index, None, kie_meta, _save_new_clip,
+            sb, job_id, target_index, seedance_task_id, kie_meta,
+            _save_new_clip,
         )
         for parent_c in parent_clips:
             if parent_c["index"] == target_index:
