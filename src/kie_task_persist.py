@@ -148,6 +148,20 @@ def retry_db_write(
             sleep(wait_s)
 
 
+def upload_paid_clip(
+    sb: Any, job_id: str, clip_index: int, task_id: Optional[str],
+    kie_meta: Optional[dict], upload: Callable[[], Any],
+) -> None:
+    """Run upload() ONCE (it brings its own retries — modal_app's
+    _upload_mp4); if it still fails, leave the kie.paid_render_unsaved
+    recovery trail, then re-raise."""
+    try:
+        upload()
+    except Exception as err:
+        log_paid_render_unsaved(sb, job_id, clip_index, task_id, kie_meta, err)
+        raise
+
+
 def save_paid_clip(
     sb: Any, job_id: str, clip_index: int, task_id: Optional[str],
     kie_meta: Optional[dict], write: Callable[[], Any],

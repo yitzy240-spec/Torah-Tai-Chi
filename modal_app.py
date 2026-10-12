@@ -2414,6 +2414,8 @@ async def _generate_clip_with_verify(
     Bounded at MAX_VERIFY_ATTEMPTS attempts. Never more, regardless
     of how badly Gemini disagrees with Seedance.
     """
+    from src.kie_task_persist import upload_paid_clip
+
     # Track ALL Seedance attempts' costs — we paid for every regen,
     # not just the one we shipped.
     total_credits = 0.0
@@ -2452,9 +2454,15 @@ async def _generate_clip_with_verify(
         # Even if verify fails and we retry, the next attempt overwrites
         # the same path (upsert=true), so the eventual shipped clip's
         # Storage path is consistent with the final mp4.
+        # Kie already billed this attempt: if the upload still fails
+        # after _upload_mp4's retries, leave the recovery trail.
         clip_storage_path = f"jobs/{job_id}/clips/clip_{clip.index:02d}.mp4"
         with open(local_path, "rb") as cf:
-            _upload_mp4(sb, clip_storage_path, cf.read())
+            clip_bytes = cf.read()
+        upload_paid_clip(
+            sb, job_id, clip.index, task_id, kie_meta,
+            lambda: _upload_mp4(sb, clip_storage_path, clip_bytes),
+        )
 
         # ---- Mark verifying in DB so the dashboard shows the spinner
         #      on this specific clip. If the row doesn't exist yet

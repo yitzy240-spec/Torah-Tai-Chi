@@ -227,6 +227,41 @@ def test_save_paid_clip_success_logs_nothing(events):
     assert events == []
 
 
+def test_upload_paid_clip_logs_recovery_trail_and_reraises(events):
+    calls = []
+
+    def boom():
+        calls.append(1)
+        raise ValueError("Expecting value")
+
+    meta = {"resultJson": RESULT}
+    with pytest.raises(ValueError):
+        ktp.upload_paid_clip(None, "job-1", 3, "t-7", meta, boom)
+    assert calls == [1], "upload() brings its own retries — call it once"
+    assert [e["event"] for e in events] == ["kie.paid_render_unsaved"]
+    details = events[0]["details"]
+    assert details["task_id"] == "t-7"
+    assert details["clip_index"] == 3
+    assert details["result_urls"] == ["https://cdn/out.mp4"]
+
+
+def test_upload_paid_clip_success_logs_nothing(events):
+    ktp.upload_paid_clip(None, "job-1", 3, "t-7", {}, lambda: None)
+    assert events == []
+
+
+def test_verify_loop_upload_leaves_a_recovery_trail():
+    """Static guard: the verify loop's per-attempt upload runs after Kie
+    billed the attempt, so it must go through upload_paid_clip."""
+    text = (Path(__file__).resolve().parent.parent / "modal_app.py").read_text(
+        encoding="utf-8")
+    start = text.index("async def _generate_clip_with_verify(")
+    body = text[start: text.index("\ndef ", start + 1)]
+    assert "upload_paid_clip(" in body
+    assert "lambda: _upload_mp4(" in body
+    assert body.count("_upload_mp4(") == 1, "unwrapped upload in verify loop"
+
+
 def test_record_kie_task_created_event(events):
     record_kie_task_created(None, "job-1", 5, "t-9")
     [ev] = events
