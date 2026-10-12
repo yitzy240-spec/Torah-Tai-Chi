@@ -48,9 +48,14 @@ def build_done_clip_row(
     motion_ref_slug: Optional[str] = None,
     motion_ref_url: Optional[str] = None,
     regen_of_clip_id: Optional[str] = None,
+    verification_status: Optional[str] = None,
+    verification_attempts: Optional[int] = None,
+    verification_notes: Optional[dict] = None,
 ) -> dict:
     """Full clips row for a rendered + uploaded clip. Upsert-safe: carries
-    every NOT NULL column, so it can INSERT on a fresh (job_id, index)."""
+    every NOT NULL column, so it can INSERT on a fresh (job_id, index).
+    Pass verification_status (+ attempts / notes) for verify-loop clips;
+    omitted, the row keeps the column default / existing value."""
     row = {
         "job_id": job_id,
         "index": clip.index,
@@ -69,6 +74,10 @@ def build_done_clip_row(
     }
     if regen_of_clip_id is not None:
         row["regen_of_clip_id"] = regen_of_clip_id
+    if verification_status is not None:
+        row["verification_status"] = verification_status
+        row["verification_attempts"] = verification_attempts
+        row["verification_notes"] = verification_notes
     return row
 
 

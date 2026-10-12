@@ -257,7 +257,7 @@ def test_verify_loop_upload_leaves_a_recovery_trail():
         encoding="utf-8")
     start = text.index("async def _generate_clip_with_verify(")
     body = text[start: text.index("\ndef ", start + 1)]
-    assert "upload_paid_clip(" in body
+    assert "upload_paid_clip," in body or "upload_paid_clip(" in body
     assert "lambda: _upload_mp4(" in body
     assert body.count("_upload_mp4(") == 1, "unwrapped upload in verify loop"
 
@@ -335,3 +335,17 @@ def test_done_row_carries_all_not_null_columns():
     assert "regen_of_clip_id" not in build_done_clip_row(
         "job-1", _clip(), task_id=None, storage_path="p", cost_usd=0,
     )
+
+
+def test_done_row_verification_fields_only_when_given():
+    row = build_done_clip_row(
+        "job-1", _clip(), task_id="t-9", storage_path="p", cost_usd=1.0,
+        verification_status="failed", verification_attempts=3,
+        verification_notes={"checks": []},
+    )
+    assert (row["verification_status"], row["verification_attempts"],
+            row["verification_notes"]) == ("failed", 3, {"checks": []})
+    bare = build_done_clip_row("job-1", _clip(), task_id="t-9",
+                               storage_path="p", cost_usd=1.0)
+    assert not any(k.startswith("verification_") for k in bare)
+

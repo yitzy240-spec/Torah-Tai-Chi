@@ -305,7 +305,8 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
-        persist_kie_task_id, retry_db_write, unsaved_render_logger,
+        build_done_clip_row, persist_kie_task_id, retry_db_write,
+        unsaved_render_logger,
     )
     from src.models import ClipPlan
     from src.thumbnails import extract_thumbnail, upload_thumbnail
@@ -750,33 +751,30 @@ def run_pipeline(job_id: str) -> dict | None:
                 clip_storage_path = (
                     f"jobs/{job_id}/clips/clip_{clip.index:02d}.mp4"
                 )
-                clip_update = {
-                    "storage_path": clip_storage_path,
-                    # Overwrite the legacy "internal/clip_NN.mp4"
-                    # placeholder with the real Storage path so any
-                    # downstream consumer that reads mp4_path also
-                    # benefits from the checkpoint.
-                    "mp4_path": clip_storage_path,
-                    "status": "done",
-                    "cost_usd": real_cost_usd,
-                    "completed_at": "now()",
-                    "verification_status": verify_status,
-                    "verification_attempts": verify_attempts,
-                    "verification_notes": verify_notes,
-                    # Persist any prompt augmentation the verify loop
-                    # applied so the dashboard's clip plan / debug
-                    # tools see the prompt that ACTUALLY shipped.
-                    "voiceover": clip.voiceover,
-                    "visual_prompt": clip.visual_prompt,
-                }
-                if clip_ref_video_url:
-                    clip_update["motion_ref_url"] = clip_ref_video_url
-                # The mp4 is already in Storage; retry the idempotent row
-                # update so a DB blip doesn't orphan a paid clip.
-                retry_db_write(
-                    lambda: sb.table("clips").update(clip_update)
-                    .eq("job_id", job_id).eq("index", clip.index).execute(),
-                    label=f"clip {clip.index} done-update",
+                # Full row (upsert, not update): carries every NOT NULL
+                # column, so a missing pending row is re-inserted instead
+                # of the update silently matching zero rows. Persists any
+                # prompt augmentation the verify loop applied, so the
+                # dashboard sees the prompt that ACTUALLY shipped.
+                done_row = build_done_clip_row(
+                    job_id, clip, task_id=seedance_task_id,
+                    storage_path=clip_storage_path, cost_usd=real_cost_usd,
+                    motion_ref_slug=clip.motion_ref_slug,
+                    motion_ref_url=clip_ref_video_url,
+                    verification_status=verify_status,
+                    verification_attempts=verify_attempts,
+                    verification_notes=verify_notes,
+                )
+                # The mp4 is already in Storage; retry the idempotent
+                # upsert so a DB blip doesn't orphan a paid clip. In a
+                # worker thread: retry_db_write sleeps, and this coroutine
+                # shares the event loop with every other in-flight clip.
+                await asyncio.to_thread(
+                    retry_db_write,
+                    lambda: sb.table("clips").upsert(
+                        done_row, on_conflict="job_id,index",
+                    ).execute(),
+                    label=f"clip {clip.index} done-upsert",
                 )
                 if real_cost_usd is not None:
                     log_cost(
@@ -2455,11 +2453,13 @@ async def _generate_clip_with_verify(
         # the same path (upsert=true), so the eventual shipped clip's
         # Storage path is consistent with the final mp4.
         # Kie already billed this attempt: if the upload still fails
-        # after _upload_mp4's retries, leave the recovery trail.
+        # after _upload_mp4's retries, leave the recovery trail. In a
+        # worker thread so the retry sleeps don't stall other clips.
         clip_storage_path = f"jobs/{job_id}/clips/clip_{clip.index:02d}.mp4"
         with open(local_path, "rb") as cf:
             clip_bytes = cf.read()
-        upload_paid_clip(
+        await asyncio.to_thread(
+            upload_paid_clip,
             sb, job_id, clip.index, task_id, kie_meta,
             lambda: _upload_mp4(sb, clip_storage_path, clip_bytes),
         )
@@ -5047,12 +5047,10 @@ def regen_agent(job_id: str) -> dict | None:
                 motion_ref_slug=target_clip_pydantic.motion_ref_slug,
                 motion_ref_url=clip_ref_video_url,
                 regen_of_clip_id=parent_target["id"],
+                verification_status=verify_status,
+                verification_attempts=verify_attempts,
+                verification_notes=verify_notes,
             )
-            new_clip_row.update({
-                "verification_status": verify_status,
-                "verification_attempts": verify_attempts,
-                "verification_notes": verify_notes,
-            })
             save_paid_clip(
                 sb, job_id, target_idx, seedance_task_id, kie_meta,
                 lambda new_clip_row=new_clip_row: sb.table("clips").upsert(
@@ -5637,12 +5635,10 @@ def regen_single_clip(job_id: str) -> dict | None:
             motion_ref_slug=target_clip_pydantic.motion_ref_slug,
             motion_ref_url=clip_ref_video_url,
             regen_of_clip_id=target_parent_clip["id"],
+            verification_status=verify_status,
+            verification_attempts=verify_attempts,
+            verification_notes=verify_notes,
         )
-        new_clip_row.update({
-            "verification_status": verify_status,
-            "verification_attempts": verify_attempts,
-            "verification_notes": verify_notes,
-        })
 
         def _save_new_clip():
             _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)

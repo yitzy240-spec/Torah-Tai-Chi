@@ -86,6 +86,20 @@ def _cases() -> list[Case]:
                                  storage_path="jobs/y/clips/clip_00.mp4", cost_usd=0.0,
                                  motion_ref_slug=None, motion_ref_url=None),
              OK, on_conflict="job_id,index"),
+        # run_pipeline's done-upsert (verify-loop fields), on an index
+        # whose pending row is gone: must INSERT, not match zero rows.
+        Case("done_clip_row_verified_missing_pending_row", "clips", "upsert",
+             build_done_clip_row(JOB_ID, CLIP1, task_id="t-2",
+                                 storage_path="jobs/x/clips/clip_01.mp4", cost_usd=2.87,
+                                 verification_status="verified", verification_attempts=2,
+                                 verification_notes={"checks": [], "results": []}),
+             OK, on_conflict="job_id,index"),
+        Case("done_clip_row_verified_existing_row", "clips", "upsert",
+             build_done_clip_row(JOB_ID, CLIP0, task_id="t-2",
+                                 storage_path="jobs/x/clips/clip_00.mp4", cost_usd=None,
+                                 verification_status="unchecked", verification_attempts=1,
+                                 verification_notes={"skipped": "no checks"}),
+             OK, on_conflict="job_id,index"),
         # PR #15 verbatim: a bare task-id upsert. Fails even though the
         # (job_id, index) row EXISTS — the INSERT half is checked first.
         Case("pr15_partial_upsert_existing_row", "clips", "upsert",
