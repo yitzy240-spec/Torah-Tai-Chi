@@ -27,4 +27,5 @@ asyncio_mode = "auto"
 markers = [
     "integration: hits real external services; excluded from CI",
     "db: runs write payloads against a real Postgres (DATABASE_URL); CI db-schema job",
+    "slow: shells out to ffmpeg / renders media; slower than unit tests",
 ]
