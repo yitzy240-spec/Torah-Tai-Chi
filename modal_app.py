@@ -300,7 +300,7 @@ def run_pipeline(job_id: str) -> dict | None:
     from supabase import create_client
     from src.script_generator import transform_draft_to_clip_plan
     from src.topic_pipeline import generate_draft_from_topic
-    from src.video_generator import generate_clip, generate_clip_with_meta
+    from src.video_generator import generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
@@ -5895,7 +5895,7 @@ def plan_only_job(job_id: str) -> dict | None:
     from src.models import ClipPlan
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import job_status_update
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -6078,7 +6078,6 @@ def clips_only_job(job_id: str) -> dict | None:
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import build_video_row, cost_event_row, job_status_update
-    from src.models import Clip
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -6648,10 +6647,7 @@ def clips_only_job(job_id: str) -> dict | None:
         ]
         fresh_spoken_script = _build_spoken_script(spoken_clips)
 
-        video_row: dict = {
-            "job_id": job_id,
-            "mp4_path": final_storage_path,
-        }
+        video_row: dict = build_video_row(job_id, final_storage_path)
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         title_fields = _resolve_video_title_fields(sb, job_id)
@@ -7178,10 +7174,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 })
         fresh_spoken_script = _build_spoken_script(stitched_clips)
 
-        video_row: dict = {
-            "job_id": job_id,
-            "mp4_path": final_storage_path,
-        }
+        video_row: dict = build_video_row(job_id, final_storage_path)
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         title_fields = _resolve_video_title_fields(sb, job_id)
@@ -7442,7 +7435,7 @@ def compose_video(compose_job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import job_status_update
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
