@@ -227,6 +227,58 @@ def test_save_paid_clip_success_logs_nothing(events):
     assert events == []
 
 
+def test_save_paid_clip_uploads_once_and_retries_only_the_row(events):
+    uploads, writes = [], []
+
+    def write():
+        writes.append(1)
+        if len(writes) < 3:
+            raise RuntimeError("503 from PostgREST")
+        return "row"
+
+    assert save_paid_clip(
+        None, "job-1", 4, "t-9", None, write, upload=lambda: uploads.append(1),
+        waits=(0, 0), sleep=lambda s: None,
+    ) == "row"
+    assert uploads == [1], "a row-write blip must not re-upload the mp4"
+    assert len(writes) == 3
+    assert events == []
+
+
+def test_save_paid_clip_upload_failure_skips_row_and_logs_trail(events):
+    writes = []
+
+    def upload():
+        raise ValueError("Expecting value")
+
+    with pytest.raises(ValueError):
+        save_paid_clip(
+            None, "job-1", 4, "t-9", {"resultJson": RESULT},
+            lambda: writes.append(1), upload=upload,
+            waits=(0, 0), sleep=lambda s: None,
+        )
+    assert writes == []
+    [ev] = events
+    assert ev["event"] == "kie.paid_render_unsaved"
+    assert ev["details"]["task_id"] == "t-9"
+
+
+def test_modal_upload_is_never_nested_in_a_row_retry():
+    """Static guard: _upload_mp4 already retries; inside a save_paid_clip
+    write thunk it would be retried again per row attempt."""
+    import re
+    text = (Path(__file__).resolve().parent.parent / "modal_app.py").read_text(
+        encoding="utf-8")
+    hits = []
+    for m in re.finditer(r"\n(\s+)def (_save_\w*)\(", text):
+        indent = m.group(1)
+        end = re.compile(rf"\n{indent}\S").search(text, m.end())
+        body = text[m.end(): end.start() if end else len(text)]
+        if "_upload_mp4(" in body:
+            hits.append((text[: m.start()].count("\n") + 2, m.group(2)))
+    assert not hits, f"upload inside a row-write thunk: {hits}"
+
+
 def test_upload_paid_clip_logs_recovery_trail_and_reraises(events):
     calls = []
 
@@ -349,3 +401,36 @@ def test_done_row_verification_fields_only_when_given():
                                storage_path="p", cost_usd=1.0)
     assert not any(k.startswith("verification_") for k in bare)
 
+
+
+# Retry helpers that time.sleep() between attempts.
+_SLEEPING_HELPERS = {
+    "retry_db_write", "save_paid_clip", "upload_paid_clip", "_upload_mp4",
+}
+
+
+def test_no_sleeping_retry_helper_runs_on_the_event_loop():
+    """Static guard: run_pipeline renders clips concurrently under
+    asyncio.gather, so a time.sleep retry called straight from an
+    async def freezes polling/downloads for every other clip. Call these
+    via asyncio.to_thread (or from a sync def)."""
+    import ast
+    tree = ast.parse((Path(__file__).resolve().parent.parent / "modal_app.py")
+                     .read_text(encoding="utf-8"))
+    hits = []
+
+    def visit(node, in_async):
+        for ch in ast.iter_child_nodes(node):
+            if isinstance(ch, ast.AsyncFunctionDef):
+                visit(ch, True)
+            elif isinstance(ch, (ast.FunctionDef, ast.Lambda)):
+                visit(ch, False)
+            else:
+                if (in_async and isinstance(ch, ast.Call)
+                        and isinstance(ch.func, ast.Name)
+                        and ch.func.id in _SLEEPING_HELPERS):
+                    hits.append((ch.lineno, ch.func.id))
+                visit(ch, in_async)
+
+    visit(tree, False)
+    assert not hits, f"blocking retry helper called in async code: {hits}"

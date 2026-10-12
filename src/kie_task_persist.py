@@ -174,13 +174,19 @@ def upload_paid_clip(
 def save_paid_clip(
     sb: Any, job_id: str, clip_index: int, task_id: Optional[str],
     kie_meta: Optional[dict], write: Callable[[], Any],
-    *, waits: tuple[float, ...] = DB_WRITE_RETRY_WAITS_S,
+    *, upload: Optional[Callable[[], Any]] = None,
+    waits: tuple[float, ...] = DB_WRITE_RETRY_WAITS_S,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Any:
-    """Persist a billed clip (upload and/or row write inside `write`) with
-    retries; on final failure leave the kie.paid_render_unsaved recovery
-    trail, then re-raise. `write` must be idempotent."""
+    """Persist a billed clip: run upload() ONCE (it brings its own retries
+    — modal_app's _upload_mp4), then the row write with retries. On final
+    failure of either, leave the kie.paid_render_unsaved recovery trail,
+    then re-raise. `write` must be idempotent. Keep the upload out of
+    `write`: nested inside the row retry it multiplies (3 x 4 uploads per
+    clip in a Storage outage) and a row-write blip re-uploads the mp4."""
     try:
+        if upload is not None:
+            upload()
         return retry_db_write(
             write, label=f"save clip {clip_index}", waits=waits, sleep=sleep,
         )

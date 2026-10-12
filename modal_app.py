@@ -3261,7 +3261,6 @@ def regen_smart(job_id: str) -> dict | None:
                 cost_usd=cost_usd, clip_ref_video_url=clip_ref_video_url,
                 parent_target=parent_target,
             ):
-                _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)
                 sb.table("clips").upsert(
                     build_done_clip_row(
                         job_id, target_clip_pydantic, task_id=task_id,
@@ -3275,6 +3274,9 @@ def regen_smart(job_id: str) -> dict | None:
 
             save_paid_clip(
                 sb, job_id, target_idx, task_id, kie_meta, _save_new_clip,
+                upload=lambda p=new_clip_storage_path, b=new_clip_bytes: (
+                    _upload_mp4(sb, p, b)
+                ),
             )
             if credits is not None:
                 log_cost(
@@ -3740,7 +3742,6 @@ def regen_clip(job_id: str) -> dict | None:
             new_clip_bytes = cf.read()
 
         def _save_new_clip():
-            _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)
             sb.table("clips").upsert(
                 build_done_clip_row(
                     job_id, target_clip_pydantic, task_id=_task_id,
@@ -3755,6 +3756,7 @@ def regen_clip(job_id: str) -> dict | None:
 
         save_paid_clip(
             sb, job_id, target_index, _task_id, kie_meta, _save_new_clip,
+            upload=lambda: _upload_mp4(sb, new_clip_storage_path, new_clip_bytes),
         )
 
         # 8. Copy the other clips from the parent into this regen job.
@@ -5640,16 +5642,13 @@ def regen_single_clip(job_id: str) -> dict | None:
             verification_notes=verify_notes,
         )
 
-        def _save_new_clip():
-            _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)
-            # Upsert (not insert) so a retried write can't 23505.
-            sb.table("clips").upsert(
-                new_clip_row, on_conflict="job_id,index",
-            ).execute()
-
         save_paid_clip(
             sb, job_id, target_index, seedance_task_id, kie_meta,
-            _save_new_clip,
+            # Upsert (not insert) so a retried write can't 23505.
+            lambda: sb.table("clips").upsert(
+                new_clip_row, on_conflict="job_id,index",
+            ).execute(),
+            upload=lambda: _upload_mp4(sb, new_clip_storage_path, new_clip_bytes),
         )
         for parent_c in parent_clips:
             if parent_c["index"] == target_index:
@@ -6403,7 +6402,6 @@ def clips_only_job(job_id: str) -> dict | None:
                 clip_bytes = f.read()
 
             def _save_clip():
-                _upload_mp4(sb, clip_storage_path, clip_bytes)
                 # Upsert the clip row so this job owns a full clips set.
                 sb.table("clips").upsert(
                     build_done_clip_row(
@@ -6414,10 +6412,16 @@ def clips_only_job(job_id: str) -> dict | None:
                     on_conflict="job_id,index",
                 ).execute()
 
-            # Kie already billed this render: retry the (idempotent)
-            # upload + upsert, and on final failure leave a recoverable
-            # trail (task_id + result URLs) before failing the job.
-            save_paid_clip(sb, job_id, c.index, task_id, kie_meta, _save_clip)
+            # Kie already billed this render: upload once (_upload_mp4
+            # retries itself), retry the idempotent upsert, and on final
+            # failure leave a recoverable trail (task_id + result URLs)
+            # before failing the job. In a worker thread: the retries
+            # sleep, and other clips share this event loop.
+            await asyncio.to_thread(
+                save_paid_clip, sb, job_id, c.index, task_id, kie_meta,
+                _save_clip,
+                upload=lambda: _upload_mp4(sb, clip_storage_path, clip_bytes),
+            )
 
             if cost_usd:
                 log_cost(
@@ -7081,7 +7085,6 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             new_clip_bytes = f.read()
 
         def _save_new_clip():
-            _upload_mp4(sb, new_clip_storage_path, new_clip_bytes)
             # Upsert (not insert) so a retried write can't 23505.
             return sb.table("clips").upsert(
                 build_done_clip_row(
@@ -7096,6 +7099,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
 
         new_clip = save_paid_clip(
             sb, job_id, target_index, _task_id, kie_meta, _save_new_clip,
+            upload=lambda: _upload_mp4(sb, new_clip_storage_path, new_clip_bytes),
         )
         for parent_c in parent_clips:
             if parent_c["index"] == target_index:
