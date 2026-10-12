@@ -5,15 +5,22 @@ into a postgres:15 service (tools/schema_snapshot.py --apply), then runs
 `pytest -m db`. Each case runs inside a transaction that is rolled back.
 
 Payloads are built by the same helpers the pipeline uses and sent the way
-PostgREST sends them: INSERT ... ON CONFLICT (...) DO UPDATE for upserts
-(so NOT NULL is checked on the INSERT half — the PR #15 failure mode),
-with every value cast to its column type (json->record semantics).
+PostgREST sends them: the JSON body is decoded with
+json_populate_record(NULL::<table>, body) — PostgREST's own json->record
+coercion, not per-value ::casts — and written with INSERT ... ON CONFLICT
+(...) DO UPDATE for upserts (so NOT NULL is checked on the INSERT half —
+the PR #15 failure mode). Filters (?col=eq.value) are text cast to the
+column type, as PostgREST does.
+
+Limit: the schema is migrations + tests/schema/prod_drift.sql shims, not a
+dump of prod, so prod-only drift is caught only as far as the shims go.
 
 Skips cleanly when DATABASE_URL is unset or psycopg isn't installed, so
 the plain python CI job and local runs are unaffected.
 """
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -32,7 +39,6 @@ if not DATABASE_URL:
                 allow_module_level=True)
 
 from psycopg import sql  # noqa: E402
-from psycopg.types.json import Jsonb  # noqa: E402
 
 SNAPSHOT = load_snapshot()
 
@@ -41,29 +47,34 @@ def _sql_type(udt: str) -> str:
     return f"{udt[1:]}[]" if udt.startswith("_") else udt
 
 
-def _param(table: str, col: str, value):
-    """(placeholder, value) with an explicit cast to the column's type.
-    Unknown columns get no cast so Postgres reports 42703 itself."""
+def _filter_param(table: str, col: str, value):
+    """(placeholder, value) for a WHERE filter: PostgREST sends filter
+    values as text and casts them to the column type."""
     spec = SNAPSHOT["tables"][table]["columns"].get(col)
     if spec is None:
         return sql.Placeholder(), value
     typ = _sql_type(spec["type"])
-    if spec["type"] in ("json", "jsonb") and value is not None:
-        value = Jsonb(value)
     return sql.SQL("{}::{}").format(sql.Placeholder(), sql.SQL(typ)), value
+
+
+def _body(table: str, cols: list[str]) -> sql.Composable:
+    """SELECT <cols> FROM json_populate_record(NULL::<table>, %s::json).
+    An unknown column raises 42703 (PostgREST: PGRST204)."""
+    return sql.SQL("SELECT {} FROM json_populate_record(NULL::{}, {}::json)").format(
+        sql.SQL(", ").join(map(sql.Identifier, cols)),
+        sql.Identifier(table), sql.Placeholder(),
+    )
 
 
 def _execute(conn, table: str, op: str, payload: dict, on_conflict: str | None = None,
              where: dict | None = None) -> None:
     cols = list(payload)
-    params = [_param(table, c, payload[c]) for c in cols]
-    values = [v for _, v in params]
+    values = [json.dumps(payload)]
     if op in ("insert", "upsert"):
-        q = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
+        q = sql.SQL("INSERT INTO {} ({}) ").format(
             sql.Identifier(table),
             sql.SQL(", ").join(map(sql.Identifier, cols)),
-            sql.SQL(", ").join(p for p, _ in params),
-        )
+        ) + _body(table, cols)
         if op == "upsert":
             target = [c.strip() for c in (on_conflict or "").split(",") if c.strip()]
             updates = [c for c in cols if c not in target]
@@ -74,12 +85,11 @@ def _execute(conn, table: str, op: str, payload: dict, on_conflict: str | None =
                 if updates else sql.SQL("DO NOTHING"))
     elif op == "update":
         where = where or {}
-        wparams = [_param(table, c, v) for c, v in where.items()]
-        q = sql.SQL("UPDATE {} SET {} WHERE {}").format(
+        wparams = [_filter_param(table, c, v) for c, v in where.items()]
+        q = sql.SQL("UPDATE {} SET ({}) = ({}) WHERE {}").format(
             sql.Identifier(table),
-            sql.SQL(", ").join(
-                sql.SQL("{} = {}").format(sql.Identifier(c), p)
-                for c, (p, _) in zip(cols, params)),
+            sql.SQL(", ").join(map(sql.Identifier, cols)),
+            _body(table, cols),
             sql.SQL(" AND ").join(
                 sql.SQL("{} = {}").format(sql.Identifier(c), p)
                 for c, (p, _) in zip(where, wparams)),
