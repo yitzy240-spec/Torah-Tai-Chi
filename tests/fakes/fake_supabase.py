@@ -15,6 +15,7 @@ raises like postgrest's APIError with the Postgres error code:
   22P02     value not in an enum (job_status) / not a uuid / not an integer
   42P10     on_conflict columns don't match a unique constraint
   23505     duplicate key on INSERT
+  23503     foreign key into a public table points at no row
 
 It also stores rows, so tests can read back what the pipeline wrote.
 Supported query surface (what modal_app.py / src use): table().insert /
@@ -203,6 +204,25 @@ class FakeSupabase:
             except (TypeError, ValueError):
                 raise bad(typ) from None
 
+    def check_foreign_keys(self, table: str, row: dict) -> None:
+        """23503 if a non-null FK value has no matching referenced row
+        (FKs into auth.* aren't in the snapshot, so aren't checked)."""
+        for fk in self.schema["tables"][table].get("foreign_keys", []):
+            vals = [row.get(c) for c in fk["columns"]]
+            if any(v is None for v in vals):
+                continue  # MATCH SIMPLE: any NULL column skips the check
+            ref_cols = fk["ref_columns"]
+            if not any(
+                all(str(r.get(rc)) == str(v) for rc, v in zip(ref_cols, vals))
+                for r in self.rows[fk["ref_table"]]
+            ):
+                raise APIError(
+                    "23503",
+                    f'insert or update on table "{table}" violates foreign key '
+                    f'({", ".join(fk["columns"])}) -> {fk["ref_table"]}'
+                    f'({", ".join(ref_cols)}): {vals} not present',
+                )
+
     def unique_sets(self, table: str) -> list[list[str]]:
         return self.schema["tables"][table]["unique"]
 
@@ -368,6 +388,8 @@ class _Query:
             sb.validate_row(table, self.payload, full_row=False)
             hit = self._matching()
             for r in hit:
+                sb.check_foreign_keys(table, {**r, **self.payload})
+            for r in hit:
                 r.update(copy.deepcopy(self.payload))
             return _Response([copy.deepcopy(r) for r in hit])
         return self._insert_or_upsert()
@@ -402,10 +424,12 @@ class _Query:
                     None,
                 )
             if existing is not None:
+                sb.check_foreign_keys(table, {**existing, **row})
                 existing.update(copy.deepcopy(row))  # DO UPDATE SET <sent columns>
                 out.append(copy.deepcopy(existing))
                 continue
             new = sb.materialize(table, copy.deepcopy(row))
+            sb.check_foreign_keys(table, new)
             for u in sb.unique_sets(table):
                 if all(new.get(c) is not None for c in u) and any(
                     all(r.get(c) == new.get(c) for c in u) for r in sb.rows[table]

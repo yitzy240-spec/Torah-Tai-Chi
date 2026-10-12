@@ -94,7 +94,8 @@ def introspect(conn) -> dict:
         where c.table_schema = 'public' and t.table_type = 'BASE TABLE'
         """
     ).fetchall():
-        t = tables.setdefault(table, {"checks": {}, "columns": {}, "unique": []})
+        t = tables.setdefault(
+            table, {"checks": {}, "columns": {}, "foreign_keys": [], "unique": []})
         t["columns"][col] = {
             "default": default, "nullable": nullable == "YES", "type": udt,
         }
@@ -119,8 +120,39 @@ def introspect(conn) -> dict:
             tables[table]["checks"][name] = definition
         else:
             tables[table]["unique"].append(list(cols))
+    # Foreign keys into public tables (auth.users etc. are Supabase-owned
+    # and not modelled by the fake).
+    for table, cols, ref_table, ref_cols in conn.execute(
+        """
+        select rel.relname,
+               array(select a.attname::text
+                     from unnest(con.conkey) with ordinality k(attnum, ord)
+                     join pg_attribute a
+                       on a.attrelid = con.conrelid and a.attnum = k.attnum
+                     order by k.ord),
+               ref.relname,
+               array(select a.attname::text
+                     from unnest(con.confkey) with ordinality k(attnum, ord)
+                     join pg_attribute a
+                       on a.attrelid = con.confrelid and a.attnum = k.attnum
+                     order by k.ord)
+        from pg_constraint con
+        join pg_class rel on rel.oid = con.conrelid
+        join pg_namespace n on n.oid = rel.relnamespace
+        join pg_class ref on ref.oid = con.confrelid
+        join pg_namespace rn on rn.oid = ref.relnamespace
+        where n.nspname = 'public' and rn.nspname = 'public'
+          and con.contype = 'f'
+        """
+    ).fetchall():
+        if table in tables:
+            tables[table]["foreign_keys"].append({
+                "columns": list(cols), "ref_table": ref_table,
+                "ref_columns": list(ref_cols),
+            })
     for t in tables.values():
         t["unique"].sort()
+        t["foreign_keys"].sort(key=lambda fk: (fk["columns"], fk["ref_table"]))
     enums = {
         name: list(labels)
         for name, labels in conn.execute(
@@ -170,6 +202,10 @@ def diff(committed: dict, fresh: dict) -> list[str]:
                 )
         if sorted(a["unique"]) != sorted(b["unique"]):
             out.append(f"{table} unique: {a['unique']} -> {b['unique']}")
+        if a.get("foreign_keys", []) != b.get("foreign_keys", []):
+            out.append(
+                f"{table} foreign_keys: {a.get('foreign_keys')} -> {b.get('foreign_keys')}"
+            )
     return out
 
 

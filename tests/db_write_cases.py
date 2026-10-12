@@ -27,6 +27,8 @@ from src.models import Clip
 JOB_ID = "00000000-0000-4000-8000-000000000001"
 JOB2_ID = "00000000-0000-4000-8000-000000000002"
 VIDEO_ID = "00000000-0000-4000-8000-0000000000a1"
+SEED_CLIP_ID = "00000000-0000-4000-8000-0000000000c0"
+MISSING_ID = "00000000-0000-4000-8000-00000000dead"
 
 CLIP0 = Clip(index=0, voiceover="Shalom.", visual_prompt="Rav Eli bows, dolly in",
              duration_s=8, setting_id="DOJO")
@@ -38,7 +40,7 @@ SEED_ROWS: list[tuple[str, dict]] = [
     ("jobs", {"id": JOB_ID}),
     ("jobs", {"id": JOB2_ID, "kind": "clips-only"}),
     ("videos", {"id": VIDEO_ID, "job_id": JOB_ID, "mp4_path": "jobs/seed/final.mp4"}),
-    ("clips", build_pending_clip_row(JOB_ID, CLIP0, "t-seed")),
+    ("clips", {**build_pending_clip_row(JOB_ID, CLIP0, "t-seed"), "id": SEED_CLIP_ID}),
 ]
 
 # Outcome classes, so the fake's postgrest-style codes and Postgres
@@ -50,11 +52,12 @@ BAD_VALUE = "bad_value"        # 22P02 (enum label / uuid / integer syntax)
 UNKNOWN_COLUMN = "unknown_column"  # PGRST204 (PostgREST) / 42703 (Postgres)
 NO_CONFLICT_TARGET = "no_conflict_target"  # 42P10
 DUPLICATE = "duplicate"        # 23505
+FOREIGN_KEY = "foreign_key"    # 23503
 
 CODE_TO_OUTCOME = {
     "23502": NOT_NULL, "23514": CHECK, "22P02": BAD_VALUE,
     "PGRST204": UNKNOWN_COLUMN, "42703": UNKNOWN_COLUMN,
-    "42P10": NO_CONFLICT_TARGET, "23505": DUPLICATE,
+    "42P10": NO_CONFLICT_TARGET, "23505": DUPLICATE, "23503": FOREIGN_KEY,
 }
 
 
@@ -100,6 +103,23 @@ def _cases() -> list[Case]:
                                  verification_status="unchecked", verification_attempts=1,
                                  verification_notes={"skipped": "no checks"}),
              OK, on_conflict="job_id,index"),
+        # regen_agent / regen_single_clip payload: verify-loop fields plus
+        # regen_of_clip_id (FK -> clips.id) on a fresh regen job.
+        Case("done_clip_row_regen_verified", "clips", "upsert",
+             build_done_clip_row(JOB2_ID, CLIP0, task_id="t-8",
+                                 storage_path="jobs/y/clips/clip_00.mp4", cost_usd=2.87,
+                                 regen_of_clip_id=SEED_CLIP_ID,
+                                 verification_status="failed", verification_attempts=3,
+                                 verification_notes={"checks": [{"q": "bow?"}]}),
+             OK, on_conflict="job_id,index"),
+        Case("done_clip_row_regen_dangling_parent", "clips", "upsert",
+             build_done_clip_row(JOB2_ID, CLIP0, task_id="t-8",
+                                 storage_path="jobs/y/clips/clip_00.mp4", cost_usd=0.0,
+                                 regen_of_clip_id=MISSING_ID),
+             FOREIGN_KEY, on_conflict="job_id,index"),
+        Case("clip_row_unknown_job", "clips", "upsert",
+             build_pending_clip_row(MISSING_ID, CLIP0, "t-8"),
+             FOREIGN_KEY, on_conflict="job_id,index"),
         # PR #15 verbatim: a bare task-id upsert. Fails even though the
         # (job_id, index) row EXISTS — the INSERT half is checked first.
         Case("pr15_partial_upsert_existing_row", "clips", "upsert",
