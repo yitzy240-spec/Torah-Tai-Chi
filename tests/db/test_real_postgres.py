@@ -1,6 +1,6 @@
 """Pipeline write payloads executed against REAL Postgres (CI db-schema job).
 
-The db-schema job replays bootstrap + every migration + prod-drift shims
+The db-schema job replays the Supabase platform bootstrap + every migration
 into a postgres:15 service (tools/schema_snapshot.py --apply), then runs
 `pytest -m db`. Each case runs inside a transaction that is rolled back.
 
@@ -12,8 +12,9 @@ coercion, not per-value ::casts — and written with INSERT ... ON CONFLICT
 the PR #15 failure mode). Filters (?col=eq.value) are text cast to the
 column type, as PostgREST does.
 
-Limit: the schema is migrations + tests/schema/prod_drift.sql shims, not a
-dump of prod, so prod-only drift is caught only as far as the shims go.
+Limit: the schema is the migrations (which were reconciled with prod
+dumps on 2026-10-13), not a live dump of prod, so drift introduced in prod
+by hand after that is not caught here.
 
 Skips cleanly when DATABASE_URL is unset or psycopg isn't installed, so
 the plain python CI job and local runs are unaffected.
