@@ -6130,6 +6130,7 @@ def clips_only_job(job_id: str) -> dict | None:
         build_done_clip_row, persist_kie_task_id, save_paid_clip,
         unsaved_render_logger,
     )
+    from src.clip_reuse import find_reusable_clip
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
@@ -6559,10 +6560,58 @@ def clips_only_job(job_id: str) -> dict | None:
             )
         )
 
+        # Re-run reuse (e.g. Retry after a stitch failure): a clip this job
+        # already rendered and stored, with unchanged text, is downloaded
+        # instead of re-rendered and re-billed. See src/clip_reuse.py.
+        async def _reuse_done_clip(c) -> Path | None:
+            nonlocal completed_count
+            slug = per_clip_motion.get(c.index)
+            try:
+                sp = await asyncio.to_thread(find_reusable_clip, sb, job_id, c, slug)
+                if not sp:
+                    return None
+                local = await asyncio.to_thread(_ensure_local, sb, work_dir, sp)
+            except Exception as reuse_err:
+                print(
+                    f"[reuse] clip {c.index}: lookup/download failed "
+                    f"({type(reuse_err).__name__}: {reuse_err}); rendering"
+                )
+                return None
+            print(f"[reuse] clip {c.index}: reusing {sp} (no Kie call)")
+            log_event(
+                sb, actor="modal", level="info",
+                event="pipeline.clip_reused",
+                subject_type="job", subject_id=job_id,
+                message=f"Reused already-rendered clip {c.index} (no Kie charge)",
+                details={"clip_index": c.index, "storage_path": sp},
+            )
+            completed_count += 1
+            set_status(
+                "generating_clips",
+                f"Generating {completed_count} of {len(target_planned)} clips",
+                strict=False,
+            )
+            emit_job_event(
+                job_id=job_id, stage="clip_done",
+                clip_index=c.index, total_clips=len(target_planned),
+            )
+            return local
+
         async def _run_group(group: list) -> list[tuple[int, Path]]:
             out: list[tuple[int, Path]] = []
             prev_mp4: Path | None = None
+            # Once a clip in this group is re-rendered, every later clip
+            # must be re-rendered too: it chains from that clip's NEW last
+            # frame (scene-group chaining invariant).
+            chain_rerendered = False
             for idx_in_group, c in enumerate(group):
+                if not chain_rerendered:
+                    reused = await _reuse_done_clip(c)
+                    if reused is not None:
+                        out.append((c.index, reused))
+                        prev_mp4 = reused
+                        continue
+                chain_rerendered = True
                 first_frame_url: str | None = None
                 if prev_mp4 is not None:
                     # Within-group chain from this run's prior clip's last frame.
