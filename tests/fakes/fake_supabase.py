@@ -323,26 +323,39 @@ class _Query:
         return self
 
     # ---- filters ----
-    def eq(self, col, val):
-        self.filters.append(lambda r: r.get(col) == val)
+    @property
+    def not_(self) -> "_Query":
+        """postgrest-py: negates the NEXT filter (`.not_.in_(...)` sends
+        `col=not.in.(...)`)."""
+        self._negate_next = True
         return self
 
-    def neq(self, col, val):
-        self.filters.append(lambda r: r.get(col) != val)
+    def _add_filter(self, pred) -> "_Query":
+        if getattr(self, "_negate_next", False):
+            self._negate_next = False
+            self.filters.append(lambda r, p=pred: not p(r))
+        else:
+            self.filters.append(pred)
         return self
+
+    def eq(self, col, val):
+        return self._add_filter(lambda r: r.get(col) == val)
+
+    def neq(self, col, val):
+        return self._add_filter(lambda r: r.get(col) != val)
 
     def in_(self, col, vals: Iterable):
         vals = list(vals)
-        self.filters.append(lambda r: r.get(col) in vals)
-        return self
+        return self._add_filter(lambda r: r.get(col) in vals)
+
+    def lt(self, col, val):
+        return self._add_filter(lambda r: r.get(col) is not None and r.get(col) < val)
 
     def is_(self, col, val):
         if val in (None, "null"):
-            self.filters.append(lambda r: r.get(col) is None)
-        else:
-            target = {"true": True, "false": False}.get(val, val)
-            self.filters.append(lambda r: r.get(col) == target)
-        return self
+            return self._add_filter(lambda r: r.get(col) is None)
+        target = {"true": True, "false": False}.get(val, val)
+        return self._add_filter(lambda r: r.get(col) == target)
 
     def order(self, *_a, **_kw):
         return self

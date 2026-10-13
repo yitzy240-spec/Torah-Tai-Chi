@@ -18,6 +18,7 @@ from src.db_rows import (
     JOB_STATUSES,
     build_video_row,
     cost_event_row,
+    job_failed_update,
     job_status_update,
 )
 from src.events import build_event_row
@@ -150,8 +151,7 @@ def _cases() -> list[Case]:
         Case("job_status_running_is_not_an_enum_value", "jobs", "update",
              job_status_update("running"), BAD_VALUE, where={"id": JOB_ID}),
         Case("job_failed_with_completed_at_now", "jobs", "update",
-             {"status": "failed", "error_message": "x", "completed_at": "now()"}, OK,
-             where={"id": JOB_ID}),
+             job_failed_update("x"), OK, where={"id": JOB_ID}),
         Case("job_kind_video_topic", "jobs", "update", {"kind": "video_topic"}, OK,
              where={"id": JOB_ID}),
         Case("job_kind_topic_rejected", "jobs", "update", {"kind": "topic"}, CHECK,

@@ -15,6 +15,7 @@ import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 
 import modal
@@ -55,6 +56,24 @@ def _maybe_row(query) -> dict | None:
     """
     resp = query.execute()
     return resp.data if resp is not None else None
+
+
+def _log_terminal_abort(sb, job_id: str, err: BaseException) -> dict:
+    """A worker's failure handler found the job already done/failed/
+    cancelled, so it left the row alone. Usually that's an operator cancel
+    surfacing as JobAlreadyTerminal from set_status. Record why the worker
+    stopped and return quietly (no failure email, no Modal error)."""
+    from src.events import log_event
+
+    print(f"[terminal] job {job_id} already finished; worker stopped: {err}")
+    log_event(
+        sb, actor="modal", level="info",
+        event="pipeline.stopped_job_terminal",
+        subject_type="job", subject_id=job_id,
+        message=f"Worker stopped: job already finished ({type(err).__name__})",
+        details={"error_type": type(err).__name__, "error_message": str(err)},
+    )
+    return {"status": "stopped", "reason": "job already finished"}
 
 
 # Waits between upload attempts; len + 1 = total attempts.
@@ -312,7 +331,10 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -331,9 +353,9 @@ def run_pipeline(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         # Mirror every status transition into the diagnostics feed so the
         # dashboard viewer can show a timeline even when jobs.status gets
         # overwritten. log_event never raises.
@@ -667,6 +689,7 @@ def run_pipeline(job_id: str) -> dict | None:
                                     f"{len(plan.clips)} clips "
                                     f"(reused {len(reusable_indices)} "
                                     f"from prior run)",
+                                    strict=False,
                                 )
                             print(
                                 f"[modal_app] reused clip {clip.index} "
@@ -728,12 +751,18 @@ def run_pipeline(job_id: str) -> dict | None:
                     diagnosis=None,
                     kie_api_key=os.environ["KIE_AI_API_KEY"],
                     openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
-                    set_status_fn=set_status,
+                    set_status_fn=partial(set_status, strict=False),
                     progress_label=f"clip {clip.index} of {len(plan.clips)}",
                 )
                 async with lock:
                     completed += 1
-                    set_status("generating_clips", f"Generating {completed} of {len(plan.clips)} clips")
+                    # Non-strict: this clip is paid for and its row isn't
+                    # saved yet, so a cancel must not abort here.
+                    set_status(
+                        "generating_clips",
+                        f"Generating {completed} of {len(plan.clips)} clips",
+                        strict=False,
+                    )
                 # Kie returns credits used (their pricing model is $5/1000
                 # credits = $0.005/credit). Multiply to USD before storing
                 # in cost_usd, since downstream callers (dashboard total,
@@ -994,9 +1023,12 @@ def run_pipeline(job_id: str) -> dict | None:
         except Exception:
             pass
 
-        sb.table("jobs").update({
-            "status": "failed", "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb,
             actor="modal",
@@ -3003,7 +3035,10 @@ def regen_smart(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -3019,9 +3054,9 @@ def regen_smart(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -3414,10 +3449,12 @@ def regen_smart(job_id: str) -> dict | None:
         except Exception:
             pass
 
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -3501,7 +3538,10 @@ def regen_clip(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -3517,9 +3557,9 @@ def regen_clip(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -3886,10 +3926,12 @@ def regen_clip(job_id: str) -> dict | None:
         except Exception:
             pass
 
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -4589,7 +4631,10 @@ def regen_agent(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -4605,9 +4650,9 @@ def regen_agent(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -4989,7 +5034,7 @@ def regen_agent(job_id: str) -> dict | None:
                 diagnosis=diagnosis,
                 kie_api_key=os.environ["KIE_AI_API_KEY"],
                 openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
-                set_status_fn=set_status,
+                set_status_fn=partial(set_status, strict=False),
                 progress_label=f"clip {target_idx}",
             )
             cost_usd = total_credits * KIE_CREDITS_TO_USD if total_credits else 0.0
@@ -5201,10 +5246,12 @@ def regen_agent(job_id: str) -> dict | None:
         except Exception:
             pass
 
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -5381,7 +5428,10 @@ def regen_single_clip(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        update_job_unless_terminal,
+    )
     from src.claude_call import claude_call
     from src.script_generator import _extract_json_block
     from src.models import ClipPlan
@@ -5398,9 +5448,9 @@ def regen_single_clip(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -5597,7 +5647,7 @@ def regen_single_clip(job_id: str) -> dict | None:
                 diagnosis=None,
                 kie_api_key=os.environ["KIE_AI_API_KEY"],
                 openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
-                set_status_fn=set_status,
+                set_status_fn=partial(set_status, strict=False),
                 progress_label=f"clip {target_index}",
             )
 
@@ -5749,10 +5799,12 @@ def regen_single_clip(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -5895,7 +5947,9 @@ def plan_only_job(job_id: str) -> dict | None:
     from src.models import ClipPlan
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import job_status_update
+    from src.db_rows import (
+        job_failed_update, set_job_status, update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -5908,9 +5962,9 @@ def plan_only_job(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -6013,10 +6067,12 @@ def plan_only_job(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -6077,7 +6133,10 @@ def clips_only_job(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -6090,9 +6149,9 @@ def clips_only_job(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -6429,9 +6488,13 @@ def clips_only_job(job_id: str) -> dict | None:
                 )
 
             completed_count += 1
+            # Non-strict: scene groups render concurrently, and raising here
+            # would abandon other groups' paid in-flight renders. A cancel
+            # takes effect at the "stitching" transition instead.
             set_status(
                 "generating_clips",
                 f"Generating {completed_count} of {len(target_planned)} clips",
+                strict=False,
             )
             # Per-clip completion signal. The clip row is committed above, so
             # a dashboard that refreshes on this event finds the new version
@@ -6700,10 +6763,12 @@ def clips_only_job(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -6761,7 +6826,10 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        update_job_unless_terminal,
+    )
     from src.models import Clip
 
     sb = create_client(
@@ -6775,9 +6843,9 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -7255,10 +7323,12 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}"[:2000],
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}"[:2000],
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.regen_clip_from_text.failed",
@@ -7435,7 +7505,9 @@ def compose_video(compose_job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import job_status_update
+    from src.db_rows import (
+        job_failed_update, set_job_status, update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -7448,9 +7520,9 @@ def compose_video(compose_job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", compose_job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, compose_job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -7626,10 +7698,12 @@ def compose_video(compose_job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", compose_job_id).execute()
+        if not update_job_unless_terminal(sb, compose_job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, compose_job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -7682,6 +7756,7 @@ def reap_stranded_jobs() -> dict:
     from supabase.lib.client_options import SyncClientOptions
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import job_failed_update, update_job_unless_terminal
 
     # postgrest-py's DEFAULT client timeout is 120s — exactly this function's
     # Modal timeout. So a Supabase stall made the HTTP call wait 120s while
@@ -7723,9 +7798,11 @@ def reap_stranded_jobs() -> dict:
             else:
                 msg = (f"Timed out — stuck in '{j['status']}' for over an hour. "
                        "The worker died mid-run. Please try again.")
-            sb.table("jobs").update(
-                {"status": "failed", "error_message": msg, "completed_at": "now()"}
-            ).eq("id", j["id"]).execute()
+            # Guarded in the WHERE clause: a job that finishes (or is
+            # cancelled) between the re-read above and this write keeps its
+            # final status.
+            if not update_job_unless_terminal(sb, j["id"], job_failed_update(msg)):
+                continue
             log_event(
                 sb, actor="system", level="warn", event="pipeline.reaped",
                 subject_type="job", subject_id=j["id"], message=msg,
