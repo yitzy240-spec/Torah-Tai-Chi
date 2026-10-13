@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 
 /**
  * Compose: stitch a user-chosen ordered list of clip_ids into a new
@@ -134,7 +135,8 @@ export async function composeVideo(opts: {
         && (e as Error).name !== 'AbortError') {
       await supabase.from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', composeJob.id);
+        .eq('id', composeJob.id)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       return { error: String(e) };
     }
   }

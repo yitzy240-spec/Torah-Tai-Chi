@@ -18,10 +18,13 @@ from src.db_rows import (
     JOB_STATUSES,
     build_video_row,
     cost_event_row,
+    job_failed_update,
     job_status_update,
 )
 from src.events import build_event_row
-from src.kie_task_persist import build_done_clip_row, build_pending_clip_row
+from src.kie_task_persist import (
+    build_done_clip_row, build_pending_clip_row, build_reset_clip_row,
+)
 from src.models import Clip
 
 JOB_ID = "00000000-0000-4000-8000-000000000001"
@@ -78,6 +81,8 @@ def _cases() -> list[Case]:
         Case("pending_clip_row_fresh_index", "clips", "upsert",
              build_pending_clip_row(JOB_ID, CLIP1, "t-1", "bow", "https://m/bow.mp4"),
              OK, on_conflict="job_id,index"),
+        Case("reset_clip_row_existing_index", "clips", "upsert",
+             build_reset_clip_row(JOB_ID, CLIP0), OK, on_conflict="job_id,index"),
         Case("pending_clip_row_existing_index", "clips", "upsert",
              build_pending_clip_row(JOB_ID, CLIP0, "t-2"), OK, on_conflict="job_id,index"),
         Case("done_clip_row", "clips", "upsert",
@@ -150,8 +155,7 @@ def _cases() -> list[Case]:
         Case("job_status_running_is_not_an_enum_value", "jobs", "update",
              job_status_update("running"), BAD_VALUE, where={"id": JOB_ID}),
         Case("job_failed_with_completed_at_now", "jobs", "update",
-             {"status": "failed", "error_message": "x", "completed_at": "now()"}, OK,
-             where={"id": JOB_ID}),
+             job_failed_update("x"), OK, where={"id": JOB_ID}),
         Case("job_kind_video_topic", "jobs", "update", {"kind": "video_topic"}, OK,
              where={"id": JOB_ID}),
         Case("job_kind_topic_rejected", "jobs", "update", {"kind": "topic"}, CHECK,
@@ -171,6 +175,14 @@ def _cases() -> list[Case]:
               "spoken_script": "Shalom."}, OK),
         Case("video_row_second_for_same_job", "videos", "insert",
              build_video_row(JOB_ID, "jobs/x/final.mp4"), DUPLICATE),
+        # What every worker now sends: a re-render of a job that already
+        # has a video updates that row in place (keeps its id, so posts +
+        # feedback stay attached) instead of 23505-ing.
+        Case("video_row_upsert_on_job_id_existing", "videos", "upsert",
+             {**build_video_row(JOB_ID, "jobs/x/final.mp4"), "thumb_path": "jobs/x/thumb.png"},
+             OK, on_conflict="job_id"),
+        Case("video_row_upsert_on_job_id_fresh", "videos", "upsert",
+             build_video_row(JOB2_ID, "jobs/y/final.mp4"), OK, on_conflict="job_id"),
         # ── execution_events ─────────────────────────────────────────────
         Case("event_row_paid_render_unsaved", "execution_events", "insert",
              build_event_row(actor="modal", level="error", event="kie.paid_render_unsaved",

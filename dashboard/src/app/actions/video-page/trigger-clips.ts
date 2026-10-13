@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 
 /**
@@ -93,7 +94,8 @@ export async function triggerClips(
       await supabase
         .from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', job.id);
+        .eq('id', job.id)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       throw e;
     }
   }

@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 
 /**
  * Re-stitch an already-composed video with new per-cut transition choices —
@@ -81,7 +82,8 @@ export async function restitchVideo(opts: {
     if (name !== 'TimeoutError' && name !== 'AbortError') {
       await supabase.from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', video.job_id);
+        .eq('id', video.job_id)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       return { error: String(e) };
     }
   }

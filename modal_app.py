@@ -15,6 +15,7 @@ import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 
 import modal
@@ -55,6 +56,24 @@ def _maybe_row(query) -> dict | None:
     """
     resp = query.execute()
     return resp.data if resp is not None else None
+
+
+def _log_terminal_abort(sb, job_id: str, err: BaseException) -> dict:
+    """A worker's failure handler found the job already done/failed/
+    cancelled, so it left the row alone. Usually that's an operator cancel
+    surfacing as JobAlreadyTerminal from set_status. Record why the worker
+    stopped and return quietly (no failure email, no Modal error)."""
+    from src.events import log_event
+
+    print(f"[terminal] job {job_id} already finished; worker stopped: {err}")
+    log_event(
+        sb, actor="modal", level="info",
+        event="pipeline.stopped_job_terminal",
+        subject_type="job", subject_id=job_id,
+        message=f"Worker stopped: job already finished ({type(err).__name__})",
+        details={"error_type": type(err).__name__, "error_message": str(err)},
+    )
+    return {"status": "stopped", "reason": "job already finished"}
 
 
 # Waits between upload attempts; len + 1 = total attempts.
@@ -305,14 +324,17 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
-        build_done_clip_row, persist_kie_task_id, retry_db_write,
+        build_done_clip_row, build_reset_clip_row, persist_kie_task_id, retry_db_write,
         unsaved_render_logger,
     )
     from src.models import ClipPlan
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, job_failed_update, record_cost, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
@@ -331,9 +353,9 @@ def run_pipeline(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         # Mirror every status transition into the diagnostics feed so the
         # dashboard viewer can show a timeline even when jobs.status gets
         # overwritten. log_event never raises.
@@ -350,11 +372,7 @@ def run_pipeline(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        # Bump the job's running total
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading job inputs")
@@ -544,20 +562,11 @@ def run_pipeline(job_id: str) -> dict | None:
             ).execute()
 
         # Upsert clips that need (re)generation — reusable ones are
-        # left untouched so their storage_path/cost_usd survive.
+        # left untouched so their storage_path/cost_usd survive. The reset
+        # also clears the previous render's verification verdict, mp4_path
+        # and motion URL, which used to survive onto the pending row.
         to_upsert = [
-            {
-                "job_id": job_id,
-                "index": c.index,
-                "voiceover": c.voiceover,
-                "visual_prompt": c.visual_prompt,
-                "setting_id": c.setting_id,
-                "duration_s": c.duration_s,
-                "motion_ref_slug": c.motion_ref_slug,
-                "status": "pending",
-                "storage_path": None,
-                "cost_usd": None,
-            }
+            build_reset_clip_row(job_id, c)
             for c in plan.clips if c.index not in reusable_indices
         ]
         if to_upsert:
@@ -565,10 +574,13 @@ def run_pipeline(job_id: str) -> dict | None:
                 to_upsert, on_conflict="job_id,index"
             ).execute()
 
-        # Previous final video is always replaced (a new stitch is
-        # coming). The clip_plan is preserved if we reused it (resume
-        # short-circuit above) or replaced if we generated a fresh one.
-        sb.table("videos").delete().eq("job_id", job_id).execute()
+        # A previous final video for this job is NOT deleted here. Deleting
+        # it cascaded to its posts + feedback (ON DELETE CASCADE) and left
+        # no video at all if this re-render then failed. The stitch below
+        # upserts the row on job_id (UNIQUE), so the video keeps its id,
+        # posts and feedback and only gets the new mp4 once one exists.
+        # The clip_plan is preserved if we reused it (resume short-circuit
+        # above) or replaced if we generated a fresh one.
 
         if reusable_indices:
             print(
@@ -667,6 +679,7 @@ def run_pipeline(job_id: str) -> dict | None:
                                     f"{len(plan.clips)} clips "
                                     f"(reused {len(reusable_indices)} "
                                     f"from prior run)",
+                                    strict=False,
                                 )
                             print(
                                 f"[modal_app] reused clip {clip.index} "
@@ -728,12 +741,18 @@ def run_pipeline(job_id: str) -> dict | None:
                     diagnosis=None,
                     kie_api_key=os.environ["KIE_AI_API_KEY"],
                     openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
-                    set_status_fn=set_status,
+                    set_status_fn=partial(set_status, strict=False),
                     progress_label=f"clip {clip.index} of {len(plan.clips)}",
                 )
                 async with lock:
                     completed += 1
-                    set_status("generating_clips", f"Generating {completed} of {len(plan.clips)} clips")
+                    # Non-strict: this clip is paid for and its row isn't
+                    # saved yet, so a cancel must not abort here.
+                    set_status(
+                        "generating_clips",
+                        f"Generating {completed} of {len(plan.clips)} clips",
+                        strict=False,
+                    )
                 # Kie returns credits used (their pricing model is $5/1000
                 # credits = $0.005/credit). Multiply to USD before storing
                 # in cost_usd, since downstream callers (dashboard total,
@@ -920,7 +939,7 @@ def run_pipeline(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         set_status("done", "Video ready")
         emit_job_event(job_id=job_id, stage="done", video_path=storage_path, message="Video ready")
@@ -994,9 +1013,12 @@ def run_pipeline(job_id: str) -> dict | None:
         except Exception:
             pass
 
-        sb.table("jobs").update({
-            "status": "failed", "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb,
             actor="modal",
@@ -3003,7 +3025,10 @@ def regen_smart(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, job_failed_update, record_cost, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -3019,9 +3044,9 @@ def regen_smart(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -3031,10 +3056,7 @@ def regen_smart(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading regen target")
@@ -3344,7 +3366,7 @@ def regen_smart(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         # 13. Mark done.
         set_status("done", "Smart regen video ready")
@@ -3414,10 +3436,12 @@ def regen_smart(job_id: str) -> dict | None:
         except Exception:
             pass
 
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -3501,7 +3525,10 @@ def regen_clip(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, job_failed_update, record_cost, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -3517,9 +3544,9 @@ def regen_clip(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -3529,10 +3556,7 @@ def regen_clip(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading regen target")
@@ -3818,7 +3842,7 @@ def regen_clip(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         # 11. Mark done.
         set_status("done", "Surgery video ready")
@@ -3886,10 +3910,12 @@ def regen_clip(job_id: str) -> dict | None:
         except Exception:
             pass
 
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -4589,7 +4615,10 @@ def regen_agent(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, job_failed_update, record_cost, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -4605,9 +4634,9 @@ def regen_agent(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -4617,11 +4646,14 @@ def regen_agent(job_id: str) -> dict | None:
         )
         emit_job_event(job_id=job_id, stage=status, message=message)
 
+    # Every agent step logs its own clipplan cost; the plan row records
+    # their actual sum (it used to hardcode 0.13 whatever the retry count).
+    plan_costs: list[float] = []
+
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        if action == "clipplan":
+            plan_costs.append(cost_usd)
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading regen target")
@@ -4897,7 +4929,9 @@ def regen_agent(job_id: str) -> dict | None:
         sb.table("clip_plans").insert({
             "job_id": job_id,
             "plan_json": new_plan.model_dump(mode="json"),
-            "claude_cost_usd": 0.13,  # rough sum of step costs above
+            # Sum of the step costs logged above. Not log_cost'ed again here:
+            # that would double-count them in cost_events / total_cost_usd.
+            "claude_cost_usd": round(sum(plan_costs), 4),
         }).execute()
 
         # 7. Resolve refs (same set for every clip).
@@ -4989,7 +5023,7 @@ def regen_agent(job_id: str) -> dict | None:
                 diagnosis=diagnosis,
                 kie_api_key=os.environ["KIE_AI_API_KEY"],
                 openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
-                set_status_fn=set_status,
+                set_status_fn=partial(set_status, strict=False),
                 progress_label=f"clip {target_idx}",
             )
             cost_usd = total_credits * KIE_CREDITS_TO_USD if total_credits else 0.0
@@ -5130,7 +5164,7 @@ def regen_agent(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         # 13. Mark done.
         set_status("done", "Regen video ready")
@@ -5201,10 +5235,12 @@ def regen_agent(job_id: str) -> dict | None:
         except Exception:
             pass
 
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -5381,7 +5417,10 @@ def regen_single_clip(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, job_failed_update, record_cost, set_job_status,
+        update_job_unless_terminal,
+    )
     from src.claude_call import claude_call
     from src.script_generator import _extract_json_block
     from src.models import ClipPlan
@@ -5398,9 +5437,9 @@ def regen_single_clip(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -5411,10 +5450,7 @@ def regen_single_clip(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading clip to regenerate")
@@ -5597,7 +5633,7 @@ def regen_single_clip(job_id: str) -> dict | None:
                 diagnosis=None,
                 kie_api_key=os.environ["KIE_AI_API_KEY"],
                 openrouter_api_key=os.environ.get("OPENROUTER_API_KEY"),
-                set_status_fn=set_status,
+                set_status_fn=partial(set_status, strict=False),
                 progress_label=f"clip {target_index}",
             )
 
@@ -5703,7 +5739,7 @@ def regen_single_clip(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         # Mark done + webhook (parsha kind only).
         set_status("done", "Regen ready")
@@ -5749,10 +5785,12 @@ def regen_single_clip(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -5895,7 +5933,9 @@ def plan_only_job(job_id: str) -> dict | None:
     from src.models import ClipPlan
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import job_status_update
+    from src.db_rows import (
+        job_failed_update, set_job_status, update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -5908,9 +5948,9 @@ def plan_only_job(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -6013,10 +6053,12 @@ def plan_only_job(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -6074,10 +6116,14 @@ def clips_only_job(job_id: str) -> dict | None:
         build_done_clip_row, persist_kie_task_id, save_paid_clip,
         unsaved_render_logger,
     )
+    from src.clip_reuse import find_reusable_clip
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, job_failed_update, record_cost, set_job_status,
+        update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -6090,9 +6136,9 @@ def clips_only_job(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -6103,10 +6149,7 @@ def clips_only_job(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         # Load this job's metadata — regen_of_job_id is the plan-only
@@ -6429,9 +6472,13 @@ def clips_only_job(job_id: str) -> dict | None:
                 )
 
             completed_count += 1
+            # Non-strict: scene groups render concurrently, and raising here
+            # would abandon other groups' paid in-flight renders. A cancel
+            # takes effect at the "stitching" transition instead.
             set_status(
                 "generating_clips",
                 f"Generating {completed_count} of {len(target_planned)} clips",
+                strict=False,
             )
             # Per-clip completion signal. The clip row is committed above, so
             # a dashboard that refreshes on this event finds the new version
@@ -6496,10 +6543,58 @@ def clips_only_job(job_id: str) -> dict | None:
             )
         )
 
+        # Re-run reuse (e.g. Retry after a stitch failure): a clip this job
+        # already rendered and stored, with unchanged text, is downloaded
+        # instead of re-rendered and re-billed. See src/clip_reuse.py.
+        async def _reuse_done_clip(c) -> Path | None:
+            nonlocal completed_count
+            slug = per_clip_motion.get(c.index)
+            try:
+                sp = await asyncio.to_thread(find_reusable_clip, sb, job_id, c, slug)
+                if not sp:
+                    return None
+                local = await asyncio.to_thread(_ensure_local, sb, work_dir, sp)
+            except Exception as reuse_err:
+                print(
+                    f"[reuse] clip {c.index}: lookup/download failed "
+                    f"({type(reuse_err).__name__}: {reuse_err}); rendering"
+                )
+                return None
+            print(f"[reuse] clip {c.index}: reusing {sp} (no Kie call)")
+            log_event(
+                sb, actor="modal", level="info",
+                event="pipeline.clip_reused",
+                subject_type="job", subject_id=job_id,
+                message=f"Reused already-rendered clip {c.index} (no Kie charge)",
+                details={"clip_index": c.index, "storage_path": sp},
+            )
+            completed_count += 1
+            set_status(
+                "generating_clips",
+                f"Generating {completed_count} of {len(target_planned)} clips",
+                strict=False,
+            )
+            emit_job_event(
+                job_id=job_id, stage="clip_done",
+                clip_index=c.index, total_clips=len(target_planned),
+            )
+            return local
+
         async def _run_group(group: list) -> list[tuple[int, Path]]:
             out: list[tuple[int, Path]] = []
             prev_mp4: Path | None = None
+            # Once a clip in this group is re-rendered, every later clip
+            # must be re-rendered too: it chains from that clip's NEW last
+            # frame (scene-group chaining invariant).
+            chain_rerendered = False
             for idx_in_group, c in enumerate(group):
+                if not chain_rerendered:
+                    reused = await _reuse_done_clip(c)
+                    if reused is not None:
+                        out.append((c.index, reused))
+                        prev_mp4 = reused
+                        continue
+                chain_rerendered = True
                 first_frame_url: str | None = None
                 if prev_mp4 is not None:
                     # Within-group chain from this run's prior clip's last frame.
@@ -6585,7 +6680,7 @@ def clips_only_job(job_id: str) -> dict | None:
                     sb.table("clips")
                     .select(
                         "voiceover, visual_prompt, setting_id, duration_s, "
-                        "motion_ref_slug, motion_ref_url, cost_usd"
+                        "motion_ref_slug, motion_ref_url"
                     )
                     .eq("job_id", plan_owner_job_id)
                     .eq("index", c.index)
@@ -6603,7 +6698,9 @@ def clips_only_job(job_id: str) -> dict | None:
                     "storage_path": sp,
                     "mp4_path": sp,
                     "status": "done",
-                    "cost_usd": parent_clip_full.get("cost_usd", 0),
+                    # The plan owner's row already carries this render's
+                    # cost; copying it double-counted per-job clip sums.
+                    "cost_usd": 0,
                 }, on_conflict="job_id,index").execute()
 
         # Stitch all clips in plan order.
@@ -6655,7 +6752,7 @@ def clips_only_job(job_id: str) -> dict | None:
         video_row["spoken_script"] = _pick_spoken_script(
             title_fields.get("spoken_script"), fresh_spoken_script,
         )
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         set_status("done", "Video ready")
         emit_job_event(
@@ -6700,10 +6797,12 @@ def clips_only_job(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -6761,7 +6860,10 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import build_video_row, cost_event_row, job_status_update
+    from src.db_rows import (
+        build_video_row, job_failed_update, record_cost, set_job_status,
+        update_job_unless_terminal,
+    )
     from src.models import Clip
 
     sb = create_client(
@@ -6775,9 +6877,9 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -6788,10 +6890,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         # matches regen_single_clip's status sequence — would benefit from a clearer name across both
@@ -7182,7 +7281,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         video_row["spoken_script"] = _pick_spoken_script(
             title_fields.get("spoken_script"), fresh_spoken_script,
         )
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         set_status("done", "Re-rendered clip")
         emit_job_event(
@@ -7255,10 +7354,12 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}"[:2000],
-        }).eq("id", job_id).execute()
+        if not update_job_unless_terminal(sb, job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}"[:2000],
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.regen_clip_from_text.failed",
@@ -7435,7 +7536,9 @@ def compose_video(compose_job_id: str) -> dict | None:
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
-    from src.db_rows import job_status_update
+    from src.db_rows import (
+        job_failed_update, set_job_status, update_job_unless_terminal,
+    )
 
     sb = create_client(
         os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -7448,9 +7551,9 @@ def compose_video(compose_job_id: str) -> dict | None:
     if pre and pre.data and pre.data.get("status") in _TERMINAL_STATUSES:
         return {"status": "already_done"}
 
-    def set_status(status: str, message: str | None = None) -> None:
-        update = job_status_update(status, message)
-        sb.table("jobs").update(update).eq("id", compose_job_id).execute()
+    def set_status(status: str, message: str | None = None, *, strict: bool = True) -> None:
+        if not set_job_status(sb, compose_job_id, status, message, strict=strict):
+            return  # non-strict tick on a finished job: nothing written
         log_event(
             sb, actor="modal", level="info",
             event=f"pipeline.status.{status}",
@@ -7626,10 +7729,12 @@ def compose_video(compose_job_id: str) -> dict | None:
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
-        sb.table("jobs").update({
-            "status": "failed",
-            "error_message": f"{type(e).__name__}: {e}\n{tb}",
-        }).eq("id", compose_job_id).execute()
+        if not update_job_unless_terminal(sb, compose_job_id, job_failed_update(
+            f"{type(e).__name__}: {e}\n{tb}",
+        )):
+            # Already done/failed/cancelled (usually an operator cancel):
+            # leave the row alone and don't page anyone.
+            return _log_terminal_abort(sb, compose_job_id, e)
         log_event(
             sb, actor="modal", level="error",
             event="pipeline.failed",
@@ -7682,6 +7787,7 @@ def reap_stranded_jobs() -> dict:
     from supabase.lib.client_options import SyncClientOptions
     from src.events import log_event
     from src.job_events import emit_job_event
+    from src.db_rows import job_failed_update, update_job_unless_terminal
 
     # postgrest-py's DEFAULT client timeout is 120s — exactly this function's
     # Modal timeout. So a Supabase stall made the HTTP call wait 120s while
@@ -7723,9 +7829,11 @@ def reap_stranded_jobs() -> dict:
             else:
                 msg = (f"Timed out — stuck in '{j['status']}' for over an hour. "
                        "The worker died mid-run. Please try again.")
-            sb.table("jobs").update(
-                {"status": "failed", "error_message": msg, "completed_at": "now()"}
-            ).eq("id", j["id"]).execute()
+            # Guarded in the WHERE clause: a job that finishes (or is
+            # cancelled) between the re-read above and this write keeps its
+            # final status.
+            if not update_job_unless_terminal(sb, j["id"], job_failed_update(msg)):
+                continue
             log_event(
                 sb, actor="system", level="warn", event="pipeline.reaped",
                 subject_type="job", subject_id=j["id"], message=msg,

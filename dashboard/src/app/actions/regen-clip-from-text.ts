@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 
 // Mirrors trigger-generation.ts. Kept inline rather than imported so
@@ -125,7 +126,8 @@ export async function regenClipFromText(opts: {
     if ((e as Error).name !== 'TimeoutError' && (e as Error).name !== 'AbortError') {
       await supabase.from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', regenJob.id);
+        .eq('id', regenJob.id)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       return { error: String(e) };
     }
   }

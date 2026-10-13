@@ -9,10 +9,15 @@ only failed in prod: every test mocked Supabase, so nothing ever compared
 a payload to the real schema.
 
 Replay order (each file in its own implicit transaction):
-  1. tests/schema/bootstrap.sql            Supabase shims (auth, roles, publication)
-  2. dashboard/supabase/migrations/*.sql   lexical order, each preceded by
-     tests/schema/before/<same name>.sql  if present (replay-order shims)
-  3. tests/schema/prod_drift.sql           prod objects no migration creates
+  1. tests/schema/bootstrap.sql            Supabase PLATFORM shims only (auth
+                                           schema, roles, realtime publication)
+  2. dashboard/supabase/migrations/*.sql   lexical order, nothing else
+
+The migrations alone reproduce prod: the former CI-only shims are now real
+migrations (20261013_prod_drift_execution_events_jobs_videos.sql for prod
+objects no migration created; a replay-order guard inside
+20260517_backfill_videos_title.sql). Never add a schema shim here: a
+difference from prod belongs in a new idempotent migration.
 
 Usage (needs an EMPTY scratch Postgres — never point this at Supabase):
   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres \\
@@ -35,8 +40,6 @@ MIGRATIONS_DIR = ROOT / "dashboard" / "supabase" / "migrations"
 SCHEMA_DIR = ROOT / "tests" / "schema"
 SNAPSHOT_PATH = SCHEMA_DIR / "schema_snapshot.json"
 BOOTSTRAP = SCHEMA_DIR / "bootstrap.sql"
-BEFORE_DIR = SCHEMA_DIR / "before"
-PROD_DRIFT = SCHEMA_DIR / "prod_drift.sql"
 
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "postgres", ""}
 
@@ -44,12 +47,7 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "postgres", ""}
 def replay_plan() -> list[tuple[str, Path]]:
     """Ordered (label, path) list of every SQL file the replay applies."""
     plan: list[tuple[str, Path]] = [("bootstrap", BOOTSTRAP)]
-    for mig in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        shim = BEFORE_DIR / mig.name
-        if shim.exists():
-            plan.append((f"before/{mig.name}", shim))
-        plan.append((mig.name, mig))
-    plan.append(("prod_drift", PROD_DRIFT))
+    plan += [(mig.name, mig) for mig in sorted(MIGRATIONS_DIR.glob("*.sql"))]
     return plan
 
 
@@ -213,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     ap.add_argument("--apply", action="store_true",
-                    help="replay bootstrap + migrations + drift into an EMPTY db first")
+                    help="replay bootstrap + migrations into an EMPTY db first")
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true", help="write the snapshot file")
     mode.add_argument("--check", action="store_true",
@@ -245,8 +243,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {p}")
         print("Regenerate: python tools/schema_snapshot.py --apply --write "
               "(against an empty scratch Postgres) and commit the result. "
-              "If the change is prod drift, fix it in tests/schema/prod_drift.sql "
-              "or a new migration — never by editing an applied migration.")
+              "If the change is prod drift, fix it with a new idempotent "
+              "migration — never by editing an applied migration.")
         return 1
     print(f"{args.out} matches the migrations "
           f"({len(fresh['tables'])} tables).")
