@@ -324,7 +324,7 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
-        build_done_clip_row, persist_kie_task_id, retry_db_write,
+        build_done_clip_row, build_reset_clip_row, persist_kie_task_id, retry_db_write,
         unsaved_render_logger,
     )
     from src.models import ClipPlan
@@ -332,7 +332,7 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import (
-        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        build_video_row, job_failed_update, record_cost, set_job_status,
         update_job_unless_terminal,
     )
 
@@ -372,11 +372,7 @@ def run_pipeline(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        # Bump the job's running total
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading job inputs")
@@ -566,20 +562,11 @@ def run_pipeline(job_id: str) -> dict | None:
             ).execute()
 
         # Upsert clips that need (re)generation — reusable ones are
-        # left untouched so their storage_path/cost_usd survive.
+        # left untouched so their storage_path/cost_usd survive. The reset
+        # also clears the previous render's verification verdict, mp4_path
+        # and motion URL, which used to survive onto the pending row.
         to_upsert = [
-            {
-                "job_id": job_id,
-                "index": c.index,
-                "voiceover": c.voiceover,
-                "visual_prompt": c.visual_prompt,
-                "setting_id": c.setting_id,
-                "duration_s": c.duration_s,
-                "motion_ref_slug": c.motion_ref_slug,
-                "status": "pending",
-                "storage_path": None,
-                "cost_usd": None,
-            }
+            build_reset_clip_row(job_id, c)
             for c in plan.clips if c.index not in reusable_indices
         ]
         if to_upsert:
@@ -3039,7 +3026,7 @@ def regen_smart(job_id: str) -> dict | None:
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import (
-        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        build_video_row, job_failed_update, record_cost, set_job_status,
         update_job_unless_terminal,
     )
 
@@ -3069,10 +3056,7 @@ def regen_smart(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading regen target")
@@ -3542,7 +3526,7 @@ def regen_clip(job_id: str) -> dict | None:
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import (
-        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        build_video_row, job_failed_update, record_cost, set_job_status,
         update_job_unless_terminal,
     )
 
@@ -3572,10 +3556,7 @@ def regen_clip(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading regen target")
@@ -4635,7 +4616,7 @@ def regen_agent(job_id: str) -> dict | None:
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import (
-        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        build_video_row, job_failed_update, record_cost, set_job_status,
         update_job_unless_terminal,
     )
 
@@ -4665,11 +4646,14 @@ def regen_agent(job_id: str) -> dict | None:
         )
         emit_job_event(job_id=job_id, stage=status, message=message)
 
+    # Every agent step logs its own clipplan cost; the plan row records
+    # their actual sum (it used to hardcode 0.13 whatever the retry count).
+    plan_costs: list[float] = []
+
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        if action == "clipplan":
+            plan_costs.append(cost_usd)
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading regen target")
@@ -4945,7 +4929,9 @@ def regen_agent(job_id: str) -> dict | None:
         sb.table("clip_plans").insert({
             "job_id": job_id,
             "plan_json": new_plan.model_dump(mode="json"),
-            "claude_cost_usd": 0.13,  # rough sum of step costs above
+            # Sum of the step costs logged above. Not log_cost'ed again here:
+            # that would double-count them in cost_events / total_cost_usd.
+            "claude_cost_usd": round(sum(plan_costs), 4),
         }).execute()
 
         # 7. Resolve refs (same set for every clip).
@@ -5432,7 +5418,7 @@ def regen_single_clip(job_id: str) -> dict | None:
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import (
-        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        build_video_row, job_failed_update, record_cost, set_job_status,
         update_job_unless_terminal,
     )
     from src.claude_call import claude_call
@@ -5464,10 +5450,7 @@ def regen_single_clip(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         set_status("loading_parsha", "Loading clip to regenerate")
@@ -6138,7 +6121,7 @@ def clips_only_job(job_id: str) -> dict | None:
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import (
-        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        build_video_row, job_failed_update, record_cost, set_job_status,
         update_job_unless_terminal,
     )
 
@@ -6166,10 +6149,7 @@ def clips_only_job(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         # Load this job's metadata — regen_of_job_id is the plan-only
@@ -6700,7 +6680,7 @@ def clips_only_job(job_id: str) -> dict | None:
                     sb.table("clips")
                     .select(
                         "voiceover, visual_prompt, setting_id, duration_s, "
-                        "motion_ref_slug, motion_ref_url, cost_usd"
+                        "motion_ref_slug, motion_ref_url"
                     )
                     .eq("job_id", plan_owner_job_id)
                     .eq("index", c.index)
@@ -6718,7 +6698,9 @@ def clips_only_job(job_id: str) -> dict | None:
                     "storage_path": sp,
                     "mp4_path": sp,
                     "status": "done",
-                    "cost_usd": parent_clip_full.get("cost_usd", 0),
+                    # The plan owner's row already carries this render's
+                    # cost; copying it double-counted per-job clip sums.
+                    "cost_usd": 0,
                 }, on_conflict="job_id,index").execute()
 
         # Stitch all clips in plan order.
@@ -6879,7 +6861,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import (
-        build_video_row, cost_event_row, job_failed_update, set_job_status,
+        build_video_row, job_failed_update, record_cost, set_job_status,
         update_job_unless_terminal,
     )
     from src.models import Clip
@@ -6908,10 +6890,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         emit_job_event(job_id=job_id, stage=status, message=message)
 
     def log_cost(action: str, vendor: str, cost_usd: float, notes: str | None = None) -> None:
-        sb.table("cost_events").insert(
-            cost_event_row(job_id, action, vendor, cost_usd, notes)
-        ).execute()
-        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        record_cost(sb, job_id, action, vendor, cost_usd, notes)  # never raises
 
     try:
         # matches regen_single_clip's status sequence — would benefit from a clearer name across both

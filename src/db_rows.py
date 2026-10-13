@@ -109,3 +109,35 @@ def build_video_row(job_id: str, mp4_path: str) -> dict:
     re-render keeps the existing row's id, posts and feedback. Callers add
     thumb_path / title fields."""
     return {"job_id": job_id, "mp4_path": mp4_path}
+
+
+def record_cost(
+    sb, job_id: Optional[str], action: str, vendor: str, cost_usd: float,
+    notes: Optional[str] = None,
+) -> bool:
+    """cost_events row + jobs.total_cost_usd bump (increment_job_cost).
+
+    Best-effort: never raises. The workers call this AFTER a paid clip is
+    already saved, and a cost-logging blip used to fail that finished job.
+    A failure is printed and recorded as a cost.log_failed event (with the
+    amount) so the books can be fixed by hand. Returns True when both
+    writes succeeded."""
+    try:
+        sb.table("cost_events").insert(
+            cost_event_row(job_id, action, vendor, cost_usd, notes)
+        ).execute()
+        sb.rpc("increment_job_cost", {"j_id": job_id, "delta": cost_usd}).execute()
+        return True
+    except Exception as e:
+        from src.events import log_event
+
+        err = f"{type(e).__name__}: {e}"
+        print(f"[cost] FAILED to record {action}/{vendor} ${cost_usd} for job {job_id}: {err}")
+        log_event(
+            sb, actor="modal", level="warn", event="cost.log_failed",
+            subject_type="job", subject_id=job_id,
+            message=f"Could not record ${cost_usd} {action} cost ({vendor}); job continues",
+            details={"action": action, "vendor": vendor, "cost_usd": cost_usd,
+                     "notes": notes, "error": err},
+        )
+        return False

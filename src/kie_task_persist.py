@@ -42,6 +42,36 @@ def build_pending_clip_row(
     }
 
 
+def build_reset_clip_row(job_id: str, clip: Any) -> dict:
+    """Full clips row that resets (job_id, index) to "pending, not rendered"
+    for run_pipeline's re-run: the new plan text, and every per-render
+    column a previous render left behind (mp4, cost, verification
+    verdict, motion URL) cleared or back to its default.
+
+    cost_usd is 0 (the column default), not NULL: a NULL breaks sums.
+    seedance_task_id is deliberately NOT cleared: if the previous render
+    was billed but never saved, it's the only pointer for recovering it,
+    and the next render overwrites it anyway (persist_kie_task_id)."""
+    return {
+        "job_id": job_id,
+        "index": clip.index,
+        "voiceover": clip.voiceover,
+        "visual_prompt": clip.visual_prompt,
+        "setting_id": clip.setting_id,
+        "duration_s": clip.duration_s,
+        "motion_ref_slug": clip.motion_ref_slug,
+        "motion_ref_url": None,
+        "status": "pending",
+        "storage_path": None,
+        "mp4_path": None,
+        "cost_usd": 0,
+        "completed_at": None,
+        "verification_status": "unchecked",
+        "verification_attempts": 0,
+        "verification_notes": None,
+    }
+
+
 def build_done_clip_row(
     job_id: str, clip: Any, *, task_id: Optional[str], storage_path: str,
     cost_usd: Optional[float],

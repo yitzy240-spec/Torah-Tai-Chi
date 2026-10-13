@@ -22,7 +22,9 @@ from src.db_rows import (
     job_status_update,
 )
 from src.events import build_event_row
-from src.kie_task_persist import build_done_clip_row, build_pending_clip_row
+from src.kie_task_persist import (
+    build_done_clip_row, build_pending_clip_row, build_reset_clip_row,
+)
 from src.models import Clip
 
 JOB_ID = "00000000-0000-4000-8000-000000000001"
@@ -79,6 +81,8 @@ def _cases() -> list[Case]:
         Case("pending_clip_row_fresh_index", "clips", "upsert",
              build_pending_clip_row(JOB_ID, CLIP1, "t-1", "bow", "https://m/bow.mp4"),
              OK, on_conflict="job_id,index"),
+        Case("reset_clip_row_existing_index", "clips", "upsert",
+             build_reset_clip_row(JOB_ID, CLIP0), OK, on_conflict="job_id,index"),
         Case("pending_clip_row_existing_index", "clips", "upsert",
              build_pending_clip_row(JOB_ID, CLIP0, "t-2"), OK, on_conflict="job_id,index"),
         Case("done_clip_row", "clips", "upsert",
