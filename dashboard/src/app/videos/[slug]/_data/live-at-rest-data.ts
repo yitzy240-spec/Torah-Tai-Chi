@@ -149,8 +149,8 @@ export async function getLiveAtRestProps(
   }
 
   // Build per-channel status list (for the simple status display in the hero).
-  // Skip platforms not in ACTIVE_PLATFORMS so the swap-out (e.g., TikTok ⇒
-  // disconnected 2026-05-28 in favor of Facebook) hides those historical
+  // Skip platforms not in ACTIVE_PLATFORMS so a swap-out (e.g., X ⇒
+  // retired 2026-10-13 in favor of TikTok) hides those historical
   // rows from the dashboard. The posts themselves remain in the DB and on
   // the external platform — we just stop surfacing them in the UI.
   const activeSet = new Set<string>(ACTIVE_PLATFORMS);

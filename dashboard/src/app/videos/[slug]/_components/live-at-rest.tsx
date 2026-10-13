@@ -24,7 +24,7 @@ import { LiveSiteCmsCard } from './live-site-cms-card';
 import { InstagramCard } from './posting-cards/instagram-card';
 import { YouTubeCard } from './posting-cards/youtube-card';
 import { FacebookCard } from './posting-cards/facebook-card';
-import { XCard } from './posting-cards/x-card';
+import { TikTokCard } from './posting-cards/tiktok-card';
 import { PlatformIcon } from '@/components/platform-icon';
 import { ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
 import { downloadUrl } from '@/lib/storage-url';
@@ -328,10 +328,16 @@ export function LiveAtRest(p: Props) {
             Social platforms
           </div>
 
-          {/* TikTok card removed 2026-05-28: TikTok was disconnected in
-              favor of Facebook (no traction). Historical TikTok posts
-              still live on TikTok itself; we just stop surfacing them
-              in the dashboard. */}
+          {shouldShowCard('tiktok') && (
+            <TikTokCard
+              jobId={jobId}
+              videoId={p.videoId}
+              parshaSlug={p.parshaSlug}
+              caption={captionFor('tiktok')}
+              post={latestPostByPlatform['tiktok'] ?? null}
+              postUrl={p.postUrls['tiktok'] ?? null}
+            />
+          )}
 
           {shouldShowCard('instagram') && (
             <InstagramCard
@@ -374,17 +380,9 @@ export function LiveAtRest(p: Props) {
             />
           )}
 
-          {/* X platform key is 'twitter' in the DB */}
-          {shouldShowCard('twitter') && (
-            <XCard
-              jobId={jobId}
-              videoId={p.videoId}
-              parshaSlug={p.parshaSlug}
-              caption={captionFor('twitter')}
-              post={latestPostByPlatform['twitter'] ?? null}
-              postUrl={p.postUrls['twitter'] ?? null}
-            />
-          )}
+          {/* X card removed 2026-10-13: X swapped out for TikTok.
+              Historical X posts still live on X itself; we just stop
+              surfacing them in the dashboard. */}
         </div>
       )}
 

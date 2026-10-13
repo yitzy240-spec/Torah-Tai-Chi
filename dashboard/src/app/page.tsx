@@ -121,7 +121,7 @@ async function getLatestLiveVideo(): Promise<LatestLiveVideo | null> {
     .eq('video_id', vRow.id as string)
     .eq('status', 'published');
   const postedSet = new Set((postRows ?? []).map((r) => r.platform as string));
-  // Preserve ACTIVE_PLATFORMS render order — IG/YT/FB/X — so the icon
+  // Preserve ACTIVE_PLATFORMS render order — TikTok/IG/YT/FB — so the icon
   // row reads the same on every card.
   const postedPlatforms = ACTIVE_PLATFORMS.filter((p) => postedSet.has(p));
 
@@ -430,7 +430,7 @@ function LatestLiveCard({
               {video.postedPlatforms.map((pl) => (
                 <PlatformIcon
                   key={pl}
-                  name={pl as 'instagram' | 'youtube' | 'facebook' | 'twitter'}
+                  name={pl as 'tiktok' | 'instagram' | 'youtube' | 'facebook'}
                   size={14}
                 />
               ))}

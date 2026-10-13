@@ -1,7 +1,7 @@
 // dashboard/scripts/storyblok-sync-socials.ts
 //
 // Pull the actual public URLs + handles for every connected social
-// channel — Buffer for IG/FB/X, YouTube oauth_tokens for YT — and
+// channel — Buffer for IG/FB/X/TikTok, YouTube oauth_tokens for YT — and
 // upsert them into Storyblok's site-text store. Replaces the
 // 2026-05-29 hardcoded @torahtaichi guesses with the real
 // service_usernames Yonah has wired up.
@@ -47,6 +47,8 @@ function buildUrl(service: string, rawHandle: string): Built {
       return { url: `https://facebook.com/${handle}`,    handle: `@${handle}` };
     case 'twitter':
       return { url: `https://x.com/${handle}`,           handle: `@${handle}` };
+    case 'tiktok':
+      return { url: `https://www.tiktok.com/@${handle}`, handle: `@${handle}` };
     case 'youtube':
       return { url: `https://youtube.com/@${handle}`,    handle: `@${handle}` };
     default:
@@ -71,6 +73,7 @@ async function main() {
     instagram: 'instagram',
     facebook:  'facebook',
     twitter:   'x',
+    tiktok:    'tiktok',
   };
 
   const built: Record<string, Built> = {};

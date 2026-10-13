@@ -6,13 +6,13 @@ interface Props {
   label?: string;
 }
 
-// TikTok was retired 2026-05-28 (no traction in Buffer) — Facebook
-// took its slot. Dashboard mirror: dashboard's ACTIVE_PLATFORMS list
-// already excludes tiktok. Icon function below still handles "tiktok"
-// for any legacy post_url that sneaks through, but PLATFORM_ORDER no
-// longer surfaces it, so no button renders.
+// TikTok was retired 2026-05-28 and restored 2026-10-13 (it replaced X
+// as a posting target). X stays in the list: a button only renders when
+// the video actually has a post URL on that platform, so older teachings
+// still link to their real X posts.
 const PLATFORM_ORDER: Array<keyof NonNullable<Parsha["postUrls"]>> = [
   "youtube",
+  "tiktok",
   "instagram",
   "facebook",
   "twitter",
@@ -20,6 +20,7 @@ const PLATFORM_ORDER: Array<keyof NonNullable<Parsha["postUrls"]>> = [
 
 const PLATFORM_LABEL: Record<string, string> = {
   youtube: "YouTube",
+  tiktok: "TikTok",
   instagram: "Instagram",
   facebook: "Facebook",
   twitter: "X",

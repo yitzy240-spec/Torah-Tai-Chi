@@ -153,9 +153,10 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
   // Yonah can opt out of specific channels per-post. When
   // selectedPlatforms is undefined, post to every ACTIVE platform that
   // has a caption — autopilot path (no explicit selection from the
-  // operator). ACTIVE_PLATFORMS excludes deprecated channels (TikTok
-  // as of 2026-05-28), so Modal-generated captions for retired
-  // platforms don't trigger spurious "no Buffer profile found" errors
+  // operator). ACTIVE_PLATFORMS excludes deprecated channels (X/twitter
+  // as of 2026-10-13; TikTok was out 2026-05-28 → 2026-10-13), so
+  // Modal-generated captions for retired platforms are never posted
+  // and don't trigger spurious "no Buffer profile found" errors
   // every autopilot run. The dashboard sheet always passes an explicit
   // selectedPlatforms list (also filtered to active channels via the
   // posting-cards UI), so selection-driven flows are unaffected.
@@ -224,8 +225,8 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
     // twice tried to post to one channel and it went to all three.)
     if (selectedSet && !selectedSet.has(platform)) continue;
     // Autopilot path (no selectedSet) skips deprecated channels so we
-    // don't keep logging 'No Buffer profile for tiktok' on every run
-    // after TikTok was disconnected 2026-05-28.
+    // never auto-post to a retired channel (X since 2026-10-13) or log
+    // 'No Buffer profile for …' for one that's been disconnected.
     if (!selectedSet && !activeSet.has(platform)) continue;
 
     const profile = profiles.find(

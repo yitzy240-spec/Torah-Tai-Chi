@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Brand from "./Brand";
-import { FacebookIcon, YouTubeIcon, InstagramIcon, XIcon } from "./SocialIcons";
+import { FacebookIcon, YouTubeIcon, InstagramIcon, TikTokIcon } from "./SocialIcons";
 
 // Canonical social URLs — source of truth lives in
 // website/src/lib/site-content.ts under social.url.*. SiteNav is a
@@ -15,7 +15,7 @@ const SOCIAL_URLS = {
   facebook: "https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/",
   youtube:  "https://www.youtube.com/@TorahTai_Chi",
   instagram:"https://instagram.com/torah_taichi",
-  x:        "https://x.com/Torah_TaiChi",
+  tiktok:   "https://www.tiktok.com/@torahtaichi",
 };
 
 interface SiteNavProps {
@@ -78,8 +78,8 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
           <a href={SOCIAL_URLS.instagram} title="Instagram" target="_blank" rel="noopener noreferrer">
             <InstagramIcon />
           </a>
-          <a href={SOCIAL_URLS.x} title="X" target="_blank" rel="noopener noreferrer">
-            <XIcon />
+          <a href={SOCIAL_URLS.tiktok} title="TikTok" target="_blank" rel="noopener noreferrer">
+            <TikTokIcon />
           </a>
         </div>
         <button
@@ -149,9 +149,9 @@ export default function SiteNav({ showBook = false }: SiteNavProps) {
             <InstagramIcon />
             <span>Instagram</span>
           </a>
-          <a href={SOCIAL_URLS.x} aria-label="X" target="_blank" rel="noopener noreferrer">
-            <XIcon />
-            <span>X</span>
+          <a href={SOCIAL_URLS.tiktok} aria-label="TikTok" target="_blank" rel="noopener noreferrer">
+            <TikTokIcon />
+            <span>TikTok</span>
           </a>
         </div>
       </aside>

@@ -2,15 +2,15 @@ export const PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook', 'twitter
 export type Platform = typeof PLATFORMS[number];
 
 /**
- * Platforms we currently post to. TikTok was disconnected on 2026-05-28
- * in favor of Facebook (no traction on TikTok); historical posts on
- * TikTok still exist in the DB and live on TikTok, but the dashboard UI
- * stops offering it for new work. Forward-facing components (posting
- * cards, caption editor, live-at-rest status) iterate ACTIVE_PLATFORMS;
- * the posts table and Modal pipeline keep using the full PLATFORMS
- * union so the schema can still represent historical TikTok rows.
+ * Platforms we currently post to. TikTok was disconnected 2026-05-28 and
+ * restored 2026-10-13, replacing X (twitter). Retired platforms keep their
+ * historical rows in the DB and live on the platform itself, but the
+ * dashboard stops offering them for new work. Forward-facing components
+ * (posting cards, Post all, autopilot fanout, live-at-rest status)
+ * iterate ACTIVE_PLATFORMS; the posts table and Modal pipeline keep using
+ * the full PLATFORMS union so the schema can still represent every row.
  */
-export const ACTIVE_PLATFORMS = ['instagram', 'youtube', 'facebook', 'twitter'] as const satisfies readonly Platform[];
+export const ACTIVE_PLATFORMS = ['tiktok', 'instagram', 'youtube', 'facebook'] as const satisfies readonly Platform[];
 export type ActivePlatform = typeof ACTIVE_PLATFORMS[number];
 
 // YouTube posts go direct via the Data API v3. The rest go through Buffer

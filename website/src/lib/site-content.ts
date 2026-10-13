@@ -113,16 +113,18 @@ const FALLBACKS: SiteContentMap = {
   'share.watch_on_label': 'Watch on',
   // ── SOCIAL URLS + HANDLES ─────────────────────────────────────────
   // Single source of truth — the nav, footer, and about page all read these.
-  // TikTok was retired 2026-05-28 in favor of Facebook (no traction); X
-  // was added 2026-05-29. Tiktok fallbacks kept as historical reference
-  // but no UI surface references them anymore.
+  // TikTok was retired 2026-05-28, X added 2026-05-29; on 2026-10-13
+  // TikTok replaced X in every profile-link surface (nav, footer, about,
+  // JSON-LD). The x keys are kept but no UI renders them anymore.
   'social.url.youtube': 'https://www.youtube.com/@TorahTai_Chi',
   'social.url.instagram': 'https://instagram.com/torah_taichi',
   'social.url.facebook': 'https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/',
+  'social.url.tiktok': 'https://www.tiktok.com/@torahtaichi',
   'social.url.x': 'https://x.com/Torah_TaiChi',
   'social.handle.youtube': '@TorahTai_Chi',
   'social.handle.instagram': '@torah_taichi',
   'social.handle.facebook': 'Torah Tai Chi',
+  'social.handle.tiktok': '@torahtaichi',
   'social.handle.x': '@Torah_TaiChi',
 };
 

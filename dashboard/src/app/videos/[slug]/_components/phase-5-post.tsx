@@ -1,7 +1,9 @@
 // dashboard/src/app/videos/[slug]/_components/phase-5-post.tsx
 //
-// Phase 5 assembly: stacks platform cards in fixed order (Site, Instagram, YouTube, Facebook, X).
-// Hides any platform NOT in connectedPlatforms (except Site, which is always shown).
+// Phase 5 assembly: stacks platform cards in fixed order (Site, TikTok, Instagram, YouTube, Facebook).
+// Hides any platform NOT in connectedPlatforms or NOT in ACTIVE_PLATFORMS (except Site,
+// which is always shown) — so a retired channel still linked in Buffer (X) is never
+// offered or swept into Post all.
 // Top: "Posted X of Y" progress strip with useRealtimeRows so the count updates live.
 // Includes "Post all" button for platforms with draft captions.
 // Bottom: "← Back to stitched video" link.
@@ -17,8 +19,8 @@ import { SiteCard } from './posting-cards/site-card';
 import { InstagramCard } from './posting-cards/instagram-card';
 import { YouTubeCard } from './posting-cards/youtube-card';
 import { FacebookCard } from './posting-cards/facebook-card';
-import { XCard } from './posting-cards/x-card';
-import { PLATFORM_DISPLAY, type Platform } from '@/lib/platforms';
+import { TikTokCard } from './posting-cards/tiktok-card';
+import { ACTIVE_PLATFORMS, PLATFORM_DISPLAY, type Platform } from '@/lib/platforms';
 
 interface PostRow {
   id: string;
@@ -90,7 +92,8 @@ export function Phase5Post(p: Props) {
   }
 
   // Progress strip
-  const socialPlatforms = p.connectedPlatforms;
+  const activeSet = new Set<Platform>(ACTIVE_PLATFORMS);
+  const socialPlatforms = p.connectedPlatforms.filter((pl) => activeSet.has(pl));
   const totalPlatforms = 1 + socialPlatforms.length; // 1 = Site
   const sitePosted = p.isLive ? 1 : 0;
   const socialPosted = socialPlatforms.filter(
@@ -98,7 +101,7 @@ export function Phase5Post(p: Props) {
   ).length;
   const totalPosted = sitePosted + socialPosted;
 
-  const isConnected = (pl: Platform) => p.connectedPlatforms.includes(pl);
+  const isConnected = (pl: Platform) => socialPlatforms.includes(pl);
 
   const captionFor = (key: string): string =>
     p.captions[key] ?? '';
@@ -275,8 +278,17 @@ export function Phase5Post(p: Props) {
         onReplace={p.onSiteReplace}
       />
 
-      {/* TikTok card removed 2026-05-28: platform swapped out for Facebook.
-          See ACTIVE_PLATFORMS in lib/platforms.ts. */}
+      {/* TikTok card */}
+      {isConnected('tiktok') && (
+        <TikTokCard
+          jobId={p.jobId}
+          videoId={p.videoId}
+          parshaSlug={p.parshaSlug}
+          caption={captionFor('tiktok')}
+          post={latestPostByPlatform['tiktok'] ?? null}
+          postUrl={p.postUrls['tiktok'] ?? null}
+        />
+      )}
 
       {/* Instagram card */}
       {isConnected('instagram') && (
@@ -322,17 +334,8 @@ export function Phase5Post(p: Props) {
         />
       )}
 
-      {/* X card */}
-      {isConnected('twitter') && (
-        <XCard
-          jobId={p.jobId}
-          videoId={p.videoId}
-          parshaSlug={p.parshaSlug}
-          caption={captionFor('twitter')}
-          post={latestPostByPlatform['twitter'] ?? null}
-          postUrl={p.postUrls['twitter'] ?? null}
-        />
-      )}
+      {/* X card removed 2026-10-13: X swapped out for TikTok.
+          See ACTIVE_PLATFORMS in lib/platforms.ts. */}
 
       {/* Back link */}
       <div style={{ marginTop: 14, padding: '12px 0', borderTop: '1px solid var(--ink-100)' }}>
