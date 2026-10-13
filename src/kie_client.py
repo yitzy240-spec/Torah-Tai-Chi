@@ -274,7 +274,10 @@ class KieClient:
                 )
                 await asyncio.sleep(wait_s)
 
-    async def upload_file(self, path: Path, remote_dir: str = "torah-tai-chi") -> str:
+    async def upload_file(
+        self, path: Path, remote_dir: str = "torah-tai-chi",
+        file_name: str | None = None,
+    ) -> str:
         """Upload via base64 endpoint, return downloadUrl.
 
         Retries transient 5xx from Kie's upload endpoint with 1s/2s/4s
@@ -283,6 +286,10 @@ class KieClient:
         killed the entire clip render and forced the operator to manually
         retry from the UI. Idempotent endpoint: re-uploading the same
         bytes just returns a new downloadUrl, no duplicate-state risk.
+
+        file_name defaults to path.name. Kie OVERWRITES a re-used name
+        (and may keep serving the cached old file), so per-render images
+        such as chain frames must pass a unique name.
         """
         import base64
         b64 = base64.b64encode(path.read_bytes()).decode("ascii")
@@ -290,7 +297,7 @@ class KieClient:
         payload = {
             "base64Data": f"data:{mime};base64,{b64}",
             "uploadPath": remote_dir,
-            "fileName": path.name,
+            "fileName": file_name or path.name,
         }
         url = "https://kieai.redpandaai.co/api/file-base64-upload"
         last_err: Exception | None = None
