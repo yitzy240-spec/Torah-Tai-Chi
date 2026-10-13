@@ -183,7 +183,7 @@ jobs:
           pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Replay bootstrap shims + migrations + prod-drift shims
+      - name: Replay Supabase platform bootstrap + migrations
         # Each file runs in its own transaction; a failure names the file.
         # The fresh snapshot is written to /tmp so the next step can diff
         # it against the committed one (and it's uploaded on failure).

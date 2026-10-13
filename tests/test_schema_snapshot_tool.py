@@ -8,22 +8,26 @@ import pytest
 from tools import schema_snapshot as ss
 
 
-def test_replay_plan_order():
-    labels = [label for label, _ in ss.replay_plan()]
+def test_replay_is_platform_bootstrap_then_migrations_only():
+    """No schema shims: the migrations alone must reproduce prod."""
+    plan = ss.replay_plan()
+    labels = [label for label, _ in plan]
     assert labels[0] == "bootstrap"
-    assert labels[-1] == "prod_drift"
-    migs = [lbl for lbl in labels if not lbl.startswith(("before/", "bootstrap", "prod_drift"))]
+    migs = labels[1:]
     assert migs == sorted(migs) and migs[0].startswith("0001_")
-    # Replay-order shim lands immediately before its migration.
-    i = labels.index("before/20260517_backfill_videos_title.sql")
-    assert labels[i + 1] == "20260517_backfill_videos_title.sql"
-    assert labels.index("20260517_video_page_redesign.sql") > i + 1
+    assert all(path.parent == ss.MIGRATIONS_DIR for _, path in plan[1:])
+    assert not (ss.SCHEMA_DIR / "prod_drift.sql").exists()
+    assert not (ss.SCHEMA_DIR / "before").exists()
 
 
-def test_every_before_shim_matches_a_real_migration():
-    names = {p.name for p in ss.MIGRATIONS_DIR.glob("*.sql")}
-    for shim in ss.BEFORE_DIR.glob("*.sql"):
-        assert shim.name in names, f"orphan replay shim {shim.name}"
+def test_backfill_guard_makes_lexical_order_safe():
+    """20260517_backfill_videos_title sorts before video_page_redesign, which
+    creates the columns it UPDATEs; the backfill now adds them itself."""
+    labels = [label for label, _ in ss.replay_plan()]
+    assert labels.index("20260517_backfill_videos_title.sql") < labels.index(
+        "20260517_video_page_redesign.sql")
+    sql = (ss.MIGRATIONS_DIR / "20260517_backfill_videos_title.sql").read_text(encoding="utf-8")
+    assert sql.index("ADD COLUMN IF NOT EXISTS title") < sql.index("UPDATE videos")
 
 
 @pytest.mark.parametrize("url", [
