@@ -112,13 +112,22 @@ OUTDOOR_ARCHETYPES: dict[str, str] = {
 
 # The full outfit, head to toe, as it appears in references/06 and 08.
 # Kept separate so tests and the chained-clip clause can reference it.
+#
+# Noach 2026-10-13 (after PR #20): the first version said "sleeves
+# reaching the forearm or wrist (cuffs may be rolled once)", which allows
+# TWO looks. Clip 0 had sleeves rolled once to mid-forearm (as in
+# references/06_fullbody_ready_stance.png); the clip-1 re-render had
+# full wrist-length, unrolled sleeves, and both satisfied the text. Pin
+# exactly one sleeve style.
 WARDROBE_LOCK = (
     "WARDROBE (identical in every clip and every frame, wide shots "
-    "included): the navy shirt is LONG-SLEEVED, sleeves reaching the "
-    "forearm or wrist (cuffs may be rolled once) — never short sleeves, "
-    "never sleeveless, never a T-shirt; frog-button closures down the "
-    "front; full-length dark tai chi trousers; black cloth tai chi shoes. "
-    "No change of clothing, jacket, robe, tallit, or costume."
+    "included): the navy shirt has long sleeves ROLLED UP ONCE TO "
+    "MID-FOREARM with a visible turned-back cuff, identical on both arms "
+    "in every clip — never unrolled to the wrist, never wrist-length, "
+    "never short sleeves, never sleeveless, never a T-shirt; frog-button "
+    "closures down the front; full-length dark tai chi trousers; black "
+    "cloth tai chi shoes. No change of clothing, jacket, robe, tallit, or "
+    "costume."
 )
 
 
@@ -204,6 +213,23 @@ CHAIN_CONTINUITY_LOCK = (
     "framing (gentle moves only, no hard cut to a different shot). If more "
     "of his body comes into view, his clothing is exactly the outfit "
     "described above."
+)
+
+# Used instead of CHAIN_CONTINUITY_LOCK when SEEDANCE_CHAIN_MODE=reference:
+# the previous clip's last frame goes in as reference image 1 (not as
+# first_frame_url), so the identity/outfit refs can ride along. Kie docs:
+# reference-to-video "can indirectly achieve a First/Last Frame +
+# Multimodal Reference effect by specifying reference images as the first
+# or last frame via prompts". Noach 2026-10-13: the chained clip-1 render
+# had no refs at all and drifted on the sleeves.
+CHAIN_REFERENCE_LOCK = (
+    "CONTINUITY: @Image1 is the last frame of the previous clip. This clip "
+    "opens on exactly the composition of @Image1 — same framing, camera "
+    "angle, pose, room and lighting — and continues directly from it "
+    "(gentle camera moves only, no hard cut to a different shot). The "
+    "remaining reference images are the authority for Rav Eli's face, "
+    "kippah, shirt, logo and full outfit; if more of his body comes into "
+    "view, his clothing matches them and the outfit described above."
 )
 
 ENVIRONMENT_LOCK = (

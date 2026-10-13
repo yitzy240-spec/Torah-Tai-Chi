@@ -27,7 +27,7 @@ def _payload(first_frame_url=None, clip=NOACH_CLIP_2, **kw):
 
 def test_wardrobe_lock_pins_sleeves_and_lower_body():
     t = WARDROBE_LOCK.lower()
-    assert "long-sleeved" in t
+    assert "long sleeves" in t
     assert "never short sleeves" in t
     assert "trousers" in t and "shoes" in t
     assert WARDROBE_LOCK in STYLE_LOCK

@@ -1868,6 +1868,66 @@ async def _upload_first_frame(kie: "KieClient", png_path: Path) -> str:  # noqa:
     )
 
 
+def _log_chain_decision(
+    sb, clip_index: int, chained: bool, reason: str, message: str,
+    job_id: str | None = None, level: str = "info",
+) -> None:
+    """Record why a clip did or did not chain (pipeline.chain_decision).
+
+    Noach 2026-10-13: a clip-1 re-render silently fell back to reference
+    images with chain_broken=false, and with no Modal logs we could not
+    tell which gate fired. Best-effort — must never fail a render.
+    """
+    try:
+        from src.events import log_event
+        from src.video_generator import CHAIN_MODE
+
+        log_event(
+            sb, actor="modal", level=level,
+            event="pipeline.chain_decision",
+            subject_type="clip",
+            message=message,
+            details={
+                "clip_index": clip_index, "chained": chained,
+                "reason": reason, "chain_mode": CHAIN_MODE,
+                "job_id": job_id,
+            },
+        )
+    except Exception as log_err:
+        print(f"[firstframe] chain_decision log failed (ignored): {log_err}")
+
+
+def _log_seedance_request(
+    sb, job_id: str, clip_index: int, task_id: str, payload: dict,
+) -> None:
+    """Record what a Seedance task was actually sent (pipeline.seedance_request)
+    so a report like Noach 2026-10-13 can be checked against
+    execution_events instead of guessed. Best-effort."""
+    try:
+        from src.events import log_event
+        from src.video_generator import prompt_lock_flags
+
+        prompt = payload.get("prompt") or ""
+        log_event(
+            sb, actor="modal", level="info",
+            event="pipeline.seedance_request",
+            subject_type="clip",
+            message=f"Seedance task {task_id} created for clip {clip_index}",
+            details={
+                "clip_index": clip_index, "task_id": task_id,
+                "job_id": job_id,
+                "has_first_frame": bool(payload.get("first_frame_url")),
+                "n_reference_images": len(
+                    payload.get("reference_image_urls") or []
+                ),
+                "lock_flags": prompt_lock_flags(prompt),
+                "prompt_chars": len(prompt),
+            },
+        )
+    except Exception as log_err:
+        print(f"[kie] seedance_request log failed (ignored): {log_err}")
+
+
 async def _resolve_regen_first_frame(
     sb,
     parent_job_id: str,
@@ -1903,26 +1963,37 @@ async def _resolve_regen_first_frame(
     None (fall-through to reference-image-only re-roll). Callers should
     NOT raise on a None return; treat it as "no chain available".
     """
+    def _decide(reason: str, message: str, chained: bool = False,
+                level: str = "info") -> None:
+        print(message)
+        _log_chain_decision(
+            sb, clip_index, chained, reason, message,
+            job_id=parent_job_id, level=level,
+        )
+
     # Gate 0: the operator explicitly requested canonical references.
     if chain_broken:
-        print(
+        _decide(
+            "operator_chain_broken",
             f"[firstframe] regen clip {clip_index}: operator broke chain "
-            f"— refs active"
+            f"— refs active",
         )
         return None
 
     # Gate 1: clip 0 has no predecessor.
     if clip_index <= 0:
-        print(
-            f"[firstframe] regen clip {clip_index}: clip 0 — no chain"
+        _decide(
+            "first_clip",
+            f"[firstframe] regen clip {clip_index}: clip 0 — no chain",
         )
         return None
 
     # Gate 2: motion ref is mutex with first_frame_url in Seedance.
     if motion_ref_slug:
-        print(
+        _decide(
+            "motion_ref",
             f"[firstframe] regen clip {clip_index}: motion_ref present "
-            f"({motion_ref_slug}) — skip chain"
+            f"({motion_ref_slug}) — skip chain",
         )
         return None
 
@@ -1964,18 +2035,20 @@ async def _resolve_regen_first_frame(
 
     # Gate 3: clip N-1 must exist and be fully rendered.
     if not prev_row or not prev_storage_path:
-        print(
+        _decide(
+            "prev_clip_not_rendered",
             f"[firstframe] regen clip {clip_index}: clip {clip_index - 1} "
-            f"not found or has no storage_path — no chain"
+            f"not found or has no storage_path — no chain",
         )
         return None
 
     # Gate 4: same scene (setting_id).
     prev_setting = prev_row.get("setting_id")
     if prev_setting != clip_setting_id:
-        print(
+        _decide(
+            "setting_changed",
             f"[firstframe] regen clip {clip_index}: different setting "
-            f"({prev_setting!r} vs {clip_setting_id!r}) — no chain"
+            f"({prev_setting!r} vs {clip_setting_id!r}) — no chain",
         )
         return None
 
@@ -1986,9 +2059,10 @@ async def _resolve_regen_first_frame(
     curr_kws = _jewish_ref_ids_in_prompt(clip_visual_prompt or "", clip_setting_id)
     if curr_kws - prev_kws:
         new_kws = ", ".join(sorted(curr_kws - prev_kws))
-        print(
+        _decide(
+            "new_ritual_keyword",
             f"[firstframe] regen clip {clip_index}: new ritual keyword(s) "
-            f"introduced ({new_kws}); refs must flow — no chain"
+            f"introduced ({new_kws}); refs must flow — no chain",
         )
         return None
 
@@ -1999,15 +2073,19 @@ async def _resolve_regen_first_frame(
         prev_local = _ensure_local(sb, work_dir, prev_storage_path)
         _extract_last_frame(prev_local, png_path)
         first_frame_url = await _upload_first_frame(kie, png_path)
-        print(
+        _decide(
+            "chained_from_prev_job",
             f"[firstframe] regen clip {clip_index}: chained from clip "
-            f"{clip_index - 1} (setting={clip_setting_id})"
+            f"{clip_index - 1} (setting={clip_setting_id})",
+            chained=True,
         )
         return first_frame_url
     except Exception as ff_err:
-        print(
+        _decide(
+            "extract_upload_failed",
             f"[firstframe] regen clip {clip_index}: extract/upload failed "
-            f"({type(ff_err).__name__}: {ff_err}); falling through to no-chain"
+            f"({type(ff_err).__name__}: {ff_err}); falling through to no-chain",
+            level="warn",
         )
         return None
     finally:
@@ -6108,7 +6186,7 @@ def clips_only_job(job_id: str) -> dict | None:
     """
     sys.path.insert(0, "/root")
     from supabase import create_client
-    from src.video_generator import generate_clip_with_meta
+    from src.video_generator import CHAIN_MODE, generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
@@ -6363,7 +6441,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 ]
                 if resolved:
                     override_refs = resolved
-                    if first_frame_url:
+                    if first_frame_url and CHAIN_MODE == "first_frame":
                         print(
                             f"[refs] clip {c.index}: {len(resolved)} "
                             f"operator-picked refs ignored — chained from "
@@ -6426,6 +6504,9 @@ def clips_only_job(job_id: str) -> dict | None:
                     motion_ref_slug=slug, motion_ref_url=motion_url,
                 ),
                 on_unsaved=unsaved_render_logger(sb, job_id, c.index),
+                on_request_sent=lambda tid, payload: _log_seedance_request(
+                    sb, job_id, c.index, tid, payload,
+                ),
             )
             print(f"[kie] clip {c.index}: Kie task {task_id} complete")
 
@@ -6604,16 +6685,26 @@ def clips_only_job(job_id: str) -> dict | None:
                         first_frame_url = await _upload_first_frame(
                             kie, png_path
                         )
-                        print(
+                        msg = (
                             f"[firstframe] clip {c.index}: chaining from "
                             f"clip {group[idx_in_group - 1].index} "
                             f"(setting={c.setting_id})"
                         )
+                        print(msg)
+                        _log_chain_decision(
+                            sb, c.index, True, "chained_in_group", msg,
+                            job_id=job_id,
+                        )
                     except Exception as ff_err:
-                        print(
+                        msg = (
                             f"[firstframe] clip {c.index}: extract/upload "
                             f"failed ({type(ff_err).__name__}: {ff_err}); "
                             f"falling through to refs"
+                        )
+                        print(msg)
+                        _log_chain_decision(
+                            sb, c.index, False, "extract_upload_failed", msg,
+                            job_id=job_id, level="warn",
                         )
                         first_frame_url = None
                     finally:
