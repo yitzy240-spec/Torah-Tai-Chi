@@ -9,7 +9,8 @@ from src.kie_task_persist import kie_result_urls
 from src.models import Clip
 from src.settings import (
     CHAIN_CONTINUITY_LOCK, CHAIN_REFERENCE_LOCK, ENVIRONMENT_LOCK,
-    LIP_SYNC_LOCK, STYLE_LOCK, WARDROBE_LOCK,
+    ENVIRONMENT_LOCK_CHAINED, HANDOFF_FRAMING_LOCK, LIP_SYNC_LOCK,
+    STYLE_LOCK, WARDROBE_LOCK,
 )
 
 
@@ -88,6 +89,8 @@ def prompt_lock_flags(prompt: str) -> dict:
         "lip_sync": LIP_SYNC_LOCK in prompt,
         "chain_continuity": CHAIN_CONTINUITY_LOCK in prompt,
         "chain_reference": CHAIN_REFERENCE_LOCK in prompt,
+        "environment_chained": ENVIRONMENT_LOCK_CHAINED in prompt,
+        "handoff": HANDOFF_FRAMING_LOCK in prompt,
     }
 
 
@@ -264,6 +267,7 @@ def build_seedance_input(
     jewish_ref_urls: Optional[list[str]] = None,
     override_ref_urls: Optional[list[str]] = None,
     chain_mode: Optional[str] = None,
+    followed_by_chained: bool = False,
 ) -> dict:
     mode = parse_chain_mode(chain_mode) if chain_mode is not None else CHAIN_MODE
     voice_clause = "Voice matches @Audio1 in timbre and delivery. " if audio_url else ""
@@ -313,6 +317,9 @@ def build_seedance_input(
         chain_clause = f"\n{CHAIN_CONTINUITY_LOCK}"
     else:
         chain_clause = ""
+    # A chained clip continues one shot: no "or the shot cuts cleanly".
+    environment_lock = ENVIRONMENT_LOCK_CHAINED if chain_frame else ENVIRONMENT_LOCK
+    handoff_clause = f"\n{HANDOFF_FRAMING_LOCK}" if followed_by_chained else ""
     prompt = (
         f"{clip.visual_prompt}\n\n"
         f"{_inject_sentence_beats(normalized_vo)}"
@@ -320,8 +327,9 @@ def build_seedance_input(
         f"{voice_clause}"
         f"{lip_sync_clause}"
         f"{STYLE_LOCK}\n"
-        f"{ENVIRONMENT_LOCK}"
+        f"{environment_lock}"
         f"{chain_clause}"
+        f"{handoff_clause}"
         f"{motion_addendum}"
     )
     payload: dict = {
@@ -372,6 +380,7 @@ async def generate_clip(
     reference_video_url: Optional[str] = None,
     jewish_ref_urls: Optional[list[str]] = None,
     chain_mode: Optional[str] = None,
+    followed_by_chained: bool = False,
 ) -> Path:
     payload = build_seedance_input(
         clip, character_ref_urls, dojo_ref_urls,
@@ -379,6 +388,7 @@ async def generate_clip(
         reference_video_url=reference_video_url,
         jewish_ref_urls=jewish_ref_urls,
         chain_mode=chain_mode,
+        followed_by_chained=followed_by_chained,
     )
     task_id = await client.create_task(model, payload)
     urls, _meta = await client.poll_task(task_id)
@@ -406,6 +416,7 @@ async def generate_clip_with_meta(
     ] = None,
     chain_mode: Optional[str] = None,
     on_request_sent: Optional[Callable[[str, dict], None]] = None,
+    followed_by_chained: bool = False,
 ) -> tuple[Path, dict, str]:
     """Same as generate_clip but also returns Kie's task metadata so the
     caller can extract real cost (credits_consumed / costCredits / etc).
@@ -435,6 +446,8 @@ async def generate_clip_with_meta(
     on_request_sent(task_id, payload) is called best-effort right after
     task creation so the caller can log what Seedance was actually sent;
     its exceptions are swallowed.
+    followed_by_chained appends HANDOFF_FRAMING_LOCK: the next clip will
+    chain from this clip's last frame, so it must end waist-up.
 
     Returns (dest_path, kie_meta, task_id).
     """
@@ -449,6 +462,7 @@ async def generate_clip_with_meta(
             jewish_ref_urls=jewish_ref_urls,
             override_ref_urls=override_ref_urls,
             chain_mode=chain_mode,
+            followed_by_chained=followed_by_chained,
         )
         task_id = await client.create_task(model, payload)
         if on_task_created is not None:

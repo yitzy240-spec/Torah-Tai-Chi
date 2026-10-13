@@ -242,6 +242,31 @@ ENVIRONMENT_LOCK = (
     "backdrop like the character reference portraits."
 )
 
+# Chained clips only (a chain frame is sent, either chain mode). The
+# "or the shot cuts cleanly" allowance above let Noach 2026-10-13 clip 2
+# hard-cut at ~4s from the chained close-up to a full-body shot — and the
+# new shot invented short sleeves. A chained clip continues ONE shot.
+ENVIRONMENT_LOCK_CHAINED = (
+    "ENVIRONMENT: the setting is physically solid. Walls, floor, furniture "
+    "and background never morph, melt, warp, dissolve, or transform into a "
+    "different place. If the scene moves Rav Eli somewhere new, he "
+    "physically walks or turns there; keep the camera continuous, no cuts "
+    "or new shots — the room never reshapes itself around him. The clip "
+    "opens inside its scene's setting from the very first frame — never on "
+    "a plain studio or grey backdrop like the character reference portraits."
+)
+
+# Appended when the NEXT clip will chain from this clip's last frame. A
+# chain that starts on a face close-up leaves Seedance to invent the arms
+# and sleeves when the next clip widens (Noach 2026-10-13 clip 2), so the
+# handoff frame must show them.
+HANDOFF_FRAMING_LOCK = (
+    "ENDING FRAME: the next clip continues from this clip's last frame, so "
+    "the clip must END on a waist-up framing of Rav Eli with both forearms "
+    "and his rolled sleeves visible. Any push-in stops at waist-up — never "
+    "end on a head-and-shoulders or face close-up."
+)
+
 
 GUARDRAILS_TEXT = """\
 FORBIDDEN (Seedance fails on these):

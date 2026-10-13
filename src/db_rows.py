@@ -141,3 +141,18 @@ def record_cost(
                      "notes": notes, "error": err},
         )
         return False
+
+
+def record_unattached_cost(
+    sb, action: str, vendor: str, cost_usd: float, notes: Optional[str] = None,
+) -> bool:
+    """cost_events row with job_id NULL, for spend that belongs to no job
+    (chain_probe). No jobs.total_cost_usd bump. Best-effort: never raises."""
+    try:
+        sb.table("cost_events").insert(
+            cost_event_row(None, action, vendor, cost_usd, notes)
+        ).execute()
+        return True
+    except Exception as e:
+        print(f"[cost] FAILED to record unattached {action}/{vendor} ${cost_usd}: {e}")
+        return False
