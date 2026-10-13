@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import { createPortal } from 'react-dom';
 import { scheduleAll } from '@/app/actions/schedule-all';
-import { PLATFORMS, PLATFORM_DISPLAY, type Platform } from '@/lib/platforms';
+import { ACTIVE_PLATFORMS, PLATFORM_DISPLAY, type Platform } from '@/lib/platforms';
 
 interface ScheduleAllSheetProps {
   videoId: string;
@@ -23,7 +23,7 @@ interface ScheduleAllSheetProps {
   parshaSlug?: string;
   /** Channels actually wired up (Buffer + YouTube). Drives the
    *  channel chip list and the lede count. When undefined, falls back
-   *  to all PLATFORMS for backwards-compat (legacy callers). */
+   *  to ACTIVE_PLATFORMS so retired channels (X) are never offered. */
   connectedPlatforms?: Platform[];
   /** Optional version label for the sheet header (e.g. "Version 3").
    *  Lets Yonah see which take is going out. */
@@ -67,7 +67,7 @@ export function ScheduleAllSheet({
   alreadyPublishedToWebsite, parshaSlug, connectedPlatforms,
   versionLabel, parshaName, replacing, thumbUrl,
 }: ScheduleAllSheetProps) {
-  const channels: readonly Platform[] = connectedPlatforms ?? PLATFORMS;
+  const channels: readonly Platform[] = connectedPlatforms ?? ACTIVE_PLATFORMS;
   const defaultDate = nextFriday6pm();
   const [open, setOpen] = useState(false);
   const [notConfiguredOpen, setNotConfiguredOpen] = useState(false);

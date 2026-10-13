@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 import { broadcast } from '@/app/actions/broadcast';
 import { AiImagePanel } from './ai-image-panel';
 import { AiVideoPanel } from './ai-video-panel';
+import { ACTIVE_PLATFORMS } from '@/lib/platforms';
 
 const PLATFORM_LABELS: Record<string, string> = {
   tiktok: 'View on TikTok',
@@ -33,7 +34,11 @@ export function ComposeForm({ channels, bufferConfigured }: Props) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(channels.map((c) => c.id)));
+  // Pre-select only active channels — a retired one still linked in
+  // Buffer (X since 2026-10-13) stays listed but must be opted into.
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(channels.filter((c) => (ACTIVE_PLATFORMS as readonly string[]).includes(c.service)).map((c) => c.id)),
+  );
   const [pending, startTransition] = useTransition();
   const [topError, setTopError] = useState<string | null>(null);
   // Per-channel status lives inline in the channel cards.

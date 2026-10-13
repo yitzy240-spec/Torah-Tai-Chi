@@ -49,11 +49,11 @@ export interface Parsha {
    *  unset. */
   websiteCaption?: string | null;
   /** Per-platform direct URLs for the post on each network (filled in by
-   *  the dashboard from autoPost results). Active keys: instagram,
-   *  youtube, facebook, twitter. Missing keys = no post on that platform
+   *  the dashboard from autoPost results). Active keys: tiktok,
+   *  instagram, youtube, facebook. Missing keys = no post on that platform
    *  (or not yet resolved); the website hides the corresponding button.
-   *  `tiktok` is kept in the type for historical records (TikTok was
-   *  retired 2026-05-28) but no longer surfaces in WatchOnRow. */
+   *  `twitter` is kept for historical records (X was retired as a posting
+   *  target 2026-10-13); older teachings still surface their X link. */
   postUrls?: Partial<Record<'tiktok' | 'instagram' | 'youtube' | 'facebook' | 'twitter', string>>;
   /** Every OTHER published teaching for this parsha — previous years' and
    *  other ideas — newest first. The fields above all describe the newest

@@ -14,7 +14,7 @@ const SOCIAL_PROFILES = [
   'https://www.youtube.com/@TorahTai_Chi',
   'https://instagram.com/torah_taichi',
   'https://www.facebook.com/people/Torah-Tai-Chi/61590370923943/',
-  'https://x.com/Torah_TaiChi',
+  'https://www.tiktok.com/@torahtaichi',
 ];
 
 // ─── Organization ────────────────────────────────────────────────────────────
