@@ -145,6 +145,67 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: placeholder
         run: pytest -q -m "not integration"
 
+  db-schema:
+    # Why: PR #15 shipped a partial `clips` upsert that violated NOT NULL;
+    # every unit test mocked Supabase, so CI passed and 4 paid Kie renders
+    # were lost in prod. This job replays every migration into a real
+    # Postgres, proves the committed schema snapshot (which the offline
+    # fake validates against) is current, and executes the pipeline's real
+    # write payloads against it.
+    name: DB schema (migrations replay + real-Postgres payload tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tt_schema
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tt_schema
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Replay bootstrap shims + migrations + prod-drift shims
+        # Each file runs in its own transaction; a failure names the file.
+        # The fresh snapshot is written to /tmp so the next step can diff
+        # it against the committed one (and it's uploaded on failure).
+        run: python tools/schema_snapshot.py --apply --write --out /tmp/schema_snapshot.json
+
+      - name: Committed schema snapshot is up to date
+        run: python tools/schema_snapshot.py --check
+
+      - name: Upload regenerated snapshot (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema_snapshot
+          path: /tmp/schema_snapshot.json
+          if-no-files-found: ignore
+
+      - name: Real-Postgres payload tests (pytest -m db)
+        env:
+          SUPABASE_URL: https://placeholder.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+        run: pytest -q -m db
+
   hebcal-slug-mirror:
     name: hebcal-slug.ts mirror check (dashboard ↔ website)
     runs-on: ubuntu-latest
@@ -175,7 +236,7 @@ jobs:
   # Summary job that all PR-protection rules can require as a single check.
   ci-passed:
     name: CI passed
-    needs: [dashboard, website, python, hebcal-slug-mirror]
+    needs: [dashboard, website, python, db-schema, hebcal-slug-mirror]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -184,6 +245,7 @@ jobs:
           if [ "${{ needs.dashboard.result }}" != "success" ] || \
              [ "${{ needs.website.result }}" != "success" ] || \
              [ "${{ needs.python.result }}" != "success" ] || \
+             [ "${{ needs.db-schema.result }}" != "success" ] || \
              [ "${{ needs.hebcal-slug-mirror.result }}" != "success" ]; then
             echo "One or more jobs failed."
             exit 1

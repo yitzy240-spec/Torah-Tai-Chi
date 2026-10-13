@@ -55,15 +55,15 @@ Available on Supabase Team tier ($599/mo). We're not on it; if we ever upgrade, 
 **Symptom:** a parsha video card shows "Generating…" or "Stitching your video…" for >2h. The job appears stuck.
 
 ### Triage
-1. **Find the job:** `/admin/events` (dashboard) → filter by parsha slug → find the most recent `pipeline_started` event without a `pipeline_completed`/`pipeline_failed` follow-up.
+1. **Find the job:** `/admin/events` (dashboard) → filter by the job id → the timeline is the `pipeline.status.<status>` events (one per stage); a run that ended badly has `pipeline.failed` or `pipeline.reaped` (watchdog). `kie.task_created` / `kie.paid_render_unsaved` events carry the Kie task id of any billed render (see "Recover a billed Kie render" below).
 2. **Check Modal:** `modal logs torah-tai-chi-pipeline --since 4h` and grep for the `job_id`.
 3. **Common causes:**
    - **Kie/Seedance timeout** — Modal is waiting for a Seedance render that never returned. Check Kie dashboard for stuck task.
    - **OpenRouter 5xx** — Claude call failed and Modal's retry budget was exhausted. Look for `claude_call: HTTP 5xx` in modal logs.
-   - **Webhook delivery dropped** — Modal finished but `/api/pipeline/video-complete` returned 5xx; Modal doesn't retry webhooks. The DB row stays at `status='running'` forever.
+   - **Webhook delivery dropped** — Modal finished but `/api/pipeline/video-complete` returned 5xx; Modal doesn't retry webhooks. The DB row stays in its last in-flight status (usually `stitching`) with `completed_at` null. (There is no `running` status — `job_status` is queued, loading_parsha, generating_plan, uploading_refs, generating_clips, verifying, stitching, done, failed, cancelled.) The `reap_stranded_jobs` watchdog fails `queued` jobs after 15 min and in-flight ones after 75 min.
 
 ### Resolution
-- **If Modal log shows the job actually completed** (last event was `pipeline_completed_local`): the webhook dropped. Manually mark the job done by re-firing the webhook handler:
+- **If Modal log shows the job actually completed** (the `pipeline.status.done` event exists): the webhook dropped. Manually mark the job done by re-firing the webhook handler:
   ```sql
   -- via Supabase SQL editor
   update jobs set status='done', completed_at=now() where id='<job_id>';
@@ -71,9 +71,26 @@ Available on Supabase Team tier ($599/mo). We're not on it; if we ever upgrade, 
   Then trigger a `/api/pipeline/video-complete` POST manually or `revalidatePath('/videos/<slug>')` from a dashboard server action.
 - **If Modal log shows the job is genuinely hung in Kie:** cancel the Kie task in their dashboard, then mark the job failed:
   ```sql
-  update jobs set status='failed', error='Manual: stuck in Kie >2h' where id='<job_id>';
+  update jobs set status='failed', error_message='Manual: stuck in Kie >2h', completed_at=now() where id='<job_id>';
   ```
-  The dashboard's "Retry" button on /videos/[slug] will re-trigger.
+  (The column is `error_message`; there is no `error` column.) The dashboard's "Retry" button on /videos/[slug] will re-trigger.
+  **Before cancelling or re-rendering, check whether Kie already finished the task** — Kie bills at createTask, so a re-render pays twice. See "Recover a billed Kie render".
+
+### Recover a billed Kie render
+Kie bills when a task is created. If a job failed after that (poll timeout, download/upload/DB failure), the render is usually still downloadable:
+```sql
+-- every billed task whose render did not reach Storage, newest first
+select created_at, details->>'job_id' as job_id, details->>'clip_index' as clip_index,
+       details->>'task_id' as task_id, details->'result_urls' as result_urls, details->>'error' as error
+from execution_events
+where event = 'kie.paid_render_unsaved'
+order by created_at desc limit 20;
+
+-- task ids recorded at creation (regen paths), and clips rows still pending with a task id
+select created_at, details from execution_events where event = 'kie.task_created' and subject_id = '<job_id>';
+select index, seedance_task_id, status, storage_path from clips where job_id = '<job_id>' order by index;
+```
+If `result_urls` is empty, ask Kie for it: `GET https://api.kie.ai/api/v1/jobs/recordInfo?taskId=<task_id>` (Bearer `KIE_AI_API_KEY`) → `data.resultJson.resultUrls`. A clips-only re-run of the same job resumes a `pending` row that still has `seedance_task_id` set instead of paying again.
 - **If Modal log shows uncaught exception:** read the traceback, fix the bug, redeploy Modal, then retry the job.
 
 ### Prevention
@@ -197,7 +214,10 @@ revalidatePath('/videos/<slug>')
 select id, parsha_id, kind, status, triggered_at,
        extract(epoch from (now() - triggered_at)) as age_sec
 from jobs
-where status in ('queued', 'running')
+-- ('running' is not a job_status value — comparing to it raises 22P02)
+where status in ('queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
+                 'generating_clips', 'verifying', 'stitching')
+  and completed_at is null
   and triggered_at < now() - interval '2 hours'
 order by triggered_at;
 

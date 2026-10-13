@@ -13,6 +13,7 @@ export type JobStage =
   | 'generating_clips'
   | 'clip_done'      // one clip landed mid-job (clips_only_job, per clip)
   | 'clip_failed'    // not yet emitted by Modal; dashboard handlers reference it
+  | 'verifying'      // Modal's per-clip verify loop broadcasts it via set_status
   | 'stitching'
   | 'done'
   | 'failed'

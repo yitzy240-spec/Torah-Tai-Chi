@@ -94,7 +94,8 @@ export async function POST(request: Request) {
   const parsha = (Array.isArray(parshaRel) ? parshaRel[0] : parshaRel) ?? null;
   const subjectName: string =
     parsha?.name ??
-    ((job?.kind === 'topic' && job?.topic) ? `Topic: ${String(job.topic).slice(0, 60)}` : 'Unknown');
+    (((job?.kind === 'video_topic' || job?.kind === 'topic') && job?.topic)
+      ? `Topic: ${String(job.topic).slice(0, 60)}` : 'Unknown');
 
   // Truncate the error message so the email body stays readable.
   const truncatedError =

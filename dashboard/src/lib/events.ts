@@ -1,9 +1,10 @@
 import { createServiceClient } from '@/lib/supabase/service';
 
 /**
- * Actors that can emit an execution_event. Keep in sync with the CHECK
- * constraint on execution_events.actor. If you need a new actor, add it
- * to both here and the Supabase migration.
+ * Actors that can emit an execution_event. NB: prod has NO CHECK on
+ * execution_events.actor or .level (verified against the 2026-10-13
+ * schema dump) — these unions are the only guard, so keep them in sync
+ * with src/events.py.
  */
 export type EventActor =
   | 'yonah'
@@ -48,17 +49,27 @@ export interface LogEventArgs {
  * which we deliberately don't surface. Callers who want back-pressure
  * should build it themselves.
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function logEvent(args: LogEventArgs): Promise<void> {
   try {
     const svc = createServiceClient();
+    // execution_events.subject_id is a uuid column. Callers sometimes pass
+    // a non-uuid handle (a Kie task id, an unvalidated request id); that
+    // 22P02'd and the whole event was silently dropped. Keep the event and
+    // move the handle into details instead.
+    const subjectIsUuid = !args.subjectId || UUID_RE.test(args.subjectId);
+    const details = subjectIsUuid
+      ? (args.details ?? null)
+      : { ...(args.details ?? {}), subject_ref: args.subjectId };
     const { error } = await svc.from('execution_events').insert({
       actor: args.actor,
       level: args.level,
       event: args.event,
       subject_type: args.subjectType ?? null,
-      subject_id: args.subjectId ?? null,
+      subject_id: subjectIsUuid ? (args.subjectId ?? null) : null,
       message: args.message,
-      details: args.details ?? null,
+      details,
     });
     if (error) {
       console.warn('[events] insert failed:', error.message, { event: args.event });

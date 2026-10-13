@@ -8,6 +8,7 @@ const CANCELLABLE_STATUSES = [
   'generating_plan',
   'uploading_refs',
   'generating_clips',
+  'verifying', // job_status enum; Modal's verify loop sets it mid-render
   'stitching',
 ];
 

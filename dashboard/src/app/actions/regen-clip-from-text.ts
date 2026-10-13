@@ -7,7 +7,7 @@ import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 // update both. (Both lists are short and rarely change.)
 const IN_PROGRESS_STATUSES = [
   'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
-  'generating_clips', 'stitching',
+  'generating_clips', 'verifying', 'stitching',
 ];
 
 /**

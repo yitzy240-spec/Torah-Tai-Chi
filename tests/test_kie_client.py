@@ -178,3 +178,33 @@ async def test_poll_timeout_after_retries():
             await client.poll_task("t-timeout")
         assert "poll timeout" in str(exc_info.value)
         assert "t-timeout" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exc_name", [
+    "WriteTimeout", "LocalProtocolError", "ProxyError", "WriteError",
+    "ConnectTimeout", "PoolTimeout",
+])
+async def test_poll_retries_every_transport_error(exc_name, monkeypatch):
+    """Any httpx.TransportError mid-poll is transient: retry it rather than
+    escape the poll and fail an already-billed render as not-saved."""
+    import asyncio
+
+    import httpx
+    import src.kie_client as kc
+
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(kc.asyncio, "sleep", lambda s: real_sleep(0))
+    async with respx.mock(assert_all_called=False) as mock:
+        mock.get(url__regex=r".*recordInfo.*taskId=t-tx").mock(
+            side_effect=[
+                getattr(httpx, exc_name)("blip"),
+                Response(200, json={"code": 200, "data": {
+                    "state": "success",
+                    "resultJson": '{"resultUrls": ["https://cdn/tx.mp4"]}'
+                }}),
+            ]
+        )
+        client = KieClient(api_key="k", poll_interval_s=0, poll_timeout_s=30)
+        urls, _meta = await client.poll_task("t-tx")
+        assert urls == ["https://cdn/tx.mp4"]
