@@ -104,6 +104,8 @@ def cost_event_row(
 
 
 def build_video_row(job_id: str, mp4_path: str) -> dict:
-    """Base videos INSERT row (job_id + mp4_path are NOT NULL; job_id is
-    UNIQUE). Callers add thumb_path / title fields."""
+    """Base videos row (job_id + mp4_path are NOT NULL). Workers write it
+    with upsert(on_conflict="job_id") (videos_job_id_key is UNIQUE), so a
+    re-render keeps the existing row's id, posts and feedback. Callers add
+    thumb_path / title fields."""
     return {"job_id": job_id, "mp4_path": mp4_path}

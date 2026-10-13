@@ -587,10 +587,13 @@ def run_pipeline(job_id: str) -> dict | None:
                 to_upsert, on_conflict="job_id,index"
             ).execute()
 
-        # Previous final video is always replaced (a new stitch is
-        # coming). The clip_plan is preserved if we reused it (resume
-        # short-circuit above) or replaced if we generated a fresh one.
-        sb.table("videos").delete().eq("job_id", job_id).execute()
+        # A previous final video for this job is NOT deleted here. Deleting
+        # it cascaded to its posts + feedback (ON DELETE CASCADE) and left
+        # no video at all if this re-render then failed. The stitch below
+        # upserts the row on job_id (UNIQUE), so the video keeps its id,
+        # posts and feedback and only gets the new mp4 once one exists.
+        # The clip_plan is preserved if we reused it (resume short-circuit
+        # above) or replaced if we generated a fresh one.
 
         if reusable_indices:
             print(
@@ -949,7 +952,7 @@ def run_pipeline(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         set_status("done", "Video ready")
         emit_job_event(job_id=job_id, stage="done", video_path=storage_path, message="Video ready")
@@ -3379,7 +3382,7 @@ def regen_smart(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         # 13. Mark done.
         set_status("done", "Smart regen video ready")
@@ -3858,7 +3861,7 @@ def regen_clip(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         # 11. Mark done.
         set_status("done", "Surgery video ready")
@@ -5175,7 +5178,7 @@ def regen_agent(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         # 13. Mark done.
         set_status("done", "Regen video ready")
@@ -5753,7 +5756,7 @@ def regen_single_clip(job_id: str) -> dict | None:
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         # Mark done + webhook (parsha kind only).
         set_status("done", "Regen ready")
@@ -6767,7 +6770,7 @@ def clips_only_job(job_id: str) -> dict | None:
         video_row["spoken_script"] = _pick_spoken_script(
             title_fields.get("spoken_script"), fresh_spoken_script,
         )
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         set_status("done", "Video ready")
         emit_job_event(
@@ -7299,7 +7302,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
         video_row["spoken_script"] = _pick_spoken_script(
             title_fields.get("spoken_script"), fresh_spoken_script,
         )
-        sb.table("videos").insert(video_row).execute()
+        sb.table("videos").upsert(video_row, on_conflict="job_id").execute()
 
         set_status("done", "Re-rendered clip")
         emit_job_event(

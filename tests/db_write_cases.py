@@ -171,6 +171,14 @@ def _cases() -> list[Case]:
               "spoken_script": "Shalom."}, OK),
         Case("video_row_second_for_same_job", "videos", "insert",
              build_video_row(JOB_ID, "jobs/x/final.mp4"), DUPLICATE),
+        # What every worker now sends: a re-render of a job that already
+        # has a video updates that row in place (keeps its id, so posts +
+        # feedback stay attached) instead of 23505-ing.
+        Case("video_row_upsert_on_job_id_existing", "videos", "upsert",
+             {**build_video_row(JOB_ID, "jobs/x/final.mp4"), "thumb_path": "jobs/x/thumb.png"},
+             OK, on_conflict="job_id"),
+        Case("video_row_upsert_on_job_id_fresh", "videos", "upsert",
+             build_video_row(JOB2_ID, "jobs/y/final.mp4"), OK, on_conflict="job_id"),
         # ── execution_events ─────────────────────────────────────────────
         Case("event_row_paid_render_unsaved", "execution_events", "insert",
              build_event_row(actor="modal", level="error", event="kie.paid_render_unsaved",
