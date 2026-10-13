@@ -1,5 +1,6 @@
 from __future__ import annotations
 import inspect
+import os
 import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional, Union
@@ -7,7 +8,9 @@ from src.kie_client import KieClient, KieTaskFailed
 from src.kie_task_persist import kie_result_urls
 from src.models import Clip
 from src.settings import (
-    CHAIN_CONTINUITY_LOCK, ENVIRONMENT_LOCK, LIP_SYNC_LOCK, STYLE_LOCK,
+    CHAIN_CONTINUITY_LOCK, CHAIN_REFERENCE_LOCK, ENVIRONMENT_LOCK,
+    ENVIRONMENT_LOCK_CHAINED, HANDOFF_FRAMING_LOCK, LIP_SYNC_LOCK,
+    STYLE_LOCK, WARDROBE_LOCK,
 )
 
 
@@ -54,6 +57,41 @@ class KieRenderNotSaved(RuntimeError):
 MAX_REFS = 9
 MAX_DOJO_REFS = 4  # was 3; bumped to improve dojo setting consistency
                    # (previous 2 dojo + 7 char ratio let dojo drift across clips)
+
+
+# How a chained clip carries the previous clip's last frame to Seedance.
+#   "first_frame": first_frame_url (default). Kie forbids any reference_*
+#       field alongside it, so the chained clip gets NO identity refs.
+#   "reference": the frame becomes reference image 1 and the normal refs
+#       follow; CHAIN_REFERENCE_LOCK tells the model to open on it.
+# Noach 2026-10-13: a chained clip-1 render drifted on the sleeves with no
+# refs to hold it. Set SEEDANCE_CHAIN_MODE=reference to probe the other mode.
+CHAIN_MODES = ("first_frame", "reference")
+
+
+def parse_chain_mode(value: Optional[str]) -> str:
+    """Unknown or empty values fall back to "first_frame" (current behaviour)."""
+    mode = (value or "").strip().lower()
+    if mode in CHAIN_MODES:
+        return mode
+    if mode:
+        print(f"[chain-mode] unknown chain mode {value!r}; using first_frame")
+    return "first_frame"
+
+
+CHAIN_MODE = parse_chain_mode(os.environ.get("SEEDANCE_CHAIN_MODE"))
+
+
+def prompt_lock_flags(prompt: str) -> dict:
+    """Which prompt locks reached a Seedance request (for execution_events)."""
+    return {
+        "wardrobe": WARDROBE_LOCK in prompt,
+        "lip_sync": LIP_SYNC_LOCK in prompt,
+        "chain_continuity": CHAIN_CONTINUITY_LOCK in prompt,
+        "chain_reference": CHAIN_REFERENCE_LOCK in prompt,
+        "environment_chained": ENVIRONMENT_LOCK_CHAINED in prompt,
+        "handoff": HANDOFF_FRAMING_LOCK in prompt,
+    }
 
 
 # Words Seedance's TTS mispronounces badly enough to produce audibly
@@ -228,7 +266,10 @@ def build_seedance_input(
     reference_video_url: Optional[str] = None,
     jewish_ref_urls: Optional[list[str]] = None,
     override_ref_urls: Optional[list[str]] = None,
+    chain_mode: Optional[str] = None,
+    followed_by_chained: bool = False,
 ) -> dict:
+    mode = parse_chain_mode(chain_mode) if chain_mode is not None else CHAIN_MODE
     voice_clause = "Voice matches @Audio1 in timbre and delivery. " if audio_url else ""
     # Per-clip delivery direction. Seedance is multimodal — the prompt
     # text influences BOTH the visual generation and the TTS delivery,
@@ -266,9 +307,19 @@ def build_seedance_input(
     chain_frame = first_frame_url if not reference_video_url else None
     has_dialogue = bool((clip.voiceover or "").strip())
     lip_sync_clause = f"{LIP_SYNC_LOCK}\n" if has_dialogue else ""
+    chain_via_refs = bool(chain_frame) and mode == "reference"
     # Chained clips get no reference images (Seedance mutex), so the
-    # continuity clause is their only outfit/framing anchor.
-    chain_clause = f"\n{CHAIN_CONTINUITY_LOCK}" if chain_frame else ""
+    # continuity clause is their only outfit/framing anchor. In reference
+    # mode the frame rides as @Image1 beside the refs instead.
+    if chain_via_refs:
+        chain_clause = f"\n{CHAIN_REFERENCE_LOCK}"
+    elif chain_frame:
+        chain_clause = f"\n{CHAIN_CONTINUITY_LOCK}"
+    else:
+        chain_clause = ""
+    # A chained clip continues one shot: no "or the shot cuts cleanly".
+    environment_lock = ENVIRONMENT_LOCK_CHAINED if chain_frame else ENVIRONMENT_LOCK
+    handoff_clause = f"\n{HANDOFF_FRAMING_LOCK}" if followed_by_chained else ""
     prompt = (
         f"{clip.visual_prompt}\n\n"
         f"{_inject_sentence_beats(normalized_vo)}"
@@ -276,8 +327,9 @@ def build_seedance_input(
         f"{voice_clause}"
         f"{lip_sync_clause}"
         f"{STYLE_LOCK}\n"
-        f"{ENVIRONMENT_LOCK}"
+        f"{environment_lock}"
         f"{chain_clause}"
+        f"{handoff_clause}"
         f"{motion_addendum}"
     )
     payload: dict = {
@@ -294,17 +346,22 @@ def build_seedance_input(
     # opted into that move — it wins over the auto-attached chain frame.
     # Identity falls back to reference_image_urls; the next clip's chain
     # picks up from this clip's last frame as usual.
-    if chain_frame:
+    if chain_frame and not chain_via_refs:
         payload["first_frame_url"] = chain_frame
-    elif override_ref_urls:
-        # Operator picked specific refs in Phase 2 — honor exactly.
-        # Bypasses _select_refs's DOJO priority / category logic.
-        payload["reference_image_urls"] = override_ref_urls[:MAX_REFS]
     else:
-        payload["reference_image_urls"] = _select_refs(
-            character_ref_urls, dojo_ref_urls, clip.setting_id,
-            jewish_ref_urls=jewish_ref_urls,
-        )
+        if override_ref_urls:
+            # Operator picked specific refs in Phase 2 — honor exactly.
+            # Bypasses _select_refs's DOJO priority / category logic.
+            refs = override_ref_urls[:MAX_REFS]
+        else:
+            refs = _select_refs(
+                character_ref_urls, dojo_ref_urls, clip.setting_id,
+                jewish_ref_urls=jewish_ref_urls,
+            )
+        if chain_via_refs:
+            # The chain frame is @Image1 — it must keep the first seat.
+            refs = ([chain_frame] + [r for r in refs if r != chain_frame])[:MAX_REFS]
+        payload["reference_image_urls"] = refs
     if audio_url:
         payload["reference_audio_urls"] = [audio_url]
     if reference_video_url:
@@ -322,12 +379,16 @@ async def generate_clip(
     model: str = SEEDANCE_MODEL,
     reference_video_url: Optional[str] = None,
     jewish_ref_urls: Optional[list[str]] = None,
+    chain_mode: Optional[str] = None,
+    followed_by_chained: bool = False,
 ) -> Path:
     payload = build_seedance_input(
         clip, character_ref_urls, dojo_ref_urls,
         first_frame_url, audio_url, resolution,
         reference_video_url=reference_video_url,
         jewish_ref_urls=jewish_ref_urls,
+        chain_mode=chain_mode,
+        followed_by_chained=followed_by_chained,
     )
     task_id = await client.create_task(model, payload)
     urls, _meta = await client.poll_task(task_id)
@@ -353,6 +414,9 @@ async def generate_clip_with_meta(
     on_unsaved: Optional[
         Callable[[str, Optional[dict], BaseException], None]
     ] = None,
+    chain_mode: Optional[str] = None,
+    on_request_sent: Optional[Callable[[str, dict], None]] = None,
+    followed_by_chained: bool = False,
 ) -> tuple[Path, dict, str]:
     """Same as generate_clip but also returns Kie's task metadata so the
     caller can extract real cost (credits_consumed / costCredits / etc).
@@ -378,6 +442,13 @@ async def generate_clip_with_meta(
     raised carrying the task_id. A definitive Kie failure (KieTaskFailed)
     propagates unchanged: there is no render to recover.
 
+    chain_mode overrides SEEDANCE_CHAIN_MODE for this call (see CHAIN_MODE).
+    on_request_sent(task_id, payload) is called best-effort right after
+    task creation so the caller can log what Seedance was actually sent;
+    its exceptions are swallowed.
+    followed_by_chained appends HANDOFF_FRAMING_LOCK: the next clip will
+    chain from this clip's last frame, so it must end waist-up.
+
     Returns (dest_path, kie_meta, task_id).
     """
     if resume_task_id:
@@ -390,12 +461,19 @@ async def generate_clip_with_meta(
             reference_video_url=reference_video_url,
             jewish_ref_urls=jewish_ref_urls,
             override_ref_urls=override_ref_urls,
+            chain_mode=chain_mode,
+            followed_by_chained=followed_by_chained,
         )
         task_id = await client.create_task(model, payload)
         if on_task_created is not None:
             maybe_awaitable = on_task_created(task_id)
             if inspect.isawaitable(maybe_awaitable):
                 await maybe_awaitable
+        if on_request_sent is not None:
+            try:
+                on_request_sent(task_id, payload)
+            except Exception as hook_err:
+                print(f"[kie] on_request_sent failed (ignored): {hook_err}")
 
     meta: Optional[dict] = None
     try:

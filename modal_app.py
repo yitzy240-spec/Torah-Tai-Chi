@@ -80,7 +80,9 @@ def _log_terminal_abort(sb, job_id: str, err: BaseException) -> dict:
 _UPLOAD_RETRY_WAITS_S = (2, 6)
 
 
-def _upload_mp4(sb, storage_path: str, data: bytes) -> None:
+def _upload_mp4(
+    sb, storage_path: str, data: bytes, content_type: str = "video/mp4",
+) -> None:
     """Upload an mp4 to the videos bucket, retrying transient failures.
 
     Every mp4 upload in this file runs AFTER Kie has billed the render, so a
@@ -96,7 +98,7 @@ def _upload_mp4(sb, storage_path: str, data: bytes) -> None:
         try:
             sb.storage.from_("videos").upload(
                 storage_path, data,
-                file_options={"content-type": "video/mp4", "upsert": "true"},
+                file_options={"content-type": content_type, "upsert": "true"},
             )
             return
         except Exception as err:
@@ -641,7 +643,8 @@ def run_pipeline(job_id: str) -> dict | None:
             completed = 0
             lock = asyncio.Lock()
 
-            async def _one(clip, first_frame_url: str | None = None):
+            async def _one(clip, first_frame_url: str | None = None,
+                           followed_by_chained: bool = False):
                 nonlocal completed
                 dest = work_dir / f"clip_{clip.index:02d}.mp4"
                 clip_ref_video_url = (
@@ -710,6 +713,7 @@ def run_pipeline(job_id: str) -> dict | None:
                         reference_video_url=clip_ref_video_url,
                         first_frame_url=first_frame_url,
                         jewish_ref_urls=clip_jewish_refs,
+                        followed_by_chained=followed_by_chained,
                         # The pending row was upserted above; stamp the
                         # billed task_id on it before polling (full row —
                         # never raises) so a dead worker's render is
@@ -822,24 +826,15 @@ def run_pipeline(job_id: str) -> dict | None:
             # exclusive in Seedance, and the new ritual ref images need
             # to go through. So we'd rather lose the seamless transition
             # than silently strip the ritual visuals.
+            # Motion ref is mutex with first_frame_url in Seedance.
+            # Chaining INTO a motion-ref clip would force the payload
+            # layer to drop the chain frame anyway — break there so we
+            # don't upload a frame we'd discard (see _would_chain).
             def _can_chain(prev_clip, curr_clip) -> bool:
-                if prev_clip.setting_id != curr_clip.setting_id:
-                    return False
-                # Motion ref is mutex with first_frame_url in Seedance.
-                # Chaining INTO a motion-ref clip would force the payload
-                # layer to drop the chain frame anyway — break here so we
-                # don't upload a frame we'd discard.
-                if getattr(curr_clip, "motion_ref_slug", None):
-                    return False
-                prev_kws = _jewish_ref_ids_in_prompt(
-                    prev_clip.visual_prompt or "", curr_clip.setting_id
+                return _would_chain(
+                    prev_clip, curr_clip,
+                    next_motion_slug=getattr(curr_clip, "motion_ref_slug", None),
                 )
-                curr_kws = _jewish_ref_ids_in_prompt(
-                    curr_clip.visual_prompt or "", curr_clip.setting_id
-                )
-                # If the new clip has any ritual keyword the previous
-                # didn't, treat as a fresh scene so ritual refs flow.
-                return not (curr_kws - prev_kws)
 
             groups: list[list] = []
             for c in plan.clips:
@@ -894,7 +889,12 @@ def run_pipeline(job_id: str) -> dict | None:
                             f"[firstframe] clip {c.index}: new scene "
                             f"(setting={c.setting_id}) — no chain"
                         )
-                    path = await _one(c, first_frame_url=first_frame_url)
+                    # The next clip in the group chains from this one's
+                    # last frame, so this one must end waist-up.
+                    path = await _one(
+                        c, first_frame_url=first_frame_url,
+                        followed_by_chained=idx_in_group < len(group) - 1,
+                    )
                     paths.append(path)
                     prev_mp4 = path
                 return paths
@@ -1442,6 +1442,57 @@ def _jewish_refs_for_clip(clip, jewish_refs: dict[str, str]) -> list[str]:
     return matches
 
 
+def _clip_field(clip, name: str):
+    """Read a field from a Clip model or a clips-table / plan_json dict."""
+    if isinstance(clip, dict):
+        return clip.get(name)
+    return getattr(clip, name, None)
+
+
+def _would_chain(
+    prev_clip, next_clip, next_chain_broken: bool = False,
+    next_motion_slug: str | None = None,
+) -> bool:
+    """Whether next_clip chains from prev_clip's last frame — the scene-group
+    rules shared by run_pipeline, clips_only_job and the handoff check:
+    same setting_id, the operator didn't break the chain, no motion ref on
+    next_clip (mutex with first_frame_url), and no Jewish ritual keyword
+    in next_clip that prev_clip lacked (its refs must flow).
+    Clips may be Clip models or dicts.
+    """
+    setting_id = _clip_field(next_clip, "setting_id")
+    if _clip_field(prev_clip, "setting_id") != setting_id:
+        return False
+    if next_chain_broken or next_motion_slug:
+        return False
+    prev_kws = _jewish_ref_ids_in_prompt(
+        _clip_field(prev_clip, "visual_prompt") or "", setting_id
+    )
+    next_kws = _jewish_ref_ids_in_prompt(
+        _clip_field(next_clip, "visual_prompt") or "", setting_id
+    )
+    return not (next_kws - prev_kws)
+
+
+def _next_clip_chains_in_plan(plan_clips, clip) -> bool:
+    """followed_by_chained for single-clip regens: does plan clip index+1
+    chain from this clip? Uses the next plan clip's own motion_ref_slug;
+    chain_broken lives on the plan-owner clips rows, which these paths
+    don't load, so it is treated as False (worst case: one extra waist-up
+    ending instruction on a clip whose successor won't chain)."""
+    idx = _clip_field(clip, "index")
+    nxt = next(
+        (c for c in plan_clips if _clip_field(c, "index") == idx + 1), None
+    )
+    if nxt is None:
+        return False
+    return _would_chain(
+        clip, nxt,
+        next_chain_broken=bool(_clip_field(nxt, "chain_broken")),
+        next_motion_slug=_clip_field(nxt, "motion_ref_slug"),
+    )
+
+
 def _ensure_local(sb, work_dir: Path, storage_path: str) -> Path:
     """Download a Storage clip mp4 into work_dir if not already there.
 
@@ -1837,6 +1888,24 @@ def _apply_operator_overrides(
     return _overlay_edits_onto_plan(plan, edits_by_index)
 
 
+def _materialize_operator_edit(plan_clip, edit: dict):
+    """A plan Clip with the operator's clips-table voiceover / visual_prompt
+    / duration_s applied (clips_only_job, chain_probe).
+
+    Empty / whitespace-only operator voiceover or visual_prompt falls back
+    to the plan value (operator likely cleared the field by accident — a
+    silent clip would be worse than falling back to the AI text).
+    """
+    edit_vo = edit.get("voiceover")
+    edit_vp = edit.get("visual_prompt")
+    edit_dur = edit.get("duration_s")
+    return plan_clip.model_copy(update={
+        "voiceover": edit_vo if (edit_vo and edit_vo.strip()) else plan_clip.voiceover,
+        "visual_prompt": edit_vp if (edit_vp and edit_vp.strip()) else plan_clip.visual_prompt,
+        "duration_s": edit_dur if edit_dur is not None else plan_clip.duration_s,
+    })
+
+
 def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:
     """Extract the last frame of an mp4 as PNG via ffmpeg.
 
@@ -1866,6 +1935,106 @@ async def _upload_first_frame(kie: "KieClient", png_path: Path) -> str:  # noqa:
     return await kie.upload_file(
         png_path, remote_dir="torah-tai-chi-firstframes"
     )
+
+
+def _log_chain_decision(
+    sb, clip_index: int, chained: bool, reason: str, message: str,
+    job_id: str | None = None, level: str = "info",
+) -> None:
+    """Record why a clip did or did not chain (pipeline.chain_decision).
+
+    Noach 2026-10-13: a clip-1 re-render silently fell back to reference
+    images with chain_broken=false, and with no Modal logs we could not
+    tell which gate fired. Best-effort — must never fail a render.
+    """
+    try:
+        from src.events import log_event
+        from src.video_generator import CHAIN_MODE
+
+        log_event(
+            sb, actor="modal", level=level,
+            event="pipeline.chain_decision",
+            subject_type="clip",
+            message=message,
+            details={
+                "clip_index": clip_index, "chained": chained,
+                "reason": reason, "chain_mode": CHAIN_MODE,
+                "job_id": job_id,
+            },
+        )
+    except Exception as log_err:
+        print(f"[firstframe] chain_decision log failed (ignored): {log_err}")
+
+
+def _log_seedance_request(
+    sb, job_id: str, clip_index: int, task_id: str, payload: dict,
+) -> None:
+    """Record what a Seedance task was actually sent (pipeline.seedance_request)
+    so a report like Noach 2026-10-13 can be checked against
+    execution_events instead of guessed. Best-effort."""
+    try:
+        from src.events import log_event
+        from src.video_generator import prompt_lock_flags
+
+        prompt = payload.get("prompt") or ""
+        lock_flags = prompt_lock_flags(prompt)
+        log_event(
+            sb, actor="modal", level="info",
+            event="pipeline.seedance_request",
+            subject_type="clip",
+            message=f"Seedance task {task_id} created for clip {clip_index}",
+            details={
+                "clip_index": clip_index, "task_id": task_id,
+                "job_id": job_id,
+                "has_first_frame": bool(payload.get("first_frame_url")),
+                "n_reference_images": len(
+                    payload.get("reference_image_urls") or []
+                ),
+                "lock_flags": lock_flags,
+                # Read off the prompt actually sent, so it can't disagree
+                # with what Seedance saw.
+                "followed_by_chained": lock_flags["handoff"],
+                "prompt_chars": len(prompt),
+            },
+        )
+    except Exception as log_err:
+        print(f"[kie] seedance_request log failed (ignored): {log_err}")
+
+
+def _latest_rendered_clip_row(sb, parent_job_id: str, clip_index: int) -> dict:
+    """Newest RENDERED clip `clip_index` across the plan's non-failed child
+    jobs, or {} if none.
+
+    The plan/parent job's own clip rows never carry a storage_path — the
+    rendered mp4s live under the CHILD jobs (clips-only / regen) — so the
+    old `eq(job_id, parent_job_id)` lookup ALWAYS hit a null storage_path
+    and per-clip regens NEVER chained (silent continuity break: Chukat
+    2026-06-22, every regenerated clip got a fresh background). Mirrors the
+    dashboard's version picker (phase-2-data.ts).
+    """
+    child_jobs = (
+        sb.table("jobs")
+        .select("id, status")
+        .eq("regen_of_job_id", parent_job_id)
+        .execute()
+        .data
+    ) or []
+    child_ids = [
+        j["id"] for j in child_jobs
+        if j.get("status") not in ("failed", "cancelled")
+    ]
+    if not child_ids:
+        return {}
+    candidates = (
+        sb.table("clips")
+        .select("index, visual_prompt, setting_id, storage_path, created_at")
+        .in_("job_id", child_ids)
+        .eq("index", clip_index)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    ) or []
+    return next((r for r in candidates if r.get("storage_path")), {})
 
 
 async def _resolve_regen_first_frame(
@@ -1903,79 +2072,59 @@ async def _resolve_regen_first_frame(
     None (fall-through to reference-image-only re-roll). Callers should
     NOT raise on a None return; treat it as "no chain available".
     """
+    def _decide(reason: str, message: str, chained: bool = False,
+                level: str = "info") -> None:
+        print(message)
+        _log_chain_decision(
+            sb, clip_index, chained, reason, message,
+            job_id=parent_job_id, level=level,
+        )
+
     # Gate 0: the operator explicitly requested canonical references.
     if chain_broken:
-        print(
+        _decide(
+            "operator_chain_broken",
             f"[firstframe] regen clip {clip_index}: operator broke chain "
-            f"— refs active"
+            f"— refs active",
         )
         return None
 
     # Gate 1: clip 0 has no predecessor.
     if clip_index <= 0:
-        print(
-            f"[firstframe] regen clip {clip_index}: clip 0 — no chain"
+        _decide(
+            "first_clip",
+            f"[firstframe] regen clip {clip_index}: clip 0 — no chain",
         )
         return None
 
     # Gate 2: motion ref is mutex with first_frame_url in Seedance.
     if motion_ref_slug:
-        print(
+        _decide(
+            "motion_ref",
             f"[firstframe] regen clip {clip_index}: motion_ref present "
-            f"({motion_ref_slug}) — skip chain"
+            f"({motion_ref_slug}) — skip chain",
         )
         return None
 
-    # Look up clip N-1's LATEST RENDERED version. The plan/parent job's own
-    # clip rows never carry a storage_path — the rendered mp4s live under the
-    # CHILD jobs (clips-only / regen) — so the old `eq(job_id, parent_job_id)`
-    # lookup ALWAYS hit a null storage_path and per-clip regens NEVER chained
-    # (silent continuity break: Chukat 2026-06-22, every regenerated clip got
-    # a fresh background). Mirror the dashboard's version picker
-    # (phase-2-data.ts): the newest rendered clip N-1 across the plan's
-    # non-aborted child jobs.
-    child_jobs = (
-        sb.table("jobs")
-        .select("id, status")
-        .eq("regen_of_job_id", parent_job_id)
-        .execute()
-        .data
-    ) or []
-    child_ids = [
-        j["id"] for j in child_jobs
-        if j.get("status") not in ("failed", "cancelled")
-    ]
-    prev_row: dict = {}
-    if child_ids:
-        prev_candidates = (
-            sb.table("clips")
-            .select("index, visual_prompt, setting_id, storage_path, created_at")
-            .in_("job_id", child_ids)
-            .eq("index", clip_index - 1)
-            .order("created_at", desc=True)
-            .execute()
-            .data
-        ) or []
-        prev_row = next(
-            (r for r in prev_candidates if r.get("storage_path")), {}
-        )
-
+    prev_row = _latest_rendered_clip_row(sb, parent_job_id, clip_index - 1)
     prev_storage_path = prev_row.get("storage_path")
 
     # Gate 3: clip N-1 must exist and be fully rendered.
     if not prev_row or not prev_storage_path:
-        print(
+        _decide(
+            "prev_clip_not_rendered",
             f"[firstframe] regen clip {clip_index}: clip {clip_index - 1} "
-            f"not found or has no storage_path — no chain"
+            f"not found or has no storage_path — no chain",
         )
         return None
 
     # Gate 4: same scene (setting_id).
     prev_setting = prev_row.get("setting_id")
     if prev_setting != clip_setting_id:
-        print(
+        _decide(
+            "setting_changed",
             f"[firstframe] regen clip {clip_index}: different setting "
-            f"({prev_setting!r} vs {clip_setting_id!r}) — no chain"
+            f"({prev_setting!r} vs {clip_setting_id!r}) — no chain",
         )
         return None
 
@@ -1986,9 +2135,10 @@ async def _resolve_regen_first_frame(
     curr_kws = _jewish_ref_ids_in_prompt(clip_visual_prompt or "", clip_setting_id)
     if curr_kws - prev_kws:
         new_kws = ", ".join(sorted(curr_kws - prev_kws))
-        print(
+        _decide(
+            "new_ritual_keyword",
             f"[firstframe] regen clip {clip_index}: new ritual keyword(s) "
-            f"introduced ({new_kws}); refs must flow — no chain"
+            f"introduced ({new_kws}); refs must flow — no chain",
         )
         return None
 
@@ -1999,15 +2149,19 @@ async def _resolve_regen_first_frame(
         prev_local = _ensure_local(sb, work_dir, prev_storage_path)
         _extract_last_frame(prev_local, png_path)
         first_frame_url = await _upload_first_frame(kie, png_path)
-        print(
+        _decide(
+            "chained_from_prev_job",
             f"[firstframe] regen clip {clip_index}: chained from clip "
-            f"{clip_index - 1} (setting={clip_setting_id})"
+            f"{clip_index - 1} (setting={clip_setting_id})",
+            chained=True,
         )
         return first_frame_url
     except Exception as ff_err:
-        print(
+        _decide(
+            "extract_upload_failed",
             f"[firstframe] regen clip {clip_index}: extract/upload failed "
-            f"({type(ff_err).__name__}: {ff_err}); falling through to no-chain"
+            f"({type(ff_err).__name__}: {ff_err}); falling through to no-chain",
+            level="warn",
         )
         return None
     finally:
@@ -3236,6 +3390,9 @@ def regen_smart(job_id: str) -> dict | None:
                 reference_video_url=clip_ref_video_url,
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
+                followed_by_chained=_next_clip_chains_in_plan(
+                    new_plan.clips, target_clip_pydantic,
+                ),
                 on_task_created=lambda tid: record_kie_task_created(
                     sb, job_id, target_idx, tid,
                 ),
@@ -3731,6 +3888,9 @@ def regen_clip(job_id: str) -> dict | None:
                 reference_video_url=clip_ref_video_url,
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
+                followed_by_chained=_next_clip_chains_in_plan(
+                    new_plan.clips, target_clip_pydantic,
+                ),
                 on_task_created=lambda tid: record_kie_task_created(
                     sb, job_id, target_index, tid,
                 ),
@@ -4998,6 +5158,9 @@ def regen_agent(job_id: str) -> dict | None:
                     reference_video_url=clip_ref_video_url,
                     first_frame_url=first_frame_url,
                     jewish_ref_urls=clip_jewish_refs,
+                    followed_by_chained=_next_clip_chains_in_plan(
+                        new_plan.clips, target_clip_pydantic,
+                    ),
                     on_task_created=lambda tid: record_kie_task_created(
                         sb, job_id, c.index, tid,
                     ),
@@ -5616,6 +5779,9 @@ def regen_single_clip(job_id: str) -> dict | None:
                 reference_video_url=clip_ref_video_url,
                 first_frame_url=first_frame_url,
                 jewish_ref_urls=clip_jewish_refs,
+                followed_by_chained=_next_clip_chains_in_plan(
+                    new_plan.clips, target_clip_pydantic,
+                ),
                 on_task_created=lambda tid: record_kie_task_created(
                     sb, job_id, target_index, tid,
                 ),
@@ -6108,7 +6274,7 @@ def clips_only_job(job_id: str) -> dict | None:
     """
     sys.path.insert(0, "/root")
     from supabase import create_client
-    from src.video_generator import generate_clip_with_meta
+    from src.video_generator import CHAIN_MODE, generate_clip_with_meta
     from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
@@ -6270,6 +6436,13 @@ def clips_only_job(job_id: str) -> dict | None:
         # the `list[dict]` from `plan_json`. Migration deferred until a
         # sibling Pydantic-aware overlay is added.
         target_indexes = [c.index for c in target_planned]
+        # Plan clips right after a target that this job does NOT render:
+        # they will chain from the target's new render later, so the
+        # target needs the waist-up handoff ending (HANDOFF_FRAMING_LOCK).
+        neighbor_indexes = sorted(
+            ({i + 1 for i in target_indexes} - set(target_indexes))
+            & {c.index for c in all_planned}
+        )
         clip_db_rows = (
             sb.table("clips")
             .select(
@@ -6277,29 +6450,22 @@ def clips_only_job(job_id: str) -> dict | None:
                 "motion_ref_slug, reference_image_paths, chain_broken"
             )
             .eq("job_id", plan_owner_job_id)
-            .in_("index", target_indexes)
+            .in_("index", target_indexes + neighbor_indexes)
             .execute()
             .data
         ) or []
         edits_by_index: dict[int, dict] = {r["index"]: r for r in clip_db_rows}
 
-        # Materialize target clips with operator overrides applied.
-        # Empty / whitespace-only operator voiceover or visual_prompt
-        # falls back to the plan value (operator likely cleared the
-        # field by accident — a silent silent-clip would be worse than
-        # falling back to the AI text).
-        materialized_targets = []
-        for plan_clip in target_planned:
-            edit = edits_by_index.get(plan_clip.index, {})
-            edit_vo = edit.get("voiceover")
-            edit_vp = edit.get("visual_prompt")
-            edit_dur = edit.get("duration_s")
-            materialized_targets.append(plan_clip.model_copy(update={
-                "voiceover": edit_vo if (edit_vo and edit_vo.strip()) else plan_clip.voiceover,
-                "visual_prompt": edit_vp if (edit_vp and edit_vp.strip()) else plan_clip.visual_prompt,
-                "duration_s": edit_dur if edit_dur is not None else plan_clip.duration_s,
-            }))
-        target_planned = materialized_targets
+        def _materialize(plan_clip):
+            return _materialize_operator_edit(
+                plan_clip, edits_by_index.get(plan_clip.index, {}),
+            )
+
+        target_planned = [_materialize(pc) for pc in target_planned]
+        neighbor_clips = {
+            pc.index: _materialize(pc)
+            for pc in all_planned if pc.index in neighbor_indexes
+        }
 
         per_clip_motion: dict[int, str | None] = {
             idx: (edit.get("motion_ref_slug") or script_motion)
@@ -6344,7 +6510,7 @@ def clips_only_job(job_id: str) -> dict | None:
         # Render a single clip given a precomputed first_frame_url. The
         # caller (_run_group) is responsible for deciding whether to
         # chain from the previous in-group clip or fall back to refs.
-        async def _render_one(c, first_frame_url):
+        async def _render_one(c, first_frame_url, followed_by_chained=False):
             nonlocal completed_count
             slug = per_clip_motion.get(c.index)
             _, motion_url = _load_selected_move(sb, slug)
@@ -6363,7 +6529,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 ]
                 if resolved:
                     override_refs = resolved
-                    if first_frame_url:
+                    if first_frame_url and CHAIN_MODE == "first_frame":
                         print(
                             f"[refs] clip {c.index}: {len(resolved)} "
                             f"operator-picked refs ignored — chained from "
@@ -6415,6 +6581,7 @@ def clips_only_job(job_id: str) -> dict | None:
                 jewish_ref_urls=clip_jewish_refs,
                 override_ref_urls=override_refs,
                 resume_task_id=resume_task_id,
+                followed_by_chained=followed_by_chained,
                 # Persist the task_id right after Kie creates (and bills)
                 # the task, BEFORE polling, so a worker that dies mid-poll
                 # can resume it. Must be a full row: voiceover etc. are
@@ -6426,6 +6593,9 @@ def clips_only_job(job_id: str) -> dict | None:
                     motion_ref_slug=slug, motion_ref_url=motion_url,
                 ),
                 on_unsaved=unsaved_render_logger(sb, job_id, c.index),
+                on_request_sent=lambda tid, payload: _log_seedance_request(
+                    sb, job_id, c.index, tid, payload,
+                ),
             )
             print(f"[kie] clip {c.index}: Kie task {task_id} complete")
 
@@ -6511,23 +6681,25 @@ def clips_only_job(job_id: str) -> dict | None:
         # take effect on the FIRST clip of each group; subsequent clips
         # in the group inherit visual continuity via the chain.
         def _can_chain_in_group(prev_c, curr_c) -> bool:
-            if prev_c.setting_id != curr_c.setting_id:
-                return False
-            # Motion ref is mutex with first_frame_url in Seedance.
-            if per_clip_motion.get(curr_c.index):
-                return False
-            # Operator explicitly broke the chain on this clip.
-            if per_clip_chain_broken.get(curr_c.index, False):
-                return False
-            prev_kws = _jewish_ref_ids_in_prompt(
-                prev_c.visual_prompt or "", curr_c.setting_id
+            return _would_chain(
+                prev_c, curr_c,
+                next_chain_broken=per_clip_chain_broken.get(curr_c.index, False),
+                next_motion_slug=per_clip_motion.get(curr_c.index),
             )
-            curr_kws = _jewish_ref_ids_in_prompt(
-                curr_c.visual_prompt or "", curr_c.setting_id
+
+        def _followed_by_chained(group: list, idx_in_group: int, c) -> bool:
+            if idx_in_group < len(group) - 1:
+                return True  # the next clip in this group chains from c
+            nxt = neighbor_clips.get(c.index + 1)
+            if nxt is None:
+                # No next plan clip, or it renders in this job in another
+                # scene group (so it does not chain from c).
+                return False
+            return _would_chain(
+                c, nxt,
+                next_chain_broken=per_clip_chain_broken.get(nxt.index, False),
+                next_motion_slug=per_clip_motion.get(nxt.index, script_motion),
             )
-            # New ritual keyword introduced — chain would drop the new
-            # ref images. Break to let them flow through.
-            return not (curr_kws - prev_kws)
 
         scene_groups: list[list] = []
         for c in target_planned:
@@ -6604,16 +6776,26 @@ def clips_only_job(job_id: str) -> dict | None:
                         first_frame_url = await _upload_first_frame(
                             kie, png_path
                         )
-                        print(
+                        msg = (
                             f"[firstframe] clip {c.index}: chaining from "
                             f"clip {group[idx_in_group - 1].index} "
                             f"(setting={c.setting_id})"
                         )
+                        print(msg)
+                        _log_chain_decision(
+                            sb, c.index, True, "chained_in_group", msg,
+                            job_id=job_id,
+                        )
                     except Exception as ff_err:
-                        print(
+                        msg = (
                             f"[firstframe] clip {c.index}: extract/upload "
                             f"failed ({type(ff_err).__name__}: {ff_err}); "
                             f"falling through to refs"
+                        )
+                        print(msg)
+                        _log_chain_decision(
+                            sb, c.index, False, "extract_upload_failed", msg,
+                            job_id=job_id, level="warn",
                         )
                         first_frame_url = None
                     finally:
@@ -6637,7 +6819,10 @@ def clips_only_job(job_id: str) -> dict | None:
                         kie=kie,
                         work_dir=work_dir,
                     )
-                idx, dest = await _render_one(c, first_frame_url)
+                idx, dest = await _render_one(
+                    c, first_frame_url,
+                    followed_by_chained=_followed_by_chained(group, idx_in_group, c),
+                )
                 out.append((idx, dest))
                 prev_mp4 = dest
             return out
@@ -6821,6 +7006,216 @@ def clips_only_job(job_id: str) -> dict | None:
             message=f"{type(e).__name__}: {e}",
         )
         raise
+
+
+# --- Isolated chain probe -------------------------------------------
+# One paid render of a chained clip, OUTSIDE the operator's versions: no
+# jobs / clips / videos rows (so the version picker, chain lookups, purge
+# and autopilot never see it). The mp4 + chain frame go to
+# videos/probes/<probe_id>/ (the orphan sweep only touches jobs/), and the
+# result is one pipeline.chain_probe event. Run by hand:
+#   modal run modal_app.py::chain_probe --clip-plan-id <id> --clip-index 2
+PROBE_CHAIN_MODES = ("reference", "first_frame")
+
+
+def _require_probe_chain_mode(chain_mode: str) -> str:
+    if chain_mode not in PROBE_CHAIN_MODES:
+        raise ValueError(
+            f"chain_probe: chain_mode must be one of {PROBE_CHAIN_MODES}, "
+            f"got {chain_mode!r}"
+        )
+    return chain_mode
+
+
+@app.function(
+    image=image,
+    secrets=[
+        modal.Secret.from_name("torah-tai-chi-env"),
+        modal.Secret.from_name("torah-tai-chi-pipeline-secrets"),
+    ],
+    timeout=60 * 60,
+)
+def chain_probe(
+    clip_plan_id: str, clip_index: int, chain_mode: str = "reference",
+) -> dict:
+    sys.path.insert(0, "/root")
+    import uuid
+    from supabase import create_client
+    from src.db_rows import cost_event_row
+    from src.events import log_event
+    from src.kie_balance import preflight_kie_balance
+    from src.kie_client import KieClient
+    from src.kie_task_persist import unsaved_render_logger
+    from src.models import ClipPlan as _ClipPlan
+    from src.video_generator import generate_clip_with_meta, prompt_lock_flags
+
+    _require_probe_chain_mode(chain_mode)
+    if clip_index <= 0:
+        raise ValueError("chain_probe: clip 0 has no previous clip to chain from")
+    sb = create_client(
+        os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    )
+    probe_id = str(uuid.uuid4())
+
+    # Plan + operator edits, as clips_only_job loads them.
+    plan_row = (
+        sb.table("clip_plans").select("id, plan_json, job_id")
+        .eq("id", clip_plan_id).single().execute().data
+    )
+    plan_owner_job_id = plan_row["job_id"]
+    plan = _ClipPlan(**plan_row["plan_json"])
+    plan_by_index = {c.index: c for c in plan.clips}
+    if clip_index not in plan_by_index:
+        raise ValueError(f"chain_probe: plan has no clip {clip_index}")
+    parent_job = (
+        sb.table("jobs").select("script_id, resolution, model_tier")
+        .eq("id", plan_owner_job_id).single().execute().data
+    )
+    script_motion: str | None = None
+    if parent_job.get("script_id"):
+        script_motion = (_maybe_row(
+            sb.table("scripts").select("motion_ref_slug")
+            .eq("id", parent_job["script_id"]).maybe_single()
+        ) or {}).get("motion_ref_slug")
+    edits_by_index = {
+        r["index"]: r for r in (
+            sb.table("clips")
+            .select(
+                "index, voiceover, visual_prompt, duration_s, "
+                "motion_ref_slug, reference_image_paths, chain_broken"
+            )
+            .eq("job_id", plan_owner_job_id)
+            .in_("index", [clip_index, clip_index + 1])
+            .execute().data
+        ) or []
+    }
+    edit = edits_by_index.get(clip_index, {})
+    clip = _materialize_operator_edit(plan_by_index[clip_index], edit)
+    motion_slug = edit.get("motion_ref_slug") or script_motion
+
+    # Previous clip: newest render, as _resolve_regen_first_frame finds it.
+    prev_row = _latest_rendered_clip_row(sb, plan_owner_job_id, clip_index - 1)
+    prev_storage_path = prev_row.get("storage_path")
+    if not prev_storage_path:
+        raise ValueError(
+            f"chain_probe: clip {clip_index - 1} has no rendered version to chain from"
+        )
+    # The operator's chain_broken is ignored (testing the chain is the
+    # point), but the structural gates must pass or the probe would not
+    # represent a real chained render.
+    if not _would_chain(prev_row, clip, next_motion_slug=motion_slug):
+        raise ValueError(
+            f"chain_probe: clip {clip_index} would not chain from clip "
+            f"{clip_index - 1} (setting change, motion ref or new ritual ref)"
+        )
+    nxt = plan_by_index.get(clip_index + 1)
+    followed_by_chained = nxt is not None and _would_chain(
+        clip,
+        _materialize_operator_edit(nxt, edits_by_index.get(nxt.index, {})),
+        next_chain_broken=bool(edits_by_index.get(nxt.index, {}).get("chain_broken")),
+        next_motion_slug=(
+            edits_by_index.get(nxt.index, {}).get("motion_ref_slug") or script_motion
+        ),
+    )
+
+    resolution = (parent_job.get("resolution") or "720p").lower()
+    model_tier = parent_job.get("model_tier") or "standard"
+    seedance_model = (
+        "bytedance/seedance-2-fast" if model_tier == "fast"
+        else "bytedance/seedance-2"
+    )
+    kie = KieClient(api_key=os.environ["KIE_AI_API_KEY"])
+    preflight_kie_balance(
+        sb, kie, job_id=plan_owner_job_id, durations_s=[clip.duration_s],
+        model_tier=model_tier, resolution=resolution,
+    )
+    char_refs = asyncio.run(_upload_dir(kie, Path("/root/references"), "char"))
+    dojo_refs = asyncio.run(_upload_dir(kie, Path("/root/references/dojo"), "dojo"))
+    jewish_refs = asyncio.run(_upload_jewish_refs(kie))
+    path_url_map = _build_path_url_map(char_refs, dojo_refs, jewish_refs)
+    override_refs = [
+        path_url_map[p] for p in (edit.get("reference_image_paths") or [])
+        if p in path_url_map
+    ] or None
+
+    work_dir = Path(f"/tmp/probe-{probe_id}")
+    work_dir.mkdir(parents=True, exist_ok=True)
+    png_path = work_dir / "chain_frame.png"
+    _extract_last_frame(_ensure_local(sb, work_dir, prev_storage_path), png_path)
+    first_frame_url = asyncio.run(_upload_first_frame(kie, png_path))
+    probe_prefix = f"probes/{probe_id}"
+    _upload_mp4(
+        sb, f"{probe_prefix}/chain_frame.png", png_path.read_bytes(),
+        content_type="image/png",
+    )
+
+    sent: dict = {}
+    dest = work_dir / f"clip_{clip_index:02d}.mp4"
+    _, kie_meta, task_id = asyncio.run(generate_clip_with_meta(
+        kie, clip,
+        character_ref_urls=char_refs, dojo_ref_urls=dojo_refs,
+        dest=dest, resolution=resolution, model=seedance_model,
+        first_frame_url=first_frame_url,
+        jewish_ref_urls=_jewish_refs_for_clip(clip, jewish_refs),
+        override_ref_urls=override_refs,
+        chain_mode=chain_mode,  # per-call; the global CHAIN_MODE is untouched
+        followed_by_chained=followed_by_chained,
+        # Recovery trail for the billed task — an event, never a clips row.
+        on_task_created=lambda tid: log_event(
+            sb, actor="modal", level="info",
+            event="pipeline.chain_probe_task_created",
+            subject_type="clip_plan", subject_id=clip_plan_id,
+            message=f"Chain probe {probe_id}: Kie task {tid} created",
+            details={"probe_id": probe_id, "task_id": tid,
+                     "clip_index": clip_index},
+        ),
+        on_unsaved=unsaved_render_logger(sb, plan_owner_job_id, clip_index),
+        on_request_sent=lambda _tid, payload: sent.update(payload),
+    ))
+    storage_path = f"{probe_prefix}/clip_{clip_index:02d}.mp4"
+    _upload_mp4(sb, storage_path, dest.read_bytes())
+
+    credits = (
+        kie_meta.get("credits_consumed")
+        or kie_meta.get("creditsConsumed")
+        or kie_meta.get("costCredits")
+        or 0
+    )
+    cost_usd = float(credits) * KIE_CREDITS_TO_USD if credits else 0.0
+    prompt = sent.get("prompt") or ""
+    details = {
+        "probe_id": probe_id, "clip_plan_id": clip_plan_id,
+        "clip_index": clip_index, "chain_mode": chain_mode,
+        "task_id": task_id, "credits": credits, "cost_usd": cost_usd,
+        "storage_path": storage_path,
+        "chain_frame_path": f"{probe_prefix}/chain_frame.png",
+        "prev_clip_storage_path": prev_storage_path,
+        "operator_chain_broken": bool(edit.get("chain_broken")),
+        "followed_by_chained": followed_by_chained,
+        "lock_flags": prompt_lock_flags(prompt),
+        "n_reference_images": len(sent.get("reference_image_urls") or []),
+        "has_first_frame": bool(sent.get("first_frame_url")),
+        "resolution": resolution, "model": seedance_model,
+    }
+    if cost_usd:
+        # cost_events.job_id is nullable: the spend reaches the books
+        # without touching any jobs row (record_cost would bump one).
+        from src.db_rows import record_unattached_cost
+        record_unattached_cost(
+            sb, "clip", "kie", cost_usd,
+            f"chain_probe {probe_id} plan {clip_plan_id} clip {clip_index}",
+        )
+    log_event(
+        sb, actor="modal", level="info", event="pipeline.chain_probe",
+        subject_type="clip_plan", subject_id=clip_plan_id,
+        message=(
+            f"Chain probe {probe_id}: clip {clip_index} ({chain_mode}) "
+            f"-> videos/{storage_path}"
+        ),
+        details=details,
+    )
+    print(f"[chain_probe] {details}")
+    return details
 
 
 # --- Regen from edited text (no AI) ---------------------------------
@@ -7140,6 +7535,10 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             reference_video_url=clip_ref_video_url,
             first_frame_url=first_frame_url,
             jewish_ref_urls=clip_jewish_refs,
+            # Next clip's per-clip motion + chain_broken come from the
+            # parent rows (the script-level motion fallback is not applied
+            # to the neighbour).
+            followed_by_chained=_next_clip_chains_in_plan(parent_clips, clip),
             on_task_created=lambda tid: record_kie_task_created(
                 sb, job_id, target_index, tid,
             ),

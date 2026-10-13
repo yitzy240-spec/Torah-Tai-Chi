@@ -112,13 +112,22 @@ OUTDOOR_ARCHETYPES: dict[str, str] = {
 
 # The full outfit, head to toe, as it appears in references/06 and 08.
 # Kept separate so tests and the chained-clip clause can reference it.
+#
+# Noach 2026-10-13 (after PR #20): the first version said "sleeves
+# reaching the forearm or wrist (cuffs may be rolled once)", which allows
+# TWO looks. Clip 0 had sleeves rolled once to mid-forearm (as in
+# references/06_fullbody_ready_stance.png); the clip-1 re-render had
+# full wrist-length, unrolled sleeves, and both satisfied the text. Pin
+# exactly one sleeve style.
 WARDROBE_LOCK = (
     "WARDROBE (identical in every clip and every frame, wide shots "
-    "included): the navy shirt is LONG-SLEEVED, sleeves reaching the "
-    "forearm or wrist (cuffs may be rolled once) — never short sleeves, "
-    "never sleeveless, never a T-shirt; frog-button closures down the "
-    "front; full-length dark tai chi trousers; black cloth tai chi shoes. "
-    "No change of clothing, jacket, robe, tallit, or costume."
+    "included): the navy shirt has long sleeves ROLLED UP ONCE TO "
+    "MID-FOREARM with a visible turned-back cuff, identical on both arms "
+    "in every clip — never unrolled to the wrist, never wrist-length, "
+    "never short sleeves, never sleeveless, never a T-shirt; frog-button "
+    "closures down the front; full-length dark tai chi trousers; black "
+    "cloth tai chi shoes. No change of clothing, jacket, robe, tallit, or "
+    "costume."
 )
 
 
@@ -206,6 +215,23 @@ CHAIN_CONTINUITY_LOCK = (
     "described above."
 )
 
+# Used instead of CHAIN_CONTINUITY_LOCK when SEEDANCE_CHAIN_MODE=reference:
+# the previous clip's last frame goes in as reference image 1 (not as
+# first_frame_url), so the identity/outfit refs can ride along. Kie docs:
+# reference-to-video "can indirectly achieve a First/Last Frame +
+# Multimodal Reference effect by specifying reference images as the first
+# or last frame via prompts". Noach 2026-10-13: the chained clip-1 render
+# had no refs at all and drifted on the sleeves.
+CHAIN_REFERENCE_LOCK = (
+    "CONTINUITY: @Image1 is the last frame of the previous clip. This clip "
+    "opens on exactly the composition of @Image1 — same framing, camera "
+    "angle, pose, room and lighting — and continues directly from it "
+    "(gentle camera moves only, no hard cut to a different shot). The "
+    "remaining reference images are the authority for Rav Eli's face, "
+    "kippah, shirt, logo and full outfit; if more of his body comes into "
+    "view, his clothing matches them and the outfit described above."
+)
+
 ENVIRONMENT_LOCK = (
     "ENVIRONMENT: the setting is physically solid. Walls, floor, furniture "
     "and background never morph, melt, warp, dissolve, or transform into a "
@@ -214,6 +240,31 @@ ENVIRONMENT_LOCK = (
     "never reshapes itself around him. The clip opens inside its scene's "
     "setting from the very first frame — never on a plain studio or grey "
     "backdrop like the character reference portraits."
+)
+
+# Chained clips only (a chain frame is sent, either chain mode). The
+# "or the shot cuts cleanly" allowance above let Noach 2026-10-13 clip 2
+# hard-cut at ~4s from the chained close-up to a full-body shot — and the
+# new shot invented short sleeves. A chained clip continues ONE shot.
+ENVIRONMENT_LOCK_CHAINED = (
+    "ENVIRONMENT: the setting is physically solid. Walls, floor, furniture "
+    "and background never morph, melt, warp, dissolve, or transform into a "
+    "different place. If the scene moves Rav Eli somewhere new, he "
+    "physically walks or turns there; keep the camera continuous, no cuts "
+    "or new shots — the room never reshapes itself around him. The clip "
+    "opens inside its scene's setting from the very first frame — never on "
+    "a plain studio or grey backdrop like the character reference portraits."
+)
+
+# Appended when the NEXT clip will chain from this clip's last frame. A
+# chain that starts on a face close-up leaves Seedance to invent the arms
+# and sleeves when the next clip widens (Noach 2026-10-13 clip 2), so the
+# handoff frame must show them.
+HANDOFF_FRAMING_LOCK = (
+    "ENDING FRAME: the next clip continues from this clip's last frame, so "
+    "the clip must END on a waist-up framing of Rav Eli with both forearms "
+    "and his rolled sleeves visible. Any push-in stops at waist-up — never "
+    "end on a head-and-shoulders or face close-up."
 )
 
 
