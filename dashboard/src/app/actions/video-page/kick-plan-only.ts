@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 import { createServiceClient } from '@/lib/supabase/service';
 
 /**
@@ -58,7 +59,8 @@ export async function kickPlanOnly(
       await svc
         .from('jobs')
         .update({ status: 'failed', error_message: `Modal HTTP ${res.status}` })
-        .eq('id', job.id);
+        .eq('id', job.id)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       return { ok: false, error: `Modal trigger returned HTTP ${res.status}` };
     }
   } catch (e) {
@@ -71,7 +73,8 @@ export async function kickPlanOnly(
     await svc
       .from('jobs')
       .update({ status: 'failed', error_message: `Modal fetch failed: ${err.message}` })
-      .eq('id', job.id);
+      .eq('id', job.id)
+      .not('status', 'in', TERMINAL_STATUS_LIST);
     return { ok: false, error: `Modal fetch failed: ${err.message}` };
   }
 

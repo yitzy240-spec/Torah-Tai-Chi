@@ -13,10 +13,12 @@ const CANCELLABLE_STATUSES = [
 ];
 
 /**
- * Mark an in-flight job as cancelled. Modal's worker will keep running
- * to completion (Modal can't kill a function from outside cleanly), but
- * the dashboard treats the job as done — autopilot won't fire and the
- * UI flips to a Cancelled state immediately.
+ * Mark an in-flight job as cancelled. Modal can't kill a function from
+ * outside, but every worker status write is guarded (src/db_rows.py), so
+ * 'cancelled' is never overwritten: the worker stops at its next stage
+ * transition (before new renders, or before stitching once the paid
+ * clips in flight are saved). Autopilot won't fire and the UI flips to a
+ * Cancelled state immediately.
  *
  * Any costs already incurred up to the cancellation point are sunk.
  */
@@ -41,15 +43,23 @@ export async function cancelJob(
     };
   }
 
-  const { error: updErr } = await supabase
+  // Guarded in the WHERE clause: if the job finished between the read
+  // above and this write, its final status wins.
+  const { data: cancelled, error: updErr } = await supabase
     .from('jobs')
     .update({
       status: 'cancelled',
       status_message: 'Cancelled by user',
       completed_at: new Date().toISOString(),
     })
-    .eq('id', jobId);
+    .eq('id', jobId)
+    .in('status', CANCELLABLE_STATUSES)
+    .select('id');
   if (updErr) return { error: `Could not cancel job: ${updErr.message}` };
+  if (!cancelled?.length) {
+    revalidatePath(`/jobs/${jobId}`);
+    return { error: 'This job just finished, so there was nothing to cancel.' };
+  }
 
   revalidatePath(`/jobs/${jobId}`);
   return { ok: true };

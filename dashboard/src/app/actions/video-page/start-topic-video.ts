@@ -22,6 +22,7 @@
 // future wiring — for now it's enough that the job is queued.
 
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 import { revalidatePath } from 'next/cache';
 
 export async function startTopicVideo(opts: {
@@ -77,7 +78,8 @@ export async function startTopicVideo(opts: {
       await supabase
         .from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', job.id);
+        .eq('id', job.id)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       return { ok: false, error: String(e) };
     }
   }
