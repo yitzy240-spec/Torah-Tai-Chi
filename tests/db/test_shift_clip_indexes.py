@@ -52,7 +52,7 @@ def test_closes_the_gap_after_a_delete(cur):
     _clips(cur, JOB, range(5))
     _clips(cur, OTHER, range(3))
     cur.execute("delete from clips where job_id = %s and index = 1", [JOB])
-    cur.execute("select public.shift_clip_indexes_after_delete(%s, %s)", [JOB, 1])
+    cur.execute("select public.shift_clip_indexes_after_delete(%s::uuid, %s::int)", [JOB, 1])
     assert cur.fetchone()[0] == 3
     assert _indexes(cur, JOB) == [(0, "vo 0"), (1, "vo 2"), (2, "vo 3"), (3, "vo 4")]
     assert [i for i, _ in _indexes(cur, OTHER)] == [0, 1, 2]  # other jobs untouched
@@ -61,7 +61,7 @@ def test_closes_the_gap_after_a_delete(cur):
 def test_deleting_the_last_clip_moves_nothing(cur):
     _clips(cur, JOB, range(3))
     cur.execute("delete from clips where job_id = %s and index = 2", [JOB])
-    cur.execute("select public.shift_clip_indexes_after_delete(%s, %s)", [JOB, 2])
+    cur.execute("select public.shift_clip_indexes_after_delete(%s::uuid, %s::int)", [JOB, 2])
     assert cur.fetchone()[0] == 0
     assert [i for i, _ in _indexes(cur, JOB)] == [0, 1]
 
@@ -71,7 +71,7 @@ def test_occupied_slot_fails_atomically(cur):
     _clips(cur, JOB, range(3))
     cur.execute("savepoint s")
     with pytest.raises(psycopg.errors.UniqueViolation):
-        cur.execute("select public.shift_clip_indexes_after_delete(%s, %s)", [JOB, 0])
+        cur.execute("select public.shift_clip_indexes_after_delete(%s::uuid, %s::int)", [JOB, 0])
     cur.execute("rollback to savepoint s")
     assert [i for i, _ in _indexes(cur, JOB)] == [0, 1, 2]
 
