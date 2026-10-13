@@ -1,6 +1,7 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 
 const RETRIGGERABLE_STATUSES = ['failed', 'cancelled'];
 
@@ -78,7 +79,8 @@ export async function retriggerJob(
       await supabase
         .from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', jobId);
+        .eq('id', jobId)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       revalidatePath(`/jobs/${jobId}`);
       return { error: String(e) };
     }

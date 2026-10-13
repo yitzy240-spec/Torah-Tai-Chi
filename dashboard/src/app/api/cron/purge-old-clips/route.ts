@@ -8,8 +8,11 @@
  *     compose jobs, or clips.job_id = live_video.job_id for normal jobs).
  *   - The script that produced the live video (chain-walked via
  *     jobs.regen_of_job_id, bounded to 25 hops).
- *   - The live job itself + any currently in-flight jobs (so we don't yank
- *     a job that is mid-run).
+ *   - The live job itself, every job that isn't finished (queued or
+ *     in-flight: the Modal worker may be about to write to it), and every
+ *     job that owns a kept clip (clips.job_id is ON DELETE CASCADE, so
+ *     purging the owner would delete a clip of the live compose video).
+ *   - Those kept jobs' videos and scripts. Rules: lib/purge-plan.ts.
  *
  * What is PURGED per parsha:
  *   - All other videos rows.
@@ -34,6 +37,7 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/service';
 import { logEvent } from '@/lib/events';
 import { sendNotification } from '@/lib/email';
+import { planPurge, type PurgeJob } from '@/lib/purge-plan';
 
 const CRON_SECRET = process.env.CRON_SECRET;
 const KEEP_AFTER_DAYS = 7;
@@ -46,18 +50,6 @@ const KEEP_AFTER_DAYS = 7;
 // the threshold AFTER sweeping (real growth, not orphan accumulation).
 const SWEEP_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 const STORAGE_WARN_BYTES = Math.round(0.85 * 1024 ** 3); // 85% of the 1GB free tier
-
-// Mirror of modal_app.py _IN_FLIGHT_STATUSES. Jobs in these states must
-// not be purged even if they belong to a non-live job chain — the Modal
-// worker is actively writing to them.
-const IN_FLIGHT_STATUSES = new Set([
-  'loading_parsha',
-  'generating_plan',
-  'uploading_refs',
-  'generating_clips',
-  'verifying',
-  'stitching',
-]);
 
 interface ParshaResult {
   parshaId: string;
@@ -171,47 +163,42 @@ async function processParsha(
   // 3b. Walk the job chain to find the canonical script for the live video.
   const liveScriptId = await resolveScriptId(admin, liveJobId);
 
-  // 4. Collect ALL jobs for this parsha, then determine which to purge.
-  const { data: allJobs } = await admin
-    .from('jobs')
-    .select('id, status, script_id, regen_of_job_id')
-    .eq('parsha_id', parsha.id);
+  // 4. Collect this parsha's jobs, videos and scripts, plus the jobs that
+  //    own a kept clip, and let planPurge decide. Every read is checked: a
+  //    failed read must abort this parsha, not look like "nothing to keep".
+  const [jobsRes, videosRes, scriptsRes, keptOwnersRes] = await Promise.all([
+    admin.from('jobs').select('id, status, script_id, regen_of_job_id').eq('parsha_id', parsha.id),
+    // mp4_path (the stitched final, ~10MB each) is the single largest
+    // artifact per draft; until 2026-06-12 the purge deleted these rows
+    // but never their files, orphaning 1.2GB+ of final.mp4s.
+    admin.from('videos').select('id, job_id, mp4_path, thumb_path').eq('parsha_id', parsha.id),
+    admin.from('scripts').select('id').eq('parsha_id', parsha.id),
+    keepClipIds.size > 0
+      ? admin.from('clips').select('job_id').in('id', [...keepClipIds])
+      : Promise.resolve({ data: [] as { job_id: string }[], error: null }),
+  ]);
+  const readErr = jobsRes.error ?? videosRes.error ?? scriptsRes.error ?? keptOwnersRes.error;
+  if (readErr) throw new Error(`purge read failed: ${readErr.message}`);
 
-  const jobsToKeep = new Set<string>([liveJobId]);
-  const jobsToPurge: string[] = [];
+  type VideoRow = { id: string; job_id: string | null; mp4_path: string | null; thumb_path: string | null };
+  const allVideos = (videosRes.data ?? []) as VideoRow[];
+  const plan = planPurge({
+    liveJobId,
+    liveVideoId: liveVideo.id as string,
+    liveScriptId,
+    allJobs: (jobsRes.data ?? []) as PurgeJob[],
+    allVideos,
+    allScriptIds: (scriptsRes.data ?? []).map((s: { id: string }) => s.id),
+    keptClipOwnerJobIds: (keptOwnersRes.data ?? []).map((c: { job_id: string }) => c.job_id),
+  });
+  const { jobsToPurge, videosToPurge, scriptsToPurge } = plan;
 
-  for (const job of allJobs ?? []) {
-    const jobId = job.id as string;
-    if (jobId === liveJobId) continue; // already in keep-set
-
-    // Never purge in-flight jobs — Modal worker is still using them.
-    if (IN_FLIGHT_STATUSES.has(job.status as string)) {
-      jobsToKeep.add(jobId);
-      continue;
-    }
-
-    jobsToPurge.push(jobId);
-  }
-
-  // 5. Collect ALL videos for this parsha except the live one — including
-  //    their storage paths. mp4_path (the stitched final, ~10MB each) is
-  //    the single largest artifact per draft; until 2026-06-12 the purge
-  //    deleted these rows but never their files, orphaning 1.2GB+ of
-  //    final.mp4s in the bucket.
-  const { data: allVideos } = await admin
-    .from('videos')
-    .select('id, mp4_path, thumb_path')
-    .eq('parsha_id', parsha.id)
-    .neq('id', liveVideo.id);
-
-  const videosToPurge = (allVideos ?? []).map((v: { id: string }) => v.id);
+  // 5. Storage paths of the videos being purged.
   result.purgedVideoIds = videosToPurge;
-
-  const videoPathsToPurge = (allVideos ?? [])
-    .flatMap((v: { mp4_path: string | null; thumb_path: string | null }) => [
-      v.mp4_path,
-      v.thumb_path,
-    ])
+  const purgedVideoSet = new Set(videosToPurge);
+  const videoPathsToPurge = allVideos
+    .filter((v) => purgedVideoSet.has(v.id))
+    .flatMap((v) => [v.mp4_path, v.thumb_path])
     .filter((p): p is string => !!p);
   result.purgedVideoPaths = videoPathsToPurge;
 
@@ -236,16 +223,8 @@ async function processParsha(
   result.purgedClipIds = clipsToPurge.map((c) => c.id);
   result.purgedJobIds = jobsToPurge;
 
-  // 7. Collect scripts to purge: all scripts for this parsha except the live one.
-  const { data: allScripts } = await admin
-    .from('scripts')
-    .select('id')
-    .eq('parsha_id', parsha.id);
-
-  const scriptsToPurge = (allScripts ?? [])
-    .map((s: { id: string }) => s.id)
-    .filter((id) => id !== liveScriptId);
-
+  // 7. Scripts: all of this parsha's except the live one and any a kept
+  //    job still references (planPurge).
   result.purgedScriptIds = scriptsToPurge;
 
   if (dryRun) {
@@ -274,52 +253,56 @@ async function processParsha(
   }
 
   // 9. Delete DB rows in child-before-parent order to avoid FK violations.
+  //    Each step is checked; a failure throws, which GET records as this
+  //    parsha's error instead of carrying on as if the rows were gone.
+  const check = (step: string, res: { error: { message: string } | null }) => {
+    if (res.error) throw new Error(`purge ${step} failed: ${res.error.message}`);
+  };
 
   // 9a. feedback rows whose applied_to_job_id is a purged job.
   if (jobsToPurge.length > 0) {
-    await admin
+    check('feedback unlink', await admin
       .from('feedback')
       .update({ applied_to_job_id: null })
-      .in('applied_to_job_id', jobsToPurge);
+      .in('applied_to_job_id', jobsToPurge));
   }
 
   // 9b. posts tied to purged videos.
   if (videosToPurge.length > 0) {
-    await admin.from('posts').delete().in('video_id', videosToPurge);
+    check('posts', await admin.from('posts').delete().in('video_id', videosToPurge));
   }
 
   // 9c. clips tied to purged jobs (excluding kept clips).
   if (clipsToPurge.length > 0) {
-    await admin
+    check('clips', await admin
       .from('clips')
       .delete()
       .in(
         'id',
         clipsToPurge.map((c) => c.id),
-      );
+      ));
   }
 
   // 9d. clip_plans tied to purged jobs.
   if (jobsToPurge.length > 0) {
-    await admin.from('clip_plans').delete().in('job_id', jobsToPurge);
+    check('clip_plans', await admin.from('clip_plans').delete().in('job_id', jobsToPurge));
   }
 
   // 9e. Purged videos (on delete cascade removes their remaining children
   //     but the explicit deletes above prevent FK violations with posts).
   if (videosToPurge.length > 0) {
-    await admin.from('videos').delete().in('id', videosToPurge);
+    check('videos', await admin.from('videos').delete().in('id', videosToPurge));
   }
 
   // 9f. Purged jobs.
   if (jobsToPurge.length > 0) {
-    await admin.from('jobs').delete().in('id', jobsToPurge);
+    check('jobs', await admin.from('jobs').delete().in('id', jobsToPurge));
   }
 
-  // 9g. Scripts (FK: scripts are referenced by jobs.script_id; jobs were
-  //     deleted above so this is safe, but only delete scripts NOT linked
-  //     to any remaining job to be doubly safe).
+  // 9g. Scripts. jobs.script_id has no ON DELETE rule; planPurge already
+  //     dropped every script a kept job references.
   if (scriptsToPurge.length > 0) {
-    await admin.from('scripts').delete().in('id', scriptsToPurge);
+    check('scripts', await admin.from('scripts').delete().in('id', scriptsToPurge));
   }
 
   return result;

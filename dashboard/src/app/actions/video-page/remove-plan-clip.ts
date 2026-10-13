@@ -65,22 +65,27 @@ export async function removePlanClip(
   });
 
   if (reindexErr) {
-    // Fallback: do it with a raw update if the RPC isn't present.
-    // The RPC is safer (atomic) but the fallback keeps the action working
-    // even if the RPC hasn't been deployed yet.
-    const { data: remaining } = await svc
+    // Fallback until migration 20261013_shift_clip_indexes_after_delete.sql
+    // is applied (prod had no such function as of 2026-10-13). Not atomic,
+    // so every step is checked: ascending order keeps each target index
+    // free under the UNIQUE (job_id, index), and a failure is reported
+    // instead of leaving a silent gap.
+    console.warn(`[removePlanClip] RPC failed (${reindexErr.message}); per-row fallback`);
+    const { data: remaining, error: listErr } = await svc
       .from('clips')
       .select('id, index')
       .eq('job_id', jobId)
       .gt('index', clipIndex)
       .order('index');
+    if (listErr) return { ok: false, error: `Clip removed, but re-indexing failed: ${listErr.message}` };
 
-    if (remaining && remaining.length > 0) {
-      for (const r of remaining) {
-        await svc
-          .from('clips')
-          .update({ index: (r.index as number) - 1 })
-          .eq('id', r.id);
+    for (const r of remaining ?? []) {
+      const { error: shiftErr } = await svc
+        .from('clips')
+        .update({ index: (r.index as number) - 1 })
+        .eq('id', r.id);
+      if (shiftErr) {
+        return { ok: false, error: `Clip removed, but re-indexing failed: ${shiftErr.message}` };
       }
     }
   }

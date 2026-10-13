@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "respx>=0.21.0", "pytest-asyncio>=0.23.0", "ruff>=0.6.0", "pillow>=10.0.0"]
+dev = ["pytest>=8.0.0", "respx>=0.21.0", "pytest-asyncio>=0.23.0", "ruff>=0.6.0", "pillow>=10.0.0", "psycopg[binary]>=3.1"]
 
 [tool.setuptools]
 packages = ["src"]
@@ -24,3 +24,8 @@ packages = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
+markers = [
+    "integration: hits real external services; excluded from CI",
+    "db: runs write payloads against a real Postgres (DATABASE_URL); CI db-schema job",
+    "slow: shells out to ffmpeg / renders media; slower than unit tests",
+]

@@ -1,6 +1,7 @@
 'use server';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 
 /**
  * Feedback flow. Yonah can leave general feedback on a video or per-clip
@@ -224,14 +225,16 @@ export async function submitFeedback(opts: {
   if (!baseTriggerUrl) {
     await supabase.from('jobs')
       .update({ status: 'failed', error_message: 'MODAL_WORKER_URL not set' })
-      .eq('id', regenJob.id);
+      .eq('id', regenJob.id)
+      .not('status', 'in', TERMINAL_STATUS_LIST);
     return { error: 'MODAL_WORKER_URL not set' };
   }
   const triggerSecret = process.env.PIPELINE_TRIGGER_SECRET;
   if (!triggerSecret) {
     await supabase.from('jobs')
       .update({ status: 'failed', error_message: 'PIPELINE_TRIGGER_SECRET not set' })
-      .eq('id', regenJob.id);
+      .eq('id', regenJob.id)
+      .not('status', 'in', TERMINAL_STATUS_LIST);
     return { error: 'PIPELINE_TRIGGER_SECRET not set' };
   }
   // Editor-agent regen and full regen hit different Modal endpoints.
@@ -274,7 +277,8 @@ export async function submitFeedback(opts: {
       await supabase
         .from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', regenJob.id);
+        .eq('id', regenJob.id)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       return { error: String(e) };
     }
   }

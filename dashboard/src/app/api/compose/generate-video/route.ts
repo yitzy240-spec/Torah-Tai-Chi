@@ -100,7 +100,9 @@ export async function POST(request: Request) {
   const { data: job, error: insertErr } = await supabase
     .from('jobs')
     .insert({
-      kind: 'topic',
+      // jobs_kind_check: 'topic' was renamed to 'video_topic' (migration
+      // 20260501_compose.sql); the old literal 23514'd every submit.
+      kind: 'video_topic',
       topic,
       status: 'queued',
       triggered_by: user.id,

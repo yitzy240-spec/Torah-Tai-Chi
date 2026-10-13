@@ -1,5 +1,6 @@
 'use server';
 import { createClient } from '@/lib/supabase/server';
+import { TERMINAL_STATUS_LIST } from '@/lib/job-status';
 import { createServiceClient } from '@/lib/supabase/service';
 import { estimateSeedanceCost, type Resolution, type ModelTier } from '@/lib/seedance-pricing';
 
@@ -8,7 +9,7 @@ const TYPICAL_DURATION_S = 60; // conservative ballpark before Claude writes the
 const DIRECTOR_NOTES_MAX_CHARS = 1000;
 const IN_PROGRESS_STATUSES = [
   'queued', 'loading_parsha', 'generating_plan', 'uploading_refs',
-  'generating_clips', 'stitching',
+  'generating_clips', 'verifying', 'stitching',
 ];
 
 /**
@@ -187,7 +188,8 @@ export async function triggerGeneration(
     if ((e as Error).name !== 'TimeoutError' && (e as Error).name !== 'AbortError') {
       await supabase.from('jobs')
         .update({ status: 'failed', error_message: String(e) })
-        .eq('id', jobId);
+        .eq('id', jobId)
+        .not('status', 'in', TERMINAL_STATUS_LIST);
       return { error: String(e) };
     }
   }
