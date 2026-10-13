@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional, Union
 from src.kie_client import KieClient
 from src.models import Clip
-from src.settings import ENVIRONMENT_LOCK, STYLE_LOCK
+from src.settings import (
+    CHAIN_CONTINUITY_LOCK, ENVIRONMENT_LOCK, LIP_SYNC_LOCK, STYLE_LOCK,
+)
 
 
 SEEDANCE_MODEL = "bytedance/seedance-2"
@@ -241,13 +243,21 @@ def build_seedance_input(
             f"[tts-normalize] clip {clip.index}: applied substitutions "
             f"({len(clip.voiceover)} chars → {len(normalized_vo)} chars)"
         )
+    chain_frame = first_frame_url if not reference_video_url else None
+    has_dialogue = bool((clip.voiceover or "").strip())
+    lip_sync_clause = f"{LIP_SYNC_LOCK}\n" if has_dialogue else ""
+    # Chained clips get no reference images (Seedance mutex), so the
+    # continuity clause is their only outfit/framing anchor.
+    chain_clause = f"\n{CHAIN_CONTINUITY_LOCK}" if chain_frame else ""
     prompt = (
         f"{clip.visual_prompt}\n\n"
         f"{_inject_sentence_beats(normalized_vo)}"
         f"{emotive_clause}"
         f"{voice_clause}"
+        f"{lip_sync_clause}"
         f"{STYLE_LOCK}\n"
         f"{ENVIRONMENT_LOCK}"
+        f"{chain_clause}"
         f"{motion_addendum}"
     )
     payload: dict = {
@@ -264,7 +274,6 @@ def build_seedance_input(
     # opted into that move — it wins over the auto-attached chain frame.
     # Identity falls back to reference_image_urls; the next clip's chain
     # picks up from this clip's last frame as usual.
-    chain_frame = first_frame_url if not reference_video_url else None
     if chain_frame:
         payload["first_frame_url"] = chain_frame
     elif override_ref_urls:

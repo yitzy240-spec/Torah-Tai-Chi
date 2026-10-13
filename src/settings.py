@@ -110,6 +110,18 @@ OUTDOOR_ARCHETYPES: dict[str, str] = {
 }
 
 
+# The full outfit, head to toe, as it appears in references/06 and 08.
+# Kept separate so tests and the chained-clip clause can reference it.
+WARDROBE_LOCK = (
+    "WARDROBE (identical in every clip and every frame, wide shots "
+    "included): the navy shirt is LONG-SLEEVED, sleeves reaching the "
+    "forearm or wrist (cuffs may be rolled once) — never short sleeves, "
+    "never sleeveless, never a T-shirt; frog-button closures down the "
+    "front; full-length dark tai chi trousers; black cloth tai chi shoes. "
+    "No change of clothing, jacket, robe, tallit, or costume."
+)
+
+
 STYLE_LOCK = (
     "Same character as in reference images: Pixar-style 3D animation, "
     "mid-50s Jewish man, salt-and-pepper hair and trimmed beard, wearing a "
@@ -121,7 +133,16 @@ STYLE_LOCK = (
     "remain unchanged in every frame and match the canonical reference "
     "images exactly: no added, removed, misspelled, rearranged, or "
     "duplicated lettering; no alternate emblem, border, decoration, or "
-    "shirt color. Soft 3D render, warm cinematic "
+    "shirt color. "
+    # Noach 2026-10-13: clip 2 was chained (first_frame_url, so NO ref
+    # images), its first frame was a chest-up close-up that hid the
+    # sleeves, and Seedance cut to a full-body shot and invented a
+    # SHORT-sleeved shirt, bare feet and different trousers. "Navy
+    # mandarin-collar shirt" never said how long the sleeves are, so the
+    # text gave the model nothing to hold on to. Spell the whole outfit
+    # out — this is the ONLY wardrobe anchor a chained clip ever sees.
+    f"{WARDROBE_LOCK} "
+    "Soft 3D render, warm cinematic "
     "lighting. Character identity must match references exactly. "
     "Voice timbre: warm and weathered, an experienced elder teacher in his "
     "late 50s, calm authority not booming. "
@@ -157,6 +178,34 @@ STYLE_LOCK = (
 # (references/01_front_neutral.png), then hard-cut to the dojo. Not a morph
 # — a clean cut — so the sentences above allowed it. The portraits are
 # identity refs only; their studio backdrop is never a place.
+# Seedance generates the voice itself (one task → one mp4 with native
+# audio). Noach 2026-10-13 clip 2: the visual prompt said "his expression
+# becoming grave and still" and the line itself says "he was silent", and
+# Seedance rendered the voice over a closed, motionless mouth for all 11s.
+# Nothing in the prompt said the man on screen is the one talking.
+LIP_SYNC_LOCK = (
+    "DIALOGUE: Rav Eli is the person speaking these lines on camera. His "
+    "lips, jaw and mouth visibly move in sync with every spoken word, for "
+    "the whole time the voice is heard, in close-ups and wide shots alike. "
+    "Words like still, silent, grave or calm describe his body and mood — "
+    "never a closed or frozen mouth while the voice plays. No off-screen "
+    "narrator, no voice-over with a silent face."
+)
+
+# Added only when the clip is chained (first_frame_url set). Seedance
+# then gets no reference images at all, so anything not visible in the
+# opening frame (sleeves, trousers, feet) is re-invented if the clip cuts
+# to a wider shot. Noach 2026-10-13 clip 2 hard-cut at ~4s from the
+# chained close-up to a full-body shot in a different outfit.
+CHAIN_CONTINUITY_LOCK = (
+    "CONTINUITY: this clip continues directly from its opening frame, "
+    "which is the last frame of the previous clip. Same man, same outfit, "
+    "same room, same lighting; keep the camera continuous with that "
+    "framing (gentle moves only, no hard cut to a different shot). If more "
+    "of his body comes into view, his clothing is exactly the outfit "
+    "described above."
+)
+
 ENVIRONMENT_LOCK = (
     "ENVIRONMENT: the setting is physically solid. Walls, floor, furniture "
     "and background never morph, melt, warp, dissolve, or transform into a "
