@@ -207,6 +207,8 @@ LIP_SYNC_LOCK = (
 # to a wider shot. Noach 2026-10-13 clip 2 hard-cut at ~4s from the
 # chained close-up to a full-body shot in a different outfit.
 CHAIN_CONTINUITY_LOCK = (
+    "Begin exactly on the provided first frame, at the same framing and "
+    "camera distance, then hold that framing. "
     "CONTINUITY: this clip continues directly from its opening frame, "
     "which is the last frame of the previous clip. Same man, same outfit, "
     "same room, same lighting; keep the camera continuous with that "
