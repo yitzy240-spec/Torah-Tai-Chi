@@ -54,3 +54,64 @@ def extract_last_frame(in_mp4: Path, out_png: Path) -> Path:
             f"(no decodable video frames?)"
         )
     return out_png
+
+
+# Noach 2026-10-20 (job a5689b42): a chained clip opens on the previous
+# clip's 720p last frame, where the chest logo is a few pixels, and Seedance
+# redrew it as the camera pushed in. Upscale the chain frame before upload
+# so the model starts from a sharper logo. Long side target 1920 (9:16
+# 720x1280 -> 1080x1920).
+CHAIN_FRAME_LONG_SIDE = 1920
+
+
+def probe_size(path: Path) -> tuple[int, int]:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x",
+         str(path)],
+        check=True, timeout=30, capture_output=True, text=True,
+    ).stdout.strip()
+    w, h = out.splitlines()[0].split("x")[:2]
+    return int(w), int(h)
+
+
+def upscaled_size(w: int, h: int, long_side: int = CHAIN_FRAME_LONG_SIDE):
+    """Target (w, h) with the exact same aspect ratio, or None when the
+    frame is already that big or no exact even-sized upscale exists."""
+    if max(w, h) >= long_side:
+        return None
+    if w >= h:
+        nw, nh = long_side, long_side * h / w
+    else:
+        nw, nh = long_side * w / h, long_side
+    if nw != int(nw) or nh != int(nh):
+        return None  # would distort the aspect ratio
+    nw, nh = int(nw), int(nh)
+    if nw % 2 or nh % 2:
+        return None
+    return nw, nh
+
+
+def upscale_chain_frame(png: Path, long_side: int = CHAIN_FRAME_LONG_SIDE) -> Path:
+    """Upscale png in place (lanczos + mild unsharp) if it is smaller than
+    long_side. Returns png. On any ffmpeg failure the original is kept."""
+    w, h = probe_size(png)
+    target = upscaled_size(w, h, long_side)
+    if target is None:
+        return png
+    tmp = png.with_name(png.stem + "_up.png")
+    try:
+        _run([
+            "ffmpeg", "-y", "-i", str(png),
+            "-vf", f"scale={target[0]}:{target[1]}:flags=lanczos,"
+                   "unsharp=5:5:0.6:5:5:0.0",
+            "-frames:v", "1", str(tmp),
+        ])
+        if _empty(tmp):
+            raise RuntimeError("upscale produced no output")
+        tmp.replace(png)
+    except Exception as e:
+        print(f"[firstframe] upscale failed, using original frame: {e}")
+        if tmp.exists():
+            tmp.unlink()
+    return png

@@ -2019,8 +2019,15 @@ async def _upload_first_frame(kie: "KieClient", png_path: Path) -> str:  # noqa:
     """Upload a first-frame PNG to Kie and return the public URL.
 
     Thin wrapper around KieClient.upload_file (which handles base64
-    + mime detection) so call sites read clearly.
+    + mime detection) so call sites read clearly. The frame is first
+    upscaled to a 1920 long side (lanczos + mild unsharp) so the chest logo
+    is more than a few pixels in the chained opening frame (a5689b42).
     """
+    from src.frame_extract import upscale_chain_frame
+    try:
+        upscale_chain_frame(png_path)
+    except Exception as up_err:  # never block the chain on a sharpen step
+        print(f"[firstframe] upscale skipped: {up_err}")
     return await kie.upload_file(
         png_path, remote_dir="torah-tai-chi-firstframes"
     )
@@ -2029,6 +2036,7 @@ async def _upload_first_frame(kie: "KieClient", png_path: Path) -> str:  # noqa:
 def _log_chain_decision(
     sb, clip_index: int, chained: bool, reason: str, message: str,
     job_id: str | None = None, level: str = "info",
+    parent_job_id: str | None = None,
 ) -> None:
     """Record why a clip did or did not chain (pipeline.chain_decision).
 
@@ -2048,7 +2056,10 @@ def _log_chain_decision(
             details={
                 "clip_index": clip_index, "chained": chained,
                 "reason": reason, "chain_mode": CHAIN_MODE,
+                # job_id is the job rendering this clip (child), so events
+                # can be found by job; the plan owner rides alongside.
                 "job_id": job_id,
+                "parent_job_id": parent_job_id,
             },
         )
     except Exception as log_err:
@@ -2064,6 +2075,8 @@ def _log_seedance_request(
     try:
         from src.events import log_event
         from src.video_generator import prompt_lock_flags
+
+        import hashlib
 
         prompt = payload.get("prompt") or ""
         lock_flags = prompt_lock_flags(prompt)
@@ -2084,6 +2097,11 @@ def _log_seedance_request(
                 # with what Seedance saw.
                 "followed_by_chained": lock_flags["handoff"],
                 "prompt_chars": len(prompt),
+                "first_frame_url": payload.get("first_frame_url"),
+                "prompt_sha256": hashlib.sha256(
+                    prompt.encode("utf-8")
+                ).hexdigest(),
+                "prompt_head": prompt[:500],
             },
         )
     except Exception as log_err:
@@ -2136,6 +2154,7 @@ async def _resolve_regen_first_frame(
     kie: "KieClient",  # noqa: F821
     work_dir: Path,
     chain_broken: bool = False,
+    job_id: str | None = None,
 ) -> "str | None":
     """Return a first_frame_url to anchor clip N's regen to clip N-1's last
     frame, or None if the regen should fall back to reference images.
@@ -2166,7 +2185,8 @@ async def _resolve_regen_first_frame(
         print(message)
         _log_chain_decision(
             sb, clip_index, chained, reason, message,
-            job_id=parent_job_id, level=level,
+            job_id=job_id or parent_job_id, level=level,
+            parent_job_id=parent_job_id,
         )
 
     # Gate 0: the operator explicitly requested canonical references.
@@ -3470,6 +3490,7 @@ def regen_smart(job_id: str) -> dict | None:
                 motion_ref_slug=target_clip_pydantic.motion_ref_slug,
                 kie=kie,
                 work_dir=work_dir,
+                job_id=job_id,
             )
             _, kie_meta, _task_id = await generate_clip_with_meta(
                 kie, target_clip_pydantic,
@@ -3968,6 +3989,7 @@ def regen_clip(job_id: str) -> dict | None:
                 motion_ref_slug=target_clip_pydantic.motion_ref_slug,
                 kie=kie,
                 work_dir=work_dir,
+                job_id=job_id,
             )
         )
 
@@ -5237,6 +5259,7 @@ def regen_agent(job_id: str) -> dict | None:
                 motion_ref_slug=target_clip_pydantic.motion_ref_slug,
                 kie=kie,
                 work_dir=work_dir,
+                job_id=job_id,
             )
 
             # Wrap Seedance in the verify loop. Unlike run_pipeline
@@ -5860,6 +5883,7 @@ def regen_single_clip(job_id: str) -> dict | None:
                 motion_ref_slug=target_clip_pydantic.motion_ref_slug,
                 kie=kie,
                 work_dir=work_dir,
+                job_id=job_id,
             )
         )
 
@@ -6887,6 +6911,7 @@ def clips_only_job(job_id: str) -> dict | None:
                         _log_chain_decision(
                             sb, c.index, True, "chained_in_group", msg,
                             job_id=job_id,
+                            parent_job_id=plan_owner_job_id,
                         )
                     except Exception as ff_err:
                         msg = (
@@ -6898,6 +6923,7 @@ def clips_only_job(job_id: str) -> dict | None:
                         _log_chain_decision(
                             sb, c.index, False, "extract_upload_failed", msg,
                             job_id=job_id, level="warn",
+                            parent_job_id=plan_owner_job_id,
                         )
                         first_frame_url = None
                     finally:
@@ -6920,6 +6946,7 @@ def clips_only_job(job_id: str) -> dict | None:
                         chain_broken=per_clip_chain_broken.get(c.index, False),
                         kie=kie,
                         work_dir=work_dir,
+                        job_id=job_id,
                     )
                 idx, dest = await _render_one(
                     c, first_frame_url,
@@ -7627,6 +7654,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 chain_broken=bool(target_parent_clip.get("chain_broken")),
                 kie=kie,
                 work_dir=work_dir,
+                job_id=job_id,
             )
         )
 

@@ -110,6 +110,36 @@ OUTDOOR_ARCHETYPES: dict[str, str] = {
 }
 
 
+# Noach 2026-10-20 (job a5689b42, clip 2): the chained clip opened with the
+# chest logo matching clip 1, then from ~2s the camera slowly pushed in and
+# Seedance redrew the logo bigger, changed the yin-yang shape and degraded
+# the text to "TORSA"/"TORAA" (the hand never covered it). Chained clips get
+# no reference images, and the 720p opening frame shows the logo as a few
+# pixels, so the prompt text is the only description of it the model gets.
+# Described from references/_brand/logo.png and the rendered frames: on the
+# shirt it is a light grey / off-white single-color print, not the wood
+# colors of the brand board.
+LOGO_LOCK = (
+    "CHEST LOGO (identical in every clip and every frame): a small circular "
+    "yin-yang emblem (one light off-white half, one navy half, a small "
+    "dot in each); inside the wide upper part of the light half sits one "
+    "small six-pointed Star of David, two overlapping equilateral "
+    "triangles drawn as a thin navy outline, the same navy as the shirt; "
+    "the word "
+    "'TORAH' arched above the circle and the words 'TAI CHI' below it, "
+    "printed flat in light grey / off-white on the navy shirt. It sits on "
+    "the left chest (the wearer's left, the viewer's right) beside the "
+    "frog-button placket; the whole emblem with its text is about one sixth "
+    "of the chest width. When the camera moves closer or pushes in, the logo only "
+    "looks larger because the camera is closer: it keeps the same design, "
+    "the same yin-yang shape, the same six-pointed Star of David with the "
+    "same shape, color and place inside the light half, the same position "
+    "and size on the shirt, and "
+    "the legible spelling TORAH and TAI CHI. Never redrawn, resized, "
+    "misspelled, blurred into other letters, or replaced."
+)
+
+
 # The full outfit, head to toe, as it appears in references/06 and 08.
 # Kept separate so tests and the chained-clip clause can reference it.
 #
@@ -127,7 +157,8 @@ WARDROBE_LOCK = (
     "never short sleeves, never sleeveless, never a T-shirt; frog-button "
     "closures down the front; full-length dark tai chi trousers; black "
     "cloth tai chi shoes. No change of clothing, jacket, robe, tallit, or "
-    "costume."
+    "costume. "
+    f"{LOGO_LOCK}"
 )
 
 

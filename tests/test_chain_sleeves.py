@@ -200,14 +200,14 @@ def test_invalid_override_falls_back_to_first_frame():
 def test_prompt_lock_flags():
     chained = prompt_lock_flags(_payload(first_frame_url=CHAIN,
                                          chain_mode="first_frame")["prompt"])
-    assert chained == {"wardrobe": True, "lip_sync": True,
+    assert chained == {"wardrobe": True, "logo": True, "lip_sync": True,
                        "chain_continuity": True, "chain_reference": False,
                        "environment_chained": True, "handoff": False}
     ref = prompt_lock_flags(_payload(first_frame_url=CHAIN,
                                      chain_mode="reference")["prompt"])
     assert ref["chain_reference"] and not ref["chain_continuity"]
     assert prompt_lock_flags("") == {
-        "wardrobe": False, "lip_sync": False,
+        "wardrobe": False, "logo": False, "lip_sync": False,
         "chain_continuity": False, "chain_reference": False,
         "environment_chained": False, "handoff": False,
     }
