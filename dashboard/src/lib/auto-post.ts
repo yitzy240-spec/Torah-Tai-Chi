@@ -22,6 +22,7 @@ import { getConnection as getYouTubeConnection, uploadVideo as uploadToYouTube }
 import { PLATFORMS, BUFFER_PLATFORMS, ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
 import { logEvent, type EventActor } from '@/lib/events';
 import { getCanonicalClipPlan } from '@/lib/clip-plan';
+import { videoPathForPlatform } from '@/lib/video-endings';
 
 function actorForPlatform(platform: Platform): EventActor {
   return platform === 'youtube' ? 'youtube' : 'buffer';
@@ -106,19 +107,22 @@ export interface AutoPostResult {
 export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
   const supabase = createServiceClient();
 
-  // Fetch video URL from storage
+  // Fetch video URLs from storage. Two endings: the Follow cut (mp4_path)
+  // goes to Buffer (FB/IG/TikTok/X), the Subscribe cut to YouTube, falling
+  // back to the Follow cut on rows that predate it (see video-endings.ts).
   const { data: video } = await supabase
     .from('videos')
-    .select('mp4_path, thumb_path, job_id')
+    .select('mp4_path, mp4_subscribe_path, thumb_path, job_id')
     .eq('id', args.videoId)
     .single();
 
-  let mediaUrl: string | undefined;
+  const publicUrlFor = (platform: Platform): string | undefined => {
+    const path = video ? videoPathForPlatform(video, platform) : null;
+    if (!path) return undefined;
+    return supabase.storage.from('videos').getPublicUrl(path).data?.publicUrl;
+  };
+  const youtubeMediaUrl = publicUrlFor('youtube');
   let thumbUrl: string | undefined;
-  if (video?.mp4_path) {
-    const { data: urlData } = supabase.storage.from('videos').getPublicUrl(video.mp4_path);
-    mediaUrl = urlData?.publicUrl;
-  }
   if (video?.thumb_path) {
     const { data: urlData } = supabase.storage.from('videos').getPublicUrl(video.thumb_path);
     thumbUrl = urlData?.publicUrl;
@@ -263,7 +267,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         token: bufferToken!,
         channelId: profile.id,
         text: caption,
-        mediaUrl,
+        mediaUrl: publicUrlFor(platform),
         mediaType: 'video',
         facebookType,
         firstComment,
@@ -354,7 +358,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
         subjectId: args.videoId,
         message: 'YouTube not connected — skipped upload',
       });
-    } else if (!mediaUrl) {
+    } else if (!youtubeMediaUrl) {
       errors.push('youtube: no video file to upload');
       await logEvent({
         actor: 'youtube',
@@ -408,7 +412,8 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
       //     for any video predating the editable-tags UI.
       try {
         const ytVideo = await withRetry(() => uploadToYouTube({
-          videoUrl: mediaUrl!,
+          // Subscribe-ending cut (falls back to the Follow cut on old rows).
+          videoUrl: youtubeMediaUrl!,
           title,
           description,
           // shareNow → public immediately (no publishAt); otherwise private + scheduled

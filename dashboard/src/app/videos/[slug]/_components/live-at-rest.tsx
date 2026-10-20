@@ -7,7 +7,8 @@
 //   1. Hero strip: video player + LIVE pill + display title + parsha attribution.
 //   2. Site CMS card: 5 editable fields + "Publish changes" + "Unpublish".
 //   3. Per-platform cards (Phase 5 cards in their "posted" state — published only).
-//   4. Footer: "Download mp4" + "Edit clips" + "Replace with a new version".
+//   4. Footer: per-ending downloads (Follow / Subscribe) + "Edit clips" +
+//      "Replace with a new version".
 //
 // "Edit clips" opens Phase 2 on THIS video's own clips (?phase=2&edit=live):
 // fix one clip, stitch again, publish — the new video takes this one's place.
@@ -27,7 +28,7 @@ import { FacebookCard } from './posting-cards/facebook-card';
 import { TikTokCard } from './posting-cards/tiktok-card';
 import { PlatformIcon } from '@/components/platform-icon';
 import { ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
-import { downloadUrl } from '@/lib/storage-url';
+import { EndingDownloads } from './ending-downloads';
 
 export interface PlatformStatus {
   platform: string;
@@ -57,6 +58,8 @@ interface Props {
   parshaName: string;
   versionLabel: string;             // e.g. "v2"
   videoMp4Url: string;
+  /** Subscribe-ending cut (YouTube); falls back to videoMp4Url. */
+  videoMp4SubscribeUrl: string;
   thumbPath: string | null;
   websiteUrl: string;
   /** The BIG heading — the creative script title ("In the Desert…") */
@@ -400,21 +403,11 @@ export function LiveAtRest(p: Props) {
           flexWrap: 'wrap',
         }}
       >
-        <a
-          href={downloadUrl(p.videoMp4Url, `torah-tai-chi-${p.parshaSlug}.mp4`)}
-          download
-          style={{
-            minHeight: 44,
-            display: 'inline-flex',
-            alignItems: 'center',
-            padding: '0 14px',
-            fontSize: 13,
-            color: 'var(--ink-500)',
-            textDecoration: 'underline',
-          }}
-        >
-          Download mp4
-        </a>
+        <EndingDownloads
+          parshaSlug={p.parshaSlug}
+          followUrl={p.videoMp4Url || null}
+          subscribeUrl={p.videoMp4SubscribeUrl || null}
+        />
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <Link
             href={`/videos/${p.parshaSlug}?phase=2&edit=live`}

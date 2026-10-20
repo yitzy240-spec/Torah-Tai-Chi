@@ -54,6 +54,22 @@ BRANDED_OUTRO_PATH = Path(
         "/root/references/_brand/outro.mp4",
     )
 )
+# YouTube variant: same card, "Subscribe" instead of "Follow" (tools/make_outro.py).
+SUBSCRIBE_OUTRO_PATH = Path(
+    os.environ.get(
+        "TORAH_TAI_CHI_SUBSCRIBE_OUTRO_PATH",
+        "/root/references/_brand/outro_subscribe.mp4",
+    )
+)
+# Ending variants. FOLLOW is the primary video (videos.mp4_path) posted to
+# Facebook / Instagram / TikTok / X; SUBSCRIBE (videos.mp4_subscribe_path)
+# goes to YouTube.
+FOLLOW = "follow"
+SUBSCRIBE = "subscribe"
+OUTRO_VARIANTS: dict[str, Path] = {
+    FOLLOW: BRANDED_OUTRO_PATH,
+    SUBSCRIBE: SUBSCRIBE_OUTRO_PATH,
+}
 
 
 def build_final_timeline(
@@ -348,11 +364,7 @@ def concat_clips(
         shutil.copy(clips[0], dest)
         return dest
 
-    sizes = [_probe_resolution(c) for c in clips]
-    target_w = max(w for w, _ in sizes)
-    target_h = max(h for _, h in sizes)
-    target_w += target_w % 2
-    target_h += target_h % 2
+    target_w, target_h = _target_size(clips)
 
     # Silence only needed to size settles at FADE cuts; measure once.
     any_fade = FADE in cut_types
@@ -360,29 +372,48 @@ def concat_clips(
 
     pps: list[Path] = []
     for i, src in enumerate(clips):
-        is_first = i == 0
-        is_last = i == n - 1
-        leading_i, trailing_i = silences[i]
-
-        do_fade_out = (not is_last) and cut_types[i] == FADE
-        do_fade_in = (not is_first) and cut_types[i - 1] == FADE
-
-        # Settle so the fade lands in silence, never on a word.
-        post_settle = max(0.0, _FADE_S - trailing_i) if do_fade_out else 0.0
-        pre_settle = max(0.0, _FADE_S - leading_i) if do_fade_in else 0.0
-        fade_out_s = _FADE_S if do_fade_out else 0.0
-        fade_in_s = _FADE_S if do_fade_in else 0.0
-        # Hard-cut outgoing (non-final) clips still get the short artifact fade.
-        artifact = _ARTIFACT_FADE_S if (not do_fade_out and not is_last) else 0.0
-
         pps.append(_preprocess_clip(
             src, work / f"_pp_{i:02d}.mp4", target_w, target_h, has_audio,
-            fade_in_s=fade_in_s, fade_out_s=fade_out_s,
-            pre_settle_s=pre_settle, post_settle_s=post_settle,
-            artifact_fade_s=artifact, end_audio_fade=is_last,
+            **_clip_fade_params(i, n, cut_types, silences[i]),
         ))
 
     return _transition_concat(pps, dest, cut_types, has_audio)
+
+
+def _target_size(clips: list[Path]) -> tuple[int, int]:
+    """Largest width/height across `clips`, rounded up to even."""
+    sizes = [_probe_resolution(c) for c in clips]
+    target_w = max(w for w, _ in sizes)
+    target_h = max(h for _, h in sizes)
+    return target_w + target_w % 2, target_h + target_h % 2
+
+
+def _clip_fade_params(
+    i: int, n: int, cut_types: list[str], silence: tuple[float, float],
+) -> dict:
+    """_preprocess_clip fade/settle kwargs for clip `i` of an `n`-clip
+    timeline. Depends only on the clip's position, its neighbouring cut
+    types and its own silence — so a content clip's preprocessing is the
+    same whichever outro follows it (concat_final_variants relies on this)."""
+    is_first = i == 0
+    is_last = i == n - 1
+    leading_i, trailing_i = silence
+
+    do_fade_out = (not is_last) and cut_types[i] == FADE
+    do_fade_in = (not is_first) and cut_types[i - 1] == FADE
+
+    # Settle so the fade lands in silence, never on a word.
+    post_settle = max(0.0, _FADE_S - trailing_i) if do_fade_out else 0.0
+    pre_settle = max(0.0, _FADE_S - leading_i) if do_fade_in else 0.0
+    return dict(
+        fade_in_s=_FADE_S if do_fade_in else 0.0,
+        fade_out_s=_FADE_S if do_fade_out else 0.0,
+        pre_settle_s=pre_settle,
+        post_settle_s=post_settle,
+        # Hard-cut outgoing (non-final) clips still get the short artifact fade.
+        artifact_fade_s=_ARTIFACT_FADE_S if (not do_fade_out and not is_last) else 0.0,
+        end_audio_fade=is_last,
+    )
 
 
 def concat_final_video(
@@ -403,17 +434,81 @@ def concat_final_video(
     return concat_clips(timeline, dest, cut_types=final_cuts)
 
 
-def loudnorm_then_concat(
-    inputs: list[Path],
-    dest: Path,
+def variant_dests(final_mp4: Path) -> dict[str, Path]:
+    """Local output paths per ending: the follow cut keeps `final_mp4`,
+    the subscribe cut sits next to it."""
+    return {
+        FOLLOW: final_mp4,
+        SUBSCRIBE: final_mp4.with_name(f"{final_mp4.stem}_{SUBSCRIBE}{final_mp4.suffix}"),
+    }
+
+
+def concat_final_variants(
+    clips: list[Path],
+    dests: dict[str, Path],
     cut_types: list[str] | None = None,
-    crossfade_s: float = 0.35,
-    outro_path: Path | None = None,
-    **_legacy,
-) -> Path:
-    """EBU R128 loudnorm each input (compose mixes clips from different runs),
-    then scene-aware concat."""
-    work_dir = dest.parent
+    *,
+    outros: dict[str, Path] | None = None,
+) -> dict[str, Path]:
+    """One stitched content timeline, one finished video per ending.
+
+    `dests` maps variant name -> output path; `outros` maps variant name ->
+    outro mp4 (default OUTRO_VARIANTS). The content clips are normalized and
+    faded ONCE; each variant only preprocesses its own outro and re-runs the
+    final assembly, so every variant is built from the same preprocessed
+    content files and the extra cost is one outro preprocess + one concat
+    pass per variant — no re-generation.
+    """
+    if not clips:
+        raise ValueError("No content clips to finalize")
+    if not dests:
+        raise ValueError("No output variants requested")
+    outros = OUTRO_VARIANTS if outros is None else outros
+    for name in dests:
+        if name not in outros:
+            raise KeyError(f"No outro configured for variant {name!r}")
+        if not outros[name].is_file():
+            raise FileNotFoundError(f"Branded outro asset missing ({name}): {outros[name]}")
+
+    names = list(dests)
+    timeline, final_cuts = build_final_timeline(
+        clips, cut_types=cut_types, outro_path=outros[names[0]],
+    )
+    final_cuts = [FADE if str(t) == FADE else HARD for t in final_cuts]  # as concat_clips
+    n = len(timeline)
+    variant_outros = [outros[v] for v in names]
+
+    work = dests[names[0]].parent
+    work.mkdir(parents=True, exist_ok=True)
+    for d in dests.values():
+        d.parent.mkdir(parents=True, exist_ok=True)
+
+    has_audio = all(_has_audio_stream(c) for c in [*clips, *variant_outros])
+    # Size over content + EVERY outro so all variants share one frame size.
+    target_w, target_h = _target_size([*clips, *variant_outros])
+
+    # The outro boundary is always a FADE, so silence is always needed.
+    content_pps: list[Path] = []
+    for i, src in enumerate(clips):
+        content_pps.append(_preprocess_clip(
+            src, work / f"_pp_{i:02d}.mp4", target_w, target_h, has_audio,
+            **_clip_fade_params(i, n, final_cuts, _measure_silence(src, has_audio)),
+        ))
+
+    out: dict[str, Path] = {}
+    for name in names:
+        outro = outros[name]
+        pp_outro = _preprocess_clip(
+            outro, work / f"_pp_outro_{name}.mp4", target_w, target_h, has_audio,
+            **_clip_fade_params(n - 1, n, final_cuts, _measure_silence(outro, has_audio)),
+        )
+        out[name] = _transition_concat(
+            [*content_pps, pp_outro], dests[name], final_cuts, has_audio,
+        )
+    return out
+
+
+def _loudnorm_inputs(inputs: list[Path], work_dir: Path) -> list[Path]:
     work_dir.mkdir(parents=True, exist_ok=True)
     normalized: list[Path] = []
     for i, src in enumerate(inputs):
@@ -430,6 +525,34 @@ def loudnorm_then_concat(
                 f"{r.stderr.decode('utf-8', errors='replace')[-500:]}"
             )
         normalized.append(norm_path)
+    return normalized
+
+
+def loudnorm_then_concat_variants(
+    inputs: list[Path],
+    dests: dict[str, Path],
+    cut_types: list[str] | None = None,
+    *,
+    outros: dict[str, Path] | None = None,
+) -> dict[str, Path]:
+    """Compose-path twin of concat_final_variants: loudnorm once, then one
+    finished video per ending."""
+    first = next(iter(dests.values()))
+    normalized = _loudnorm_inputs(inputs, first.parent)
+    return concat_final_variants(normalized, dests, cut_types=cut_types, outros=outros)
+
+
+def loudnorm_then_concat(
+    inputs: list[Path],
+    dest: Path,
+    cut_types: list[str] | None = None,
+    crossfade_s: float = 0.35,
+    outro_path: Path | None = None,
+    **_legacy,
+) -> Path:
+    """EBU R128 loudnorm each input (compose mixes clips from different runs),
+    then scene-aware concat."""
+    normalized = _loudnorm_inputs(inputs, dest.parent)
     if outro_path is not None:
         return concat_final_video(
             normalized,

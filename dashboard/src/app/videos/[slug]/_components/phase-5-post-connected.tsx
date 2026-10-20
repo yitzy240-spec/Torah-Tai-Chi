@@ -52,6 +52,7 @@ interface Props {
   postUrls: Record<string, string>;
   connectedPlatforms: Platform[];
   videoMp4Url: string | null;
+  videoMp4SubscribeUrl: string | null;
   thumbPath: string | null;
   /** Operator's hand-picked YouTube cover frame, persisted to
    *  videos.youtube_thumbnail_url. Threaded through to YouTubeCard so

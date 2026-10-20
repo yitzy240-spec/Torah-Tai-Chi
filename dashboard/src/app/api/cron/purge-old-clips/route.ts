@@ -171,7 +171,7 @@ async function processParsha(
     // mp4_path (the stitched final, ~10MB each) is the single largest
     // artifact per draft; until 2026-06-12 the purge deleted these rows
     // but never their files, orphaning 1.2GB+ of final.mp4s.
-    admin.from('videos').select('id, job_id, mp4_path, thumb_path').eq('parsha_id', parsha.id),
+    admin.from('videos').select('id, job_id, mp4_path, mp4_subscribe_path, thumb_path').eq('parsha_id', parsha.id),
     admin.from('scripts').select('id').eq('parsha_id', parsha.id),
     keepClipIds.size > 0
       ? admin.from('clips').select('job_id').in('id', [...keepClipIds])
@@ -180,7 +180,10 @@ async function processParsha(
   const readErr = jobsRes.error ?? videosRes.error ?? scriptsRes.error ?? keptOwnersRes.error;
   if (readErr) throw new Error(`purge read failed: ${readErr.message}`);
 
-  type VideoRow = { id: string; job_id: string | null; mp4_path: string | null; thumb_path: string | null };
+  type VideoRow = {
+    id: string; job_id: string | null; mp4_path: string | null;
+    mp4_subscribe_path: string | null; thumb_path: string | null;
+  };
   const allVideos = (videosRes.data ?? []) as VideoRow[];
   const plan = planPurge({
     liveJobId,
@@ -198,7 +201,7 @@ async function processParsha(
   const purgedVideoSet = new Set(videosToPurge);
   const videoPathsToPurge = allVideos
     .filter((v) => purgedVideoSet.has(v.id))
-    .flatMap((v) => [v.mp4_path, v.thumb_path])
+    .flatMap((v) => [v.mp4_path, v.mp4_subscribe_path, v.thumb_path])
     .filter((p): p is string => !!p);
   result.purgedVideoPaths = videoPathsToPurge;
 
@@ -372,9 +375,17 @@ async function sweepOrphans(
   const totalBytesBeforeSweep = files.reduce((s, f) => s + f.size, 0);
 
   const referenced = new Set<string>();
-  const { data: vids } = await admin.from('videos').select('mp4_path, thumb_path');
+  // A failed read must ABORT the sweep: with an empty referenced set every
+  // final video in the bucket looks orphaned and would be deleted (e.g. if
+  // this deploy lands before the mp4_subscribe_path migration is applied).
+  const { data: vids, error: vidsErr } = await admin
+    .from('videos')
+    .select('mp4_path, mp4_subscribe_path, thumb_path');
+  if (vidsErr) throw new Error(`orphan sweep: videos read failed: ${vidsErr.message}`);
   for (const v of vids ?? []) {
     if (v.mp4_path) referenced.add(v.mp4_path as string);
+    // Subscribe-ending cut (YouTube) — without this it'd be swept as an orphan.
+    if (v.mp4_subscribe_path) referenced.add(v.mp4_subscribe_path as string);
     if (v.thumb_path) referenced.add(v.thumb_path as string);
   }
   const { data: clips } = await admin

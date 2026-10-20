@@ -509,6 +509,7 @@ async function PhaseBody({
             sourceScriptId={props.sourceScriptId}
             versionLabel={props.versionLabel}
             videoMp4Url={props.videoMp4Url}
+            videoMp4SubscribeUrl={props.videoMp4SubscribeUrl}
             thumbPath={props.thumbPath}
             websiteUrl={props.websiteUrl}
             displayTitle={props.displayTitle}

@@ -46,6 +46,12 @@ export const dynamic = 'force-dynamic';
 interface Body {
   jobId?: string;
   videoId?: string;
+  /** Storage path of the Follow-ending cut (videos.mp4_path). */
+  mp4Path?: string | null;
+  /** Storage path of the Subscribe-ending cut (videos.mp4_subscribe_path);
+   *  null when the subscribe cut failed. Informational: autoPost reads both
+   *  from the videos row (the single source of truth), not from here. */
+  mp4SubscribePath?: string | null;
 }
 
 /** Compute the next Friday at 18:00 in server-local time. If it's already
@@ -104,6 +110,10 @@ export async function POST(request: Request) {
   if (!jobId || !videoId) {
     return NextResponse.json({ error: 'jobId and videoId required' }, { status: 400 });
   }
+  console.info(
+    `[video-complete] job ${jobId} video ${videoId} endings: ` +
+    `follow=${body.mp4Path ?? '(not sent)'} subscribe=${body.mp4SubscribePath ?? '(none — YouTube uses follow)'}`,
+  );
 
   const stance = await getStance();
   const sb = createServiceClient();

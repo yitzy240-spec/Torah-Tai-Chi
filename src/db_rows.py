@@ -14,6 +14,7 @@ build_done_clip_row); execution_events rows in src/events.py
 """
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 # job_status enum, in enum order (0001_slice1_schema.sql + verifying).
@@ -103,12 +104,53 @@ def cost_event_row(
     }
 
 
-def build_video_row(job_id: str, mp4_path: str) -> dict:
+def build_video_row(
+    job_id: str, mp4_path: str, mp4_subscribe_path: Optional[str] = None,
+) -> dict:
     """Base videos row (job_id + mp4_path are NOT NULL). Workers write it
     with upsert(on_conflict="job_id") (videos_job_id_key is UNIQUE), so a
     re-render keeps the existing row's id, posts and feedback. Callers add
-    thumb_path / title fields."""
-    return {"job_id": job_id, "mp4_path": mp4_path}
+    thumb_path / title fields.
+
+    mp4_path is the FOLLOW-ending cut (Facebook / Instagram / TikTok / X);
+    mp4_subscribe_path the SUBSCRIBE-ending cut for YouTube. Always written,
+    even as None, so a re-render whose subscribe cut failed clears the
+    previous render's (now mismatched) subscribe file and readers fall back
+    to mp4_path."""
+    return {
+        "job_id": job_id, "mp4_path": mp4_path,
+        "mp4_subscribe_path": mp4_subscribe_path,
+    }
+
+
+def _filename_slug(value: Optional[str]) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (value or "").lower()).strip("-")
+    return slug or "torah-tai-chi"
+
+
+def video_storage_paths(job_id: str, parsha_slug: Optional[str]) -> dict:
+    """Storage paths (videos bucket) for the two endings of a job's final
+    video: {"follow": "jobs/<job>/<parsha>-follow.mp4",
+            "subscribe": "jobs/<job>/<parsha>-subscribe.mp4"}.
+    Topic / unknown-parsha jobs fall back to "torah-tai-chi"."""
+    slug = _filename_slug(parsha_slug)
+    return {
+        "follow": f"jobs/{job_id}/{slug}-follow.mp4",
+        "subscribe": f"jobs/{job_id}/{slug}-subscribe.mp4",
+    }
+
+
+def video_complete_payload(
+    job_id: str, video_id: str, mp4_path: Optional[str],
+    mp4_subscribe_path: Optional[str],
+) -> dict:
+    """JSON body for the dashboard's /api/pipeline/video-complete webhook.
+    Carries both endings' storage paths; mp4SubscribePath is None when the
+    subscribe cut failed (YouTube then falls back to mp4Path)."""
+    return {
+        "jobId": job_id, "videoId": video_id,
+        "mp4Path": mp4_path, "mp4SubscribePath": mp4_subscribe_path,
+    }
 
 
 def record_cost(

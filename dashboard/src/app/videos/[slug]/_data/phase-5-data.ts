@@ -10,6 +10,7 @@ import { createServiceClient } from '@/lib/supabase/service';
 import { getCanonicalClipPlan } from '@/lib/clip-plan';
 import { getConnectedPlatforms } from '@/lib/connected-platforms';
 import type { Platform } from '@/lib/platforms';
+import { videoPathForEnding } from '@/lib/video-endings';
 
 export type Phase5Post = {
   id: string;
@@ -26,6 +27,7 @@ export type Phase5Post = {
 export type Phase5VideoRow = {
   id: string;
   mp4_path: string | null;
+  mp4_subscribe_path: string | null;
   thumb_path: string | null;
   title: string | null;
   subtitle: string | null;
@@ -57,7 +59,10 @@ export type Phase5Props = {
   initialPosts: Phase5Post[];
   postUrls: Record<string, string>;
   connectedPlatforms: Platform[];
+  /** Follow-ending cut (videos.mp4_path) — FB / IG / TikTok / X. */
   videoMp4Url: string | null;
+  /** Subscribe-ending cut for YouTube; falls back to videoMp4Url. */
+  videoMp4SubscribeUrl: string | null;
   /** Named thumbPath to match Phase5PostConnected's prop */
   thumbPath: string | null;
   /** Operator's hand-picked YouTube cover frame (from saveYouTubeThumbnail).
@@ -84,7 +89,7 @@ export async function getPhase5Props(
     await Promise.all([
       supabase
         .from('videos')
-        .select('id, mp4_path, thumb_path, title, subtitle, description, published_to_website, post_urls, youtube_thumbnail_url')
+        .select('id, mp4_path, mp4_subscribe_path, thumb_path, title, subtitle, description, published_to_website, post_urls, youtube_thumbnail_url')
         .eq('id', draftVideoId)
         .single(),
       getCanonicalClipPlan(supabaseSvc, draftJobId),
@@ -119,6 +124,7 @@ export async function getPhase5Props(
     ? {
         id: vRow.id as string,
         mp4_path: (vRow.mp4_path as string | null) ?? null,
+        mp4_subscribe_path: (vRow.mp4_subscribe_path as string | null) ?? null,
         thumb_path: (vRow.thumb_path as string | null) ?? null,
         title: (vRow.title as string | null) ?? null,
         subtitle: (vRow.subtitle as string | null) ?? null,
@@ -152,6 +158,12 @@ export async function getPhase5Props(
   if (videoRow?.mp4_path) {
     const { data: urlData } = supabase.storage.from('videos').getPublicUrl(videoRow.mp4_path);
     videoMp4Url = urlData?.publicUrl ?? null;
+  }
+  let videoMp4SubscribeUrl = videoMp4Url;
+  const subscribePath = videoRow ? videoPathForEnding(videoRow, 'subscribe') : null;
+  if (subscribePath) {
+    const { data: urlData } = supabase.storage.from('videos').getPublicUrl(subscribePath);
+    videoMp4SubscribeUrl = urlData?.publicUrl ?? videoMp4Url;
   }
   if (videoRow?.thumb_path) {
     const { data: urlData } = supabase.storage.from('videos').getPublicUrl(videoRow.thumb_path);
@@ -195,6 +207,7 @@ export async function getPhase5Props(
     postUrls: (videoRow?.post_urls ?? {}) as Record<string, string>,
     connectedPlatforms,
     videoMp4Url,
+    videoMp4SubscribeUrl,
     thumbPath,
     youtubeThumbnailUrl: videoRow?.youtube_thumbnail_url ?? null,
     liveVideoIndex,

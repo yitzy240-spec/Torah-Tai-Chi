@@ -183,6 +183,13 @@ def _cases() -> list[Case]:
              OK, on_conflict="job_id"),
         Case("video_row_upsert_on_job_id_fresh", "videos", "upsert",
              build_video_row(JOB2_ID, "jobs/y/final.mp4"), OK, on_conflict="job_id"),
+        # Two endings (2026-10-20): Follow cut in mp4_path, Subscribe cut
+        # (YouTube) in the nullable mp4_subscribe_path.
+        Case("video_row_with_subscribe_ending", "videos", "upsert",
+             build_video_row(JOB_ID, "jobs/x/noach-follow.mp4", "jobs/x/noach-subscribe.mp4"),
+             OK, on_conflict="job_id"),
+        Case("video_update_subscribe_path_only", "videos", "update",
+             {"mp4_subscribe_path": None}, OK, where={"id": VIDEO_ID}),
         # ── execution_events ─────────────────────────────────────────────
         Case("event_row_paid_render_unsaved", "execution_events", "insert",
              build_event_row(actor="modal", level="error", event="kie.paid_render_unsaved",
