@@ -12,8 +12,10 @@ import asyncio
 import hmac
 import os
 import re
+import shutil
 import sys
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
@@ -36,6 +38,7 @@ image = (
         "python-dotenv>=1.0.0",
         "supabase>=2.6.0",
         "fastapi[standard]>=0.115.0",  # required by @modal.fastapi_endpoint
+        "pillow>=10.0.0",  # src/seam_check.py (chain seam check)
     )
     .add_local_dir("src", remote_path="/root/src")
     .add_local_dir("references", remote_path="/root/references")
@@ -2018,12 +2021,80 @@ def _extract_last_frame(mp4_path: Path, dest_png: Path) -> Path:
 async def _upload_first_frame(kie: "KieClient", png_path: Path) -> str:  # noqa: F821
     """Upload a first-frame PNG to Kie and return the public URL.
 
-    Thin wrapper around KieClient.upload_file (which handles base64
-    + mime detection) so call sites read clearly.
+    Every upload gets a UNIQUE Kie file name and is read back before use
+    (src/chain_frame.py). It used to upload as png_path.name, i.e. the same
+    firstframe_{index:02d}.png for every job and video; Kie overwrites a
+    re-used name but may keep serving the cached old file, which is the
+    prime suspect for Noach 2026-10-13 (chained clip 1 opened on a
+    different shot).
+
+    A copy of the PNG is kept, keyed by URL, for the post-render seam check
+    (_chain_seam_check) — callers unlink png_path in their finally blocks.
     """
-    return await kie.upload_file(
-        png_path, remote_dir="torah-tai-chi-firstframes"
+    from src.chain_frame import upload_chain_frame
+
+    url = await upload_chain_frame(
+        kie, png_path, remote_dir="torah-tai-chi-firstframes"
     )
+    try:
+        keep = png_path.with_name(f"seam_{uuid.uuid4().hex}.png")
+        shutil.copyfile(png_path, keep)
+        _CHAIN_PNG_BY_URL[url] = keep
+    except Exception as keep_err:
+        print(f"[firstframe] seam-check copy failed (ignored): {keep_err}")
+    return url
+
+
+# first_frame_url -> local copy of the PNG that was uploaded for it.
+_CHAIN_PNG_BY_URL: dict[str, Path] = {}
+
+
+def _chain_seam_check(
+    sb, job_id: str, clip_index: int, first_frame_url: str, clip_mp4: Path,
+) -> None:
+    """Compare the rendered clip's FIRST frame to the chain PNG that was
+    sent as first_frame_url and log pipeline.chain_seam_check (warn when
+    not honored). Best-effort — must never fail a render.
+    """
+    chain_png = _CHAIN_PNG_BY_URL.pop(first_frame_url, None)
+    if chain_png is None:
+        return
+    first_png = clip_mp4.with_name(f"{clip_mp4.stem}_first.png")
+    try:
+        from src.events import log_event
+        from src.seam_check import (
+            HONORED_THRESHOLD, extract_first_frame, frame_similarity,
+        )
+
+        extract_first_frame(clip_mp4, first_png)
+        similarity = round(frame_similarity(chain_png, first_png), 4)
+        honored = similarity >= HONORED_THRESHOLD
+        msg = (
+            f"[seam] clip {clip_index}: first frame similarity "
+            f"{similarity:.3f} vs chain frame "
+            f"({'honored' if honored else 'NOT honored'})"
+        )
+        print(msg)
+        log_event(
+            sb, actor="modal", level="info" if honored else "warn",
+            event="pipeline.chain_seam_check",
+            subject_type="clip",
+            message=msg,
+            details={
+                "clip_index": clip_index, "job_id": job_id,
+                "similarity": similarity, "honored": honored,
+                "first_frame_url": first_frame_url,
+            },
+        )
+    except Exception as seam_err:
+        print(f"[seam] clip {clip_index}: seam check failed (ignored): {seam_err}")
+    finally:
+        for p in (chain_png, first_png):
+            try:
+                if p.exists():
+                    p.unlink()
+            except Exception:
+                pass
 
 
 def _log_chain_decision(
@@ -2076,6 +2147,7 @@ def _log_seedance_request(
                 "clip_index": clip_index, "task_id": task_id,
                 "job_id": job_id,
                 "has_first_frame": bool(payload.get("first_frame_url")),
+                "first_frame_url": payload.get("first_frame_url"),
                 "n_reference_images": len(
                     payload.get("reference_image_urls") or []
                 ),
@@ -3487,6 +3559,11 @@ def regen_smart(job_id: str) -> dict | None:
                 ),
                 on_unsaved=unsaved_render_logger(sb, job_id, target_idx),
             )
+            if first_frame_url:
+                await asyncio.to_thread(
+                    _chain_seam_check, sb, job_id, target_idx, first_frame_url,
+                    local_path,
+                )
             credits = (
                 kie_meta.get("creditsConsumed")
                 or kie_meta.get("credits_consumed")
@@ -3990,6 +4067,10 @@ def regen_clip(job_id: str) -> dict | None:
             )
 
         _, kie_meta, _task_id = asyncio.run(_regen_one())
+        if first_frame_url:
+            _chain_seam_check(
+                sb, job_id, target_index, first_frame_url, new_local_path,
+            )
         credits = (
             kie_meta.get("creditsConsumed")
             or kie_meta.get("credits_consumed")
@@ -6736,6 +6817,10 @@ def clips_only_job(job_id: str) -> dict | None:
                 _save_clip,
                 upload=lambda: _upload_mp4(sb, clip_storage_path, clip_bytes),
             )
+            if first_frame_url:
+                await asyncio.to_thread(
+                    _chain_seam_check, sb, job_id, c.index, first_frame_url, dest,
+                )
 
             if cost_usd:
                 log_cost(
@@ -7280,6 +7365,7 @@ def chain_probe(
     ))
     storage_path = f"{probe_prefix}/clip_{clip_index:02d}.mp4"
     _upload_mp4(sb, storage_path, dest.read_bytes())
+    _chain_seam_check(sb, plan_owner_job_id, clip_index, first_frame_url, dest)
 
     credits = (
         kie_meta.get("credits_consumed")
@@ -7650,6 +7736,10 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             ),
             on_unsaved=unsaved_render_logger(sb, job_id, target_index),
         ))
+        if first_frame_url:
+            _chain_seam_check(
+                sb, job_id, target_index, first_frame_url, local_path,
+            )
 
         # Cost accounting from Kie meta.
         total_credits = 0
