@@ -1,12 +1,17 @@
 """Generate the branded ANIMATED outro (Torah Tai Chi).
 
 9:16 cream end card in the brand palette (linen/cedar/ink) and display serif
-(Fraunces): the wooden medallion is present from the first frame; the web
-address rises + fades in, a brass divider draws, then the tagline rises + fades
-in. Encodes to a silent mp4 the stitcher appends to every video.
+(Fraunces): the wooden medallion is present from the first frame; the follow
+call-to-action rises + fades in, a brass divider draws, then the tagline rises
++ fades in with a small web address beneath it. Encodes to an mp4 (silent AAC
+track) the stitcher appends to every video.
+
+The CTA asks viewers to follow (they are already on the platform); the web
+address is deliberately secondary. The previous website-first version is kept
+as references/_brand/outro_website_v1.mp4.
 
 Outputs:
-  references/_brand/outro.mp4        (the animated segment, 1080x1920, silent)
+  references/_brand/outro.mp4        (the animated segment, 1080x1920)
   references/_brand/outro_card.png   (final frame — poster / reference)
 
 Run: FFMPEG_BIN=... python tools/make_outro.py
@@ -31,6 +36,9 @@ W, H = 1080, 1920
 FPS = 30
 DURATION_S = 3.6
 OUTRO_URL = "TorahTaiChi.com"
+CTA_LINES = ("Follow for a new lesson", "every week")
+TAGLINE = "Where Torah and Tai Chi Meet"
+CTA_MAX_W = int(W * 0.86)  # widest CTA line may span this much of the frame
 
 # Brand tokens (website src/styles/tokens.css)
 INK_900 = (35, 27, 16)
@@ -40,9 +48,10 @@ TOP = (252, 247, 236)
 BOT = (238, 230, 216)
 
 # Animation schedule (seconds): (start, end) of each element's ease-in.
-URL_IN = (0.55, 1.45)
+CTA_IN = (0.55, 1.45)
 DIV_IN = (1.30, 1.85)
 TAG_IN = (1.65, 2.55)
+URL_IN = (1.95, 2.85)
 RISE_PX = 16  # how far text rises into place
 
 
@@ -76,12 +85,22 @@ def _font(size: int, wght: float, italic: bool = False) -> ImageFont.FreeTypeFon
     return f
 
 
-def _text_layer(text: str, font, fill, cx: int, y: int) -> Image.Image:
+def _fit_font(lines, size: int, wght: float, max_w: int) -> ImageFont.FreeTypeFont:
+    """Largest font <= `size` whose widest line fits within `max_w` px."""
+    d = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    while True:
+        f = _font(size, wght)
+        if size <= 40 or max(d.textbbox((0, 0), s, font=f)[2] for s in lines) <= max_w:
+            return f
+        size -= 2
+
+
+def _text_layer(text: str, font, fill, cx: int, y: int, alpha: int = 255) -> Image.Image:
     """A full-frame RGBA layer with `text` centred at (cx, y)."""
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     tw = d.textbbox((0, 0), text, font=font)[2]
-    d.text((cx - tw / 2, y), text, font=font, fill=fill + (255,))
+    d.text((cx - tw / 2, y), text, font=font, fill=fill + (alpha,))
     return layer
 
 
@@ -120,20 +139,28 @@ def _build_base() -> tuple[Image.Image, int, int, int]:
     ly = int(H * 0.205)
     card.alpha_composite(logo, (lx, ly))
 
-    y_url = ly + logo.height + int(H * 0.015)
-    y_div = y_url + 132
-    y_tag = y_div + 44
-    return card, y_url, y_div, y_tag
+    y_cta = ly + logo.height + int(H * 0.015)
+    return card, y_cta
 
 
 def main():
-    base, y_url, y_div, y_tag = _build_base()
+    base, y_cta = _build_base()
     cx = W // 2
-    url_font = _font(96, 600)
+    cta_font = _fit_font(CTA_LINES, 88, 600, CTA_MAX_W)
     tag_font = _font(58, 420, italic=True)
+    url_font = _font(40, 460)
 
-    url_full = _text_layer(OUTRO_URL, url_font, INK_900, cx, y_url)
-    tag_full = _text_layer("Where Torah and Tai Chi Meet", tag_font, CEDAR_700, cx, y_tag)
+    # Stack: CTA lines, brass divider, tagline, then a subtle web address.
+    line_h = int(cta_font.size * 1.18)
+    y_div = y_cta + line_h * len(CTA_LINES) + 18
+    y_tag = y_div + 44
+    y_url = y_tag + 92
+
+    cta_full = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    for i, line in enumerate(CTA_LINES):
+        cta_full.alpha_composite(_text_layer(line, cta_font, INK_900, cx, y_cta + i * line_h))
+    tag_full = _text_layer(TAGLINE, tag_font, CEDAR_700, cx, y_tag)
+    url_full = _text_layer(OUTRO_URL, url_font, CEDAR_700, cx, y_url, alpha=190)
 
     n = int(round(DURATION_S * FPS))
     tmp = Path(tempfile.mkdtemp(prefix="outro_"))
@@ -142,9 +169,9 @@ def main():
             t = i / FPS
             frame = base.copy()
 
-            au = _seg(t, URL_IN)
-            if au > 0:
-                frame.alpha_composite(_fade(url_full.copy(), au, int((1 - au) * RISE_PX)))
+            ac = _seg(t, CTA_IN)
+            if ac > 0:
+                frame.alpha_composite(_fade(cta_full.copy(), ac, int((1 - ac) * RISE_PX)))
             ad = _seg(t, DIV_IN)
             if ad > 0:
                 half = int(W * 0.09 * ad)
@@ -152,6 +179,9 @@ def main():
             at = _seg(t, TAG_IN)
             if at > 0:
                 frame.alpha_composite(_fade(tag_full.copy(), at, int((1 - at) * (RISE_PX - 2))))
+            au = _seg(t, URL_IN)
+            if au > 0:
+                frame.alpha_composite(_fade(url_full.copy(), au, int((1 - au) * (RISE_PX - 4))))
 
             frame.convert("RGB").save(tmp / f"f{i:04d}.png")
             if i == n - 1:

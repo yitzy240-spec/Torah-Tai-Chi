@@ -81,7 +81,8 @@ STRUCTURE (optional but helpful): most scripts work well as
 [HOOK] 1-2 sentence opener
 [TEACHING] 2-4 sentences of the core teaching
 [APPLICATION] 1-2 sentences bringing it to the body / practice / breath
-[CTA] one short line (optional)
+[CTA] one short follow line, e.g. "Follow for a new lesson every week."
+      Never point viewers to the website.
 
 OUTPUT: the rewritten draft only. No preamble. No markdown. No headers."""
 

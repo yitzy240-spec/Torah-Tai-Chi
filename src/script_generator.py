@@ -79,6 +79,16 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
   draft. Don't drop attributions (if he cites Baal HaTurim, keep that
   citation). Don't invent Hebrew terms or Torah claims. The shape
   changes; the substance doesn't.
+- **Spoken CTA = FOLLOW, never the website.** The last clip's voiceover
+  ends with a short follow/subscribe line, e.g. "Follow so you don't miss
+  next week's parsha." or "Follow for a new lesson every week." Viewers
+  are already on the platform, so the ask is to follow there; the branded
+  end card shows the same follow message. NEVER tell viewers to visit the
+  website, go to TorahTaiChi.com, "learn more" or "link in bio" in the
+  voiceover. If Yonah's draft CTA points to the website, keep any practice
+  instruction in it and replace the website ask with a follow line. If
+  the draft has no CTA, add one short follow line (it counts toward the
+  word budget). The link belongs in the platform captions, not the voice.
 - **Hebrew names policy — always use them.** This channel speaks to an
   Orthodox audience. Never substitute the secular English name for a
   Hebrew name. Books of the Torah, parshas, patriarchs, matriarchs,
@@ -439,8 +449,8 @@ captions that live under the video on each platform.
   (t.co wrapping) no matter how short the real link is. So if you include
   a link like "TorahTaiChi.com", count it as 23 chars, not its literal
   length. Budget: text + hashtags + (23 per link) <= 270. Prefer NO link
-  (the site is already shown in the video's end card) and at most 1-2
-  hashtags. Lead with the hook + a teaser. Example: "Kedusha isn't a
+  (the tweet is short; the other platforms' captions carry the site) and
+  at most 1-2 hashtags. Lead with the hook + a teaser. Example: "Kedusha isn't a
   feeling — it's the breath before the reaction. 45s on the tai chi of
   non-reactivity. #torahtaichi"
 
@@ -499,7 +509,7 @@ teaches: Moshe wrote himself small so God's voice could come through.
 In tai chi, we sink to rise. We yield to advance. We empty to receive.
 [CTA]
 Right now: exhale fully. Take up less space. Notice what opens. Follow
-Torah Tai Chi for weekly wisdom.
+so you don't miss next week's parsha.
 
 Possible output (sketch):
 {{
@@ -534,7 +544,7 @@ Possible output (sketch):
       "emotive_note": "three short lines, held beat between each"}},
     {{"index": 3, "setting_id": "DESERT_OUTCROP", "duration_s": 11,
       "voiceover": "Right now: exhale fully. Take up less space. Notice
-        what opens. Follow Torah Tai Chi for weekly wisdom.",
+        what opens. Follow so you don't miss next week's parsha.",
       "visual_prompt": "<DESERT_OUTCROP anchor> Rav Eli stands facing the
         valley, eyes closed gently. A long exhale visibly settles his
         shoulders. He turns slowly back to camera on the final phrase.
