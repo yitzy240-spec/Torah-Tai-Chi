@@ -10,7 +10,7 @@ from src.models import Clip
 from src.settings import (
     CHAIN_CONTINUITY_LOCK, CHAIN_REFERENCE_LOCK, ENVIRONMENT_LOCK,
     ENVIRONMENT_LOCK_CHAINED, HANDOFF_FRAMING_LOCK, LIP_SYNC_LOCK,
-    STYLE_LOCK, WARDROBE_LOCK,
+    LOGO_LOCK, STYLE_LOCK, WARDROBE_LOCK,
 )
 
 
@@ -86,6 +86,7 @@ def prompt_lock_flags(prompt: str) -> dict:
     """Which prompt locks reached a Seedance request (for execution_events)."""
     return {
         "wardrobe": WARDROBE_LOCK in prompt,
+        "logo": LOGO_LOCK in prompt,
         "lip_sync": LIP_SYNC_LOCK in prompt,
         "chain_continuity": CHAIN_CONTINUITY_LOCK in prompt,
         "chain_reference": CHAIN_REFERENCE_LOCK in prompt,
