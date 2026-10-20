@@ -26,6 +26,7 @@ interface Props {
   sourceScriptId: string;
   versionLabel: string;
   videoMp4Url: string;
+  videoMp4SubscribeUrl: string;
   thumbPath: string | null;
   websiteUrl: string;
   /** The BIG heading — the creative script title ("In the Desert…") */
@@ -65,6 +66,7 @@ export function LiveAtRestConnected({
   sourceScriptId,
   versionLabel,
   videoMp4Url,
+  videoMp4SubscribeUrl,
   thumbPath,
   websiteUrl,
   displayTitle,
@@ -118,6 +120,7 @@ export function LiveAtRestConnected({
         parshaName={parshaName}
         versionLabel={versionLabel}
         videoMp4Url={videoMp4Url}
+        videoMp4SubscribeUrl={videoMp4SubscribeUrl}
         thumbPath={thumbPath}
         websiteUrl={websiteUrl}
         displayTitle={displayTitle}

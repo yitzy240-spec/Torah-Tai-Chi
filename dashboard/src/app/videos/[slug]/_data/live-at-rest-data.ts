@@ -16,6 +16,7 @@ import { refreshVideoPostUrls } from '@/lib/refresh-post-urls';
 import type { PlatformStatus } from '../_components/live-at-rest';
 import type { ShellData } from './shell-data';
 import { ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
+import { videoPathForEnding } from '@/lib/video-endings';
 
 export type LiveAtRestPost = {
   id: string;
@@ -34,7 +35,11 @@ export type LiveAtRestProps = {
   parshaId: string;
   sourceScriptId: string;
   versionLabel: string;
+  /** Follow-ending cut (videos.mp4_path) — FB / IG / TikTok / X. */
   videoMp4Url: string;
+  /** Subscribe-ending cut for YouTube; same as videoMp4Url on videos
+   *  rendered before the two-endings change. */
+  videoMp4SubscribeUrl: string;
   thumbPath: string | null;
   websiteUrl: string;
   /** The BIG heading — the creative script title ("In the Desert…") */
@@ -113,7 +118,7 @@ export async function getLiveAtRestProps(
       supabase
         .from('videos')
         .select(
-          'id, mp4_path, thumb_path, title, subtitle, description, website_caption, spoken_script, published_to_website, post_urls, created_at, youtube_thumbnail_url',
+          'id, mp4_path, mp4_subscribe_path, thumb_path, title, subtitle, description, website_caption, spoken_script, published_to_website, post_urls, created_at, youtube_thumbnail_url',
         )
         .eq('id', liveVideoId)
         .single(),
@@ -140,6 +145,20 @@ export async function getLiveAtRestProps(
       .from('videos')
       .getPublicUrl(liveVRow.mp4_path as string);
     liveVideoMp4Url = u?.publicUrl ?? null;
+  }
+  let liveVideoSubscribeUrl = liveVideoMp4Url;
+  const subscribePath = liveVRow
+    ? videoPathForEnding(
+        {
+          mp4_path: liveVRow.mp4_path as string | null,
+          mp4_subscribe_path: liveVRow.mp4_subscribe_path as string | null,
+        },
+        'subscribe',
+      )
+    : null;
+  if (subscribePath) {
+    const { data: u } = supabase.storage.from('videos').getPublicUrl(subscribePath);
+    liveVideoSubscribeUrl = u?.publicUrl ?? liveVideoMp4Url;
   }
   if (liveVRow?.thumb_path) {
     const { data: u } = supabase.storage
@@ -243,6 +262,7 @@ export async function getLiveAtRestProps(
     sourceScriptId: liveScriptId ?? '',
     versionLabel,
     videoMp4Url: liveVideoMp4Url ?? '',
+    videoMp4SubscribeUrl: liveVideoSubscribeUrl ?? '',
     thumbPath: liveThumbUrl,
     websiteUrl: `https://torahtaichi.com/videos/${parshaSlug}`,
     // DB column meanings: videos.subtitle = creative title, videos.title = parsha name.

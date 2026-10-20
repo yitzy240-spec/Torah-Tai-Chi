@@ -10,11 +10,19 @@ The CTA asks viewers to follow (they are already on the platform); the web
 address is deliberately secondary. The previous website-first version is kept
 as references/_brand/outro_website_v1.mp4.
 
-Outputs:
-  references/_brand/outro.mp4        (the animated segment, 1080x1920)
-  references/_brand/outro_card.png   (final frame — poster / reference)
+Two variants differ only in the CTA verb (2026-10-20): "Follow" for
+Facebook / Instagram / TikTok / X, "Subscribe" for YouTube (the platform's own
+verb). The pipeline renders one final video per variant from the same
+stitched content.
 
-Run: FFMPEG_BIN=... python tools/make_outro.py
+Outputs:
+  references/_brand/outro.mp4                  (follow variant, 1080x1920)
+  references/_brand/outro_card.png             (follow final frame — poster)
+  references/_brand/outro_subscribe.mp4        (subscribe variant)
+  references/_brand/outro_subscribe_card.png   (subscribe final frame)
+
+Run: FFMPEG_BIN=... python tools/make_outro.py [follow] [subscribe]
+     (no args renders both)
 """
 from __future__ import annotations
 import os
@@ -28,8 +36,11 @@ ROOT = Path(__file__).resolve().parent.parent
 LOGO = ROOT / "references" / "_brand" / "logo.png"
 FONT = ROOT / "work" / "outro" / "Fraunces.ttf"
 FONT_ITALIC = ROOT / "work" / "outro" / "Fraunces-Italic.ttf"
-OUT_MP4 = ROOT / "references" / "_brand" / "outro.mp4"
-OUT_PNG = ROOT / "references" / "_brand" / "outro_card.png"
+BRAND = ROOT / "references" / "_brand"
+OUT_MP4 = BRAND / "outro.mp4"
+OUT_PNG = BRAND / "outro_card.png"
+OUT_SUBSCRIBE_MP4 = BRAND / "outro_subscribe.mp4"
+OUT_SUBSCRIBE_PNG = BRAND / "outro_subscribe_card.png"
 FFMPEG = os.environ.get("FFMPEG_BIN", "ffmpeg")
 
 W, H = 1080, 1920
@@ -37,6 +48,12 @@ FPS = 30
 DURATION_S = 3.6
 OUTRO_URL = "TorahTaiChi.com"
 CTA_LINES = ("Follow for a new lesson", "every week")
+SUBSCRIBE_CTA_LINES = ("Subscribe for a new lesson", "every week")
+# variant -> (CTA lines, mp4 out, final-frame png out)
+VARIANTS = {
+    "follow": (CTA_LINES, OUT_MP4, OUT_PNG),
+    "subscribe": (SUBSCRIBE_CTA_LINES, OUT_SUBSCRIBE_MP4, OUT_SUBSCRIBE_PNG),
+}
 TAGLINE = "Where Torah and Tai Chi Meet"
 CTA_MAX_W = int(W * 0.86)  # widest CTA line may span this much of the frame
 
@@ -122,7 +139,7 @@ def _fade(layer: Image.Image, alpha: float, dy: int = 0) -> Image.Image:
     return layer
 
 
-def _build_base() -> tuple[Image.Image, int, int, int]:
+def _build_base() -> tuple[Image.Image, int]:
     card = _vertical_gradient(W, H, TOP, BOT).convert("RGBA")
 
     logo = Image.open(LOGO).convert("RGBA")
@@ -143,27 +160,29 @@ def _build_base() -> tuple[Image.Image, int, int, int]:
     return card, y_cta
 
 
-def main():
+def render(variant: str) -> Path:
+    """Render one variant's mp4 + final-frame png; returns the mp4 path."""
+    cta_lines, out_mp4, out_png = VARIANTS[variant]
     base, y_cta = _build_base()
     cx = W // 2
-    cta_font = _fit_font(CTA_LINES, 88, 600, CTA_MAX_W)
+    cta_font = _fit_font(cta_lines, 88, 600, CTA_MAX_W)
     tag_font = _font(58, 420, italic=True)
     url_font = _font(40, 460)
 
     # Stack: CTA lines, brass divider, tagline, then a subtle web address.
     line_h = int(cta_font.size * 1.18)
-    y_div = y_cta + line_h * len(CTA_LINES) + 18
+    y_div = y_cta + line_h * len(cta_lines) + 18
     y_tag = y_div + 44
     y_url = y_tag + 92
 
     cta_full = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    for i, line in enumerate(CTA_LINES):
+    for i, line in enumerate(cta_lines):
         cta_full.alpha_composite(_text_layer(line, cta_font, INK_900, cx, y_cta + i * line_h))
     tag_full = _text_layer(TAGLINE, tag_font, CEDAR_700, cx, y_tag)
     url_full = _text_layer(OUTRO_URL, url_font, CEDAR_700, cx, y_url, alpha=190)
 
     n = int(round(DURATION_S * FPS))
-    tmp = Path(tempfile.mkdtemp(prefix="outro_"))
+    tmp = Path(tempfile.mkdtemp(prefix=f"outro_{variant}_"))
     try:
         for i in range(n):
             t = i / FPS
@@ -185,7 +204,7 @@ def main():
 
             frame.convert("RGB").save(tmp / f"f{i:04d}.png")
             if i == n - 1:
-                frame.convert("RGB").save(OUT_PNG)
+                frame.convert("RGB").save(out_png)
 
         args = [
             FFMPEG, "-y",
@@ -194,14 +213,24 @@ def main():
             "-c:v", "libx264", "-preset", "medium", "-crf", "18",
             "-pix_fmt", "yuv420p", "-r", str(FPS),
             "-c:a", "aac", "-b:a", "192k", "-shortest",
-            "-movflags", "+faststart", str(OUT_MP4),
+            "-movflags", "+faststart", str(out_mp4),
         ]
         r = subprocess.run(args, capture_output=True)
         if r.returncode != 0:
             raise SystemExit(r.stderr.decode("utf-8", "replace")[-1500:])
-        print(f"wrote {OUT_MP4} ({DURATION_S}s, {n} frames) + {OUT_PNG}")
+        print(f"wrote {out_mp4} ({DURATION_S}s, {n} frames) + {out_png}")
+        return out_mp4
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def main(argv: list[str] | None = None):
+    import sys
+    names = (sys.argv[1:] if argv is None else argv) or list(VARIANTS)
+    for name in names:
+        if name not in VARIANTS:
+            raise SystemExit(f"unknown variant {name!r}; choose from {sorted(VARIANTS)}")
+        render(name)
 
 
 if __name__ == "__main__":

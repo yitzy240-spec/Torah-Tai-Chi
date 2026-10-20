@@ -13,6 +13,7 @@
 import { useState, useTransition, type CSSProperties } from 'react';
 import { CaptionAndHashtags } from './_shared/hashtag-field';
 import { downloadUrl } from '@/lib/storage-url';
+import { endingDownloadFilename } from '@/lib/video-endings';
 import { EditableField } from './_shared/editable-field';
 import { PostedSummaryRow } from './_shared/posted-summary-row';
 import { ReelOrPostToggle } from './_shared/reel-or-post-toggle';
@@ -276,13 +277,13 @@ export function FacebookCard({ jobId, videoId, parshaSlug, caption, post, postUr
           </p>
           {videoMp4Url ? (
             <a
-              href={downloadUrl(videoMp4Url, `torah-tai-chi-${parshaSlug}.mp4`)}
+              href={downloadUrl(videoMp4Url, endingDownloadFilename(parshaSlug, 'follow'))}
               download
               target="_blank"
               rel="noopener noreferrer"
               style={{ ...btnPrimary, display: 'block', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box', marginBottom: 8 }}
             >
-              Download video
+              Download video (Follow ending)
             </a>
           ) : (
             <div style={{ fontSize: 12, color: 'var(--tassel)', marginBottom: 8 }}>Video file is not ready to download yet.</div>

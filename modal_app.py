@@ -111,6 +111,95 @@ def _upload_mp4(
             time.sleep(wait_s)
 
 
+def _resolve_parsha_slug(sb, job_id: str) -> str | None:
+    """parshiot.slug for a job, walking the regen_of_job_id chain (regen
+    jobs may lack parsha_id). Only names the stored files, so any failure
+    returns None (-> generic filename) rather than failing the job."""
+    try:
+        current_id = job_id
+        for _ in range(25):
+            row = _maybe_row(
+                sb.table("jobs")
+                .select("parsha_id, regen_of_job_id")
+                .eq("id", current_id)
+                .maybe_single()
+            )
+            if not row:
+                return None
+            if row.get("parsha_id"):
+                parsha = _maybe_row(
+                    sb.table("parshiot").select("slug")
+                    .eq("id", row["parsha_id"]).maybe_single()
+                )
+                return (parsha or {}).get("slug")
+            if not row.get("regen_of_job_id"):
+                return None
+            current_id = row["regen_of_job_id"]
+    except Exception as err:
+        print(f"[stitch] parsha slug lookup failed for job {job_id}: {type(err).__name__}: {err}")
+    return None
+
+
+def _stitch_and_upload_final(
+    sb, clips: list[Path], final_mp4: Path, job_id: str,
+    *, cut_types: list[str] | None = None, loudnorm: bool = False,
+) -> tuple[str, str | None]:
+    """Stitch the final video in BOTH endings and upload them.
+
+    One stitched content timeline -> follow cut (local `final_mp4`, the
+    primary video: thumbnail, videos.mp4_path, FB/IG/TikTok/X) and subscribe
+    cut (videos.mp4_subscribe_path, YouTube). No extra renders: the
+    subscribe cut reuses the already-normalized content and only swaps the
+    outro. Returns (follow_storage_path, subscribe_storage_path).
+
+    The subscribe cut is best-effort: if it fails, the follow cut is still
+    produced and uploaded, subscribe is None, and YouTube falls back to the
+    follow video — a paid render must never be lost to the extra ending.
+    """
+    from src.db_rows import video_storage_paths
+    from src.stitcher import (
+        BRANDED_OUTRO_PATH, FOLLOW, SUBSCRIBE,
+        concat_final_variants, concat_final_video,
+        loudnorm_then_concat, loudnorm_then_concat_variants, variant_dests,
+    )
+
+    dests = variant_dests(final_mp4)
+    have_subscribe = True
+    try:
+        if loudnorm:
+            loudnorm_then_concat_variants(clips, dests, cut_types=cut_types)
+        else:
+            concat_final_variants(clips, dests, cut_types=cut_types)
+    except Exception as err:
+        print(
+            f"[stitch] subscribe ending failed for job {job_id} "
+            f"({type(err).__name__}: {err}); stitching follow ending only"
+        )
+        have_subscribe = False
+        if loudnorm:
+            loudnorm_then_concat(
+                clips, final_mp4, cut_types=cut_types, outro_path=BRANDED_OUTRO_PATH,
+            )
+        else:
+            concat_final_video(clips, final_mp4, cut_types=cut_types)
+
+    paths = video_storage_paths(job_id, _resolve_parsha_slug(sb, job_id))
+    with open(dests[FOLLOW], "rb") as f:
+        _upload_mp4(sb, paths[FOLLOW], f.read())
+    subscribe_path: str | None = None
+    if have_subscribe:
+        try:
+            with open(dests[SUBSCRIBE], "rb") as f:
+                _upload_mp4(sb, paths[SUBSCRIBE], f.read())
+            subscribe_path = paths[SUBSCRIBE]
+        except Exception as err:
+            print(
+                f"[stitch] subscribe upload failed for job {job_id}: "
+                f"{type(err).__name__}: {err}; YouTube will use the follow cut"
+            )
+    return paths[FOLLOW], subscribe_path
+
+
 def _load_selected_move(sb, slug: str | None) -> tuple[dict | None, str | None]:
     """Fetch the tai_chi_moves row for the given slug. Returns (move_dict, mp4_url).
 
@@ -322,7 +411,6 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.script_generator import transform_draft_to_clip_plan
     from src.topic_pipeline import generate_draft_from_topic
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
@@ -335,6 +423,7 @@ def run_pipeline(job_id: str) -> dict | None:
     from src.job_events import emit_job_event
     from src.db_rows import (
         build_video_row, job_failed_update, record_cost, set_job_status,
+        video_complete_payload,
         update_job_unless_terminal,
     )
 
@@ -917,12 +1006,10 @@ def run_pipeline(job_id: str) -> dict | None:
         # --- Stitch ---
         set_status("stitching", "Crossfading clips into the final video")
         final_mp4 = work_dir / "final.mp4"
-        concat_final_video(clip_paths, final_mp4)
-
-        # --- Upload final to Supabase Storage ---
-        storage_path = f"jobs/{job_id}/final.mp4"
-        with open(final_mp4, "rb") as f:
-            _upload_mp4(sb, storage_path, f.read())
+        # --- Stitch both endings + upload to Supabase Storage ---
+        storage_path, subscribe_storage_path = _stitch_and_upload_final(
+            sb, clip_paths, final_mp4, job_id,
+        )
 
         # --- Extract and upload thumbnail ---
         # A thumbnail failure should not fail the whole video; fall through to
@@ -935,7 +1022,7 @@ def run_pipeline(job_id: str) -> dict | None:
         except Exception as thumb_err:
             print(f"[thumb] skipped for job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
 
-        video_row: dict = build_video_row(job_id, storage_path)
+        video_row: dict = build_video_row(job_id, storage_path, subscribe_storage_path)
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -975,7 +1062,9 @@ def run_pipeline(job_id: str) -> dict | None:
                         resp = client.post(
                             f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
                             headers={"x-pipeline-secret": webhook_secret},
-                            json={"jobId": job_id, "videoId": video_id},
+                            json=video_complete_payload(
+                                job_id, video_id, storage_path, subscribe_storage_path,
+                            ),
                         )
                         print(
                             f"[autopilot] webhook {resp.status_code} for job {job_id}: {resp.text[:200]}"
@@ -3169,7 +3258,6 @@ def regen_smart(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
@@ -3181,6 +3269,7 @@ def regen_smart(job_id: str) -> dict | None:
     from src.job_events import emit_job_event
     from src.db_rows import (
         build_video_row, job_failed_update, record_cost, set_job_status,
+        video_complete_payload,
         update_job_unless_terminal,
     )
 
@@ -3504,13 +3593,11 @@ def regen_smart(job_id: str) -> dict | None:
             clip_paths_by_index[i] for i in sorted(clip_paths_by_index)
         ]
         final_mp4 = work_dir / "final.mp4"
-        concat_final_video(ordered_paths, final_mp4)
+        final_storage_path, subscribe_storage_path = _stitch_and_upload_final(
+            sb, ordered_paths, final_mp4, job_id,
+        )
 
-        # 12. Upload final + thumbnail + insert videos row.
-        final_storage_path = f"jobs/{job_id}/final.mp4"
-        with open(final_mp4, "rb") as f:
-            _upload_mp4(sb, final_storage_path, f.read())
-
+        # 12. Thumbnail + videos row (both endings uploaded above).
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
@@ -3519,7 +3606,9 @@ def regen_smart(job_id: str) -> dict | None:
         except Exception as thumb_err:
             print(f"[thumb] skipped for smart regen job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
 
-        video_row: dict = build_video_row(job_id, final_storage_path)
+        video_row: dict = build_video_row(
+            job_id, final_storage_path, subscribe_storage_path,
+        )
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -3553,7 +3642,10 @@ def regen_smart(job_id: str) -> dict | None:
                         resp = client.post(
                             f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
                             headers={"x-pipeline-secret": webhook_secret},
-                            json={"jobId": job_id, "videoId": video_id},
+                            json=video_complete_payload(
+                                job_id, video_id,
+                                final_storage_path, subscribe_storage_path,
+                            ),
                         )
                         print(
                             f"[autopilot] smart regen webhook {resp.status_code} for job {job_id}: {resp.text[:200]}"
@@ -3672,7 +3764,6 @@ def regen_clip(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
@@ -3684,6 +3775,7 @@ def regen_clip(job_id: str) -> dict | None:
     from src.job_events import emit_job_event
     from src.db_rows import (
         build_video_row, job_failed_update, record_cost, set_job_status,
+        video_complete_payload,
         update_job_unless_terminal,
     )
 
@@ -3983,13 +4075,11 @@ def regen_clip(job_id: str) -> dict | None:
             clip_paths_by_index[i] for i in sorted(clip_paths_by_index)
         ]
         final_mp4 = work_dir / "final.mp4"
-        concat_final_video(ordered_paths, final_mp4)
+        final_storage_path, subscribe_storage_path = _stitch_and_upload_final(
+            sb, ordered_paths, final_mp4, job_id,
+        )
 
-        # 10. Upload final + thumbnail + insert videos row.
-        final_storage_path = f"jobs/{job_id}/final.mp4"
-        with open(final_mp4, "rb") as f:
-            _upload_mp4(sb, final_storage_path, f.read())
-
+        # 10. Thumbnail + videos row (both endings uploaded above).
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
@@ -3998,7 +4088,9 @@ def regen_clip(job_id: str) -> dict | None:
         except Exception as thumb_err:
             print(f"[thumb] skipped for surgery job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
 
-        video_row: dict = build_video_row(job_id, final_storage_path)
+        video_row: dict = build_video_row(
+            job_id, final_storage_path, subscribe_storage_path,
+        )
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -4033,7 +4125,10 @@ def regen_clip(job_id: str) -> dict | None:
                         resp = client.post(
                             f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
                             headers={"x-pipeline-secret": webhook_secret},
-                            json={"jobId": job_id, "videoId": video_id},
+                            json=video_complete_payload(
+                                job_id, video_id,
+                                final_storage_path, subscribe_storage_path,
+                            ),
                         )
                         print(
                             f"[autopilot] surgery webhook {resp.status_code} for job {job_id}: {resp.text[:200]}"
@@ -4765,7 +4860,6 @@ def regen_agent(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
@@ -4777,6 +4871,7 @@ def regen_agent(job_id: str) -> dict | None:
     from src.job_events import emit_job_event
     from src.db_rows import (
         build_video_row, job_failed_update, record_cost, set_job_status,
+        video_complete_payload,
         update_job_unless_terminal,
     )
 
@@ -5308,13 +5403,11 @@ def regen_agent(job_id: str) -> dict | None:
             clip_paths_by_index[i] for i in sorted(clip_paths_by_index)
         ]
         final_mp4 = work_dir / "final.mp4"
-        concat_final_video(ordered_paths, final_mp4)
+        final_storage_path, subscribe_storage_path = _stitch_and_upload_final(
+            sb, ordered_paths, final_mp4, job_id,
+        )
 
-        # 12. Upload final + thumbnail + insert videos row.
-        final_storage_path = f"jobs/{job_id}/final.mp4"
-        with open(final_mp4, "rb") as f:
-            _upload_mp4(sb, final_storage_path, f.read())
-
+        # 12. Thumbnail + videos row (both endings uploaded above).
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
@@ -5323,7 +5416,9 @@ def regen_agent(job_id: str) -> dict | None:
         except Exception as thumb_err:
             print(f"[thumb] skipped for regen_agent job {job_id}: {type(thumb_err).__name__}: {thumb_err}")
 
-        video_row: dict = build_video_row(job_id, final_storage_path)
+        video_row: dict = build_video_row(
+            job_id, final_storage_path, subscribe_storage_path,
+        )
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -5357,7 +5452,10 @@ def regen_agent(job_id: str) -> dict | None:
                         resp = client.post(
                             f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
                             headers={"x-pipeline-secret": webhook_secret},
-                            json={"jobId": job_id, "videoId": video_id},
+                            json=video_complete_payload(
+                                job_id, video_id,
+                                final_storage_path, subscribe_storage_path,
+                            ),
                         )
                         print(
                             f"[autopilot] regen_agent webhook {resp.status_code} for job {job_id}: {resp.text[:200]}"
@@ -5570,7 +5668,6 @@ def regen_single_clip(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
@@ -5582,6 +5679,7 @@ def regen_single_clip(job_id: str) -> dict | None:
     from src.job_events import emit_job_event
     from src.db_rows import (
         build_video_row, job_failed_update, record_cost, set_job_status,
+        video_complete_payload,
         update_job_unless_terminal,
     )
     from src.claude_call import claude_call
@@ -5883,12 +5981,11 @@ def regen_single_clip(job_id: str) -> dict | None:
             )
         ordered = [clip_paths_by_index[i] for i in sorted(clip_paths_by_index)]
         final_mp4 = work_dir / "final.mp4"
-        concat_final_video(ordered, final_mp4)
+        final_storage_path, subscribe_storage_path = _stitch_and_upload_final(
+            sb, ordered, final_mp4, job_id,
+        )
 
-        # Upload final + thumbnail + insert videos row.
-        final_storage_path = f"jobs/{job_id}/final.mp4"
-        with open(final_mp4, "rb") as f:
-            _upload_mp4(sb, final_storage_path, f.read())
+        # Thumbnail + videos row (both endings uploaded above).
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
@@ -5901,7 +5998,9 @@ def regen_single_clip(job_id: str) -> dict | None:
                 f"[thumb] regen_single_clip skipped: "
                 f"{type(thumb_err).__name__}: {thumb_err}"
             )
-        video_row: dict = build_video_row(job_id, final_storage_path)
+        video_row: dict = build_video_row(
+            job_id, final_storage_path, subscribe_storage_path,
+        )
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         video_row.update(_resolve_video_title_fields(sb, job_id))
@@ -5934,7 +6033,10 @@ def regen_single_clip(job_id: str) -> dict | None:
                         resp = client.post(
                             f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
                             headers={"x-pipeline-secret": webhook_secret},
-                            json={"jobId": job_id, "videoId": video_id},
+                            json=video_complete_payload(
+                                job_id, video_id,
+                                final_storage_path, subscribe_storage_path,
+                            ),
                         )
                         print(
                             f"[autopilot] regen_single_clip webhook "
@@ -6275,7 +6377,6 @@ def clips_only_job(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import CHAIN_MODE, generate_clip_with_meta
-    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
@@ -6288,6 +6389,7 @@ def clips_only_job(job_id: str) -> dict | None:
     from src.job_events import emit_job_event
     from src.db_rows import (
         build_video_row, job_failed_update, record_cost, set_job_status,
+        video_complete_payload,
         update_job_unless_terminal,
     )
 
@@ -6899,11 +7001,10 @@ def clips_only_job(job_id: str) -> dict | None:
             raise ValueError("clips_only_job: no clip paths resolved for stitch")
 
         final_mp4 = work_dir / "final.mp4"
-        concat_final_video(ordered_paths, final_mp4)
+        final_storage_path, subscribe_storage_path = _stitch_and_upload_final(
+            sb, ordered_paths, final_mp4, job_id,
+        )
 
-        final_storage_path = f"jobs/{job_id}/final.mp4"
-        with open(final_mp4, "rb") as f:
-            _upload_mp4(sb, final_storage_path, f.read())
 
         thumb_storage_path: str | None = None
         try:
@@ -6929,7 +7030,9 @@ def clips_only_job(job_id: str) -> dict | None:
         ]
         fresh_spoken_script = _build_spoken_script(spoken_clips)
 
-        video_row: dict = build_video_row(job_id, final_storage_path)
+        video_row: dict = build_video_row(
+            job_id, final_storage_path, subscribe_storage_path,
+        )
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         title_fields = _resolve_video_title_fields(sb, job_id)
@@ -6965,7 +7068,10 @@ def clips_only_job(job_id: str) -> dict | None:
                     resp = client.post(
                         f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
                         headers={"x-pipeline-secret": webhook_secret},
-                        json={"jobId": job_id, "videoId": video_id},
+                        json=video_complete_payload(
+                            job_id, video_id,
+                            final_storage_path, subscribe_storage_path,
+                        ),
                     )
                     print(
                         f"[autopilot] clips_only_job webhook "
@@ -7245,7 +7351,6 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     sys.path.insert(0, "/root")
     from supabase import create_client
     from src.video_generator import generate_clip_with_meta
-    from src.stitcher import concat_final_video
     from src.kie_client import KieClient
     from src.kie_balance import preflight_kie_balance
     from src.kie_task_persist import (
@@ -7257,6 +7362,7 @@ def regen_clip_from_text(job_id: str) -> dict | None:
     from src.job_events import emit_job_event
     from src.db_rows import (
         build_video_row, job_failed_update, record_cost, set_job_status,
+        video_complete_payload,
         update_job_unless_terminal,
     )
     from src.models import Clip
@@ -7626,12 +7732,11 @@ def regen_clip_from_text(job_id: str) -> dict | None:
             )
         ordered = [clip_paths_by_index[i] for i in sorted(clip_paths_by_index)]
         final_mp4 = work_dir / "final.mp4"
-        concat_final_video(ordered, final_mp4)
+        final_storage_path, subscribe_storage_path = _stitch_and_upload_final(
+            sb, ordered, final_mp4, job_id,
+        )
 
-        # Upload final + thumbnail + insert videos row.
-        final_storage_path = f"jobs/{job_id}/final.mp4"
-        with open(final_mp4, "rb") as f:
-            _upload_mp4(sb, final_storage_path, f.read())
+        # Thumbnail + videos row (both endings uploaded above).
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
@@ -7672,7 +7777,9 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                 })
         fresh_spoken_script = _build_spoken_script(stitched_clips)
 
-        video_row: dict = build_video_row(job_id, final_storage_path)
+        video_row: dict = build_video_row(
+            job_id, final_storage_path, subscribe_storage_path,
+        )
         if thumb_storage_path:
             video_row["thumb_path"] = thumb_storage_path
         title_fields = _resolve_video_title_fields(sb, job_id)
@@ -7726,7 +7833,10 @@ def regen_clip_from_text(job_id: str) -> dict | None:
                     resp = client.post(
                         f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
                         headers={"x-pipeline-secret": webhook_secret},
-                        json={"jobId": job_id, "videoId": new_video_id},
+                        json=video_complete_payload(
+                            job_id, new_video_id,
+                            final_storage_path, subscribe_storage_path,
+                        ),
                     )
                     print(
                         f"[autopilot] regen_clip_from_text webhook "
@@ -7927,16 +8037,13 @@ def compose_video(compose_job_id: str) -> dict | None:
     """
     sys.path.insert(0, "/root")
     from supabase import create_client
-    from src.stitcher import (
-        BRANDED_OUTRO_PATH,
-        loudnorm_then_concat,
-        resolve_cut_types,
-    )
+    from src.stitcher import resolve_cut_types
     from src.thumbnails import extract_thumbnail, upload_thumbnail
     from src.events import log_event
     from src.job_events import emit_job_event
     from src.db_rows import (
         job_failed_update, set_job_status, update_job_unless_terminal,
+        video_complete_payload,
     )
 
     sb = create_client(
@@ -8024,17 +8131,12 @@ def compose_video(compose_job_id: str) -> dict | None:
             for r in ordered
         ]
         cut_types = resolve_cut_types(clip_metas, compose_video_row.get("stitch_settings"))
-        loudnorm_then_concat(
-            local_paths,
-            final_mp4,
-            cut_types=cut_types,
-            outro_path=BRANDED_OUTRO_PATH,
+        final_storage_path, subscribe_storage_path = _stitch_and_upload_final(
+            sb, local_paths, final_mp4, compose_job_id,
+            cut_types=cut_types, loudnorm=True,
         )
 
-        # Upload final + thumbnail.
-        final_storage_path = f"jobs/{compose_job_id}/final.mp4"
-        with open(final_mp4, "rb") as f:
-            _upload_mp4(sb, final_storage_path, f.read())
+        # Upload thumbnail.
         thumb_storage_path: str | None = None
         try:
             thumb_local = work_dir / "thumb.png"
@@ -8079,6 +8181,7 @@ def compose_video(compose_job_id: str) -> dict | None:
         # Update the pre-existing videos row with the final mp4 path.
         update: dict = {
             "mp4_path": final_storage_path,
+            "mp4_subscribe_path": subscribe_storage_path,
             "spoken_script": spoken_script,
         }
         if thumb_storage_path:
@@ -8108,10 +8211,10 @@ def compose_video(compose_job_id: str) -> dict | None:
                     resp = client.post(
                         f"{dashboard_url.rstrip('/')}/api/pipeline/video-complete",
                         headers={"x-pipeline-secret": webhook_secret},
-                        json={
-                            "jobId": compose_job_id,
-                            "videoId": compose_video_row["id"],
-                        },
+                        json=video_complete_payload(
+                            compose_job_id, compose_video_row["id"],
+                            final_storage_path, subscribe_storage_path,
+                        ),
                     )
                     print(
                         f"[autopilot] compose webhook {resp.status_code} "

@@ -20,6 +20,7 @@ import { InstagramCard } from './posting-cards/instagram-card';
 import { YouTubeCard } from './posting-cards/youtube-card';
 import { FacebookCard } from './posting-cards/facebook-card';
 import { TikTokCard } from './posting-cards/tiktok-card';
+import { EndingDownloads } from './ending-downloads';
 import { ACTIVE_PLATFORMS, PLATFORM_DISPLAY, type Platform } from '@/lib/platforms';
 
 interface PostRow {
@@ -65,8 +66,10 @@ interface Props {
   // Connected platforms (site is always shown separately)
   connectedPlatforms: Platform[];
 
-  // Video URL for frame picker
+  // Video URLs: frame picker + per-ending downloads. videoMp4Url is the
+  // Follow-ending cut; videoMp4SubscribeUrl the YouTube Subscribe cut.
   videoMp4Url: string | null;
+  videoMp4SubscribeUrl: string | null;
   thumbPath: string | null;
   /** Persisted YouTube cover-frame pick (videos.youtube_thumbnail_url).
    *  Passed to YouTubeCard.initialPickedThumbUrl so a reload doesn't
@@ -336,6 +339,15 @@ export function Phase5Post(p: Props) {
 
       {/* X card removed 2026-10-13: X swapped out for TikTok.
           See ACTIVE_PLATFORMS in lib/platforms.ts. */}
+
+      {/* Per-ending downloads for manual posting. */}
+      <div style={{ marginTop: 14 }}>
+        <EndingDownloads
+          parshaSlug={p.parshaSlug}
+          followUrl={p.videoMp4Url}
+          subscribeUrl={p.videoMp4SubscribeUrl}
+        />
+      </div>
 
       {/* Back link */}
       <div style={{ marginTop: 14, padding: '12px 0', borderTop: '1px solid var(--ink-100)' }}>
