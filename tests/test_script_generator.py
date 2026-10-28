@@ -83,16 +83,18 @@ async def test_transform_draft_returns_valid_v2_plan():
         plan = await transform_draft_to_clip_plan(
             parsha_name="Vayikra", book="Leviticus", option="A",
             style_note="modern", title="t",
-            draft="[HOOK]\nHi.\n[TEACHING]\nOk.",
+            draft="First beat opens the teaching clearly. Second beat develops the idea. Third beat lands the practice. Fourth beat closes with follow for more.",
             api_key="test-key",
         )
     assert isinstance(plan, ClipPlan)
     assert plan.outdoor_archetype_id == "GARDEN_PATH"
     assert plan.clips[0].setting_id == "DOJO"
-    assert plan.clips[3].setting_id == "GARDEN_PATH"
+    assert plan.clips[-1].setting_id == "GARDEN_PATH"
     assert plan.captions.tiktok.startswith("Test TikTok")
-    assert plan.clips[2].caption_position == "top"
-    assert 28 <= plan.total_duration_s <= 90
+    assert 3 <= len(plan.clips) <= 8
+    # Verbatim: draft wording survives even though the fixture rewrote VO.
+    assert "First beat opens the teaching clearly" in plan.clips[0].voiceover
+    assert 28 <= plan.total_duration_s <= 120
 
 
 # Removed: test_transform_draft_propagates_validation_error_on_bad_block.
@@ -121,7 +123,7 @@ async def test_transform_draft_strips_json_fence_wrapper():
         )
         plan = await transform_draft_to_clip_plan(
             parsha_name="Vayikra", book="Leviticus", option="A",
-            style_note="x", title="t", draft="x",
+            style_note="x", title="t", draft="First beat opens the teaching clearly. Second beat develops the idea. Third beat lands the practice. Fourth beat closes with follow for more.",
             api_key="test-key",
         )
     assert plan.outdoor_archetype_id == "MOUNTAIN_RIDGE"
@@ -213,7 +215,7 @@ async def test_transform_draft_forwards_director_notes_to_prompt():
         await transform_draft_to_clip_plan(
             parsha_name="Vayikra", book="Leviticus", option="A",
             style_note="lens", title="t",
-            draft="[HOOK]\nHe called.",
+            draft="First beat opens the teaching clearly. Second beat develops the idea. Third beat lands the practice. Fourth beat closes with follow for more.",
             api_key="test-key",
             director_notes="set the outdoor clips by a slow river",
             max_retries=1,
@@ -222,3 +224,97 @@ async def test_transform_draft_forwards_director_notes_to_prompt():
     user_content = captured["messages"][0]["content"]
     assert "DIRECTION FROM YONAH" in user_content
     assert "set the outdoor clips by a slow river" in user_content
+
+
+def test_system_template_forbids_voiceover_rewrite():
+    from src.script_generator import SYSTEM_TEMPLATE
+    assert "VOICEOVER — VERBATIM" in SYSTEM_TEMPLATE
+    assert "rephrase /" not in SYSTEM_TEMPLATE
+    assert "tighten the voiceover" not in SYSTEM_TEMPLATE
+    # Must not instruct translating Ting Jin / Song in voiceover.
+    assert "ting jin        -> \"listening\"" not in SYSTEM_TEMPLATE.lower()
+
+
+def test_build_prompt_includes_fixed_chunks():
+    from src.verbatim_split import split_draft_verbatim
+    from src.script_generator import build_prompt
+    draft = (
+        "First sentence here is long enough. Second sentence follows next. "
+        "Third sentence wraps the beat. Fourth lands the teaching clearly. "
+        "Fifth closes with follow for more."
+    )
+    chunks = split_draft_verbatim(draft)
+    prompt = build_prompt(
+        parsha_name="Vayeira", book="Bereishit", option="A",
+        style_note="s", title="t", draft=draft, fixed_chunks=chunks,
+    )
+    assert "FIXED CLIP VOICEOVERS" in prompt
+    assert f"EXACTLY {len(chunks)} clips" in prompt
+    assert chunks[0].voiceover in prompt
+    assert "zero rewrites" in prompt
+
+
+@pytest.mark.asyncio
+async def test_transform_draft_enforces_verbatim_over_llm_rewrite():
+    """Even if Claude rewrites voiceovers, the returned plan keeps draft text."""
+    from src.verbatim_split import split_draft_verbatim, concatenated_voiceovers
+    draft = (
+        "How does being relaxed make you stronger? AV-ra-ham sat at the tent. "
+        "In Tai Chi, we use Ting Jin to perceive information before responding. "
+        "His stillness was preparation, not passivity. "
+        "We use Song, or relaxed release, so strong movement can emerge. "
+        "Follow or subscribe for more each week."
+    )
+    chunks = split_draft_verbatim(draft)
+    # Build a fake LLM plan that rewrites every voiceover.
+    outdoor = "GARDEN_PATH"
+    rewritten_clips = []
+    for i, ch in enumerate(chunks):
+        rewritten_clips.append({
+            "index": i,
+            "voiceover": f"REWRITTEN listening version of clip {i}",
+            "visual_prompt": f"Rav Eli stands and teaches beat {i}.",
+            "duration_s": 8,
+            "setting_id": "DOJO" if i < max(1, len(chunks) // 2) else outdoor,
+            "caption_position": "bottom",
+            "emotive_note": f"tone {i}",
+        })
+    # Ensure dojo then outdoor structure.
+    mid = max(1, len(chunks) // 2)
+    for i, c in enumerate(rewritten_clips):
+        c["setting_id"] = "DOJO" if i < mid else outdoor
+    plan_dict = {
+        "parsha": "Vayeira",
+        "hook": "rewritten hook",
+        "full_script": "rewritten full",
+        "outdoor_archetype_id": outdoor,
+        "captions": {
+            "tiktok": "Test TikTok caption #parsha",
+            "instagram": "Test IG caption. With a few sentences.",
+            "youtube_title": "Test YouTube title",
+            "youtube_description": "Test YT description body.",
+            "facebook": "Test FB caption, a bit longer and more conversational.",
+            "twitter": "Test X caption #parsha",
+        },
+        "clips": rewritten_clips,
+    }
+    # Pad durations so total in [28, 120]
+    total = sum(c["duration_s"] for c in rewritten_clips)
+    if total < 28:
+        rewritten_clips[-1]["duration_s"] = min(15, rewritten_clips[-1]["duration_s"] + (28 - total))
+
+    async with respx.mock(assert_all_called=True) as mock:
+        mock.post(KIE_CLAUDE_URL).mock(
+            return_value=Response(200, json=_kie_claude_response_body(plan_dict)),
+        )
+        plan = await transform_draft_to_clip_plan(
+            parsha_name="Vayeira", book="Bereishit", option="A",
+            style_note="s", title="t", draft=draft, api_key="test-key",
+        )
+    cat = " ".join(c.voiceover for c in plan.clips)
+    assert "Ting Jin" in cat
+    assert "Song, or relaxed release" in cat
+    assert "REWRITTEN listening" not in cat
+    assert plan.full_script == draft.strip()
+    for c in plan.clips:
+        assert "REWRITTEN" not in c.voiceover

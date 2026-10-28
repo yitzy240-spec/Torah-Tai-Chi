@@ -151,21 +151,23 @@ def test_clipplan_rejects_total_under_28s():
         )
 
 
-def test_clipplan_rejects_total_over_90s():
-    with pytest.raises(ValidationError):
-        ClipPlan(
-            parsha="X", hook="x", full_script="x",
-            outdoor_archetype_id="GARDEN_PATH",
-            captions=_captions(),
-            clips=[
-                _dojo_clip(0, 15), _dojo_clip(1, 15), _dojo_clip(2, 15),
-                _outdoor_clip(3, "GARDEN_PATH", 15),
-                _outdoor_clip(4, "GARDEN_PATH", 15),
-                _outdoor_clip(5, "GARDEN_PATH", 15),
-                _outdoor_clip(6, "GARDEN_PATH", 15),
-                _outdoor_clip(7, "GARDEN_PATH", 15),
-            ],
-        )
+def test_clipplan_accepts_total_120s_seedance_max():
+    # 8 clips × 15s = 120 — the Seedance per-clip cap × max clip count.
+    # Raised from 90 so long verbatim drafts are not rejected / rewritten.
+    plan = ClipPlan(
+        parsha="X", hook="x", full_script="x",
+        outdoor_archetype_id="GARDEN_PATH",
+        captions=_captions(),
+        clips=[
+            _dojo_clip(0, 15), _dojo_clip(1, 15), _dojo_clip(2, 15),
+            _outdoor_clip(3, "GARDEN_PATH", 15),
+            _outdoor_clip(4, "GARDEN_PATH", 15),
+            _outdoor_clip(5, "GARDEN_PATH", 15),
+            _outdoor_clip(6, "GARDEN_PATH", 15),
+            _outdoor_clip(7, "GARDEN_PATH", 15),
+        ],
+    )
+    assert plan.total_duration_s == 120
 
 
 def test_clipplan_rejects_more_than_eight_clips():
