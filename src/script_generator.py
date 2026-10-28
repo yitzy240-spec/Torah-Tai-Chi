@@ -19,12 +19,12 @@ def _archetype_menu_text() -> str:
 
 
 SYSTEM_TEMPLATE = """You are the director, editor, and caption writer for a short-form
-weekly video based on Yonah's dvar torah. Yonah's draft is the raw teaching
-material — you shape it into a video that fits the time + structural budget
-below.
+weekly video based on Yonah's dvar torah. Yonah's draft is the finished
+spoken teaching — keep every word of his voiceover verbatim.
 
-Your job is to craft the 40-55s video: decide clip count, rephrase /
-tighten the voiceover as needed to fit the time budget, pick the settings
+Your job is to craft the video around his exact wording: accept the
+FIXED clip voiceovers supplied in the user message (do not rephrase,
+shorten, translate, phoneticize, or reorder them), pick the settings
 and camera directions, and write the post captions.
 
 CHARACTER (locked by reference images — do not re-describe in every prompt):
@@ -35,10 +35,8 @@ CHARACTER (locked by reference images — do not re-describe in every prompt):
   Torah Tai Chi yin-yang logo.
 
 VIDEO STRUCTURE:
-- **Target 40-55 seconds total** (hard limits 28-90s via schema). Aim for
-  ~100 total voiceover words across all clips. Err shorter when unclear —
-  short-form retention drops hard past 60s.
-- 4-5 clips is the default. 3 minimum, 8 maximum.
+- **Total duration** follows the FIXED voiceovers (schema allows 28-120s).
+  Prefer the pre-assigned clip count (typically 4-5). 3 minimum, 8 maximum.
 - Dojo block FIRST, outdoor block SECOND. At least 1 clip of each. Clip count
   per block flexes based on where the script's natural beats fall.
 - **Prefer fewer, longer clips.** Target 4-5 clips for typical 120-180 word
@@ -51,50 +49,32 @@ VIDEO STRUCTURE:
   clip when the voiceover contains Hebrew terms or dense phonetics. Seedance
   rushes speech on long dense clips, producing garbled Hebrew. Split long
   Hebrew-dense beats into two clips at a natural pause instead.
-- Decide clip count and per-clip duration by reading the script at natural
-  sage-teacher pace (~2.6 words per second average — slightly brisker than a
-  flat reading; the previous 2.3 wps target came across as monotone in
-  production). Do not force short durations on text-dense beats; do not
-  pad sparse beats. Let it breathe.
-- **HARD WPS CAP: 3.0 words/sec per clip.** After you've assigned voiceover
-  to a clip, count the words and divide by duration_s. If the result
-  exceeds 3.0, the clip is over budget — Seedance will rush the speech
-  and swallow syllables, especially on Hebrew-dense beats. You MUST
-  either (a) extend duration_s up to the 15s cap, or (b) split the clip
-  at a natural pause. Never accept >3.0 wps. This is the single most
-  common failure mode in production videos.
+- Clip count and per-clip duration_s are PRE-ASSIGNED in the user message
+  (verbatim sentence-boundary split at ~2.6 wps). Copy them exactly.
+  Do not merge, split, drop, or pad voiceover text to change the count.
+- **HARD WPS CAP: 3.0 words/sec per clip** is enforced by the pre-split
+  (duration_s capped at 15). If a FIXED voiceover is marked OVER_BUDGET,
+  keep the text verbatim anyway — the dashboard will warn Yonah. NEVER
+  rewrite to fit.
 
-VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
-- Yonah's draft is your starting material. Retain the teaching's concept:
-  the core point, the Torah citations (Baal HaTurim, specific parshas,
-  specific psukim), the key analogies, and the application/CTA. You MAY
-  shorten, rephrase, drop secondary examples, or reorder to fit a 40-55s
-  total voiceover budget at ~2.6 wps (target ~100 voice words across all
-  clips combined).
-- Keep Yonah's voice: sage, calm, patient teacher — not copywriter, not
-  clever. Match his cadence and register. If a sentence is poetic and
-  fits the budget, keep it. If it's ornamental and won't fit, drop it
-  cleanly rather than rush it.
-- Substance rules: do not add teachings or sources that weren't in the
-  draft. Don't drop attributions (if he cites Baal HaTurim, keep that
-  citation). Don't invent Hebrew terms or Torah claims. The shape
-  changes; the substance doesn't.
-- **Spoken CTA = FOLLOW, never the website.** The last clip's voiceover
-  ends with a short follow/subscribe line, e.g. "Follow so you don't miss
-  next week's parsha." or "Follow for a new lesson every week." Viewers
-  are already on the platform, so the ask is to follow there; the branded
-  end card shows the same follow message. NEVER tell viewers to visit the
-  website, go to TorahTaiChi.com, "learn more" or "link in bio" in the
-  voiceover. If Yonah's draft CTA points to the website, keep any practice
-  instruction in it and replace the website ask with a follow line. If
-  the draft has no CTA, add one short follow line (it counts toward the
-  word budget). The link belongs in the platform captions, not the voice.
-- **Hebrew names policy — always use them.** This channel speaks to an
-  Orthodox audience. Never substitute the secular English name for a
-  Hebrew name. Books of the Torah, parshas, patriarchs, matriarchs,
-  prophets, kings, and biblical figures must be referred to by their
-  Hebrew names. Render them phonetically using the safe list below so
-  Seedance TTS pronounces them correctly:
+VOICEOVER — VERBATIM. NO REWRITES:
+- Yonah's draft voiceovers are FINAL. Copy each FIXED clip voiceover
+  character-for-character into clips[i].voiceover. Do not rephrase,
+  shorten, lengthen, translate, synonym-swap, phoneticize, reorder,
+  drop sentences, or add a CTA he did not write.
+- Do NOT replace Chinese/Hebrew terms (e.g. "Ting Jin", "Song") with
+  English glosses. Do NOT respell names he already wrote (e.g. keep
+  "AV-ra-ham" / "Sarah" exactly as in the FIXED text).
+- Do NOT invent or replace the spoken CTA. If his last lines already
+  ask to follow/share, leave them. Captions (not voiceover) are where
+  you write platform-specific follow CTAs and links.
+- Substance rules still apply to SCENE DIRECTION only: do not invent
+  Torah claims in visual_prompt. Voiceover substance is Yonah's alone.
+- **Hebrew names policy (scene direction / captions only).** This channel
+  speaks to an Orthodox audience. In captions and visual_prompt, prefer
+  Hebrew names over secular English. The FIXED voiceover text is already
+  final — do NOT rewrite voiceover to apply phonetics. Reference list
+  (for captions / your own awareness only):
     Books: Bereishit, Shemot, Vayikra, Bamidbar, Devarim — NEVER
       "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy".
     Patriarchs/figures: Moshe, Aharon, Avraham, Yitzchak, Yaakov,
@@ -112,15 +92,10 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
        phoneticization. NEVER write "Eh-den" — it mis-renders.)
     Adam -> "Adam" (English already; no phoneticization)
     Israel -> "Israel" (English already)
-  When you render a Hebrew name phonetically, only the safe list below
-  has been tested to render reliably in Seedance TTS:
-- Hebrew names/terms in the voiceover field must be written as English-
-  phonetic breakdowns with CAPS on the stressed syllable.
-  CRITICAL RULE — Hebrew guttural "ch" (the sounds ח and sometimes כ) must
-  ALWAYS be rendered as "H" in phonetics, never as "Ch". English "Ch" sounds
-  like "church" and Seedance reads it that way, producing incorrect
-  pronunciation. Use H (sometimes KH for strong emphasis) for every
-  guttural.
+  Reference phonetics (Yonah usually writes these into the draft himself;
+  NEVER apply them by rewriting FIXED voiceovers — copy his text as-is):
+  CRITICAL RULE for any phonetics Yonah already wrote — Hebrew guttural
+  "ch" (ח / sometimes כ) should appear as "H", never English "Ch".
     Bereishit -> "Beh-ray-SHEET"
     Shemot -> "Sheh-MOTE"
     Vayikra -> "Vah-yeek-RAH"
@@ -147,12 +122,8 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
     korbanot -> "kor-bah-NOTE"
     karov -> "kah-ROV"
     Shabbat -> "shah-BAHT"
-    Hashem -> PREFER "the Name" or "G-d" instead of writing Hashem in
-       voiceover. Seedance's TTS reliably mis-renders "Hashem" — it
-       drops the trailing M ("Hashev", "Ha-Shey"). The phonetic
-       "ha-SHEM" still hits the same failure. Only write "Hashem" if
-       the cultural specificity is non-negotiable; default to "the
-       Name" or "G-d" everywhere else.
+    Hashem -> Seedance TTS often mis-renders this; if Yonah wrote
+       Hashem / ha-SHEM in the FIXED voiceover, keep it verbatim.
     # Eden / Adam / Israel: keep as natural English (see policy above), no phonetic.
     Elohim -> "Eh-loh-HEEM"
     tzedakah -> "tzeh-dah-KAH"
@@ -178,59 +149,16 @@ VOICEOVER — RETAIN THE CONCEPT, FIT THE VIDEO:
     nefesh -> "NEH-fesh"
     neshamah -> "neh-sha-MAH"
     olam -> "oh-LAHM"
-  Tai-chi vocabulary — use the ENGLISH terms that practitioners say in
-  English-speaking classes. Do NOT use transliterated Chinese (no "song",
-  "zhan zhuang", "jin", "peng", "kua", "yi", "ting jin", etc.) in the
-  voiceover. The bare two/three-letter Chinese words are especially bad
-  for the TTS — Seedance produces harmonic distortion on "Chi" / "Qi"
-  (confirmed via spectrum analysis 2026-05-29 on Yonah's Naso clip 2
-  at the word "Chi"). Render "Chi" / "qi" as "chee" (phonetic) or
-  "energy" (translation) — never the bare two/three-letter form.
-  If Yonah's draft uses a transliterated Chinese term, render it as
-  the English equivalent below:
-    song            -> "release" (or "soft release", context permitting)
-    zhan zhuang     -> "standing meditation" (or just "the standing practice")
-    jin             -> "trained strength" (or "intention-led force")
-    peng            -> "ward-off" (or "expanding structure")
-    li              -> "brute force" (the thing we're moving AWAY from)
-    kua             -> "hip fold" (or "the kua" if naming an anatomical region)
-    yi              -> "intent" (or "mind-led intent")
-    ting jin        -> "listening" (sensing a partner's force)
-    fajin           -> "released force"
-    rooting         -> "rooting" (English already; fine as-is)
-  This is voiceover-only stylistic guidance — Yonah's body-of-knowledge
-  draft may well contain the transliterated term because he's fluent.
-  Your job is to translate it to the English phrase a beginner listener
-  would understand, preserving the teaching's meaning.
-  DE-DUPLICATION RULE: when Yonah's draft uses two alternate transliterations
-  of the same Hebrew word as a rhetorical device (e.g., "Eden — Aden"), this
-  is a stylistic pause, NOT two words to say. Emit the phonetic form ONCE.
-  Don't render "Eden — Aden" as "Eh-den — AH-den" — that sounds like two
-  separate mispronunciations. Instead, render as a single "Eh-den" and let
-  the em-dash pause carry the rhetorical weight.
-  If you are UNSURE of a Hebrew word's pronunciation and it's not in this list,
-  keep the English transliteration as-is (e.g., "Eden" — spoken in the English
-  way) rather than inventing a phonetic. A wrong phonetic is worse than an
-  Anglicized pronunciation that viewers can still understand.
-  Put phonetic form directly in the voiceover field; do NOT duplicate or
-  include the standard spelling.
+  Tai-chi vocabulary in FIXED voiceovers: leave Yonah's words alone
+  (including "Ting Jin", "Song", "Chi", etc.). Do not translate them to
+  English glosses in voiceover. Captions may briefly gloss a term if
+  helpful; voiceover must stay verbatim.
 - Pause markers the TTS will respect: ellipsis "...", em-dash " — ",
   commas, periods. Use them where they naturally fall in Yonah's prose.
   Don't invent new pauses to pad; don't delete existing ones.
-- **English words that Seedance TTS consistently mis-pronounces — pick a
-  simpler synonym.** TTS struggles with low-frequency multisyllabic
-  Latin-root words. Avoid these and use the bracketed alternative:
-    cessation     -> "ceasing" or "stopping" or "rest"
-    embodiment    -> "embodying" or "living out"
-    cessation of  -> "stopping" / "letting go of"
-    transcendent  -> "beyond words" / "beyond grasp"
-    annihilation  -> "ending" / "undoing"
-    ineffable     -> "beyond words"
-  General rule: if a word feels unusual when read aloud, replace it
-  with the way Yonah would say it in casual speech. Seedance's TTS is
-  well-tuned for everyday English; specialized vocabulary fights it.
-  Yonah will lose nothing by saying "stopping" instead of "cessation"
-  — and the audience won't trip over it.
+- **English TTS quirks:** do NOT synonym-swap voiceover words to dodge
+  TTS mispronunciations. Yonah's wording wins. (Scene direction may
+  still avoid awkward vocabulary.)
 
 VISUAL PROMPT per clip — ACTION-FIRST composition:
 
@@ -564,14 +492,36 @@ Possible output (sketch):
 def build_prompt(parsha_name: str, book: str, option: str,
                  style_note: str, title: str, draft: str,
                  selected_move: dict | None = None,
-                 director_notes: str | None = None) -> str:
+                 director_notes: str | None = None,
+                 fixed_chunks: list | None = None) -> str:
+    fixed_block = ""
+    if fixed_chunks:
+        lines = [
+            "FIXED CLIP VOICEOVERS (copy each into clips[i].voiceover "
+            "EXACTLY — character-for-character; do not rewrite):",
+            f"Return EXACTLY {len(fixed_chunks)} clips with these voiceovers "
+            "and duration_s values.",
+        ]
+        for i, ch in enumerate(fixed_chunks):
+            flag = (
+                " OVER_BUDGET=true (keep verbatim; UI will warn)"
+                if getattr(ch, "over_budget", False) else ""
+            )
+            lines.append(
+                f'\n[clip {i}] duration_s={ch.duration_s}{flag}\n'
+                f'voiceover: """{ch.voiceover}"""'
+            )
+        lines.append("")
+        fixed_block = "\n".join(lines) + "\n"
     base = (
         f"PARSHA: {parsha_name} ({book})\n"
         f"OPTION: {option}\n"
         f"TITLE: {title}\n"
         f"STYLE NOTE: {style_note}\n\n"
-        f"DRAFT SCRIPT (preserve wording exactly — you split it, you do not rewrite it):\n"
+        f"DRAFT SCRIPT (source of truth — FIXED voiceovers below are a "
+        f"sentence-boundary split of this text; do not rewrite):\n"
         f"---\n{draft}\n---\n\n"
+        f"{fixed_block}"
     )
     featured = ""
     if selected_move is not None:
@@ -588,15 +538,12 @@ def build_prompt(parsha_name: str, book: str, option: str,
             "   whose voiceover beat pairs thematically with this move. On\n"
             "   that clip, emit an extra field: "
             f'"motion_ref_slug": "{selected_move["slug"]}".\n\n'
-            "2. On the featured clip, Rav Eli must ANNOUNCE the move by\n"
-            "   English name and briefly say why it's relevant to the beat,\n"
-            "   then teach through it. The move is intentional and\n"
-            "   narrated, not background motion. Shape that clip's\n"
-            "   voiceover to make the announcement natural.\n"
-            f'   Example: "This is {selected_move["english"]} — the yielding\n'
-            '   moment before you rise. When we sink, we\'re not collapsing.\n'
-            '   We\'re making room for what comes next." Budget duration_s\n'
-            "   for the announcement + ~15 words of teaching.\n\n"
+            "2. On the featured clip, show Rav Eli performing the move in\n"
+            "   visual_prompt / emotive_note. Do NOT change that clip's\n"
+            "   FIXED voiceover to announce the move — voiceover stays\n"
+            "   Yonah's verbatim text. If the FIXED voiceover already names\n"
+            "   the move, leave it. Put the English move name in the\n"
+            "   visual_prompt action line only.\n\n"
             "3. In the featured clip's visual_prompt, write Rav Eli performing\n"
             "   this move as the primary physical action, weaving the motion\n"
             "   description into scene direction (don't paste verbatim — direct\n"
@@ -664,13 +611,19 @@ def build_prompt(parsha_name: str, book: str, option: str,
             "DIRECTION:\n"
             f"{director_notes.strip()}\n\n"
         )
+    n_fixed = len(fixed_chunks) if fixed_chunks else None
+    count_rule = (
+        f"EXACTLY {n_fixed} clips with the FIXED voiceovers/duration_s above"
+        if n_fixed is not None else
+        "3-8 clips"
+    )
     tail = (
-        "Produce the ClipPlan JSON now. Remember: 3-8 clips, dojo first then "
-        "outdoor, total 28-90 seconds based on natural sage pace (~2.6 wps). "
-        "Every clip MUST have an emotive_note that varies from its neighbors. "
-        "Include the full 'captions' object with all six platform variants "
-        "(tiktok, instagram, youtube_title, youtube_description, facebook, "
-        "twitter)."
+        f"Produce the ClipPlan JSON now. Remember: {count_rule}, dojo first "
+        "then outdoor, total 28-120 seconds. Copy FIXED voiceovers "
+        "verbatim — zero rewrites. Every clip MUST have an emotive_note "
+        "that varies from its neighbors. Include the full 'captions' object "
+        "with all six platform variants (tiktok, instagram, youtube_title, "
+        "youtube_description, facebook, twitter)."
     )
     return base + featured + director_block + tail
 
@@ -740,11 +693,29 @@ async def transform_draft_to_clip_plan(
             Kie failures propagate after retries are exhausted.
     """
     from src.claude_call import claude_call
+    from src.verbatim_split import (
+        apply_verbatim_voiceovers,
+        split_draft_verbatim,
+    )
+
+    chunks = split_draft_verbatim(draft)
+    if not chunks:
+        raise ValueError("draft_text is empty — cannot build a clip plan")
+    if len(chunks) < 3:
+        # ClipPlan requires >=3 clips. Pad by splitting is impossible without
+        # mid-sentence cuts when there are <3 sentences; duplicate the last
+        # chunk's text is a rewrite. Fail loud so the operator shortens /
+        # expands the draft rather than silently inventing lines.
+        raise ValueError(
+            f"draft splits into {len(chunks)} sentence-group(s); need >=3 "
+            "sentences so the plan can keep wording verbatim across clips"
+        )
 
     prompt = build_prompt(
         parsha_name, book, option, style_note, title, draft,
         selected_move=selected_move,
         director_notes=director_notes,
+        fixed_chunks=chunks,
     )
     # Outer parse-retry loop: claude_call handles HTTP retries, but if
     # Claude returns content that doesn't parse as JSON (empty fences,
@@ -769,6 +740,18 @@ async def transform_draft_to_clip_plan(
         cleaned = _extract_json_block(raw)
         try:
             parsed = json.loads(cleaned)
+            # Hard enforce: overwrite LLM voiceovers with the verbatim
+            # sentence-boundary split. Visuals/settings/captions stay from
+            # Claude; wording is Yonah's alone.
+            raw_clips = parsed.get("clips") or []
+            if not isinstance(raw_clips, list):
+                raise ValueError("ClipPlan.clips must be a list")
+            parsed["clips"] = apply_verbatim_voiceovers(raw_clips, chunks)
+            parsed["full_script"] = (draft or "").strip() or parsed.get(
+                "full_script", ""
+            )
+            if chunks and not (parsed.get("hook") or "").strip():
+                parsed["hook"] = chunks[0].voiceover.split(".")[0][:120]
             return ClipPlan(**parsed)
         except (json.JSONDecodeError, ValueError, TypeError) as parse_err:
             last_parse_err = parse_err

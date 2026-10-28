@@ -6356,10 +6356,19 @@ def plan_only_job(job_id: str) -> dict | None:
                 clip_rows, on_conflict="job_id,index"
             ).execute()
 
-        set_status("done", "Plan ready for review")
+        over_n = sum(1 for c in plan.clips if getattr(c, "over_budget", False))
+        status_msg = "Plan ready for review"
+        if over_n:
+            status_msg = (
+                f"Plan ready for review — {over_n} clip(s) over the 15s "
+                "budget (wording kept verbatim; trim those voiceovers)"
+            )
+        set_status("done", status_msg)
         sb.table("jobs").update({"completed_at": "now()"}).eq("id", job_id).execute()
 
-        return {"status": "done", "clip_count": len(plan.clips)}
+        return {"status": "done", "clip_count": len(plan.clips),
+                "over_budget_clips": over_n}
+
 
     except Exception as e:
         import traceback

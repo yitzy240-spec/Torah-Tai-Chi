@@ -1122,7 +1122,9 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
         <span style={{ opacity: 0.5 }}>·</span>
         <span>{fb.wps.toFixed(1)} wps</span>
         {fb.warning === 'tight' ? (
-          <span style={{ color: 'var(--tassel)', marginLeft: 2 }}>⚠ tight</span>
+          <span style={{ color: 'var(--tassel)', marginLeft: 2 }} title="Voiceover is longer than the 15s Seedance cap can speak cleanly. Wording was kept verbatim — trim this clip or accept rushed TTS.">
+            ⚠ over 15s budget — trim to fit
+          </span>
         ) : (
           <span style={{ color: 'var(--jade)', marginLeft: 2 }}>✓</span>
         )}

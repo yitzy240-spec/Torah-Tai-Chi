@@ -14,6 +14,10 @@ class Clip(BaseModel):
     emotive_note: str | None = None
     motion_ref_url: str | None = None
     motion_ref_slug: str | None = None
+    # True when voiceover cannot fit the 15s Seedance cap at <=3.0 wps.
+    # Pipeline keeps the text verbatim and the dashboard shows a tight/over
+    # warning; never rewrite to fit.
+    over_budget: bool = False
 
 
 class PlatformCaptions(BaseModel):
@@ -77,6 +81,6 @@ class ClipPlan(BaseModel):
             )
 
         total = self.total_duration_s
-        if not (28 <= total <= 90):
-            raise ValueError(f"total_duration_s {total} not in [28, 90]")
+        if not (28 <= total <= 120):
+            raise ValueError(f"total_duration_s {total} not in [28, 120]")
         return self
