@@ -1,8 +1,9 @@
 import pytest
 import subprocess
+import os
 from pathlib import Path
 import src.stitcher as stitcher
-from src.stitcher import concat_clips
+from src.stitcher import HARD, concat_clips
 
 
 def _make_test_clip(path: Path, seconds: int = 2, color: str = "blue") -> None:
@@ -339,3 +340,106 @@ def test_hard_cut_survives_audio_outlasting_video(tmp_path):
         seq.append("R" if r > 150 and bl < 80 else ("B" if bl > 150 and r < 80 else "x"))
     assert "R" in seq and "B" in seq and seq.index("R") < len(seq) - 1 - seq[::-1].index("B"), \
         f"expected red before blue in output, got {''.join(seq)}"
+
+
+# ── Storage size: don't upscale content to the outro (Vayeira 2026-10-28) ─
+
+def _make_sized_clip(path: Path, *, width: int, height: int, seconds: float = 1.0,
+                     pattern: str = "color"):
+    """pattern='color' → solid green; pattern='testsrc' → detailed (compresses)."""
+    if pattern == "testsrc":
+        vsrc = f"testsrc=size={width}x{height}:rate=30:duration={seconds}"
+    else:
+        vsrc = f"color=c=green:s={width}x{height}:d={seconds}"
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", vsrc,
+        "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+        "-shortest",
+        str(path),
+    ], check=True, capture_output=True)
+
+
+@pytest.mark.slow
+def test_concat_final_variants_sizes_to_content_not_outro(tmp_path):
+    """720p Seedance + 1080p outro must stay 720p (scale outro down).
+
+    Upscaling content to the outro pushed Vayeira's compose final to
+    52.8 MiB and tripped Supabase Free's 50 MiB Storage global limit.
+    """
+    clips = []
+    for i in range(2):
+        c = tmp_path / f"c{i}.mp4"
+        _make_sized_clip(c, width=720, height=1280, seconds=1.0)
+        clips.append(c)
+    follow_outro = tmp_path / "outro_follow.mp4"
+    sub_outro = tmp_path / "outro_sub.mp4"
+    _make_sized_clip(follow_outro, width=1080, height=1920, seconds=0.5)
+    _make_sized_clip(sub_outro, width=1080, height=1920, seconds=0.5)
+
+    dests = {
+        stitcher.FOLLOW: tmp_path / "final.mp4",
+        stitcher.SUBSCRIBE: tmp_path / "final_subscribe.mp4",
+    }
+    out = stitcher.concat_final_variants(
+        clips, dests, cut_types=[HARD],
+        outros={stitcher.FOLLOW: follow_outro, stitcher.SUBSCRIBE: sub_outro},
+    )
+    for path in out.values():
+        w, h = stitcher._probe_resolution(path)
+        assert (w, h) == (720, 1280), f"{path.name} was {(w, h)}, expected 720x1280"
+
+
+@pytest.mark.slow
+def test_ensure_mp4_under_limit_noop_when_small(tmp_path):
+    clip = tmp_path / "small.mp4"
+    _make_sized_clip(clip, width=320, height=240, seconds=0.5)
+    before = clip.stat().st_size
+    out = stitcher.ensure_mp4_under_limit(clip, max_bytes=before + 1000)
+    assert out == clip
+    assert clip.stat().st_size == before
+
+
+@pytest.mark.slow
+def test_ensure_mp4_under_limit_recompresses_when_over(tmp_path, monkeypatch):
+    clip = tmp_path / "big.mp4"
+    _make_sized_clip(clip, width=320, height=240, seconds=1.0, pattern="testsrc")
+    real_stat = Path.stat
+    real_run = stitcher.subprocess.run
+
+    def fat_stat(self, *args, **kwargs):
+        st = real_stat(self, *args, **kwargs)
+        if self.resolve() == clip.resolve():
+            return os.stat_result(
+                (st.st_mode, st.st_ino, st.st_dev, st.st_nlink, st.st_uid,
+                 st.st_gid, 5_000_000, st.st_atime, st.st_mtime, st.st_ctime)
+            )
+        return st
+
+    monkeypatch.setattr(Path, "stat", fat_stat)
+
+    written = []
+
+    def fake_run(args, capture_output=True, **kwargs):
+        out = Path(args[-1])
+        # Bypass the monkeypatch so we can write a real tiny mp4.
+        real_run([
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=blue:s=160x120:d=0.3",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=0.3",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+            "-shortest", str(out),
+        ], check=True, capture_output=True)
+        written.append(out)
+
+        class R:
+            returncode = 0
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr(stitcher.subprocess, "run", fake_run)
+    stitcher.ensure_mp4_under_limit(clip, max_bytes=200_000)
+    assert written, "expected an ffmpeg recompress attempt"
+    assert real_stat(clip).st_size <= 200_000
+

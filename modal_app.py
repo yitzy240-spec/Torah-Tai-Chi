@@ -160,6 +160,7 @@ def _stitch_and_upload_final(
     from src.stitcher import (
         BRANDED_OUTRO_PATH, FOLLOW, SUBSCRIBE,
         concat_final_variants, concat_final_video,
+        ensure_mp4_under_limit,
         loudnorm_then_concat, loudnorm_then_concat_variants, variant_dests,
     )
 
@@ -183,12 +184,30 @@ def _stitch_and_upload_final(
         else:
             concat_final_video(clips, final_mp4, cut_types=cut_types)
 
+    # Stay under Supabase Storage's project global file-size limit (Free:
+    # 50 MiB). Vayeira compose 2026-10-28 produced a 52.8 MiB follow cut
+    # after upscaling 720p clips to the 1080p outro and failed upload with
+    # 413 twice — stitch itself succeeded; only the Storage PUT failed.
+    ensure_mp4_under_limit(dests[FOLLOW])
+    if have_subscribe and dests[SUBSCRIBE].is_file():
+        ensure_mp4_under_limit(dests[SUBSCRIBE])
+
     paths = video_storage_paths(job_id, _resolve_parsha_slug(sb, job_id))
+    follow_bytes = dests[FOLLOW].stat().st_size
+    print(
+        f"[stitch] uploading follow cut for job {job_id}: "
+        f"{paths[FOLLOW]} ({follow_bytes} bytes)"
+    )
     with open(dests[FOLLOW], "rb") as f:
         _upload_mp4(sb, paths[FOLLOW], f.read())
     subscribe_path: str | None = None
     if have_subscribe:
         try:
+            sub_bytes = dests[SUBSCRIBE].stat().st_size
+            print(
+                f"[stitch] uploading subscribe cut for job {job_id}: "
+                f"{paths[SUBSCRIBE]} ({sub_bytes} bytes)"
+            )
             with open(dests[SUBSCRIBE], "rb") as f:
                 _upload_mp4(sb, paths[SUBSCRIBE], f.read())
             subscribe_path = paths[SUBSCRIBE]

@@ -328,6 +328,8 @@ def concat_clips(
     dest: Path,
     cut_types: list[str] | None = None,
     crossfade_s: float = 0.35,          # retained for back-compat; ignored
+    *,
+    size_from: list[Path] | None = None,
     **_legacy,                          # swallow removed kwargs
 ) -> Path:
     """Stitch clips with per-cut transitions.
@@ -336,6 +338,10 @@ def concat_clips(
     AFTER clip i. None ⇒ all hard (seamless). At a FADE cut the outgoing clip
     fades out and the incoming fades in (with settles so audio isn't clipped);
     everything then hard-concatenates.
+
+    `size_from` — optional clip list used only for frame size. When an outro
+    (or other asset) is larger than the content, pass the content clips here
+    so we scale the larger asset DOWN instead of upscaling Seedance footage.
     """
     if not clips:
         raise ValueError("No clips to concat")
@@ -364,7 +370,7 @@ def concat_clips(
         shutil.copy(clips[0], dest)
         return dest
 
-    target_w, target_h = _target_size(clips)
+    target_w, target_h = _target_size(size_from if size_from is not None else clips)
 
     # Silence only needed to size settles at FADE cuts; measure once.
     any_fade = FADE in cut_types
@@ -431,7 +437,80 @@ def concat_final_video(
         cut_types=cut_types,
         outro_path=outro_path,
     )
-    return concat_clips(timeline, dest, cut_types=final_cuts)
+    # Frame size from content only: a 1080p branded outro must not upscale
+    # 720p Seedance clips (Vayeira compose 2026-10-28 hit 52.8 MiB and the
+    # Free-tier 50 MiB Storage global limit).
+    return concat_clips(timeline, dest, cut_types=final_cuts, size_from=clips)
+
+
+# Soft cap under Supabase Free's 50 MiB global Storage file-size limit.
+# Bucket file_size_limit may be higher; the project global limit still wins.
+DEFAULT_STORAGE_UPLOAD_MAX_BYTES = 48 * 1024 * 1024
+
+
+def ensure_mp4_under_limit(
+    path: Path,
+    max_bytes: int = DEFAULT_STORAGE_UPLOAD_MAX_BYTES,
+) -> Path:
+    """Re-encode `path` in place if it exceeds `max_bytes`.
+
+    Standard Storage uploads fail with 413 EntityTooLarge when the object
+    is over the project global limit (Free plan max 50 MiB). Compose of
+    five Vayeira clips produced a 52.8 MiB follow cut and failed upload
+    twice on 2026-10-28. Prefer sizing content without upscaling (see
+    concat_final_variants); this is the safety net if a final still runs
+    long/hot.
+    """
+    size = path.stat().st_size
+    if size <= max_bytes:
+        return path
+    print(
+        f"[stitch] {path.name} is {size} bytes "
+        f"(>{max_bytes}); recompressing to fit Storage limit"
+    )
+    last_err = ""
+    attempts: list[tuple[str, list[str]]] = [
+        (f"crf={crf}", [
+            _FFMPEG, "-y", "-i", str(path),
+            "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+        ])
+        for crf in (23, 26, 28, 30)
+    ]
+    # Last resort: scale long side to 720 and crf 28 (keeps vertical 9:16).
+    attempts.append((
+        "scale720+crf28",
+        [
+            _FFMPEG, "-y", "-i", str(path),
+            "-vf", "scale='if(gt(iw,ih),720,-2)':'if(gt(iw,ih),-2,720)'",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "28",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k",
+            "-movflags", "+faststart",
+        ],
+    ))
+    for label, args in attempts:
+        tmp = path.with_name(f"{path.stem}_fit_{label.replace('=', '').replace('+', '_')}{path.suffix}")
+        r = subprocess.run([*args, str(tmp)], capture_output=True)
+        if r.returncode != 0:
+            last_err = r.stderr.decode("utf-8", errors="replace")[-400:]
+            tmp.unlink(missing_ok=True)
+            continue
+        new_size = tmp.stat().st_size
+        if new_size <= max_bytes:
+            tmp.replace(path)
+            print(
+                f"[stitch] recompressed {path.name} with {label} "
+                f"-> {path.stat().st_size} bytes"
+            )
+            return path
+        print(f"[stitch] {label} still {new_size} bytes; trying harder")
+        tmp.unlink(missing_ok=True)
+    raise RuntimeError(
+        f"{path} is {path.stat().st_size} bytes; could not compress under "
+        f"{max_bytes} (Supabase Storage global file size limit). "
+        f"Last ffmpeg error: {last_err}"
+    )
 
 
 def variant_dests(final_mp4: Path) -> dict[str, Path]:
@@ -484,8 +563,10 @@ def concat_final_variants(
         d.parent.mkdir(parents=True, exist_ok=True)
 
     has_audio = all(_has_audio_stream(c) for c in [*clips, *variant_outros])
-    # Size over content + EVERY outro so all variants share one frame size.
-    target_w, target_h = _target_size([*clips, *variant_outros])
+    # Frame size from CONTENT only so a larger branded outro scales down to
+    # Seedance resolution instead of upscaling every clip (and blowing past
+    # Supabase Storage's Free-tier 50 MiB global upload limit).
+    target_w, target_h = _target_size(clips)
 
     # The outro boundary is always a FADE, so silence is always needed.
     content_pps: list[Path] = []
