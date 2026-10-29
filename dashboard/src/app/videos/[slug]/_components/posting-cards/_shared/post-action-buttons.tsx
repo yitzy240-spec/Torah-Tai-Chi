@@ -27,7 +27,7 @@ export function PostActionButtons({
     <>
       <button
         type="button"
-        onClick={onPost}
+        onClick={() => { if (!postBlocked) onPost(); }}
         disabled={postBlocked}
         style={{
           width: '100%',

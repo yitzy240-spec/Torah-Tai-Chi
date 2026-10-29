@@ -23,6 +23,10 @@ import { PLATFORMS, BUFFER_PLATFORMS, ACTIVE_PLATFORMS, type Platform } from '@/
 import { logEvent, type EventActor } from '@/lib/events';
 import { getCanonicalClipPlan } from '@/lib/clip-plan';
 import { videoPathForPlatform } from '@/lib/video-endings';
+import {
+  BLOCKING_POST_STATUSES,
+  duplicatePostMessage,
+} from '@/lib/post-guard';
 
 function actorForPlatform(platform: Platform): EventActor {
   return platform === 'youtube' ? 'youtube' : 'buffer';
@@ -76,6 +80,26 @@ async function withRetry<T>(fn: () => Promise<T>, delays = [200, 1000]): Promise
     }
   }
   throw lastErr;
+}
+
+
+/** Look up an existing non-failed post for this video+platform.
+ *  Used to refuse double/triple clicks that would create duplicate
+ *  Buffer updates (Vayeira TikTok, 2026-10-28). */
+async function findExistingBlockingPost(
+  supabase: ReturnType<typeof createServiceClient>,
+  videoId: string,
+  platform: string,
+): Promise<{ id: string; status: string } | null> {
+  const { data } = await supabase
+    .from('posts')
+    .select('id, status')
+    .eq('video_id', videoId)
+    .eq('platform', platform)
+    .in('status', [...BLOCKING_POST_STATUSES])
+    .order('created_at', { ascending: false })
+    .limit(1);
+  return data?.[0] ?? null;
 }
 
 export interface AutoPostArgs {
@@ -262,6 +286,26 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
       ? (platformMeta.firstComment || undefined)
       : undefined;
 
+    // Duplicate-post guard: refuse if this video already has a
+    // pending/scheduled/published row for this platform. Without this,
+    // double-clicks on the dashboard fire multiple Buffer createUpdate
+    // calls before the first posts-row lands and Realtime re-renders.
+    const existingBuffer = await findExistingBlockingPost(supabase, args.videoId, platform);
+    if (existingBuffer) {
+      const msg = duplicatePostMessage(platform, existingBuffer.status);
+      errors.push(msg);
+      await logEvent({
+        actor: actorForPlatform(platform),
+        level: 'warn',
+        event: 'schedule.channel.duplicate',
+        subjectType: 'video',
+        subjectId: args.videoId,
+        message: msg,
+        details: { platform, existingPostId: existingBuffer.id, status: existingBuffer.status },
+      });
+      continue;
+    }
+
     try {
       const update = await withRetry(() => createUpdate({
         token: bufferToken!,
@@ -410,6 +454,21 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
       //     list. Falls back to ['Torah','Tai Chi','Shorts'] when the
       //     operator hasn't customized — preserves the historic default
       //     for any video predating the editable-tags UI.
+      // Duplicate-post guard for YouTube (same video+platform rule).
+      const existingYt = await findExistingBlockingPost(supabase, args.videoId, 'youtube');
+      if (existingYt) {
+        const msg = duplicatePostMessage('youtube', existingYt.status);
+        errors.push(msg);
+        await logEvent({
+          actor: 'youtube',
+          level: 'warn',
+          event: 'schedule.channel.duplicate',
+          subjectType: 'video',
+          subjectId: args.videoId,
+          message: msg,
+          details: { platform: 'youtube', existingPostId: existingYt.id, status: existingYt.status },
+        });
+      } else {
       try {
         const ytVideo = await withRetry(() => uploadToYouTube({
           // Subscribe-ending cut (falls back to the Follow cut on old rows).
@@ -476,6 +535,7 @@ export async function autoPost(args: AutoPostArgs): Promise<AutoPostResult> {
           details: { error: errMsg },
         });
       }
+      } // end else (no existing blocking youtube post)
     }
   }
 

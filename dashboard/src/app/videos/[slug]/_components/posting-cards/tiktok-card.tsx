@@ -157,6 +157,7 @@ export function TikTokCard({ jobId, videoId, parshaSlug, caption, post, postUrl 
 
   // Unposted
   async function onPost() {
+    if (posting) return;
     setError(null);
     startPosting(async () => {
       const res = await postToPlatform(videoId, 'tiktok', { tiktok: caption }, { shareNow: true });

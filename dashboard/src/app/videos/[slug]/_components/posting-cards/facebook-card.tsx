@@ -221,9 +221,10 @@ export function FacebookCard({ jobId, videoId, parshaSlug, caption, post, postUr
 
   // Unposted
   async function onPost() {
+    if (posting) return;
     setError(null);
-    await saveFBMeta(reelOrPost, firstComment);
     startPosting(async () => {
+      await saveFBMeta(reelOrPost, firstComment);
       const res = await postToPlatform(videoId, 'facebook', { facebook: caption }, { shareNow: true });
       if (!res.ok) setError(res.error ?? 'Post failed');
     });

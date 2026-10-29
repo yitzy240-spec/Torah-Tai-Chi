@@ -21,7 +21,7 @@ export function ScheduleForLaterSheet({ open, onOpenChange, platform, onSchedule
   const [pending, setPending] = useState(false);
 
   async function handleSchedule() {
-    if (!when) return;
+    if (!when || pending) return;
     setPending(true);
     try {
       await onSchedule(new Date(when));
@@ -39,6 +39,7 @@ export function ScheduleForLaterSheet({ open, onOpenChange, platform, onSchedule
       primaryAction={{
         label: pending ? 'Scheduling…' : 'Schedule',
         onClick: handleSchedule,
+        disabled: pending,
       }}
       secondaryAction={{ label: 'Cancel', onClick: () => onOpenChange(false) }}
     >
