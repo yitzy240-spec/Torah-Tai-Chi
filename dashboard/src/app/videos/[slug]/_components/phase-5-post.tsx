@@ -129,6 +129,9 @@ export function Phase5Post(p: Props) {
   );
 
   const handlePostAll = async () => {
+    // Guard against double/triple clicks on the confirm sheet while a
+    // post is already in flight (Vayeira TikTok, 2026-10-28).
+    if (postAllLoading) return;
     setPostAllLoading(true);
     try {
       const result = await postAllPlatforms({
@@ -222,6 +225,7 @@ export function Phase5Post(p: Props) {
             : `Post to ${remaining.length} platform${remaining.length === 1 ? '' : 's'} now`,
           onClick: handlePostAll,
           destructive: true,
+          disabled: postAllLoading,
         }}
         secondaryAction={{
           label: 'Cancel',

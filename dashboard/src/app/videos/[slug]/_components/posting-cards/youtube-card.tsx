@@ -160,6 +160,7 @@ export function YouTubeCard({
   const captionForPost = youtubeTitle + (youtubeDescription ? '\n' + youtubeDescription : '');
 
   async function onPost() {
+    if (posting) return;
     setError(null);
     startPosting(async () => {
       const res = await postToPlatform(

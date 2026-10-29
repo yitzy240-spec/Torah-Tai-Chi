@@ -18,7 +18,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   title: string;
   children: React.ReactNode; // body content
-  primaryAction: { label: string; onClick: () => void; destructive?: boolean };
+  primaryAction: { label: string; onClick: () => void; destructive?: boolean; disabled?: boolean };
   secondaryAction?: { label: string; onClick: () => void };
 }
 
@@ -94,6 +94,7 @@ export function BottomSheet({
             <button
               type="button"
               onClick={primaryAction.onClick}
+              disabled={!!primaryAction.disabled}
               style={{
                 width: '100%',
                 minHeight: 48,
@@ -104,7 +105,8 @@ export function BottomSheet({
                 border: 'none',
                 borderRadius: 10,
                 padding: '14px',
-                cursor: 'pointer',
+                cursor: primaryAction.disabled ? 'not-allowed' : 'pointer',
+                opacity: primaryAction.disabled ? 0.7 : 1,
               }}
             >
               {primaryAction.label}

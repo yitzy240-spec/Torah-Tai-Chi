@@ -148,9 +148,10 @@ export function InstagramCard({ jobId, videoId, parshaSlug, caption, post, postU
 
   // Unposted
   async function onPost() {
+    if (posting) return;
     setError(null);
-    await saveInstaMeta(reelOrPost, firstComment);
     startPosting(async () => {
+      await saveInstaMeta(reelOrPost, firstComment);
       const res = await postToPlatform(videoId, 'instagram', { instagram: caption }, { shareNow: true });
       if (!res.ok) setError(res.error ?? 'Post failed');
     });
