@@ -82,10 +82,11 @@ def test_motion_ref_drops_chain_so_env_lock_is_unchained():
 
 def test_handoff_wording():
     t = HANDOFF_FRAMING_LOCK.lower()
-    assert "waist-up" in t
     assert "forearms" in t and "rolled sleeves" in t
-    assert "never end on a head-and-shoulders or face close-up" in t
-    assert "push-in stops at waist-up" in t
+    assert "full head" in t and "never crop the head" in t
+    assert "follow it exactly" in t
+    for bad in ("push-in", "push in", "zoom in", "zoom"):
+        assert bad not in t
 
 
 def test_handoff_only_when_followed_by_chained():

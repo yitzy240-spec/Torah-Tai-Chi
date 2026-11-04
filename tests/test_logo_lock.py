@@ -35,7 +35,7 @@ def test_logo_lock_describes_the_real_logo():
     assert "light grey" in t and "one sixth of the chest width" in t
     assert "six-pointed Star of David" in t and "light half" in t
     assert "navy outline" in t and "same shape" in t
-    assert "camera moves closer" in t and "legible spelling" in t
+    assert "At any framing" in t and "pushes in" not in t and "legible spelling" in t
 
 
 def test_logo_lock_is_inside_wardrobe_and_style_locks():
