@@ -130,8 +130,8 @@ LOGO_LOCK = (
     "printed flat in light grey / off-white on the navy shirt. It sits on "
     "the left chest (the wearer's left, the viewer's right) beside the "
     "frog-button placket; the whole emblem with its text is about one sixth "
-    "of the chest width. When the camera moves closer or pushes in, the logo only "
-    "looks larger because the camera is closer: it keeps the same design, "
+    "of the chest width. At any framing, the logo letters must stay identical "
+    "and legible: it keeps the same design, "
     "the same yin-yang shape, the same six-pointed Star of David with the "
     "same shape, color and place inside the light half, the same position "
     "and size on the shirt, and "
@@ -293,9 +293,23 @@ ENVIRONMENT_LOCK_CHAINED = (
 # handoff frame must show them.
 HANDOFF_FRAMING_LOCK = (
     "ENDING FRAME: the next clip continues from this clip's last frame, so "
-    "the clip must END on a waist-up framing of Rav Eli with both forearms "
-    "and his rolled sleeves visible. Any push-in stops at waist-up — never "
-    "end on a head-and-shoulders or face close-up."
+    "the last frame must show Rav Eli with both forearms and his rolled "
+    "sleeves visible, his full head and the shirt logo in frame and fully "
+    "legible at all times. Never crop the head. If the scene direction "
+    "specifies camera behavior, follow it exactly."
+)
+
+# Scene directions that ask for a static camera: the handoff lock is
+# omitted entirely so nothing competes with the user's direction.
+STATIC_CAMERA_KEYWORDS = (
+    "static", "locked", "still camera", "no zoom", "no camera movement",
+    "tripod",
+)
+
+# Closing line: the user's scene direction is authoritative on camera.
+SCENE_DIRECTION_AUTHORITY = (
+    "Follow the scene direction above for camera and framing; it overrides "
+    "any default framing."
 )
 
 

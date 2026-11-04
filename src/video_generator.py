@@ -10,7 +10,8 @@ from src.models import Clip
 from src.settings import (
     CHAIN_CONTINUITY_LOCK, CHAIN_REFERENCE_LOCK, ENVIRONMENT_LOCK,
     ENVIRONMENT_LOCK_CHAINED, HANDOFF_FRAMING_LOCK, LIP_SYNC_LOCK,
-    LOGO_LOCK, STYLE_LOCK, WARDROBE_LOCK,
+    LOGO_LOCK, SCENE_DIRECTION_AUTHORITY, STATIC_CAMERA_KEYWORDS, STYLE_LOCK,
+    WARDROBE_LOCK,
 )
 
 
@@ -257,6 +258,12 @@ def _select_refs(character_ref_urls: list[str], dojo_ref_urls: list[str],
     return combined[:MAX_REFS]
 
 
+def is_static_camera_direction(text: Optional[str]) -> bool:
+    """True when the scene direction asks for a static/locked camera."""
+    t = (text or "").lower()
+    return any(k in t for k in STATIC_CAMERA_KEYWORDS)
+
+
 def build_seedance_input(
     clip: Clip,
     character_ref_urls: list[str],
@@ -320,7 +327,11 @@ def build_seedance_input(
         chain_clause = ""
     # A chained clip continues one shot: no "or the shot cuts cleanly".
     environment_lock = ENVIRONMENT_LOCK_CHAINED if chain_frame else ENVIRONMENT_LOCK
-    handoff_clause = f"\n{HANDOFF_FRAMING_LOCK}" if followed_by_chained else ""
+    static_camera = is_static_camera_direction(clip.visual_prompt)
+    handoff_clause = (
+        f"\n{HANDOFF_FRAMING_LOCK}"
+        if followed_by_chained and not static_camera else ""
+    )
     prompt = (
         f"{clip.visual_prompt}\n\n"
         f"{_inject_sentence_beats(normalized_vo)}"
@@ -332,6 +343,7 @@ def build_seedance_input(
         f"{chain_clause}"
         f"{handoff_clause}"
         f"{motion_addendum}"
+        f"\n{SCENE_DIRECTION_AUTHORITY}"
     )
     payload: dict = {
         "prompt": prompt,
