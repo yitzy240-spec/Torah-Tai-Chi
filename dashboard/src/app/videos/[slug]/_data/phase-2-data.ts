@@ -8,6 +8,7 @@ import { listTaiChiMoves } from '@/lib/tai-chi-moves';
 import { getRefImageLibrary } from '@/lib/ref-image-library';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import { lastFailedRenderByIndex, type LastFailedRender } from '@/lib/render-outcome';
+import { buildVersionsByIndex, type ClipVersion, type JobTier, type RenderedClipRow } from '@/lib/clip-versions';
 import type { TaiChiMove } from '@/lib/tai-chi-moves';
 import type { RefImage } from '@/app/videos/[slug]/_components/_shared/reference-image-picker-sheet';
 
@@ -23,22 +24,7 @@ export type Phase2Clip = {
   chain_broken: boolean;
 };
 
-/** One rendered version of a clip index — every render under a child
- *  job (clips-only from Phase 2, or regen-from-text from Phase 3)
- *  produces a new ClipVersion. Operator picks among them via the
- *  version chips on the Phase 2 card. */
-export type ClipVersion = {
-  clipId: string;
-  /** The child job that produced this version. Lets a clip card tell
-   *  ITS OWN render's output apart from any other version change, so the
-   *  spinner clears only when this card's job actually landed a clip
-   *  (not on an unrelated refetch mid-stitch — the double-render bug). */
-  jobId: string;
-  storagePath: string;
-  createdAt: string;
-  resolution: string | null;
-  modelTier: string | null;
-};
+export type { ClipVersion };
 
 /** An in-flight clips-only render targeting this clip index. Surfaced
  *  from the server so a tab reload (or a tab open from cold) still
@@ -162,7 +148,7 @@ export async function getPhase2Props(
   // Components render error 2026-05-26). Two queries by primary key are
   // robust and effectively as fast.
   const versionJobIds = (versionJobsResult.data ?? []).map((j) => j.id as string);
-  const versionsByIndex = new Map<number, ClipVersion[]>();
+  let versionsByIndex = new Map<number, ClipVersion[]>();
   // Track which (jobId, index) pairs have already rendered — used below
   // to skip them when stamping pendingByIndex, so the per-clip spinner
   // clears as soon as its clip mp4 lands.
@@ -171,7 +157,9 @@ export async function getPhase2Props(
     const [renderedClipsResult, jobsTierResult] = await Promise.all([
       supabase
         .from('clips')
-        .select('id, index, storage_path, created_at, job_id')
+        // visual_prompt: each version's OWN scene direction, so an older
+        // chip never shows the plan's latest (edited) direction.
+        .select('id, index, storage_path, created_at, job_id, visual_prompt')
         .in('job_id', versionJobIds)
         .not('storage_path', 'is', null)
         .order('created_at', { ascending: false }),
@@ -180,29 +168,23 @@ export async function getPhase2Props(
         .select('id, resolution, model_tier')
         .in('id', versionJobIds),
     ]);
-    const tierByJobId = new Map<string, { resolution: string | null; modelTier: string | null }>();
+    const tierByJobId = new Map<string, JobTier>();
     for (const j of jobsTierResult.data ?? []) {
       tierByJobId.set(j.id as string, {
         resolution: (j.resolution as string | null) ?? null,
         modelTier: (j.model_tier as string | null) ?? null,
       });
     }
-    for (const r of renderedClipsResult.data ?? []) {
-      const idx = r.index as number;
-      const jobId = r.job_id as string;
-      const tier = tierByJobId.get(jobId);
-      const list = versionsByIndex.get(idx) ?? [];
-      list.push({
-        clipId: r.id as string,
-        jobId,
-        storagePath: r.storage_path as string,
-        createdAt: r.created_at as string,
-        resolution: tier?.resolution ?? null,
-        modelTier: tier?.modelTier ?? null,
-      });
-      versionsByIndex.set(idx, list);
-      renderedByJobIndex.add(`${jobId}:${idx}`);
-    }
+    const renderedRows: RenderedClipRow[] = (renderedClipsResult.data ?? []).map((r) => ({
+      id: r.id as string,
+      index: r.index as number,
+      storage_path: r.storage_path as string,
+      created_at: r.created_at as string,
+      job_id: r.job_id as string,
+      visual_prompt: (r.visual_prompt as string | null) ?? null,
+    }));
+    versionsByIndex = buildVersionsByIndex(renderedRows, tierByJobId);
+    for (const r of renderedRows) renderedByJobIndex.add(`${r.job_id}:${r.index}`);
   }
 
   // initialClips holds the plan-only's editable metadata only. Don't

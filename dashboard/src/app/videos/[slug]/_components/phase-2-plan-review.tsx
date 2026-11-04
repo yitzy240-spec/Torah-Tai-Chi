@@ -75,6 +75,7 @@ import { estimateSeedanceCost } from '@/lib/seedance-pricing';
 import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { ClipVersion, PendingRender } from '../_data/phase-2-data';
 import type { LastFailedRender } from '@/lib/render-outcome';
+import { versionNumberOf } from '@/lib/clip-versions';
 import { cancelJob } from '@/app/actions/cancel-job';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { composeVideo } from '@/app/actions/compose-video';
@@ -1363,6 +1364,17 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
               )}
             </div>
           )}
+          {/* The direction THIS version was rendered from (its own clips
+              row), read-only. Keyed on the version so the "Copied" state
+              resets when the operator flips chips. The editable direction
+              above is the next render's, not this one's. */}
+          {selectedVersion && (
+            <VersionDirection
+              key={selectedVersion.clipId}
+              label={`v${versionNumberOf(versions, selectedVersion.clipId) ?? 1} direction`}
+              text={selectedVersion.visualPrompt}
+            />
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="button"
@@ -1664,6 +1676,75 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
 function autoSize(el: HTMLTextAreaElement) {
   el.style.height = 'auto';
   el.style.height = `${el.scrollHeight}px`;
+}
+
+/**
+ * Read-only scene direction of one rendered version, with a Copy button so
+ * the operator can paste an older version's wording back into the editable
+ * direction. Null text = the row stored no direction.
+ */
+function VersionDirection({ label, text }: { label: string; text: string | null }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('Could not copy. Long-press the text to copy it.');
+    }
+  }
+
+  return (
+    <div
+      style={{
+        marginBottom: 12,
+        padding: '10px 12px',
+        border: '1px solid var(--ink-100)',
+        borderRadius: 10,
+        background: 'var(--linen-100)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--ink-500)' }}>{label}</span>
+        {text && (
+          <button
+            type="button"
+            onClick={copy}
+            style={{
+              minHeight: 32,
+              padding: '4px 12px',
+              fontSize: 12,
+              fontWeight: 500,
+              borderRadius: 999,
+              border: '1px solid var(--ink-200)',
+              background: 'white',
+              color: 'var(--ink-700)',
+              cursor: 'pointer',
+            }}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        )}
+      </div>
+      <p
+        style={{
+          margin: 0,
+          fontSize: 14,
+          lineHeight: 1.55,
+          color: text ? 'var(--ink-900)' : 'var(--ink-500)',
+          fontStyle: text ? 'normal' : 'italic',
+          fontFamily: 'var(--ff-reading, var(--ff-body))',
+          whiteSpace: 'pre-wrap',
+          userSelect: 'text',
+        }}
+      >
+        {text ?? 'No scene direction was saved with this version.'}
+      </p>
+    </div>
+  );
 }
 
 /**
