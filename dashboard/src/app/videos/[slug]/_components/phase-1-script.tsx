@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { useLocalStorageDraft } from '@/hooks/use-localstorage-draft';
 import { useOptimisticSave } from '@/hooks/use-optimistic-save';
 import { analyzeScript } from '@/lib/word-count';
+import { scriptTextsDiffer } from '../_data/phase-1-data';
 import { saveScript } from '@/app/actions/video-page/save-script';
 import { createCustomScript } from '@/app/actions/video-page/create-custom-script';
 import { BottomSheet } from './bottom-sheet';
@@ -61,6 +62,9 @@ interface Props {
   /** Rendered clips on the current draft — if >0 and Generate would start a
    *  new plan, confirm before discarding them. */
   renderedClipCount: number;
+  /** full_script from the current draft plan; null when no plan yet. Used to
+   *  detect same-script edits so Generate regenerates instead of reusing. */
+  planFullScript: string | null;
 }
 
 /** Draft state for Write / From-Idea modes. Lifted to Phase1Script so
@@ -299,6 +303,7 @@ function PickMode({
   defaultScript,
   selectedId,
   onSelectedIdChange,
+  onLocalTextChange,
 }: {
   parshaSlug: string;
   scripts: Script[];
@@ -307,6 +312,8 @@ function PickMode({
    *  script_id the operator chose. */
   selectedId: string;
   onSelectedIdChange: (id: string) => void;
+  /** Keeps Phase1Script's Generate gate in sync with the live editor text. */
+  onLocalTextChange?: (text: string) => void;
 }) {
   const setSelectedId = onSelectedIdChange;
   const [showOthers, setShowOthers] = useState(false);
@@ -317,6 +324,10 @@ function PickMode({
     `script.${parshaSlug}.${selected.id}`,
     selected.draft_text ?? '',
   );
+
+  useEffect(() => {
+    onLocalTextChange?.(localText);
+  }, [localText, onLocalTextChange]);
 
   const { update, isPending } = useOptimisticSave<string>({
     current: localText,
@@ -850,12 +861,16 @@ export function Phase1Script({
   advancing = false,
   draftScriptId,
   renderedClipCount,
+  planFullScript,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabKind>('pick');
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   // selectedScriptId lives here so PickMode (controlled) and the
   // advance button stay in sync.
   const [selectedScriptId, setSelectedScriptId] = useState<string>(defaultScript.id);
+  // Live Pick-mode editor text — used to detect same-script edits vs the
+  // plan's full_script so Generate regenerates instead of reusing.
+  const [pickLocalText, setPickLocalText] = useState<string>(defaultScript.draft_text ?? '');
   // Custom drafts for Write / From-Idea. Each Generate-clip-plan press
   // from those tabs inserts a new scripts row from this state. Without
   // lifting it here, the modes were dead-ends (text in localStorage /
@@ -871,6 +886,17 @@ export function Phase1Script({
   // confirm happen in handleAdvance BEFORE this runs.
   async function doAdvance() {
     if (activeTab === 'pick') {
+      // Flush the debounced draft save BEFORE navigating. Otherwise a
+      // Generate click within ~400ms of the last keystroke can race the
+      // save and the server still sees the old draft_text (Toldot 2026-11-09).
+      try {
+        await saveScript(selectedScriptId, pickLocalText, parshaSlug);
+      } catch (e) {
+        toast.error('Could not save your script edits.', {
+          description: (e as Error).message,
+        });
+        return;
+      }
       onAdvance(selectedScriptId);
       return;
     }
@@ -908,11 +934,16 @@ export function Phase1Script({
         return;
       }
     }
-    // Would Generate start a NEW plan? Pick with the SAME script reuses the
-    // existing plan (no discard); a different pick or any Write/Idea script
-    // starts over. Warn only when that would throw away rendered clips.
+    // Would Generate start a NEW plan? Pick with the SAME script AND the same
+    // text reuses the existing plan (no discard). A different pick, an
+    // in-place edit of the same script, or any Write/Idea script starts over.
+    // Warn only when that would throw away rendered clips.
+    const contentChanged =
+      activeTab === 'pick' &&
+      selectedScriptId === draftScriptId &&
+      scriptTextsDiffer(pickLocalText, planFullScript);
     const wouldStartNewPlan =
-      activeTab !== 'pick' || selectedScriptId !== draftScriptId;
+      activeTab !== 'pick' || selectedScriptId !== draftScriptId || contentChanged;
     if (renderedClipCount > 0 && wouldStartNewPlan) {
       setConfirmDiscardOpen(true);
       return;
@@ -944,6 +975,7 @@ export function Phase1Script({
           defaultScript={defaultScript}
           selectedId={selectedScriptId}
           onSelectedIdChange={setSelectedScriptId}
+          onLocalTextChange={setPickLocalText}
         />
       )}
 

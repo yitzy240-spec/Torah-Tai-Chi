@@ -17,7 +17,8 @@ import { notFound, redirect } from 'next/navigation';
 import { triggerPlanOnly } from '@/app/actions/video-page/trigger-plan-only';
 import type { DraftPhase } from '@/lib/page-state';
 import { fetchPageShellData } from './_data/shell-data';
-import { getPhase1Props, shouldStartNewPlan, countRenderedClips } from './_data/phase-1-data';
+import { createClient } from '@/lib/supabase/server';
+import { getPhase1Props, shouldStartNewPlan, countRenderedClips, scriptTextsDiffer } from './_data/phase-1-data';
 import { resolvePlanJobId, editablePlanJobId } from '@/lib/plan-job';
 import { getPhase2Props } from './_data/phase-2-data';
 import { getPhase4Props } from './_data/phase-4-data';
@@ -41,6 +42,21 @@ import type { ShellData } from './_data/shell-data';
 interface PageProps {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
+
+
+async function fetchPlanFullScript(clipPlanId: string | null): Promise<string | null> {
+  if (!clipPlanId) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('clip_plans')
+    .select('plan_json')
+    .eq('id', clipPlanId)
+    .maybeSingle();
+  const planJson = data?.plan_json;
+  if (!planJson || typeof planJson !== 'object') return null;
+  const full = (planJson as { full_script?: unknown }).full_script;
+  return typeof full === 'string' ? full : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +160,10 @@ async function PhaseBody({
     // Rendered clips on the draft plan — if the operator regenerates, these are
     // discarded, so Phase 1 warns first (see shouldConfirmDiscard).
     const renderedClipCount = countRenderedClips(jobsForState, clipsByJobId, draftJobId);
-    const props = getPhase1Props(parsha, draftScriptId, renderedClipCount);
+    const draftClipPlanId =
+      jobsForState.find((jj) => jj.id === draftJobId)?.clipPlanId ?? null;
+    const planFullScript = await fetchPlanFullScript(draftClipPlanId);
+    const props = getPhase1Props(parsha, draftScriptId, renderedClipCount, planFullScript);
     if (!props) {
       return (
         <PhaseErrorBoundary phaseLabel="Phase 1 (script)" parshaSlug={parsha.slug}>
@@ -215,11 +234,26 @@ async function PhaseBody({
     let planError: string | null = null;
     if (startPlan && startPlanScriptId) {
       // Regenerate the plan (which orphans the current draft's rendered clips)
-      // ONLY when there's no plan yet or the operator deliberately selected a
-      // different script. See shouldStartNewPlan — this is the exact gate that
-      // used to silently orphan clips on a Back-to-Phase-1 round-trip.
+      // when there's no plan yet, the operator picked a different script, OR
+      // they edited the SAME script's draft_text and hit Generate again.
+      // See shouldStartNewPlan — id-only reuse is the Back-to-Phase-1 no-op;
+      // content compare catches the Toldot 2026-11-09 "shortened script still
+      // showed the old 6-clip plan" failure.
       const draftScriptId = draftJobForState?.scriptId ?? null;
-      if (shouldStartNewPlan({ draftScriptId, requestedScriptId: startPlanScriptId })) {
+      let contentChanged = false;
+      if (draftScriptId && draftScriptId === startPlanScriptId && clipPlanId) {
+        const currentDraft =
+          parsha.scripts.find((s) => s.id === startPlanScriptId)?.draft_text ?? null;
+        const planFullScript = await fetchPlanFullScript(clipPlanId);
+        contentChanged = scriptTextsDiffer(currentDraft, planFullScript);
+      }
+      if (
+        shouldStartNewPlan({
+          draftScriptId,
+          requestedScriptId: startPlanScriptId,
+          scriptContentChanged: contentChanged,
+        })
+      ) {
         const result = await triggerPlanOnly(parsha.id, startPlanScriptId);
         if (result.ok) {
           redirect(`/videos/${parsha.slug}?phase=2`);
