@@ -20,6 +20,9 @@ export type Phase1Props = {
   /** How many of the current draft's clips are already rendered. Drives the
    *  "this will discard N clips" confirm before a regenerate. */
   renderedClipCount: number;
+  /** full_script from the current draft plan (null if none). Lets Phase 1
+   *  detect in-place edits of the same script_id so Generate regenerates. */
+  planFullScript: string | null;
 };
 
 /**
@@ -41,6 +44,7 @@ export function getPhase1Props(
   parsha: ShellParsha,
   draftScriptId?: string | null,
   renderedClipCount = 0,
+  planFullScript: string | null = null,
 ): Phase1Props | null {
   const scripts = parsha.scripts;
   const draftScript = draftScriptId
@@ -63,6 +67,7 @@ export function getPhase1Props(
     scriptId: defaultScript.id,
     draftScriptId: draftScriptId ?? null,
     renderedClipCount,
+    planFullScript,
   };
 }
 
@@ -77,14 +82,39 @@ export function shouldConfirmDiscard(args: {
   draftScriptId: string | null;
   requestedScriptId: string;
   renderedClipCount: number;
+  /** Same-script edit: draft_text no longer matches the plan's full_script. */
+  scriptContentChanged?: boolean;
 }): boolean {
   return (
     args.renderedClipCount > 0 &&
     shouldStartNewPlan({
       draftScriptId: args.draftScriptId,
       requestedScriptId: args.requestedScriptId,
+      scriptContentChanged: args.scriptContentChanged,
     })
   );
+}
+
+/**
+ * Collapse whitespace so incidental editor newlines don't look like a rewrite.
+ */
+export function normalizeScriptText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * True when the operator edited the script in place (same script_id) so the
+ * current draft_text no longer matches the plan's stored full_script.
+ * Missing either side → false (can't claim a content edit; id-gate still applies).
+ */
+export function scriptTextsDiffer(
+  currentDraftText: string | null | undefined,
+  planFullScript: string | null | undefined,
+): boolean {
+  const a = normalizeScriptText(currentDraftText ?? '');
+  const b = normalizeScriptText(planFullScript ?? '');
+  if (!a || !b) return false;
+  return a !== b;
 }
 
 /**
@@ -96,9 +126,12 @@ export function shouldConfirmDiscard(args: {
  * - No existing plan (`draftScriptId == null`) → start one (first run).
  * - Existing plan built from a DIFFERENT script than the operator selected →
  *   they deliberately chose another script → regenerate.
- * - SAME script → reuse. Combined with getPhase1Props defaulting Phase 1 to the
- *   draft's script, a Back-to-Phase-1 → Generate round-trip lands here and is a
- *   no-op — the fix's core invariant.
+ * - SAME script id, but draft_text differs from the plan's full_script →
+ *   they edited the script in place and hit Generate again → regenerate
+ *   (Yonah Toldot 2026-11-09: shortened script, Generate reused the old 6-clip plan).
+ * - SAME script, same content → reuse. Combined with getPhase1Props defaulting
+ *   Phase 1 to the draft's script, a Back-to-Phase-1 → Generate round-trip
+ *   with no edits lands here and is a no-op — the fix's core invariant.
  *
  * `draftScriptId` is the script the current draft plan was built from (null when
  * no draft exists yet). `requestedScriptId` is the script id the Generate button
@@ -107,9 +140,11 @@ export function shouldConfirmDiscard(args: {
 export function shouldStartNewPlan(args: {
   draftScriptId: string | null;
   requestedScriptId: string;
+  scriptContentChanged?: boolean;
 }): boolean {
   if (args.draftScriptId == null) return true;
-  return args.draftScriptId !== args.requestedScriptId;
+  if (args.draftScriptId !== args.requestedScriptId) return true;
+  return !!args.scriptContentChanged;
 }
 
 /**

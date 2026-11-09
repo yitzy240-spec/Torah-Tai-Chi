@@ -10,6 +10,8 @@ import {
   shouldStartNewPlan,
   shouldConfirmDiscard,
   countRenderedClips,
+  scriptTextsDiffer,
+  normalizeScriptText,
 } from '../app/videos/[slug]/_data/phase-1-data.ts';
 
 type Script = { id: string; option: string; title: string | null; draft_text: string | null };
@@ -76,6 +78,28 @@ test('shouldStartNewPlan: no draft plan → start one (first run)', () => {
 
 test('shouldStartNewPlan: SAME script → reuse, never orphan (the fix invariant)', () => {
   assert.equal(shouldStartNewPlan({ draftScriptId: 's-custom', requestedScriptId: 's-custom' }), false);
+});
+
+test('shouldStartNewPlan: SAME script + edited draft_text → regenerate (Toldot 2026-11-09)', () => {
+  assert.equal(
+    shouldStartNewPlan({
+      draftScriptId: 's-custom',
+      requestedScriptId: 's-custom',
+      scriptContentChanged: true,
+    }),
+    true,
+  );
+});
+
+test('shouldStartNewPlan: SAME script + unchanged content flag false → still reuse', () => {
+  assert.equal(
+    shouldStartNewPlan({
+      draftScriptId: 's-custom',
+      requestedScriptId: 's-custom',
+      scriptContentChanged: false,
+    }),
+    false,
+  );
 });
 
 test('shouldStartNewPlan: DIFFERENT script → deliberate regenerate', () => {
@@ -217,6 +241,46 @@ test('shouldConfirmDiscard fires once the tree-wide count is non-zero', () => {
       draftScriptId: 's-old',
       requestedScriptId: 's-his-own',
       renderedClipCount,
+    }),
+    true,
+  );
+});
+
+
+// ── scriptTextsDiffer: same-script in-place edit detection ───────────────────
+
+test('normalizeScriptText collapses whitespace', () => {
+  assert.equal(normalizeScriptText('  Hello\n\nworld  '), 'Hello world');
+});
+
+test('scriptTextsDiffer: identical (whitespace-insensitive) → false', () => {
+  assert.equal(
+    scriptTextsDiffer('Hello  world', 'Hello\nworld'),
+    false,
+  );
+});
+
+test('scriptTextsDiffer: shortened draft → true', () => {
+  const plan =
+    "Releasing what prevents you from functioning freely, without losing structure. Sometimes development isn't about acquiring something new.";
+  const draft =
+    "Release what stops you from functioning freely. Sometimes development isn't about getting something new.";
+  assert.equal(scriptTextsDiffer(draft, plan), true);
+});
+
+test('scriptTextsDiffer: missing either side → false', () => {
+  assert.equal(scriptTextsDiffer(null, 'hello'), false);
+  assert.equal(scriptTextsDiffer('hello', null), false);
+  assert.equal(scriptTextsDiffer('', 'hello'), false);
+});
+
+test('confirm: rendered clips + SAME script + content changed → warn', () => {
+  assert.equal(
+    shouldConfirmDiscard({
+      draftScriptId: 's-custom',
+      requestedScriptId: 's-custom',
+      renderedClipCount: 5,
+      scriptContentChanged: true,
     }),
     true,
   );
