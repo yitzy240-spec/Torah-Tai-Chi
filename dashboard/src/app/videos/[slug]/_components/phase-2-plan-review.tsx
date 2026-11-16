@@ -76,6 +76,7 @@ import type { Resolution, ModelTier } from '@/lib/seedance-pricing';
 import type { ClipVersion, PendingRender } from '../_data/phase-2-data';
 import type { LastFailedRender } from '@/lib/render-outcome';
 import { versionNumberOf } from '@/lib/clip-versions';
+import { shouldConfirmRerender, rerenderConfirmMessage } from '@/lib/rerender-confirm';
 import { cancelJob } from '@/app/actions/cancel-job';
 import { publicVideoUrl } from '@/lib/storage-url';
 import { composeVideo } from '@/app/actions/compose-video';
@@ -318,7 +319,11 @@ export function Phase2PlanReview({
       // null when nothing rendered yet (Modal handles "all clips" internally);
       // explicit subset otherwise so we only spend on what's missing.
       const indexesToRender = someRendered ? unrenderedIndexes : null;
-      await triggerClips(clipPlanId, indexesToRender, tier);
+      const result = await triggerClips(clipPlanId, indexesToRender, tier);
+      if ('error' in result) {
+        toast.error("Couldn't start clip generation.", { description: result.error });
+        return;
+      }
       // Stay on Phase 2 — per-card spinners + version chips already
       // communicate render progress. Advancing here would land the
       // operator on Phase 4's "Stitching in progress…" placeholder
@@ -834,13 +839,30 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
 
   async function generateThisClip() {
     if (thisRendering) return;
+    // A re-render is a paid Seedance call. Ask first when this clip already
+    // has a version (2026-11-16: an unintended one-tap clip 4 v2). The first
+    // render of a clip stays one tap.
+    if (shouldConfirmRerender(versions.length)) {
+      const estimate = estimateSeedanceCost(
+        durationS || clip.duration_s || 15,
+        tier.resolution,
+        tier.modelTier,
+      );
+      if (!window.confirm(rerenderConfirmMessage(clip.index, versions.length, estimate))) return;
+    }
     // Clear any prior failure banner — the operator is retrying.
     setLastFailedError(null);
     setThisRendering(true);
     setRenderStartedAt(Date.now());
     try {
-      const { jobId } = await triggerClips(clipPlanId, [clip.index], tier);
-      setLiveJobId(jobId);
+      const result = await triggerClips(clipPlanId, [clip.index], tier);
+      if ('error' in result) {
+        setThisRendering(false);
+        setRenderStartedAt(null);
+        toast.error("Couldn't start clip generation.", { description: result.error });
+        return;
+      }
+      setLiveJobId(result.jobId);
     } catch (e) {
       setThisRendering(false);
       setLiveJobId(null);
