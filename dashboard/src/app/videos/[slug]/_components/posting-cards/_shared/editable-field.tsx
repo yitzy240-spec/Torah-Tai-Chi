@@ -31,7 +31,12 @@ export function EditableField({
   readOnly = false,
 }: Props) {
   const [local, setLocal, clear] = useLocalStorageDraft(storageKey, initialValue);
-  const { update } = useOptimisticSave<string>({ current: local, save: onSave, onSuccess: clear });
+  const { update } = useOptimisticSave<string>({
+    current: local,
+    save: onSave,
+    onSuccess: clear,
+    stashKey: storageKey,
+  });
 
   return (
     <div style={{ marginBottom: 10 }}>
