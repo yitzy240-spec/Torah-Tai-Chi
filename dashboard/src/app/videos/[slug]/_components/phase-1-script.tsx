@@ -320,8 +320,9 @@ function PickMode({
 
   const selected = scripts.find((s) => s.id === selectedId) ?? defaultScript;
 
+  const scriptDraftKey = `script.${parshaSlug}.${selected.id}`;
   const [localText, setLocalText, clearDraft] = useLocalStorageDraft(
-    `script.${parshaSlug}.${selected.id}`,
+    scriptDraftKey,
     selected.draft_text ?? '',
   );
 
@@ -336,6 +337,7 @@ function PickMode({
     },
     onSuccess: clearDraft,
     errorMessage: 'Saving the script failed.',
+    stashKey: scriptDraftKey,
   });
 
   const fb = analyzeScript(localText);

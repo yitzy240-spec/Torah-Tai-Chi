@@ -887,12 +887,14 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
   // Duration state — local for the number input, persisted on blur/change.
   const [durationS, setDurationS] = useState<number>(clip.duration_s ?? 10);
 
+  const voDraftKey = `plan.${parshaSlug}.${clip.id}.voiceover`;
+  const scDraftKey = `plan.${parshaSlug}.${clip.id}.scene`;
   const [voTxt, setVoTxt, clearVoDraft] = useLocalStorageDraft(
-    `plan.${parshaSlug}.${clip.id}.voiceover`,
+    voDraftKey,
     clip.voiceover,
   );
   const [scTxt, setScTxt, clearScDraft] = useLocalStorageDraft(
-    `plan.${parshaSlug}.${clip.id}.scene`,
+    scDraftKey,
     clip.visual_prompt,
   );
 
@@ -909,6 +911,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
     },
     onSuccess: clearVoDraft,
     errorMessage: "Couldn't save voiceover.",
+    stashKey: voDraftKey,
   });
 
   const scSave = useOptimisticSave<string>({
@@ -919,6 +922,7 @@ function PlanClipCard({ clip, clipPlanId, parshaSlug, moves, refImageLibrary, ve
     },
     onSuccess: clearScDraft,
     errorMessage: "Couldn't save scene direction.",
+    stashKey: scDraftKey,
   });
 
   const fb = analyzeClip(voTxt, durationS);
