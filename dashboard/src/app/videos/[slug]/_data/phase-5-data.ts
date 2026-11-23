@@ -11,6 +11,7 @@ import { getCanonicalClipPlan } from '@/lib/clip-plan';
 import { getConnectedPlatforms } from '@/lib/connected-platforms';
 import type { Platform } from '@/lib/platforms';
 import { videoPathForEnding } from '@/lib/video-endings';
+import { publicVideoUrl } from '@/lib/storage-url';
 
 export type Phase5Post = {
   id: string;
@@ -99,7 +100,7 @@ export async function getPhase5Props(
         .eq('video_id', draftVideoId)
         .order('created_at', { ascending: false }),
       getConnectedPlatforms(),
-      supabase.from('jobs').select('script_id').eq('id', draftJobId).single(),
+      supabase.from('jobs').select('script_id, completed_at').eq('id', draftJobId).single(),
     ]);
 
   // Wave B: clip plan social/youtube meta (needs canonical plan id from Wave A)
@@ -152,22 +153,23 @@ export async function getPhase5Props(
 
   const draftScriptId = (jobDetailResult.data?.script_id as string | null) ?? '';
 
-  // Public storage URLs (sync — no network; just URL construction)
+  // Public storage URLs (sync — no network; just URL construction).
+  // Version with the compose job's completed_at so a re-stitch that
+  // overwrites the same path still produces a new URL (iOS Safari
+  // otherwise reuses cached byte ranges of the previous file).
+  const mediaVersion = (jobDetailResult.data?.completed_at as string | null) ?? null;
   let videoMp4Url: string | null = null;
   let thumbPath: string | null = null;
   if (videoRow?.mp4_path) {
-    const { data: urlData } = supabase.storage.from('videos').getPublicUrl(videoRow.mp4_path);
-    videoMp4Url = urlData?.publicUrl ?? null;
+    videoMp4Url = publicVideoUrl(videoRow.mp4_path, mediaVersion);
   }
   let videoMp4SubscribeUrl = videoMp4Url;
   const subscribePath = videoRow ? videoPathForEnding(videoRow, 'subscribe') : null;
   if (subscribePath) {
-    const { data: urlData } = supabase.storage.from('videos').getPublicUrl(subscribePath);
-    videoMp4SubscribeUrl = urlData?.publicUrl ?? videoMp4Url;
+    videoMp4SubscribeUrl = publicVideoUrl(subscribePath, mediaVersion);
   }
   if (videoRow?.thumb_path) {
-    const { data: urlData } = supabase.storage.from('videos').getPublicUrl(videoRow.thumb_path);
-    thumbPath = urlData?.publicUrl ?? null;
+    thumbPath = publicVideoUrl(videoRow.thumb_path, mediaVersion);
   }
 
   const siteIsLive = videoRow?.published_to_website ?? false;

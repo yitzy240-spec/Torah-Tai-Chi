@@ -22,6 +22,8 @@ export type Phase4Props = {
    * every refresh, all night. */
   composeJobStatus: string | null;
   composeJobError: string | null;
+  /** compose job completed_at — cache-busts the overwritten mp4/thumb URL. */
+  mediaVersion: string | null;
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
@@ -62,7 +64,7 @@ export async function getPhase4Props(
       ? supabase.from('clip_plans').select('plan_json').eq('id', clipPlanId).single()
       : Promise.resolve({ data: null }),
     supabase.from('clips').select('id, index').eq('job_id', draftJobId).order('index'),
-    supabase.from('jobs').select('status, error_message').eq('id', draftJobId).maybeSingle(),
+    supabase.from('jobs').select('status, error_message, completed_at').eq('id', draftJobId).maybeSingle(),
   ]);
   let videoResult = videoResultRaw;
   if (videoResult.error && /hook_text|caption_override|burn_on_screen_text|schema cache/i.test(
@@ -82,9 +84,10 @@ export async function getPhase4Props(
   const videoMp4Path = videoRow?.mp4_path ?? null;
   const thumbPath = videoRow?.thumb_path ?? null;
   const composeJobId = videoRow?.job_id ?? null;
-  const jobRow = jobResult.data as { status: string | null; error_message: string | null } | null;
+  const jobRow = jobResult.data as { status: string | null; error_message: string | null; completed_at: string | null } | null;
   const composeJobStatus = jobRow?.status ?? null;
   const composeJobError = jobRow?.error_message ?? null;
+  const mediaVersion = jobRow?.completed_at ?? null;
 
   const cutOverrides: Record<string, CutType> = {};
   for (const [k, v] of Object.entries(videoRow?.stitch_settings?.cuts ?? {})) {
@@ -145,6 +148,7 @@ export async function getPhase4Props(
     composeJobId,
     composeJobStatus,
     composeJobError,
+    mediaVersion,
     captionsVttDataUrl,
     clipBoundariesS,
     totalDurationS,

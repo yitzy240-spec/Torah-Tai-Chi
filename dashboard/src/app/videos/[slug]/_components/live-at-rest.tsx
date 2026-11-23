@@ -154,6 +154,7 @@ export function LiveAtRest(p: Props) {
       >
         {/* Video player */}
         <video
+          key={p.videoMp4Url}
           src={p.videoMp4Url}
           poster={p.thumbPath ?? undefined}
           controls
