@@ -55,13 +55,12 @@ def test_hook_and_captions_stay_in_safe_zone(width, height):
     assert cap.bottom <= layout.safe_bottom
     # Hook sits above captions with a gap for the outline.
     assert hook.bottom < cap.top
-    # Hook is top-aligned just under the 14% safe line (15–16% band).
+    # Default hook is top-aligned at the 14% safe line.
     assert hook.top == layout.hook_top
+    assert hook.top == layout.safe_top
     assert hook.top / height == pytest.approx(HOOK_TOP_FRAC, abs=0.005)
-    # 15–16% band; rounding on short frames (e.g. 854px) can sit just under 0.15.
-    assert 0.145 <= hook.top / height <= 0.16
-    assert hook.top >= layout.safe_top
-    # Two-line hook must end above the eyes (~32% on a close-up).
+    assert hook.top / height == pytest.approx(0.14, abs=0.005)
+    # Two-line hook at the safe line still ends well above mid-frame eyes.
     assert hook.bottom / height <= 0.30
     assert layout.caption_cy == int(round(height * CAPTION_CY_FRAC))
     # Boxes stay horizontally inset from the edges.
@@ -69,16 +68,22 @@ def test_hook_and_captions_stay_in_safe_zone(width, height):
     assert hook.right <= width - int(width * 0.05)
 
 
-def test_hook_sits_above_the_face_on_closeup():
-    """Vayeitzei close-up: kippah ~18%, eyes ~32%. Hook stays above the eyes."""
-    layout = compute_layout(720, 1280)
+def test_hook_sits_above_the_face_on_a_low_closeup():
+    """Vayeitzei-style close-up (face top ~26%): hook stays in the ceiling band."""
+    from src.face_detect import FaceBox
+    from src.on_screen_overlay import adapt_overlay_layout
+
+    layout = adapt_overlay_layout(
+        compute_layout(720, 1280),
+        FaceBox(left=261, top=334, right=464, bottom=629, score=0.92),
+        hook_lines=2,
+    )
     hook = hook_box(layout, lines=HOOK_MAX_LINES)
-    assert HOOK_MAX_LINES == 2
-    assert hook.top == 192  # 15% of 1280
-    # Forehead/brow is ~26–28%; eyes sit at ~32% (y=410).
-    assert hook.bottom <= 384  # 30%
+    assert layout.hook_placement == "above"
+    assert hook.top == layout.safe_top == 179  # 14% of 1280
+    # Hook ends at the YuNet hairline (~26%), well above the eyes (~32%).
+    assert hook.bottom <= 334
     assert hook.bottom < 410
-    # Captions stay mid-torso, well below the face.
     cap = caption_box(layout, lines=2)
     assert cap.top > 600
 
@@ -331,6 +336,7 @@ def test_burn_overlay_ffmpeg_keeps_audio_and_writes_mp4(tmp_path):
         ),
         outro_duration_s=1.0,  # content_end = 4s of a 5s dummy
         align_audio=False,  # this dummy has no speech; don't load Whisper
+        detect_face=False,
     )
     assert out_mp4.exists() and out_mp4.stat().st_size > 0
     # ASS was written next to the output and uses the safe-zone positions.

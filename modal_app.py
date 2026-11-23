@@ -42,6 +42,9 @@ image = (
         "faster-whisper>=1.0.0",
         # PyAV 16+ dropped metadata_errors=; faster-whisper 1.2 still passes it.
         "av>=13,<16",
+        # CPU face detection (YuNet) so the hook line can clear Rav Eli's
+        # head when framing varies. The ONNX model is bundled in references/.
+        "opencv-python-headless>=4.8,<6",
     )
     .run_commands(
         "python -c \"from faster_whisper import WhisperModel; "
