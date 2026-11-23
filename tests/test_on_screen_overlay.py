@@ -8,7 +8,8 @@ import pytest
 
 from src.on_screen_overlay import (
     CAPTION_CY_FRAC,
-    HOOK_CY_FRAC,
+    HOOK_TOP_FRAC,
+    HOOK_MAX_LINES,
     SAFE_BOTTOM_FRAC,
     SAFE_TOP_FRAC,
     ClipTranscript,
@@ -54,12 +55,32 @@ def test_hook_and_captions_stay_in_safe_zone(width, height):
     assert cap.bottom <= layout.safe_bottom
     # Hook sits above captions with a gap for the outline.
     assert hook.bottom < cap.top
-    # Centres match the documented fractions.
-    assert layout.hook_cy == int(round(height * HOOK_CY_FRAC))
+    # Hook is top-aligned just under the 14% safe line (15–16% band).
+    assert hook.top == layout.hook_top
+    assert hook.top / height == pytest.approx(HOOK_TOP_FRAC, abs=0.005)
+    # 15–16% band; rounding on short frames (e.g. 854px) can sit just under 0.15.
+    assert 0.145 <= hook.top / height <= 0.16
+    assert hook.top >= layout.safe_top
+    # Two-line hook must end above the eyes (~32% on a close-up).
+    assert hook.bottom / height <= 0.30
     assert layout.caption_cy == int(round(height * CAPTION_CY_FRAC))
     # Boxes stay horizontally inset from the edges.
     assert hook.left >= int(width * 0.05)
     assert hook.right <= width - int(width * 0.05)
+
+
+def test_hook_sits_above_the_face_on_closeup():
+    """Vayeitzei close-up: kippah ~18%, eyes ~32%. Hook stays above the eyes."""
+    layout = compute_layout(720, 1280)
+    hook = hook_box(layout, lines=HOOK_MAX_LINES)
+    assert HOOK_MAX_LINES == 2
+    assert hook.top == 192  # 15% of 1280
+    # Forehead/brow is ~26–28%; eyes sit at ~32% (y=410).
+    assert hook.bottom <= 384  # 30%
+    assert hook.bottom < 410
+    # Captions stay mid-torso, well below the face.
+    cap = caption_box(layout, lines=2)
+    assert cap.top > 600
 
 
 def test_compute_layout_rejects_bad_frame():

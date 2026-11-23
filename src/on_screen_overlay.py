@@ -31,12 +31,16 @@ from typing import Any, Sequence
 SAFE_TOP_FRAC = 0.14
 SAFE_BOTTOM_FRAC = 0.35  # measured from the bottom of the frame
 HOOK_DURATION_S = 3.0
-HOOK_FONT_FRAC = 0.058
+HOOK_FONT_FRAC = 0.042
 CAPTION_FONT_FRAC = 0.046
 HOOK_OUTLINE = 6
 CAPTION_OUTLINE = 5
-# Vertical centres, as a fraction of frame height, inside the safe zone.
-HOOK_CY_FRAC = 0.28
+# Hook block is top-aligned just under the 14% safe line so it sits in
+# the ceiling band above Rav Eli's eyes on a typical close-up (eyes are
+# ~32% down a 9:16 dojo shot). A 3-line hook at the previous 74px size
+# still reached ~38% (through the eyes) even with this top, so the hook
+# is capped at 2 slightly smaller lines. Captions stay mid-torso.
+HOOK_TOP_FRAC = 0.15
 CAPTION_CY_FRAC = 0.54
 MAX_WORDS_PER_CUE = 5
 MAX_CUE_CHARS = 18
@@ -45,7 +49,7 @@ LINE_HEIGHT = 1.25
 # size. Used to wrap so lines cannot overflow the 9:16 frame.
 CHAR_WIDTH_FRAC = 0.62
 SIDE_GUTTER_FRAC = 0.08
-HOOK_MAX_LINES = 3
+HOOK_MAX_LINES = 2
 CAPTION_MAX_LINES = 2
 
 # Brand tokens (website/src/styles/tokens.css): brighter brass so it stays
@@ -73,6 +77,7 @@ class OverlayLayout:
     safe_bottom: int
     hook_font: int
     caption_font: int
+    hook_top: int
     hook_cy: int
     caption_cy: int
     hook_outline: int = HOOK_OUTLINE
@@ -132,8 +137,10 @@ def compute_layout(video_w: int, video_h: int) -> OverlayLayout:
     safe_top, safe_bottom = safe_zone(video_h)
     hook_font = max(36, int(round(video_h * HOOK_FONT_FRAC)))
     caption_font = max(28, int(round(video_h * CAPTION_FONT_FRAC)))
-    hook_cy = int(round(video_h * HOOK_CY_FRAC))
+    hook_top = int(round(video_h * HOOK_TOP_FRAC))
     caption_cy = int(round(video_h * CAPTION_CY_FRAC))
+    hook_block = int(round(hook_font * LINE_HEIGHT * HOOK_MAX_LINES)) + 2 * HOOK_OUTLINE
+    hook_cy = hook_top + hook_block // 2
     layout = OverlayLayout(
         video_w=video_w,
         video_h=video_h,
@@ -141,6 +148,7 @@ def compute_layout(video_w: int, video_h: int) -> OverlayLayout:
         safe_bottom=safe_bottom,
         hook_font=hook_font,
         caption_font=caption_font,
+        hook_top=hook_top,
         hook_cy=hook_cy,
         caption_cy=caption_cy,
     )
@@ -164,10 +172,22 @@ def _text_box(cy: int, font_size: int, outline: int, lines: int, video_w: int, r
 
 
 def hook_box(layout: OverlayLayout, lines: int = HOOK_MAX_LINES) -> TextBox:
-    return _text_box(
-        layout.hook_cy, layout.hook_font, layout.hook_outline,
-        lines, layout.video_w, "hook",
+    """Top-aligned hook box: the top edge stays at layout.hook_top (~15%)."""
+    lines = max(1, min(int(lines), HOOK_MAX_LINES))
+    block = int(round(layout.hook_font * LINE_HEIGHT * lines)) + 2 * layout.hook_outline
+    gutter = int(round(layout.video_w * SIDE_GUTTER_FRAC))
+    return TextBox(
+        left=gutter,
+        top=layout.hook_top,
+        right=layout.video_w - gutter,
+        bottom=layout.hook_top + block,
+        role="hook",
     )
+
+
+def hook_center_y(layout: OverlayLayout, lines: int) -> int:
+    box = hook_box(layout, lines)
+    return (box.top + box.bottom) // 2
 
 
 def caption_box(layout: OverlayLayout, lines: int = 2) -> TextBox:
@@ -449,7 +469,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             hook["text"], max_chars=layout.max_chars(layout.hook_font),
             max_lines=HOOK_MAX_LINES,
         ))
-        pos = f"{{\\an5\\pos({layout.cx},{layout.hook_cy})}}"
+        hook_lines = hook_text.count(r"\N") + 1
+        hook_y = hook_center_y(layout, hook_lines)
+        pos = f"{{\\an5\\pos({layout.cx},{hook_y})}}"
         lines.append(
             f"Dialogue: 1,{_fmt_ass_time(hook['start'])},{_fmt_ass_time(hook['end'])},"
             f"Hook,,0,0,0,,{pos}{hook_text}"
