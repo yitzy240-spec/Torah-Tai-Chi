@@ -17,6 +17,7 @@ import type { PlatformStatus } from '../_components/live-at-rest';
 import type { ShellData } from './shell-data';
 import { ACTIVE_PLATFORMS, type Platform } from '@/lib/platforms';
 import { videoPathForEnding } from '@/lib/video-endings';
+import { publicVideoUrl } from '@/lib/storage-url';
 
 export type LiveAtRestPost = {
   id: string;
@@ -131,20 +132,19 @@ export async function getLiveAtRestProps(
       getConnectedPlatforms(),
       // Also resolve the script_id for the replace-version flow
       liveJobId
-        ? supabase.from('jobs').select('script_id').eq('id', liveJobId).single()
+        ? supabase.from('jobs').select('script_id, completed_at').eq('id', liveJobId).single()
         : Promise.resolve({ data: null }),
     ]);
 
   const liveVRow = liveVRowResult.data;
 
-  // Public storage URLs (sync)
+  // Public storage URLs (sync). Version with compose completed_at so a
+  // same-path re-stitch doesn't leave iOS Safari on cached byte ranges.
+  const mediaVersion = (jobDetailResult.data?.completed_at as string | null) ?? null;
   let liveVideoMp4Url: string | null = null;
   let liveThumbUrl: string | null = null;
   if (liveVRow?.mp4_path) {
-    const { data: u } = supabase.storage
-      .from('videos')
-      .getPublicUrl(liveVRow.mp4_path as string);
-    liveVideoMp4Url = u?.publicUrl ?? null;
+    liveVideoMp4Url = publicVideoUrl(liveVRow.mp4_path as string, mediaVersion);
   }
   let liveVideoSubscribeUrl = liveVideoMp4Url;
   const subscribePath = liveVRow
@@ -157,14 +157,10 @@ export async function getLiveAtRestProps(
       )
     : null;
   if (subscribePath) {
-    const { data: u } = supabase.storage.from('videos').getPublicUrl(subscribePath);
-    liveVideoSubscribeUrl = u?.publicUrl ?? liveVideoMp4Url;
+    liveVideoSubscribeUrl = publicVideoUrl(subscribePath, mediaVersion);
   }
   if (liveVRow?.thumb_path) {
-    const { data: u } = supabase.storage
-      .from('videos')
-      .getPublicUrl(liveVRow.thumb_path as string);
-    liveThumbUrl = u?.publicUrl ?? null;
+    liveThumbUrl = publicVideoUrl(liveVRow.thumb_path as string, mediaVersion);
   }
 
   // Build per-channel status list (for the simple status display in the hero).

@@ -24,6 +24,8 @@ interface Props {
   composeJobId: string | null;
   composeJobStatus: string | null;
   composeJobError: string | null;
+  /** compose job completed_at; changes on every re-stitch. */
+  mediaVersion: string | null;
   captionsVttDataUrl: string | null;
   /** Cumulative start-of-clip offsets in seconds, e.g. [0, 9, 19, 28] */
   clipBoundariesS: number[];
@@ -44,6 +46,7 @@ export function Phase4Stitched({
   composeJobId,
   composeJobStatus,
   composeJobError,
+  mediaVersion,
   captionsVttDataUrl,
   clipBoundariesS,
   totalDurationS,
@@ -196,11 +199,16 @@ export function Phase4Stitched({
     );
   }
 
-  // Cache-buster only after a re-stitch (cacheBust>0) so the first render
-  // keeps a clean URL. Same path is overwritten in place by the re-stitch.
-  const bust = cacheBust > 0 ? `?v=${cacheBust}` : '';
-  const videoUrl = publicVideoUrl(effectiveMp4) + bust;
-  const posterUrl = effectiveThumb ? publicVideoUrl(effectiveThumb) + bust : undefined;
+  // Re-stitch overwrites the same storage path. A session-only cacheBust
+  // (the previous approach) is invisible on a fresh load, so iOS Safari
+  // reused cached byte ranges from the old file and showed a broken
+  // play icon. Always version with compose completed_at; fold in the
+  // in-session counter so the player remounts before router.refresh lands.
+  const version = cacheBust > 0
+    ? `${mediaVersion ?? 'r'}-${cacheBust}`
+    : mediaVersion;
+  const videoUrl = publicVideoUrl(effectiveMp4, version);
+  const posterUrl = effectiveThumb ? publicVideoUrl(effectiveThumb, version) : undefined;
 
   function jumpToClip(startS: number) {
     const v = videoRef.current;
@@ -223,12 +231,17 @@ export function Phase4Stitched({
           full width on mobile (where maxWidth doesn't bind). */}
       <div style={{ maxWidth: 360, margin: '0 auto' }}>
       <video
+        key={videoUrl}
         ref={videoRef}
         src={videoUrl}
         poster={posterUrl}
         controls
         playsInline
-        crossOrigin={captionsVttDataUrl ? 'anonymous' : undefined}
+        // Captions are a same-origin data: VTT URL, so crossOrigin is not
+        // needed here (the frame picker still sets it to export a canvas).
+        // CORS mode on this <video> made iOS Safari fail after a re-stitch
+        // at the same path when a cached no-cors range collided with the
+        // new file length.
         style={{
           width: '100%',
           aspectRatio: '9 / 16',

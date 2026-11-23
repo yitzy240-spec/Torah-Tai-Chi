@@ -15,6 +15,7 @@ interface Props {
   composeJobId: string | null;
   composeJobStatus: string | null;
   composeJobError: string | null;
+  mediaVersion: string | null;
   captionsVttDataUrl: string | null;
   clipBoundariesS: number[];
   totalDurationS: number;
