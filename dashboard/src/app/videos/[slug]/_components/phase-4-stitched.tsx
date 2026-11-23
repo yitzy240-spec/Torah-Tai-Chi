@@ -14,6 +14,7 @@ import { useJobStream } from '@/hooks/use-job-stream';
 import { isTerminalStage } from '@/lib/job-event-types';
 import { humanizeRenderError } from '@/lib/humanize-render-error';
 import { TransitionsControl } from './transitions-control';
+import { OnScreenTextControl } from './on-screen-text-control';
 import type { CutType } from '../_data/phase-4-data';
 
 interface Props {
@@ -29,6 +30,9 @@ interface Props {
   totalDurationS: number;
   autoCutTypes: CutType[];
   cutOverrides: Record<string, CutType>;
+  hookText: string;
+  captionOverride: string;
+  burnOnScreenText: boolean;
   onAdvance: () => void;
   onBack: () => void;
 }
@@ -45,6 +49,9 @@ export function Phase4Stitched({
   totalDurationS,
   autoCutTypes,
   cutOverrides,
+  hookText,
+  captionOverride,
+  burnOnScreenText,
   onAdvance,
   onBack,
 }: Props) {
@@ -337,6 +344,14 @@ export function Phase4Stitched({
           autoCutTypes={autoCutTypes}
           cutOverrides={cutOverrides}
           clipBoundariesS={clipBoundariesS}
+          onRestitchStart={() => setRestitching(true)}
+        />
+        <OnScreenTextControl
+          videoId={videoId}
+          hookText={hookText}
+          captionOverride={captionOverride}
+          enabled={burnOnScreenText}
+          cutOverrides={cutOverrides}
           onRestitchStart={() => setRestitching(true)}
         />
       </div>

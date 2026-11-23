@@ -29,6 +29,9 @@ export type Phase4Props = {
   autoCutTypes: CutType[];
   /** Operator per-cut overrides from stitch_settings.cuts. */
   cutOverrides: Record<string, CutType>;
+  hookText: string;
+  captionOverride: string;
+  burnOnScreenText: boolean;
 };
 
 type ClipMeta = { setting_id: string | null; motion_ref_slug: string | null };
@@ -48,19 +51,33 @@ export async function getPhase4Props(
 ): Promise<Phase4Props> {
   const supabase = await createClient();
 
-  const [videoResult, planResult, clipsResult, jobResult] = await Promise.all([
-    supabase.from('videos').select('id, mp4_path, thumb_path, job_id, stitch_settings, composed_from_clip_ids').eq('id', draftVideoId).single(),
+  const videoSelectWithCols =
+    'id, mp4_path, thumb_path, job_id, stitch_settings, composed_from_clip_ids, hook_text, caption_override, burn_on_screen_text';
+  const videoSelectBase =
+    'id, mp4_path, thumb_path, job_id, stitch_settings, composed_from_clip_ids';
+
+  const [videoResultRaw, planResult, clipsResult, jobResult] = await Promise.all([
+    supabase.from('videos').select(videoSelectWithCols).eq('id', draftVideoId).single(),
     clipPlanId
       ? supabase.from('clip_plans').select('plan_json').eq('id', clipPlanId).single()
       : Promise.resolve({ data: null }),
     supabase.from('clips').select('id, index').eq('job_id', draftJobId).order('index'),
     supabase.from('jobs').select('status, error_message').eq('id', draftJobId).maybeSingle(),
   ]);
+  let videoResult = videoResultRaw;
+  if (videoResult.error && /hook_text|caption_override|burn_on_screen_text|schema cache/i.test(
+    videoResult.error.message ?? '',
+  )) {
+    videoResult = await supabase.from('videos').select(videoSelectBase).eq('id', draftVideoId).single();
+  }
 
   const videoRow = videoResult.data as {
     id: string; mp4_path: string | null; thumb_path: string | null; job_id: string | null;
-    stitch_settings: { cuts?: Record<string, CutType> } | null;
+    stitch_settings: { cuts?: Record<string, CutType>; on_screen?: { hook_text?: string; caption_override?: string; enabled?: boolean } } | null;
     composed_from_clip_ids: string[] | null;
+    hook_text?: string | null;
+    caption_override?: string | null;
+    burn_on_screen_text?: boolean | null;
   } | null;
   const videoMp4Path = videoRow?.mp4_path ?? null;
   const thumbPath = videoRow?.thumb_path ?? null;
@@ -133,5 +150,10 @@ export async function getPhase4Props(
     totalDurationS,
     autoCutTypes,
     cutOverrides,
+    hookText: (videoRow?.hook_text ?? videoRow?.stitch_settings?.on_screen?.hook_text ?? '') as string,
+    captionOverride: (videoRow?.caption_override ?? videoRow?.stitch_settings?.on_screen?.caption_override ?? '') as string,
+    burnOnScreenText: Boolean(
+      videoRow?.burn_on_screen_text ?? videoRow?.stitch_settings?.on_screen?.enabled ?? false,
+    ),
   };
 }
