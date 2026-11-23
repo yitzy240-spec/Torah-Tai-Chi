@@ -36,6 +36,16 @@ image = (
         "python-dotenv>=1.0.0",
         "supabase>=2.6.0",
         "fastapi[standard]>=0.115.0",  # required by @modal.fastapi_endpoint
+        # Local Whisper word timestamps for on-screen caption sync (CPU).
+        # No paid API and no new env/secrets. The base model is baked in
+        # below so compose does not fetch from Hugging Face at runtime.
+        "faster-whisper>=1.0.0",
+        # PyAV 16+ dropped metadata_errors=; faster-whisper 1.2 still passes it.
+        "av>=13,<16",
+    )
+    .run_commands(
+        "python -c \"from faster_whisper import WhisperModel; "
+        "WhisperModel('base', device='cpu', compute_type='int8')\"",
     )
     .add_local_dir("src", remote_path="/root/src")
     .add_local_dir("references", remote_path="/root/references")
@@ -222,7 +232,8 @@ def _maybe_burn_on_screen_text(
     """Best-effort burn-in after concat, before upload. Failures leave the
     unburned stitch in place so a paid clip set is never discarded."""
     from src.on_screen_overlay import (
-        apply_on_screen_overlay, probe_duration_s, should_burn,
+        apply_on_screen_overlay, probe_duration_s, resolve_timed_words,
+        should_burn,
     )
     from src.stitcher import (
         BRANDED_OUTRO_PATH, FOLLOW, SUBSCRIBE, SUBSCRIBE_OUTRO_PATH,
@@ -238,17 +249,25 @@ def _maybe_burn_on_screen_text(
         follow_outro_s = (
             probe_duration_s(BRANDED_OUTRO_PATH) if BRANDED_OUTRO_PATH.is_file() else 0.0
         )
+        follow_content_end = max(0.0, probe_duration_s(follow_path) - follow_outro_s)
+        # Align once on the follow cut (same content timeline as subscribe)
+        # and reuse the timings so we don't run Whisper twice.
+        timed_words = resolve_timed_words(
+            follow_path, clips, settings.caption_override, follow_content_end,
+        )
         print(
             f"[stitch] burning on-screen text for job {job_id} "
             f"(hook={bool(settings.hook_text)}, "
             f"override={bool(settings.caption_override)}, "
-            f"clips={len(clips)})"
+            f"clips={len(clips)}, "
+            f"aligned_words={len(timed_words)})"
         )
         tmp = follow_path.with_name(f"{follow_path.stem}_captioned{follow_path.suffix}")
         try:
             apply_on_screen_overlay(
                 follow_path, tmp, clips=clips, settings=settings,
                 outro_duration_s=follow_outro_s,
+                timed_words=timed_words, align_audio=False,
             )
             tmp.replace(follow_path)
         except Exception as err:
@@ -270,6 +289,7 @@ def _maybe_burn_on_screen_text(
                 apply_on_screen_overlay(
                     sub_path, tmp, clips=clips, settings=settings,
                     outro_duration_s=sub_outro_s,
+                    timed_words=timed_words, align_audio=False,
                 )
                 tmp.replace(sub_path)
             except Exception as err:

@@ -16,7 +16,9 @@ This module:
     above the bottom 35% of a 9:16 frame)
   * puts a short hook (first ~3s) above the spoken captions
   * uses bundled Inter Bold with a thick black outline (hook in brand gold)
-  * times captions by even word-count split across each clip (no Whisper)
+  * times captions to actual speech (local Whisper word timestamps,
+    mapped onto the script words; even-split fallback if alignment fails)
+  * shows short 2–4 word chunks while those words are spoken
   * stops before the end card, and is applied identically to both endings
 """
 from __future__ import annotations
@@ -27,6 +29,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
+
+from src.caption_timing import script_text_for_captions, timed_script_words
 
 SAFE_TOP_FRAC = 0.14
 SAFE_BOTTOM_FRAC = 0.35  # measured from the bottom of the frame
@@ -42,7 +46,7 @@ CAPTION_OUTLINE = 5
 # is capped at 2 slightly smaller lines. Captions stay mid-torso.
 HOOK_TOP_FRAC = 0.15
 CAPTION_CY_FRAC = 0.54
-MAX_WORDS_PER_CUE = 5
+MAX_WORDS_PER_CUE = 4
 MAX_CUE_CHARS = 18
 LINE_HEIGHT = 1.25
 # Conservative average glyph width for Inter Bold, as a fraction of font
@@ -292,7 +296,7 @@ def group_words_into_cues(
         word_text = w["word"]
         hit_max = len(current) >= max_words or len(" ".join(x["word"] for x in current)) >= max_chars
         hard = _ends_with_hard_break(word_text)
-        soft = _ends_with_soft_break(word_text) and len(current) >= 3
+        soft = _ends_with_soft_break(word_text) and len(current) >= 2
         if hard or soft or hit_max:
             flush()
     flush()
@@ -321,19 +325,35 @@ def scale_clip_windows(
     return windows
 
 
-def caption_cues_for_clips(
+def even_split_caption_words(
     clips: Sequence[ClipTranscript],
     content_end: float,
     caption_override: str = "",
 ) -> list[dict[str, Any]]:
-    """Build spoken-caption cues, clipped to the content timeline."""
+    """Fallback: even word-count split across the override or each clip."""
     override = (caption_override or "").strip()
     if override:
-        words = even_word_timings(override, 0.0, content_end)
-        return _clip_cues_to_content(group_words_into_cues(words), content_end)
+        return even_word_timings(override, 0.0, content_end)
     words: list[dict[str, Any]] = []
     for clip, (start, end) in zip(clips, scale_clip_windows(clips, content_end)):
         words.extend(even_word_timings(clip.voiceover, start, end))
+    return words
+
+
+def caption_cues_for_clips(
+    clips: Sequence[ClipTranscript],
+    content_end: float,
+    caption_override: str = "",
+    timed_words: Sequence[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Build spoken-caption cues, clipped to the content timeline.
+
+    Prefer precomputed (audio-aligned) word timings when they are
+    provided and non-empty. Otherwise fall back to an even split.
+    """
+    words = list(timed_words) if timed_words else []
+    if not words:
+        words = even_split_caption_words(clips, content_end, caption_override)
     return _clip_cues_to_content(group_words_into_cues(words), content_end)
 
 
@@ -609,6 +629,33 @@ def should_burn(settings: OnScreenSettings, clips: Sequence[ClipTranscript]) -> 
     return any((c.voiceover or "").strip() for c in clips)
 
 
+def resolve_timed_words(
+    audio_path: Path,
+    clips: Sequence[ClipTranscript],
+    caption_override: str,
+    content_end: float,
+    *,
+    align_audio: bool = True,
+    timed_words: Sequence[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return audio-aligned script-word timings, or [] to trigger even split."""
+    if timed_words:
+        return list(timed_words)
+    if not align_audio:
+        return []
+    script = script_text_for_captions(clips, caption_override)
+    if not script:
+        return []
+    try:
+        return timed_script_words(audio_path, script, content_end)
+    except Exception as err:
+        print(
+            f"[overlay] speech alignment failed "
+            f"({type(err).__name__}: {err}); using even word-count split"
+        )
+        return []
+
+
 def apply_on_screen_overlay(
     in_mp4: Path,
     out_mp4: Path,
@@ -617,13 +664,21 @@ def apply_on_screen_overlay(
     settings: OnScreenSettings,
     outro_duration_s: float,
     font_path: Path | None = None,
+    timed_words: Sequence[dict[str, Any]] | None = None,
+    align_audio: bool = True,
 ) -> Path:
     """Burn hook + captions onto one already-stitched ending (follow or subscribe)."""
     video_w, video_h = probe_dimensions(in_mp4)
     video_dur = probe_duration_s(in_mp4)
     content_end = content_end_s(video_dur, outro_duration_s)
+    aligned = resolve_timed_words(
+        in_mp4, clips, settings.caption_override, content_end,
+        align_audio=align_audio, timed_words=timed_words,
+    )
     captions = caption_cues_for_clips(
-        clips, content_end, caption_override=settings.caption_override,
+        clips, content_end,
+        caption_override=settings.caption_override,
+        timed_words=aligned or None,
     )
     hook = hook_cue(settings.hook_text, content_end, settings.hook_duration_s)
     return burn_overlay_on_mp4(

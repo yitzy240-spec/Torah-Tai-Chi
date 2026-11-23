@@ -1,4 +1,4 @@
-"""Safe-zone layout + even-split caption timing for on-screen text."""
+"""Safe-zone layout + caption timing for on-screen text."""
 from __future__ import annotations
 
 import subprocess
@@ -330,6 +330,7 @@ def test_burn_overlay_ffmpeg_keeps_audio_and_writes_mp4(tmp_path):
             enabled=True, hook_text="Why did Lavan run?",
         ),
         outro_duration_s=1.0,  # content_end = 4s of a 5s dummy
+        align_audio=False,  # this dummy has no speech; don't load Whisper
     )
     assert out_mp4.exists() and out_mp4.stat().st_size > 0
     # ASS was written next to the output and uses the safe-zone positions.
