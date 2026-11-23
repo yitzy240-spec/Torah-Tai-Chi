@@ -36,6 +36,16 @@ image = (
         "python-dotenv>=1.0.0",
         "supabase>=2.6.0",
         "fastapi[standard]>=0.115.0",  # required by @modal.fastapi_endpoint
+        # Local Whisper word timestamps for on-screen caption sync (CPU).
+        # No paid API and no new env/secrets. The base model is baked in
+        # below so compose does not fetch from Hugging Face at runtime.
+        "faster-whisper>=1.0.0",
+        # PyAV 16+ dropped metadata_errors=; faster-whisper 1.2 still passes it.
+        "av>=13,<16",
+    )
+    .run_commands(
+        "python -c \"from faster_whisper import WhisperModel; "
+        "WhisperModel('base', device='cpu', compute_type='int8')\"",
     )
     .add_local_dir("src", remote_path="/root/src")
     .add_local_dir("references", remote_path="/root/references")
@@ -140,6 +150,161 @@ def _resolve_parsha_slug(sb, job_id: str) -> str | None:
     return None
 
 
+
+def _load_on_screen_overlay_inputs(sb, job_id: str):
+    """Load burn-in settings + clip transcripts for a stitch job.
+
+    Never raises: a missing column (migration not yet applied) or a
+    lookup error returns a disabled overlay so a paid render is still
+    uploaded without on-screen text.
+    """
+    from src.on_screen_overlay import ClipTranscript, OnScreenSettings, settings_from_video_row
+
+    row = None
+    try:
+        row = _maybe_row(
+            sb.table("videos")
+            .select(
+                "composed_from_clip_ids, stitch_settings, "
+                "hook_text, caption_override, burn_on_screen_text"
+            )
+            .eq("job_id", job_id)
+            .maybe_single()
+        )
+    except Exception as err:
+        print(
+            f"[stitch] on-screen column select failed for job {job_id} "
+            f"({type(err).__name__}: {err}); falling back to stitch_settings"
+        )
+        try:
+            row = _maybe_row(
+                sb.table("videos")
+                .select("composed_from_clip_ids, stitch_settings")
+                .eq("job_id", job_id)
+                .maybe_single()
+            )
+        except Exception as err2:
+            print(
+                f"[stitch] on-screen settings lookup failed for job {job_id}: "
+                f"{type(err2).__name__}: {err2}"
+            )
+            return OnScreenSettings(enabled=False), []
+
+    settings = settings_from_video_row(row or {})
+    clips: list[ClipTranscript] = []
+    try:
+        clip_ids = (row or {}).get("composed_from_clip_ids") or []
+        if clip_ids:
+            resp = (
+                sb.table("clips")
+                .select("index, voiceover, duration_s")
+                .in_("id", clip_ids)
+                .execute()
+            )
+            raw = list(resp.data or []) if resp is not None else []
+            raw.sort(key=lambda r: int(r.get("index") or 0))
+        else:
+            resp = (
+                sb.table("clips")
+                .select("index, voiceover, duration_s")
+                .eq("job_id", job_id)
+                .order("index")
+                .execute()
+            )
+            raw = list(resp.data or []) if resp is not None else []
+        for r in raw:
+            clips.append(ClipTranscript(
+                index=int(r.get("index") or 0),
+                voiceover=r.get("voiceover") or "",
+                duration_s=float(r.get("duration_s") or 0),
+            ))
+    except Exception as err:
+        print(
+            f"[stitch] on-screen clip transcript lookup failed for job {job_id}: "
+            f"{type(err).__name__}: {err}"
+        )
+    return settings, clips
+
+
+def _maybe_burn_on_screen_text(
+    sb, job_id: str, dests: dict, have_subscribe: bool,
+) -> None:
+    """Best-effort burn-in after concat, before upload. Failures leave the
+    unburned stitch in place so a paid clip set is never discarded."""
+    from src.on_screen_overlay import (
+        apply_on_screen_overlay, probe_duration_s, resolve_timed_words,
+        should_burn,
+    )
+    from src.stitcher import (
+        BRANDED_OUTRO_PATH, FOLLOW, SUBSCRIBE, SUBSCRIBE_OUTRO_PATH,
+    )
+
+    try:
+        settings, clips = _load_on_screen_overlay_inputs(sb, job_id)
+        if not should_burn(settings, clips):
+            return
+        follow_path = dests[FOLLOW]
+        if not follow_path.is_file():
+            return
+        follow_outro_s = (
+            probe_duration_s(BRANDED_OUTRO_PATH) if BRANDED_OUTRO_PATH.is_file() else 0.0
+        )
+        follow_content_end = max(0.0, probe_duration_s(follow_path) - follow_outro_s)
+        # Align once on the follow cut (same content timeline as subscribe)
+        # and reuse the timings so we don't run Whisper twice.
+        timed_words = resolve_timed_words(
+            follow_path, clips, settings.caption_override, follow_content_end,
+        )
+        print(
+            f"[stitch] burning on-screen text for job {job_id} "
+            f"(hook={bool(settings.hook_text)}, "
+            f"override={bool(settings.caption_override)}, "
+            f"clips={len(clips)}, "
+            f"aligned_words={len(timed_words)})"
+        )
+        tmp = follow_path.with_name(f"{follow_path.stem}_captioned{follow_path.suffix}")
+        try:
+            apply_on_screen_overlay(
+                follow_path, tmp, clips=clips, settings=settings,
+                outro_duration_s=follow_outro_s,
+                timed_words=timed_words, align_audio=False,
+            )
+            tmp.replace(follow_path)
+        except Exception as err:
+            print(
+                f"[stitch] follow on-screen burn failed for job {job_id}: "
+                f"{type(err).__name__}: {err}; uploading unburned follow cut"
+            )
+            tmp.unlink(missing_ok=True)
+
+        if have_subscribe and dests[SUBSCRIBE].is_file():
+            sub_path = dests[SUBSCRIBE]
+            sub_outro_s = (
+                probe_duration_s(SUBSCRIBE_OUTRO_PATH)
+                if SUBSCRIBE_OUTRO_PATH.is_file()
+                else follow_outro_s
+            )
+            tmp = sub_path.with_name(f"{sub_path.stem}_captioned{sub_path.suffix}")
+            try:
+                apply_on_screen_overlay(
+                    sub_path, tmp, clips=clips, settings=settings,
+                    outro_duration_s=sub_outro_s,
+                    timed_words=timed_words, align_audio=False,
+                )
+                tmp.replace(sub_path)
+            except Exception as err:
+                print(
+                    f"[stitch] subscribe on-screen burn failed for job {job_id}: "
+                    f"{type(err).__name__}: {err}; uploading unburned subscribe cut"
+                )
+                tmp.unlink(missing_ok=True)
+    except Exception as err:
+        print(
+            f"[stitch] on-screen overlay skipped for job {job_id}: "
+            f"{type(err).__name__}: {err}"
+        )
+
+
 def _stitch_and_upload_final(
     sb, clips: list[Path], final_mp4: Path, job_id: str,
     *, cut_types: list[str] | None = None, loudnorm: bool = False,
@@ -183,6 +348,11 @@ def _stitch_and_upload_final(
             )
         else:
             concat_final_video(clips, final_mp4, cut_types=cut_types)
+
+    # Hook + spoken captions are burned onto each ending AFTER concat so
+    # they never sit over the Follow/Subscribe end card, and a burn
+    # failure cannot discard the stitch (or the paid clips behind it).
+    _maybe_burn_on_screen_text(sb, job_id, dests, have_subscribe)
 
     # Stay under Supabase Storage's project global file-size limit (Free:
     # 50 MiB). Vayeira compose 2026-10-28 produced a 52.8 MiB follow cut

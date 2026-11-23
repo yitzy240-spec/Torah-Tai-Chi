@@ -21,7 +21,7 @@ export async function restitchVideo(opts: {
 
   const { data: video } = await supabase
     .from('videos')
-    .select('id, job_id, composed_from_clip_ids')
+    .select('id, job_id, composed_from_clip_ids, stitch_settings')
     .eq('id', videoId)
     .single();
   if (!video?.job_id) return { error: 'Video or its stitch job not found.' };
@@ -39,9 +39,12 @@ export async function restitchVideo(opts: {
     }
   }
 
+  // Merge so a transitions re-stitch does not drop on-screen text settings
+  // (and vice versa).
+  const existing = (video.stitch_settings ?? {}) as Record<string, unknown>;
   const { error: upErr } = await supabase
     .from('videos')
-    .update({ stitch_settings: { cuts: clean } })
+    .update({ stitch_settings: { ...existing, cuts: clean } })
     .eq('id', videoId);
   if (upErr) {
     return { error: `Could not save transition settings: ${upErr.message}` };

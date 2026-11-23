@@ -20,6 +20,9 @@ interface Props {
   totalDurationS: number;
   autoCutTypes: CutType[];
   cutOverrides: Record<string, CutType>;
+  hookText: string;
+  captionOverride: string;
+  burnOnScreenText: boolean;
 }
 
 export function Phase4StitchedConnected({ parshaSlug, ...rest }: Props) {
