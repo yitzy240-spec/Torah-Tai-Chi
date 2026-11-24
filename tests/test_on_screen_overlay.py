@@ -346,3 +346,9 @@ def test_burn_overlay_ffmpeg_keeps_audio_and_writes_mp4(tmp_path):
     assert r"\pos(360," in ass  # centered in the 720-wide safe zone
     assert "Why did" in ass and "Lavan" in ass and "run?" in ass
     assert "Lavan" in ass
+    # Spoken captions must not overlap the 3s hook window.
+    for line in ass.splitlines():
+        if not line.startswith("Dialogue:") or ",Caption," not in line:
+            continue
+        start = line.split(",", 9)[1]
+        assert start >= "0:00:03.00", line

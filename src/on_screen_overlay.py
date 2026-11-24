@@ -16,7 +16,9 @@ This module:
     above the bottom 35% of a 9:16 frame)
   * puts a short hook (first ~3s) that clears the face: above the head
     when there is room under the 14% safe line, otherwise in the
-    lower-middle safe zone (captions shift during the hook window)
+    lower-middle safe zone
+  * while the hook is on screen, spoken captions are suppressed so the
+    same words are not shown twice; they resume at hook end
   * keeps phrases like "Tai Chi" / "Torah Tai Chi" together, merges
     one-word tails, and holds each cue on screen for at least ~0.4s
   * uses bundled Inter Bold with a thick black outline (hook in brand gold)
@@ -638,6 +640,28 @@ def _clip_cues_to_content(
     return out
 
 
+def suppress_captions_during_hook(
+    cues: Sequence[dict[str, Any]],
+    hook_end: float | None,
+) -> list[dict[str, Any]]:
+    """Drop caption cues that start while the hook is still on screen.
+
+    Simple time-window rule, not text matching: if a hook is shown, any
+    cue whose start is before hook_end is omitted, including a cue that
+    straddles the boundary. Starting that cue at hook_end would flash
+    the same words (or a mid-phrase fragment) just as the gold hook
+    disappears. Cues that begin at or after hook_end are unchanged.
+    With no hook (hook_end is None or <= 0), the cues are returned as-is.
+    """
+    if hook_end is None or hook_end <= 0:
+        return [dict(cue) for cue in cues]
+    kept: list[dict[str, Any]] = []
+    for cue in cues:
+        if float(cue["start"]) + 1e-9 >= float(hook_end):
+            kept.append(dict(cue))
+    return kept
+
+
 def hook_cue(hook_text: str, content_end: float, duration_s: float = HOOK_DURATION_S) -> dict[str, Any] | None:
     text = " ".join(split_words(hook_text))
     if not text or content_end <= 0:
@@ -778,6 +802,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines: list[str] = [header.rstrip("\n")]
     hook_end = float(hook["end"]) if hook else None
+    caption_cues = suppress_captions_during_hook(caption_cues, hook_end)
     if hook:
         hook_text = escape_ass_text(wrap_cue_text(
             hook["text"], max_chars=layout.max_chars(layout.hook_font),
