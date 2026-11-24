@@ -8,13 +8,16 @@ from src.on_screen_overlay import (
     MIN_CUE_DURATION_S,
     ClipTranscript,
     adapt_overlay_layout,
+    build_ass_file,
     caption_box,
     caption_cues_for_clips,
     compute_layout,
     even_word_timings,
     group_words_into_cues,
     hook_box,
+    hook_cue,
     polish_caption_cues,
+    suppress_captions_during_hook,
 )
 
 
@@ -142,3 +145,105 @@ def test_pick_hero_face_ignores_tiny_side_boxes():
     picked = pick_hero_face([hero, leaf], 720, 1280)
     assert picked == hero
     assert pick_hero_face([leaf], 720, 1280) is None
+
+
+def test_suppress_captions_during_hook_drops_cues_that_start_before_hook_end():
+    # Real Vayishlach timings: hook speech ends at 2.68s, next sentence at 4.04s.
+    cues = [
+        {"text": "Can you lose a", "start": 0.0, "end": 1.04},
+        {"text": "fight— and still win?", "start": 1.04, "end": 2.68},
+        {"text": "In this week's", "start": 4.04, "end": 4.74},
+        {"text": "Torah portion,", "start": 4.74, "end": 5.42},
+    ]
+    out = suppress_captions_during_hook(cues, hook_end=3.0)
+    assert [c["text"] for c in out] == ["In this week's", "Torah portion,"]
+    assert out[0]["start"] == pytest.approx(4.04)
+    assert out[0]["end"] == pytest.approx(4.74)
+    # Input is not mutated.
+    assert cues[0]["start"] == 0.0
+
+
+def test_suppress_captions_during_hook_drops_a_straddling_cue():
+    # A cue that starts in the hook window and ends after it is dropped
+    # whole, so we never flash a mid-phrase fragment at hook end.
+    cues = [
+        {"text": "still win? In this", "start": 2.5, "end": 4.2},
+        {"text": "week's Torah portion", "start": 4.2, "end": 5.5},
+    ]
+    out = suppress_captions_during_hook(cues, hook_end=3.0)
+    assert [c["text"] for c in out] == ["week's Torah portion"]
+    assert out[0]["start"] == pytest.approx(4.2)
+    assert out[0]["end"] == pytest.approx(5.5)
+
+
+def test_suppress_captions_keeps_a_cue_that_starts_exactly_at_hook_end():
+    cues = [{"text": "In this week's", "start": 3.0, "end": 3.8}]
+    out = suppress_captions_during_hook(cues, hook_end=3.0)
+    assert len(out) == 1
+    assert out[0]["text"] == "In this week's"
+    assert out[0]["start"] == pytest.approx(3.0)
+    assert out[0]["end"] == pytest.approx(3.8)
+
+
+def test_suppress_captions_is_noop_without_a_hook():
+    cues = [
+        {"text": "Can you lose a", "start": 0.0, "end": 1.04},
+        {"text": "fight— and still win?", "start": 1.04, "end": 2.68},
+    ]
+    for hook_end in (None, 0.0, -1.0):
+        out = suppress_captions_during_hook(cues, hook_end=hook_end)
+        assert [c["text"] for c in out] == [c["text"] for c in cues]
+        assert out[0]["start"] == pytest.approx(0.0)
+        assert out[1]["end"] == pytest.approx(2.68)
+
+
+def _caption_dialogue_times(ass: str) -> list[tuple[str, str, str]]:
+    rows = []
+    for line in ass.splitlines():
+        if not line.startswith("Dialogue:"):
+            continue
+        # Dialogue: Layer,Start,End,Style,...
+        parts = line.split(",", 9)
+        style = parts[3]
+        rows.append((style, parts[1], parts[2]))
+    return rows
+
+
+def test_build_ass_file_omits_captions_while_hook_is_on_screen(tmp_path):
+    layout = compute_layout(720, 1280)
+    hook = hook_cue("Can you lose a fight—and still win?", content_end=20.0)
+    assert hook is not None
+    assert hook["end"] == pytest.approx(3.0)
+    cues = [
+        {"text": "Can you lose a", "start": 0.0, "end": 1.04},
+        {"text": "fight— and still win?", "start": 1.04, "end": 2.68},
+        {"text": "In this week's", "start": 4.04, "end": 4.74},
+    ]
+    out = tmp_path / "overlay.ass"
+    build_ass_file(caption_cues=cues, hook=hook, out_path=out, layout=layout)
+    ass = out.read_text(encoding="utf-8")
+    times = _caption_dialogue_times(ass)
+    hook_rows = [t for t in times if t[0] == "Hook"]
+    cap_rows = [t for t in times if t[0] == "Caption"]
+    assert hook_rows == [("Hook", "0:00:00.00", "0:00:03.00")]
+    assert cap_rows == [("Caption", "0:00:04.04", "0:00:04.74")]
+    assert "In this week's" in ass
+    # The hook-window spoken words must not appear as Caption events.
+    assert ass.count("Can you lose a") == 1  # hook only (may wrap)
+
+
+def test_build_ass_file_keeps_early_captions_when_there_is_no_hook(tmp_path):
+    layout = compute_layout(720, 1280)
+    cues = [
+        {"text": "Can you lose a", "start": 0.0, "end": 1.04},
+        {"text": "In this week's", "start": 4.04, "end": 4.74},
+    ]
+    out = tmp_path / "overlay.ass"
+    build_ass_file(caption_cues=cues, hook=None, out_path=out, layout=layout)
+    ass = out.read_text(encoding="utf-8")
+    times = _caption_dialogue_times(ass)
+    assert [t[0] for t in times] == ["Caption", "Caption"]
+    assert times[0] == ("Caption", "0:00:00.00", "0:00:01.04")
+    assert times[1] == ("Caption", "0:00:04.04", "0:00:04.74")
+    assert "Can you lose a" in ass
+    assert "In this week's" in ass
