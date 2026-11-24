@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { publicVideoUrl } from '@/lib/storage-url';
+import { parseVttDataUrl } from '@/lib/vtt-cues';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { isTerminalStage } from '@/lib/job-event-types';
 import { humanizeRenderError } from '@/lib/humanize-render-error';
@@ -39,6 +40,28 @@ interface Props {
   onBack: () => void;
 }
 
+/**
+ * Attach the clip-voiceover captions as an in-page text track, OFF by
+ * default. The cues are the raw per-clip voiceover, which includes phonetic
+ * spellings ("tai chi", "Sha-BAHT") that must not show by default (Yonah
+ * 2026-07-07); the native CC button still lets a viewer opt in. Idempotent
+ * per element (the <video> remounts on every URL change via key).
+ */
+function addCaptionCues(video: HTMLVideoElement, dataUrl: string | null) {
+  if (!dataUrl || video.dataset.captionsAdded === '1') return;
+  if (typeof video.addTextTrack !== 'function' || typeof VTTCue === 'undefined') return;
+  const cues = parseVttDataUrl(dataUrl);
+  if (cues.length === 0) return;
+  try {
+    const track = video.addTextTrack('captions', 'English', 'en');
+    for (const c of cues) track.addCue(new VTTCue(c.start, c.end, c.text));
+    track.mode = 'disabled';
+    video.dataset.captionsAdded = '1';
+  } catch {
+    // Captions are optional; never let them break playback.
+  }
+}
+
 export function Phase4Stitched({
   videoId,
   videoMp4Path,
@@ -60,14 +83,24 @@ export function Phase4Stitched({
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const router = useRouter();
-  const liveEvent = useJobStream(composeJobId);
+  // Re-stitch (transitions / on-screen text) runs the SAME compose job in
+  // place. Bumping streamGen on re-stitch start drops the previous stitch's
+  // terminal event and re-subscribes — otherwise the stale 'done' cleared the
+  // spinner instantly, the old file reloaded, and the real re-stitch 'done'
+  // was never heard (the channel closes on a terminal event).
+  const [streamGen, setStreamGen] = useState(0);
+  const liveEvent = useJobStream(composeJobId, streamGen);
 
-  // Re-stitch (transitions) runs the SAME compose job in place. The mp4
-  // storage path is deterministic, so the URL never changes — bump a
-  // client cache-buster on each re-stitch completion to force the <video>
-  // to re-fetch the overwritten file.
+  // The mp4 storage path is deterministic, so bump a client cache-buster on
+  // each re-stitch completion to force the <video> to re-fetch the
+  // overwritten file. A timestamp (not a 1,2,3 counter) so the token stays
+  // unique even when the refreshed compose completed_at is still null.
   const [restitching, setRestitching] = useState(false);
   const [cacheBust, setCacheBust] = useState(0);
+  function startRestitch() {
+    setStreamGen((g) => g + 1);
+    setRestitching(true);
+  }
 
   const effectiveMp4 = liveEvent?.videoPath ?? videoMp4Path;
   const effectiveThumb = thumbPath; // thumb refreshes via router.refresh on done — see useEffect below
@@ -94,7 +127,7 @@ export function Phase4Stitched({
     if (liveEvent && isTerminalStage(liveEvent.stage)) {
       if (restitching) {
         setRestitching(false);
-        setCacheBust((n) => n + 1);
+        setCacheBust(Date.now());
       }
       router.refresh();
     }
@@ -107,7 +140,7 @@ export function Phase4Stitched({
     if (!restitching) return;
     const t = setTimeout(() => {
       setRestitching(false);
-      setCacheBust((n) => n + 1);
+      setCacheBust(Date.now());
       router.refresh();
     }, 180_000);
     return () => clearTimeout(t);
@@ -237,11 +270,14 @@ export function Phase4Stitched({
         poster={posterUrl}
         controls
         playsInline
-        // Captions are a same-origin data: VTT URL, so crossOrigin is not
-        // needed here (the frame picker still sets it to export a canvas).
-        // CORS mode on this <video> made iOS Safari fail after a re-stitch
-        // at the same path when a cached no-cors range collided with the
-        // new file length.
+        // No crossOrigin (the frame picker still sets it to export a canvas)
+        // and NO <track> child. On iOS, WebKit passes <track> sources to
+        // AVFoundation as out-of-band tracks when it builds the asset; with
+        // our data: VTT the whole player failed (black, crossed-out play)
+        // on every stitched file while the Live page's track-less player
+        // played the same mp4s (storage logs 2026-11-23/24). Cues are added
+        // after metadata loads instead; see addCaptionCues.
+        onLoadedMetadata={(e) => addCaptionCues(e.currentTarget, captionsVttDataUrl)}
         style={{
           width: '100%',
           aspectRatio: '9 / 16',
@@ -249,21 +285,7 @@ export function Phase4Stitched({
           background: 'var(--ink-900)',
           display: 'block',
         }}
-      >
-        {captionsVttDataUrl && (
-          // NO `default` attribute: captions start OFF. The cues are the raw
-          // per-clip voiceover, which includes phonetic spellings ("tai chi",
-          // "Sha-BAHT") that must not be shown by default. The native CC button
-          // still lets a viewer opt in. (Yonah 2026-07-07: subtitles appeared
-          // on the Matot preview showing the correction spellings.)
-          <track
-            kind="captions"
-            srcLang="en"
-            label="English"
-            src={captionsVttDataUrl}
-          />
-        )}
-      </video>
+      />
 
       {/* Scrub markers below the player — tap to jump (spec §4 Phase 4) */}
       {totalDurationS > 0 && clipBoundariesS.length > 1 && (
@@ -357,7 +379,7 @@ export function Phase4Stitched({
           autoCutTypes={autoCutTypes}
           cutOverrides={cutOverrides}
           clipBoundariesS={clipBoundariesS}
-          onRestitchStart={() => setRestitching(true)}
+          onRestitchStart={startRestitch}
         />
         <OnScreenTextControl
           videoId={videoId}
@@ -365,7 +387,7 @@ export function Phase4Stitched({
           captionOverride={captionOverride}
           enabled={burnOnScreenText}
           cutOverrides={cutOverrides}
-          onRestitchStart={() => setRestitching(true)}
+          onRestitchStart={startRestitch}
         />
       </div>
 

@@ -16,6 +16,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { eventForGeneration, type GenerationTagged } from '@/lib/job-stream-generation';
 import {
   type JobEvent,
   isTerminalStage,
@@ -23,8 +24,17 @@ import {
   BROADCAST_EVENT_NAME,
 } from '@/lib/job-event-types';
 
-export function useJobStream(jobId: string | null): JobEvent | null {
-  const [event, setEvent] = useState<JobEvent | null>(null);
+/**
+ * @param generation Bump to drop the last event and re-subscribe. Phase 4
+ *   bumps it when a re-stitch starts: the compose job is re-run in place, so
+ *   the previous stitch's terminal event must not count, and the channel
+ *   (closed on that terminal event) has to be reopened.
+ */
+export function useJobStream(jobId: string | null, generation = 0): JobEvent | null {
+  const [state, setState] = useState<GenerationTagged<JobEvent>>({
+    generation,
+    event: null,
+  });
 
   useEffect(() => {
     if (!jobId) return;
@@ -35,7 +45,7 @@ export function useJobStream(jobId: string | null): JobEvent | null {
       })
       .on('broadcast', { event: BROADCAST_EVENT_NAME }, (msg) => {
         const payload = msg.payload as JobEvent;
-        setEvent(payload);
+        setState({ generation, event: payload });
         if (isTerminalStage(payload.stage)) {
           supabase.removeChannel(channel);
         }
@@ -45,7 +55,9 @@ export function useJobStream(jobId: string | null): JobEvent | null {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [jobId]);
+  }, [jobId, generation]);
 
-  return event;
+  // Filtered synchronously so a bumped generation hides the old event in
+  // the very render that bumped it (before the effect re-subscribes).
+  return eventForGeneration(state, generation);
 }
